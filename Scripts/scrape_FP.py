@@ -175,7 +175,7 @@ def get_fp(wk):
 
 
 proj_list = []
-for w in [1,2,3,4,5,6]:
+for w in [1]:
     fp_proj = get_fp(wk = w)
     proj_list.append(fp_proj)
 

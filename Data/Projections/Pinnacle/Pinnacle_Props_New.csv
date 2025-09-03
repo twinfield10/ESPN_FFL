@@ -1,0 +1,775 @@
+officialDate,week,Away,Home,Player,PropType,OverUnder,Value,Price,Implied,ImpNoVig,BetTimeStamp
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,A.J. Brown,Receiving Yards,Over,71.5,1.793,0.5577245,0.5212283,2025-09-03T07:54:36.840587
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,A.J. Brown,Receiving Yards,Under,71.5,1.952,0.51229507,0.47877172,2025-09-03T07:54:36.840587
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,A.J. Brown,Receptions,Over,5.5,2.180,0.4587156,0.43391326,2025-09-03T07:54:36.840874
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,A.J. Brown,Receptions,Under,5.5,1.671,0.59844404,0.5660867,2025-09-03T07:54:36.840874
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,CeeDee Lamb,Receiving Yards,Over,73.5,1.925,0.5194805,0.4916821,2025-09-03T07:54:36.841105
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,CeeDee Lamb,Receiving Yards,Under,73.5,1.862,0.5370569,0.50831795,2025-09-03T07:54:36.841105
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,CeeDee Lamb,Receptions,Over,6.5,2.030,0.49261084,0.46649143,2025-09-03T07:54:36.841345
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,CeeDee Lamb,Receptions,Under,6.5,1.775,0.5633803,0.53350854,2025-09-03T07:54:36.841345
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Dak Prescott,Pass Attempts,Over,36.5,1.847,0.5414185,0.5126649,2025-09-03T07:54:36.841570
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Dak Prescott,Pass Attempts,Under,36.5,1.943,0.51466805,0.48733512,2025-09-03T07:54:36.841570
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Dak Prescott,Pass Completions,Over,23.5,1.970,0.5076142,0.48007387,2025-09-03T07:54:36.841818
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Dak Prescott,Pass Completions,Under,23.5,1.819,0.5497526,0.5199261,2025-09-03T07:54:36.841818
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Dak Prescott,Passing Yards,Over,246.5,1.943,0.51466805,0.48733512,2025-09-03T07:54:36.842051
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Dak Prescott,Passing Yards,Under,246.5,1.847,0.5414185,0.5126649,2025-09-03T07:54:36.842051
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Dak Prescott,Rushing Yards,Over,7.5,2.080,0.48076925,0.45478377,2025-09-03T07:54:36.842301
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Dak Prescott,Rushing Yards,Under,7.5,1.735,0.57636887,0.54521626,2025-09-03T07:54:36.842301
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Dak Prescott,Touchdown Passes,Over,1.5,2.070,0.4830918,0.45754716,2025-09-03T07:54:36.842497
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Dak Prescott,Touchdown Passes,Under,1.5,1.746,0.5727377,0.5424528,2025-09-03T07:54:36.842497
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Dallas Goedert,Receiving Yards,Over,38.5,2.030,0.49261084,0.46649143,2025-09-03T07:54:36.842711
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Dallas Goedert,Receiving Yards,Under,38.5,1.775,0.5633803,0.53350854,2025-09-03T07:54:36.842711
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Dallas Goedert,Receptions,Over,3.5,1.952,0.51229507,0.48523208,2025-09-03T07:54:36.842918
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Dallas Goedert,Receptions,Under,3.5,1.840,0.54347825,0.51476794,2025-09-03T07:54:36.842918
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,DeVonta Smith,Receiving Yards,Over,54.5,1.934,0.5170631,0.4894403,2025-09-03T07:54:36.843149
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,DeVonta Smith,Receiving Yards,Under,54.5,1.854,0.53937435,0.5105596,2025-09-03T07:54:36.843149
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,DeVonta Smith,Receptions,Over,4.5,2.000,0.5,0.4736842,2025-09-03T07:54:36.843369
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,DeVonta Smith,Receptions,Under,4.5,1.800,0.5555556,0.5263158,2025-09-03T07:54:36.843369
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,George Pickens,Receiving Yards,Over,55.5,1.869,0.5350455,0.50633913,2025-09-03T07:54:36.843600
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,George Pickens,Receiving Yards,Under,55.5,1.917,0.5216484,0.49366084,2025-09-03T07:54:36.843600
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,George Pickens,Receptions,Over,4.5,2.260,0.44247788,0.4187243,2025-09-03T07:54:36.843973
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,George Pickens,Receptions,Under,4.5,1.628,0.6142506,0.5812757,2025-09-03T07:54:36.843973
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Jake Ferguson,Receiving Yards,Over,33.5,1.833,0.54555374,0.51686877,2025-09-03T07:54:36.844247
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Jake Ferguson,Receiving Yards,Under,33.5,1.961,0.5099439,0.48313126,2025-09-03T07:54:36.844247
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Jake Ferguson,Receptions,Over,3.5,1.714,0.5834306,0.55294734,2025-09-03T07:54:36.844544
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Jake Ferguson,Receptions,Under,3.5,2.120,0.47169814,0.44705272,2025-09-03T07:54:36.844544
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Jalen Hurts,Pass Attempts,Over,27.5,2.060,0.48543692,0.4594595,2025-09-03T07:54:36.844779
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Jalen Hurts,Pass Attempts,Under,27.5,1.751,0.5711022,0.5405406,2025-09-03T07:54:36.844779
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Jalen Hurts,Pass Completions,Over,18.5,1.925,0.5194805,0.4916821,2025-09-03T07:54:36.845066
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Jalen Hurts,Pass Completions,Under,18.5,1.862,0.5370569,0.50831795,2025-09-03T07:54:36.845066
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Jalen Hurts,Passing Yards,Over,215.5,1.934,0.5170631,0.4894403,2025-09-03T07:54:36.845450
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Jalen Hurts,Passing Yards,Under,215.5,1.854,0.53937435,0.5105596,2025-09-03T07:54:36.845450
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Jalen Hurts,Rushing Yards,Over,36.5,1.740,0.57471263,0.5445026,2025-09-03T07:54:36.845745
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Jalen Hurts,Rushing Yards,Under,36.5,2.080,0.48076925,0.45549738,2025-09-03T07:54:36.845745
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Jalen Hurts,Touchdown Passes,Over,1.5,2.210,0.4524887,0.42849752,2025-09-03T07:54:36.845973
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Jalen Hurts,Touchdown Passes,Under,1.5,1.657,0.6035003,0.57150245,2025-09-03T07:54:36.845973
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Javonte Williams,Receiving Yards,Over,11.5,2.040,0.49019608,0.46442637,2025-09-03T07:54:36.846212
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Javonte Williams,Receiving Yards,Under,11.5,1.769,0.5652911,0.53557366,2025-09-03T07:54:36.846212
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Javonte Williams,Receptions,Over,2.5,2.270,0.44052863,0.41660243,2025-09-03T07:54:36.846421
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Javonte Williams,Receptions,Under,2.5,1.621,0.6169031,0.5833976,2025-09-03T07:54:36.846421
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Javonte Williams,Rushing Yards,Over,37.5,1.990,0.5025126,0.47576398,2025-09-03T07:54:36.846665
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Javonte Williams,Rushing Yards,Under,37.5,1.806,0.55370986,0.524236,2025-09-03T07:54:36.846665
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Saquon Barkley,Receiving Yards,Over,12.5,1.746,0.5727377,0.5424528,2025-09-03T07:54:36.847030
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Saquon Barkley,Receiving Yards,Under,12.5,2.070,0.4830918,0.45754716,2025-09-03T07:54:36.847030
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Saquon Barkley,Receptions,Over,2.5,2.310,0.43290043,0.41011235,2025-09-03T07:54:36.847264
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Saquon Barkley,Receptions,Under,2.5,1.606,0.62266505,0.5898877,2025-09-03T07:54:36.847264
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Saquon Barkley,Rushing Yards,Over,96.5,1.900,0.5263158,0.49788585,2025-09-03T07:54:36.847585
+2025-09-04,1,Dallas Cowboys,Philadelphia Eagles,Saquon Barkley,Rushing Yards,Under,96.5,1.884,0.53078556,0.5021142,2025-09-03T07:54:36.847585
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Hollywood Brown,Receiving Yards,Over,42.5,2.000,0.5,0.46766034,2025-09-03T07:54:38.232891
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Hollywood Brown,Receiving Yards,Under,42.5,1.757,0.569152,0.53233963,2025-09-03T07:54:38.232891
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Hollywood Brown,Receptions,Over,3.5,1.980,0.5050505,0.47185916,2025-09-03T07:54:38.233119
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Hollywood Brown,Receptions,Under,3.5,1.769,0.5652911,0.52814084,2025-09-03T07:54:38.233119
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Isiah Pacheco,Receiving Yards,Over,8.5,1.869,0.5350455,0.5,2025-09-03T07:54:38.233348
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Isiah Pacheco,Receiving Yards,Under,8.5,1.869,0.5350455,0.5,2025-09-03T07:54:38.233348
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Isiah Pacheco,Receptions,Over,1.5,1.598,0.6257822,0.58579576,2025-09-03T07:54:38.233584
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Isiah Pacheco,Receptions,Under,1.5,2.260,0.44247788,0.41420427,2025-09-03T07:54:38.233584
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Isiah Pacheco,Rushing Yards,Over,50.5,2.050,0.4878049,0.46572843,2025-09-03T07:54:38.233775
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Isiah Pacheco,Rushing Yards,Under,50.5,1.787,0.55959713,0.5342716,2025-09-03T07:54:38.233775
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Justin Herbert,Pass Attempts,Over,30.5,1.704,0.58685446,0.54848963,2025-09-03T07:54:38.233985
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Justin Herbert,Pass Attempts,Under,30.5,2.070,0.4830918,0.45151034,2025-09-03T07:54:38.233985
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Justin Herbert,Pass Completions,Over,20.5,1.833,0.54555374,0.510155,2025-09-03T07:54:38.234251
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Justin Herbert,Pass Completions,Under,20.5,1.909,0.52383447,0.48984504,2025-09-03T07:54:38.234251
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Justin Herbert,Passing Yards,Over,225.5,1.793,0.5577245,0.5212283,2025-09-03T07:54:38.234527
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Justin Herbert,Passing Yards,Under,225.5,1.952,0.51229507,0.47877172,2025-09-03T07:54:38.234527
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Justin Herbert,Rushing Yards,Over,13.5,1.787,0.55959713,0.52321243,2025-09-03T07:54:38.234776
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Justin Herbert,Rushing Yards,Under,13.5,1.961,0.5099439,0.47678763,2025-09-03T07:54:38.234776
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Justin Herbert,Touchdown Passes,Over,1.5,2.070,0.4830918,0.45151034,2025-09-03T07:54:38.235009
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Justin Herbert,Touchdown Passes,Under,1.5,1.704,0.58685446,0.54848963,2025-09-03T07:54:38.235009
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Kareem Hunt,Rushing Yards,Over,20.5,1.869,0.5350455,0.5,2025-09-03T07:54:38.235236
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Kareem Hunt,Rushing Yards,Under,20.5,1.869,0.5350455,0.5,2025-09-03T07:54:38.235236
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Ladd McConkey,Receiving Yards,Over,72.5,1.980,0.5050505,0.47185916,2025-09-03T07:54:38.235455
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Ladd McConkey,Receiving Yards,Under,72.5,1.769,0.5652911,0.52814084,2025-09-03T07:54:38.235455
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Ladd McConkey,Receptions,Over,5.5,1.757,0.569152,0.53233963,2025-09-03T07:54:38.235755
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Ladd McConkey,Receptions,Under,5.5,2.000,0.5,0.46766034,2025-09-03T07:54:38.235755
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Patrick Mahomes,Pass Attempts,Over,34.5,1.699,0.5885815,0.55041015,2025-09-03T07:54:38.235950
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Patrick Mahomes,Pass Attempts,Under,34.5,2.080,0.48076925,0.44958988,2025-09-03T07:54:38.235950
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Patrick Mahomes,Pass Completions,Over,23.5,1.833,0.54555374,0.510155,2025-09-03T07:54:38.236165
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Patrick Mahomes,Pass Completions,Under,23.5,1.909,0.52383447,0.48984504,2025-09-03T07:54:38.236165
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Patrick Mahomes,Passing Yards,Over,247.5,2.120,0.47169814,0.44078082,2025-09-03T07:54:38.236354
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Patrick Mahomes,Passing Yards,Under,247.5,1.671,0.59844404,0.5592192,2025-09-03T07:54:38.236354
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Patrick Mahomes,Rushing Yards,Over,17.5,1.862,0.5370569,0.5020059,2025-09-03T07:54:38.236578
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Patrick Mahomes,Rushing Yards,Under,17.5,1.877,0.53276503,0.4979941,2025-09-03T07:54:38.236578
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Patrick Mahomes,Touchdown Passes,Over,1.5,1.581,0.6325111,0.5915784,2025-09-03T07:54:38.236874
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Patrick Mahomes,Touchdown Passes,Under,1.5,2.290,0.43668124,0.4084216,2025-09-03T07:54:38.236874
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Travis Kelce,Receiving Yards,Over,46.5,1.847,0.5414185,0.5060176,2025-09-03T07:54:38.237086
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Travis Kelce,Receiving Yards,Under,46.5,1.892,0.52854127,0.49398237,2025-09-03T07:54:38.237086
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Travis Kelce,Receptions,Over,4.5,1.591,0.6285355,0.58793056,2025-09-03T07:54:38.237286
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Travis Kelce,Receptions,Under,4.5,2.270,0.44052863,0.4120694,2025-09-03T07:54:38.237286
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Will Dissly,Receiving Yards,Over,19.5,2.090,0.47846892,0.44767442,2025-09-03T07:54:38.237540
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Will Dissly,Receiving Yards,Under,19.5,1.694,0.5903188,0.5523256,2025-09-03T07:54:38.237540
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Will Dissly,Receptions,Over,2.5,2.530,0.3952569,0.3690773,2025-09-03T07:54:38.237775
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Will Dissly,Receptions,Under,2.5,1.480,0.6756757,0.6309227,2025-09-03T07:54:38.237775
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Xavier Worthy,Receiving Yards,Over,61.5,1.925,0.5194805,0.4850187,2025-09-03T07:54:38.237977
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Xavier Worthy,Receiving Yards,Under,61.5,1.813,0.55157197,0.5149812,2025-09-03T07:54:38.237977
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Xavier Worthy,Receptions,Over,4.5,1.645,0.60790277,0.56880736,2025-09-03T07:54:38.238191
+2025-09-05,1,Kansas City Chiefs,Los Angeles Chargers,Xavier Worthy,Receptions,Under,4.5,2.170,0.46082947,0.43119264,2025-09-03T07:54:38.238191
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Andrei Iosivas,Receiving Yards,Over,21.5,1.869,0.5350455,0.5,2025-09-03T07:54:39.579068
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Andrei Iosivas,Receiving Yards,Under,21.5,1.869,0.5350455,0.5,2025-09-03T07:54:39.579068
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Andrei Iosivas,Receptions,Over,2.5,2.420,0.41322312,0.3862541,2025-09-03T07:54:39.579301
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Andrei Iosivas,Receptions,Under,2.5,1.523,0.6565988,0.61374587,2025-09-03T07:54:39.579301
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Cedric Tillman,Receiving Yards,Over,38.5,1.806,0.55370986,0.5171123,2025-09-03T07:54:39.579534
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Cedric Tillman,Receiving Yards,Under,38.5,1.934,0.5170631,0.48288772,2025-09-03T07:54:39.579534
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Cedric Tillman,Receptions,Over,3.5,2.070,0.4830918,0.45151034,2025-09-03T07:54:39.579834
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Cedric Tillman,Receptions,Under,3.5,1.704,0.58685446,0.54848963,2025-09-03T07:54:39.579834
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Chase Brown,Receiving Yards,Over,19.5,1.869,0.5350455,0.5,2025-09-03T07:54:39.580086
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Chase Brown,Receiving Yards,Under,19.5,1.869,0.5350455,0.5,2025-09-03T07:54:39.580086
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Chase Brown,Receptions,Over,2.5,1.595,0.62695926,0.5851755,2025-09-03T07:54:39.580264
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Chase Brown,Receptions,Under,2.5,2.250,0.44444445,0.41482443,2025-09-03T07:54:39.580264
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Chase Brown,Rushing Yards,Over,65.5,1.869,0.5350455,0.5,2025-09-03T07:54:39.580525
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Chase Brown,Rushing Yards,Under,65.5,1.869,0.5350455,0.5,2025-09-03T07:54:39.580525
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,David Njoku,Receiving Yards,Over,46.5,1.729,0.578369,0.5400373,2025-09-03T07:54:39.580774
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,David Njoku,Receiving Yards,Under,46.5,2.030,0.49261084,0.45996276,2025-09-03T07:54:39.580774
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,David Njoku,Receptions,Over,4.5,1.653,0.6049607,0.56534314,2025-09-03T07:54:39.580986
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,David Njoku,Receptions,Under,4.5,2.150,0.46511626,0.43465683,2025-09-03T07:54:39.580986
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Ja'Marr Chase,Receiving Yards,Over,84.5,1.869,0.5350455,0.5,2025-09-03T07:54:39.581196
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Ja'Marr Chase,Receiving Yards,Under,84.5,1.869,0.5350455,0.5,2025-09-03T07:54:39.581196
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Ja'Marr Chase,Receptions,Over,6.5,1.793,0.5577245,0.5212283,2025-09-03T07:54:39.581382
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Ja'Marr Chase,Receptions,Under,6.5,1.952,0.51229507,0.47877172,2025-09-03T07:54:39.581382
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Jerry Jeudy,Receiving Yards,Over,57.5,1.847,0.5414185,0.5060176,2025-09-03T07:54:39.581597
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Jerry Jeudy,Receiving Yards,Under,57.5,1.892,0.52854127,0.49398237,2025-09-03T07:54:39.581597
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Jerry Jeudy,Receptions,Over,4.5,1.740,0.57471263,0.53723407,2025-09-03T07:54:39.581902
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Jerry Jeudy,Receptions,Under,4.5,2.020,0.4950495,0.46276596,2025-09-03T07:54:39.581902
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Joe Burrow,Pass Attempts,Over,36.5,1.917,0.5216484,0.487844,2025-09-03T07:54:39.582146
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Joe Burrow,Pass Attempts,Under,36.5,1.826,0.54764515,0.51215607,2025-09-03T07:54:39.582146
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Joe Burrow,Pass Completions,Over,24.5,1.781,0.5614823,0.5251933,2025-09-03T07:54:39.582379
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Joe Burrow,Pass Completions,Under,24.5,1.970,0.5076142,0.4748067,2025-09-03T07:54:39.582379
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Joe Burrow,Passing Yards,Over,266.5,1.869,0.5350455,0.5,2025-09-03T07:54:39.582675
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Joe Burrow,Passing Yards,Under,266.5,1.869,0.5350455,0.5,2025-09-03T07:54:39.582675
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Joe Burrow,Touchdown Passes,Over,2.5,2.620,0.38167942,0.35689744,2025-09-03T07:54:39.582894
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Joe Burrow,Touchdown Passes,Under,2.5,1.454,0.6877579,0.64310265,2025-09-03T07:54:39.582894
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Joe Flacco,Pass Attempts,Over,34.5,1.909,0.52383447,0.4888889,2025-09-03T07:54:39.583103
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Joe Flacco,Pass Attempts,Under,34.5,1.826,0.54764515,0.51111114,2025-09-03T07:54:39.583103
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Joe Flacco,Pass Completions,Over,21.5,1.793,0.5577245,0.5212283,2025-09-03T07:54:39.583329
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Joe Flacco,Pass Completions,Under,21.5,1.952,0.51229507,0.47877172,2025-09-03T07:54:39.583329
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Joe Flacco,Passing Yards,Over,237.5,1.793,0.5577245,0.5212283,2025-09-03T07:54:39.583527
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Joe Flacco,Passing Yards,Under,237.5,1.952,0.51229507,0.47877172,2025-09-03T07:54:39.583527
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Joe Flacco,Touchdown Passes,Over,1.5,1.970,0.5076142,0.47396526,2025-09-03T07:54:39.583816
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Joe Flacco,Touchdown Passes,Under,1.5,1.775,0.5633803,0.5260347,2025-09-03T07:54:39.583816
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Mike Gesicki,Receiving Yards,Over,25.5,2.370,0.42194095,0.39479062,2025-09-03T07:54:39.584051
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Mike Gesicki,Receiving Yards,Under,25.5,1.546,0.6468305,0.60520935,2025-09-03T07:54:39.584051
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Mike Gesicki,Receptions,Over,2.5,1.970,0.5076142,0.4748067,2025-09-03T07:54:39.584264
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Mike Gesicki,Receptions,Under,2.5,1.781,0.5614823,0.5251933,2025-09-03T07:54:39.584264
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Tee Higgins,Receiving Yards,Over,63.5,1.952,0.51229507,0.47877172,2025-09-03T07:54:39.584528
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Tee Higgins,Receiving Yards,Under,63.5,1.793,0.5577245,0.5212283,2025-09-03T07:54:39.584528
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Tee Higgins,Receptions,Over,5.5,2.010,0.49751243,0.46556768,2025-09-03T07:54:39.584783
+2025-09-07,1,Cincinnati Bengals,Cleveland Browns,Tee Higgins,Receptions,Under,5.5,1.751,0.5711022,0.53443235,2025-09-03T07:54:39.584783
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Baker Mayfield,Pass Attempts,Over,32.5,1.826,0.54764515,0.51215607,2025-09-03T07:54:42.344011
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Baker Mayfield,Pass Attempts,Under,32.5,1.917,0.5216484,0.487844,2025-09-03T07:54:42.344011
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Baker Mayfield,Pass Completions,Over,22.5,1.877,0.53276503,0.4979941,2025-09-03T07:54:42.344257
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Baker Mayfield,Pass Completions,Under,22.5,1.862,0.5370569,0.5020059,2025-09-03T07:54:42.344257
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Baker Mayfield,Passing Yards,Over,242.5,1.877,0.53276503,0.4979941,2025-09-03T07:54:42.344529
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Baker Mayfield,Passing Yards,Under,242.5,1.862,0.5370569,0.5020059,2025-09-03T07:54:42.344529
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Baker Mayfield,Touchdown Passes,Over,1.5,1.657,0.6035003,0.5636028,2025-09-03T07:54:42.344790
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Baker Mayfield,Touchdown Passes,Under,1.5,2.140,0.4672897,0.4363971,2025-09-03T07:54:42.344790
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Bijan Robinson,Receiving Yards,Over,22.5,1.869,0.5350455,0.5,2025-09-03T07:54:42.345026
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Bijan Robinson,Receiving Yards,Under,22.5,1.869,0.5350455,0.5,2025-09-03T07:54:42.345026
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Bijan Robinson,Receptions,Over,3.5,1.925,0.5194805,0.48584402,2025-09-03T07:54:42.345324
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Bijan Robinson,Receptions,Under,3.5,1.819,0.5497526,0.5141559,2025-09-03T07:54:42.345324
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Bijan Robinson,Rushing Yards,Over,77.5,1.869,0.5350455,0.5,2025-09-03T07:54:42.345664
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Bijan Robinson,Rushing Yards,Under,77.5,1.869,0.5350455,0.5,2025-09-03T07:54:42.345664
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Bucky Irving,Receiving Yards,Over,19.5,1.819,0.5497526,0.5141559,2025-09-03T07:54:42.345936
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Bucky Irving,Receiving Yards,Under,19.5,1.925,0.5194805,0.48584402,2025-09-03T07:54:42.345936
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Bucky Irving,Receptions,Over,2.5,1.568,0.6377551,0.5967078,2025-09-03T07:54:42.346236
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Bucky Irving,Receptions,Under,2.5,2.320,0.4310345,0.4032922,2025-09-03T07:54:42.346236
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Bucky Irving,Rushing Yards,Over,68.5,1.714,0.5834306,0.54583997,2025-09-03T07:54:42.346548
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Bucky Irving,Rushing Yards,Under,68.5,2.060,0.48543692,0.45416006,2025-09-03T07:54:42.346548
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Cade Otton,Receiving Yards,Over,33.5,1.869,0.5350455,0.5,2025-09-03T07:54:42.346860
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Cade Otton,Receiving Yards,Under,33.5,1.869,0.5350455,0.5,2025-09-03T07:54:42.346860
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Cade Otton,Receptions,Over,3.5,2.040,0.49019608,0.45874235,2025-09-03T07:54:42.347076
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Cade Otton,Receptions,Under,3.5,1.729,0.578369,0.5412576,2025-09-03T07:54:42.347076
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Drake London,Receiving Yards,Over,75.5,1.869,0.5350455,0.5,2025-09-03T07:54:42.347457
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Drake London,Receiving Yards,Under,75.5,1.869,0.5350455,0.5,2025-09-03T07:54:42.347457
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Drake London,Receptions,Over,6.5,2.050,0.4878049,0.45536664,2025-09-03T07:54:42.348036
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Drake London,Receptions,Under,6.5,1.714,0.5834306,0.5446334,2025-09-03T07:54:42.348036
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Emeka Egbuka,Receiving Yards,Over,57.5,1.869,0.5350455,0.5,2025-09-03T07:54:42.348302
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Emeka Egbuka,Receiving Yards,Under,57.5,1.869,0.5350455,0.5,2025-09-03T07:54:42.348302
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Emeka Egbuka,Receptions,Over,4.5,1.520,0.65789473,0.61421317,2025-09-03T07:54:42.348727
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Emeka Egbuka,Receptions,Under,4.5,2.420,0.41322312,0.38578677,2025-09-03T07:54:42.348727
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Kyle Pitts,Receiving Yards,Over,38.5,1.869,0.5350455,0.5,2025-09-03T07:54:42.349066
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Kyle Pitts,Receiving Yards,Under,38.5,1.869,0.5350455,0.5,2025-09-03T07:54:42.349066
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Kyle Pitts,Receptions,Over,3.5,1.934,0.5170631,0.48288772,2025-09-03T07:54:42.349531
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Kyle Pitts,Receptions,Under,3.5,1.806,0.55370986,0.5171123,2025-09-03T07:54:42.349531
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Michael Penix,Pass Attempts,Over,33.5,1.877,0.53276503,0.4979941,2025-09-03T07:54:42.349831
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Michael Penix,Pass Attempts,Under,33.5,1.862,0.5370569,0.5020059,2025-09-03T07:54:42.349831
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Michael Penix,Pass Completions,Over,21.5,1.952,0.51229507,0.47877172,2025-09-03T07:54:42.350293
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Michael Penix,Pass Completions,Under,21.5,1.793,0.5577245,0.5212283,2025-09-03T07:54:42.350293
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Michael Penix,Passing Yards,Over,238.5,1.869,0.5350455,0.5,2025-09-03T07:54:42.350519
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Michael Penix,Passing Yards,Under,238.5,1.869,0.5350455,0.5,2025-09-03T07:54:42.350519
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Michael Penix,Touchdown Passes,Over,1.5,2.060,0.48543692,0.45416006,2025-09-03T07:54:42.350732
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Michael Penix,Touchdown Passes,Under,1.5,1.714,0.5834306,0.54583997,2025-09-03T07:54:42.350732
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Mike Evans,Receiving Yards,Over,72.5,1.917,0.5216484,0.487844,2025-09-03T07:54:42.351038
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Mike Evans,Receiving Yards,Under,72.5,1.826,0.54764515,0.51215607,2025-09-03T07:54:42.351038
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Mike Evans,Receptions,Over,5.5,1.740,0.57471263,0.53723407,2025-09-03T07:54:42.351307
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Mike Evans,Receptions,Under,5.5,2.020,0.4950495,0.46276596,2025-09-03T07:54:42.351307
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Tyler Allgeier,Rushing Yards,Over,22.5,1.869,0.5350455,0.5,2025-09-03T07:54:42.351598
+2025-09-07,1,Tampa Bay Buccaneers,Atlanta Falcons,Tyler Allgeier,Rushing Yards,Under,22.5,1.869,0.5350455,0.5,2025-09-03T07:54:42.351598
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Brenton Strange,Receiving Yards,Over,29.5,1.854,0.53937435,0.5040129,2025-09-03T07:54:43.756408
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Brenton Strange,Receiving Yards,Under,29.5,1.884,0.53078556,0.49598715,2025-09-03T07:54:43.756408
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Brenton Strange,Receptions,Over,2.5,1.555,0.64308685,0.60077024,2025-09-03T07:54:43.756606
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Brenton Strange,Receptions,Under,2.5,2.340,0.42735043,0.39922976,2025-09-03T07:54:43.756606
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Brian Thomas,Receiving Yards,Over,76.5,1.869,0.5350455,0.5,2025-09-03T07:54:43.756829
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Brian Thomas,Receiving Yards,Under,76.5,1.869,0.5350455,0.5,2025-09-03T07:54:43.756829
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Brian Thomas,Receptions,Over,5.5,1.934,0.5170631,0.4838538,2025-09-03T07:54:43.757067
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Brian Thomas,Receptions,Under,5.5,1.813,0.55157197,0.5161463,2025-09-03T07:54:43.757067
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Bryce Young,Pass Attempts,Over,31.5,1.869,0.5350455,0.5,2025-09-03T07:54:43.757314
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Bryce Young,Pass Attempts,Under,31.5,1.869,0.5350455,0.5,2025-09-03T07:54:43.757314
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Bryce Young,Pass Completions,Over,19.5,1.751,0.5711022,0.53319114,2025-09-03T07:54:43.757510
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Bryce Young,Pass Completions,Under,19.5,2.000,0.5,0.4668089,2025-09-03T07:54:43.757510
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Bryce Young,Passing Yards,Over,218.5,1.869,0.5350455,0.5,2025-09-03T07:54:43.757722
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Bryce Young,Passing Yards,Under,218.5,1.869,0.5350455,0.5,2025-09-03T07:54:43.757722
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Bryce Young,Rushing Yards,Over,16.5,1.869,0.5350455,0.5,2025-09-03T07:54:43.757953
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Bryce Young,Rushing Yards,Under,16.5,1.869,0.5350455,0.5,2025-09-03T07:54:43.757953
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Bryce Young,Touchdown Passes,Over,1.5,2.200,0.45454544,0.42483658,2025-09-03T07:54:43.758183
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Bryce Young,Touchdown Passes,Under,1.5,1.625,0.61538464,0.5751634,2025-09-03T07:54:43.758183
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Chuba Hubbard,Rushing Yards,Over,61.5,1.869,0.5350455,0.5,2025-09-03T07:54:43.758421
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Chuba Hubbard,Rushing Yards,Under,61.5,1.869,0.5350455,0.5,2025-09-03T07:54:43.758421
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Dyami Brown,Receiving Yards,Over,22.5,1.869,0.5350455,0.5,2025-09-03T07:54:43.758655
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Dyami Brown,Receiving Yards,Under,22.5,1.869,0.5350455,0.5,2025-09-03T07:54:43.758655
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Dyami Brown,Receptions,Over,2.5,2.440,0.40983605,0.3830594,2025-09-03T07:54:43.758912
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Dyami Brown,Receptions,Under,2.5,1.515,0.660066,0.6169406,2025-09-03T07:54:43.758912
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Jalen Coker,Receiving Yards,Over,36.5,1.854,0.53937435,0.5040129,2025-09-03T07:54:43.759141
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Jalen Coker,Receiving Yards,Under,36.5,1.884,0.53078556,0.49598715,2025-09-03T07:54:43.759141
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Jalen Coker,Receptions,Over,3.5,2.240,0.44642857,0.4169703,2025-09-03T07:54:43.759346
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Jalen Coker,Receptions,Under,3.5,1.602,0.6242197,0.5830296,2025-09-03T07:54:43.759346
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Parker Washington,Receiving Yards,Over,13.5,1.869,0.5350455,0.5,2025-09-03T07:54:43.759645
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Parker Washington,Receiving Yards,Under,13.5,1.869,0.5350455,0.5,2025-09-03T07:54:43.759645
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Parker Washington,Receptions,Over,1.5,1.934,0.5170631,0.4838538,2025-09-03T07:54:43.759848
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Parker Washington,Receptions,Under,1.5,1.813,0.55157197,0.5161463,2025-09-03T07:54:43.759848
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Rico Dowdle,Rushing Yards,Over,25.5,2.010,0.49751243,0.4648562,2025-09-03T07:54:43.760164
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Rico Dowdle,Rushing Yards,Under,25.5,1.746,0.5727377,0.53514373,2025-09-03T07:54:43.760164
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Tank Bigsby,Rushing Yards,Over,42.5,1.869,0.5350455,0.5,2025-09-03T07:54:43.760470
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Tank Bigsby,Rushing Yards,Under,42.5,1.869,0.5350455,0.5,2025-09-03T07:54:43.760470
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Tetairoa McMillan,Receiving Yards,Over,65.5,2.010,0.49751243,0.4648562,2025-09-03T07:54:43.760680
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Tetairoa McMillan,Receiving Yards,Under,65.5,1.746,0.5727377,0.53514373,2025-09-03T07:54:43.760680
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Tetairoa McMillan,Receptions,Over,4.5,1.595,0.62695926,0.5862516,2025-09-03T07:54:43.760959
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Tetairoa McMillan,Receptions,Under,4.5,2.260,0.44247788,0.41374838,2025-09-03T07:54:43.760959
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Travis Etienne,Receiving Yards,Over,14.5,1.869,0.5350455,0.5,2025-09-03T07:54:43.761246
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Travis Etienne,Receiving Yards,Under,14.5,1.869,0.5350455,0.5,2025-09-03T07:54:43.761246
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Travis Etienne,Receptions,Over,2.5,2.160,0.46296296,0.432922,2025-09-03T07:54:43.761463
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Travis Etienne,Receptions,Under,2.5,1.649,0.60642815,0.567078,2025-09-03T07:54:43.761463
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Travis Etienne,Rushing Yards,Over,38.5,1.980,0.5050505,0.47185916,2025-09-03T07:54:43.761707
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Travis Etienne,Rushing Yards,Under,38.5,1.769,0.5652911,0.52814084,2025-09-03T07:54:43.761707
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Travis Hunter,Receiving Yards,Over,47.5,1.869,0.5350455,0.5,2025-09-03T07:54:43.762008
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Travis Hunter,Receiving Yards,Under,47.5,1.869,0.5350455,0.5,2025-09-03T07:54:43.762008
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Travis Hunter,Receptions,Over,4.5,2.130,0.46948355,0.43829113,2025-09-03T07:54:43.762218
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Travis Hunter,Receptions,Under,4.5,1.662,0.60168475,0.56170887,2025-09-03T07:54:43.762218
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Trevor Lawrence,Pass Attempts,Over,33.5,1.970,0.5076142,0.4748067,2025-09-03T07:54:43.762417
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Trevor Lawrence,Pass Attempts,Under,33.5,1.781,0.5614823,0.5251933,2025-09-03T07:54:43.762417
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Trevor Lawrence,Pass Completions,Over,21.5,1.769,0.5652911,0.52814084,2025-09-03T07:54:43.762705
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Trevor Lawrence,Pass Completions,Under,21.5,1.980,0.5050505,0.47185916,2025-09-03T07:54:43.762705
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Trevor Lawrence,Passing Yards,Over,240.5,1.869,0.5350455,0.5,2025-09-03T07:54:43.762980
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Trevor Lawrence,Passing Yards,Under,240.5,1.869,0.5350455,0.5,2025-09-03T07:54:43.762980
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Trevor Lawrence,Rushing Yards,Over,13.5,1.869,0.5350455,0.5,2025-09-03T07:54:43.763208
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Trevor Lawrence,Rushing Yards,Under,13.5,1.869,0.5350455,0.5,2025-09-03T07:54:43.763208
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Trevor Lawrence,Touchdown Passes,Over,1.5,1.980,0.5050505,0.47185916,2025-09-03T07:54:43.763392
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Trevor Lawrence,Touchdown Passes,Under,1.5,1.769,0.5652911,0.52814084,2025-09-03T07:54:43.763392
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Xavier Legette,Receiving Yards,Over,36.5,1.869,0.5350455,0.5,2025-09-03T07:54:43.763588
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Xavier Legette,Receiving Yards,Under,36.5,1.869,0.5350455,0.5,2025-09-03T07:54:43.763588
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Xavier Legette,Receptions,Over,3.5,1.909,0.52383447,0.4888889,2025-09-03T07:54:43.763838
+2025-09-07,1,Carolina Panthers,Jacksonville Jaguars,Xavier Legette,Receptions,Under,3.5,1.826,0.54764515,0.51111114,2025-09-03T07:54:43.763838
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Aaron Rodgers,Pass Attempts,Over,31.5,1.970,0.5076142,0.47396526,2025-09-03T07:54:45.639057
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Aaron Rodgers,Pass Attempts,Under,31.5,1.775,0.5633803,0.5260347,2025-09-03T07:54:45.639057
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Aaron Rodgers,Pass Completions,Over,19.5,1.769,0.5652911,0.52814084,2025-09-03T07:54:45.639368
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Aaron Rodgers,Pass Completions,Under,19.5,1.980,0.5050505,0.47185916,2025-09-03T07:54:45.639368
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Aaron Rodgers,Passing Yards,Over,206.5,1.934,0.5170631,0.48288772,2025-09-03T07:54:45.639619
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Aaron Rodgers,Passing Yards,Under,206.5,1.806,0.55370986,0.5171123,2025-09-03T07:54:45.639619
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Aaron Rodgers,Touchdown Passes,Over,1.5,2.420,0.41322312,0.3862541,2025-09-03T07:54:45.639872
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Aaron Rodgers,Touchdown Passes,Under,1.5,1.523,0.6565988,0.61374587,2025-09-03T07:54:45.639872
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Braelon Allen,Rushing Yards,Over,25.5,1.684,0.5938242,0.55496824,2025-09-03T07:54:45.640100
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Braelon Allen,Rushing Yards,Under,25.5,2.100,0.4761905,0.44503173,2025-09-03T07:54:45.640100
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Breece Hall,Receiving Yards,Over,18.5,1.869,0.5350455,0.5,2025-09-03T07:54:45.640320
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Breece Hall,Receiving Yards,Under,18.5,1.869,0.5350455,0.5,2025-09-03T07:54:45.640320
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Breece Hall,Receptions,Over,2.5,1.694,0.5903188,0.55113935,2025-09-03T07:54:45.640537
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Breece Hall,Receptions,Under,2.5,2.080,0.48076925,0.44886062,2025-09-03T07:54:45.640537
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Breece Hall,Rushing Yards,Over,47.5,1.884,0.53078556,0.49598715,2025-09-03T07:54:45.640809
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Breece Hall,Rushing Yards,Under,47.5,1.854,0.53937435,0.5040129,2025-09-03T07:54:45.640809
+2025-09-07,1,Pittsburgh Steelers,New York Jets,DK Metcalf,Receiving Yards,Over,57.5,2.100,0.4761905,0.44503173,2025-09-03T07:54:45.641034
+2025-09-07,1,Pittsburgh Steelers,New York Jets,DK Metcalf,Receiving Yards,Under,57.5,1.684,0.5938242,0.55496824,2025-09-03T07:54:45.641034
+2025-09-07,1,Pittsburgh Steelers,New York Jets,DK Metcalf,Receptions,Over,4.5,2.170,0.46082947,0.4305956,2025-09-03T07:54:45.641325
+2025-09-07,1,Pittsburgh Steelers,New York Jets,DK Metcalf,Receptions,Under,4.5,1.641,0.60938454,0.56940436,2025-09-03T07:54:45.641325
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Garrett Wilson,Receiving Yards,Over,55.5,1.854,0.53937435,0.5040129,2025-09-03T07:54:45.641600
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Garrett Wilson,Receiving Yards,Under,55.5,1.884,0.53078556,0.49598715,2025-09-03T07:54:45.641600
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Garrett Wilson,Receptions,Over,4.5,1.636,0.61124694,0.57127887,2025-09-03T07:54:45.641869
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Garrett Wilson,Receptions,Under,4.5,2.180,0.4587156,0.4287212,2025-09-03T07:54:45.641869
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Jaylen Warren,Receiving Yards,Over,19.5,1.925,0.5194805,0.48584402,2025-09-03T07:54:45.642107
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Jaylen Warren,Receiving Yards,Under,19.5,1.819,0.5497526,0.5141559,2025-09-03T07:54:45.642107
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Jaylen Warren,Receptions,Over,2.5,1.649,0.60642815,0.567078,2025-09-03T07:54:45.642400
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Jaylen Warren,Receptions,Under,2.5,2.160,0.46296296,0.432922,2025-09-03T07:54:45.642400
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Jaylen Warren,Rushing Yards,Over,49.5,1.719,0.5817336,0.54391086,2025-09-03T07:54:45.642736
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Jaylen Warren,Rushing Yards,Under,49.5,2.050,0.4878049,0.45608914,2025-09-03T07:54:45.642736
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Jonnu Smith,Receiving Yards,Over,26.5,1.869,0.5350455,0.5,2025-09-03T07:54:45.642976
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Jonnu Smith,Receiving Yards,Under,26.5,1.869,0.5350455,0.5,2025-09-03T07:54:45.642976
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Jonnu Smith,Receptions,Over,2.5,1.699,0.5885815,0.55041015,2025-09-03T07:54:45.643288
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Jonnu Smith,Receptions,Under,2.5,2.080,0.48076925,0.44958988,2025-09-03T07:54:45.643288
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Justin Fields,Pass Attempts,Over,27.5,2.020,0.4950495,0.46276596,2025-09-03T07:54:45.643582
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Justin Fields,Pass Attempts,Under,27.5,1.740,0.57471263,0.53723407,2025-09-03T07:54:45.643582
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Justin Fields,Pass Completions,Over,16.5,1.869,0.5350455,0.5,2025-09-03T07:54:45.643831
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Justin Fields,Pass Completions,Under,16.5,1.869,0.5350455,0.5,2025-09-03T07:54:45.643831
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Justin Fields,Passing Yards,Over,175.5,1.869,0.5350455,0.5,2025-09-03T07:54:45.644039
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Justin Fields,Passing Yards,Under,175.5,1.869,0.5350455,0.5,2025-09-03T07:54:45.644039
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Justin Fields,Rushing Yards,Over,41.5,1.869,0.5350455,0.5,2025-09-03T07:54:45.644294
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Justin Fields,Rushing Yards,Under,41.5,1.869,0.5350455,0.5,2025-09-03T07:54:45.644294
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Justin Fields,Touchdown Passes,Over,0.5,1.543,0.64808816,0.6056734,2025-09-03T07:54:45.644566
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Justin Fields,Touchdown Passes,Under,0.5,2.370,0.42194095,0.3943266,2025-09-03T07:54:45.644566
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Kaleb Johnson,Rushing Yards,Over,28.5,2.200,0.45454544,0.42483658,2025-09-03T07:54:45.645146
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Kaleb Johnson,Rushing Yards,Under,28.5,1.625,0.61538464,0.5751634,2025-09-03T07:54:45.645146
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Mason Taylor,Receiving Yards,Over,20.5,1.869,0.5350455,0.5,2025-09-03T07:54:45.645433
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Mason Taylor,Receiving Yards,Under,20.5,1.869,0.5350455,0.5,2025-09-03T07:54:45.645433
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Mason Taylor,Receptions,Over,2.5,2.060,0.48543692,0.45343596,2025-09-03T07:54:45.645731
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Mason Taylor,Receptions,Under,2.5,1.709,0.5851375,0.54656404,2025-09-03T07:54:45.645731
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Pat Freiermuth,Receiving Yards,Over,27.5,1.869,0.5350455,0.5,2025-09-03T07:54:45.645972
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Pat Freiermuth,Receiving Yards,Under,27.5,1.869,0.5350455,0.5,2025-09-03T07:54:45.645972
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Pat Freiermuth,Receptions,Over,2.5,1.628,0.6142506,0.57359874,2025-09-03T07:54:45.646251
+2025-09-07,1,Pittsburgh Steelers,New York Jets,Pat Freiermuth,Receptions,Under,2.5,2.190,0.456621,0.42640126,2025-09-03T07:54:45.646251
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,Daniel Jones,Pass Attempts,Over,28.5,1.884,0.53078556,0.49598715,2025-09-03T07:54:47.045380
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,Daniel Jones,Pass Attempts,Under,28.5,1.854,0.53937435,0.5040129,2025-09-03T07:54:47.045380
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,Daniel Jones,Pass Completions,Over,19.5,1.854,0.53937435,0.5040129,2025-09-03T07:54:47.045565
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,Daniel Jones,Pass Completions,Under,19.5,1.884,0.53078556,0.49598715,2025-09-03T07:54:47.045565
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,Daniel Jones,Passing Yards,Over,195.5,1.819,0.5497526,0.5141559,2025-09-03T07:54:47.045811
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,Daniel Jones,Passing Yards,Under,195.5,1.925,0.5194805,0.48584402,2025-09-03T07:54:47.045811
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,Daniel Jones,Rushing Yards,Over,24.5,2.020,0.4950495,0.46276596,2025-09-03T07:54:47.046050
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,Daniel Jones,Rushing Yards,Under,24.5,1.740,0.57471263,0.53723407,2025-09-03T07:54:47.046050
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,Daniel Jones,Touchdown Passes,Over,1.5,2.610,0.3831418,0.3580915,2025-09-03T07:54:47.046276
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,Daniel Jones,Touchdown Passes,Under,1.5,1.456,0.6868132,0.64190847,2025-09-03T07:54:47.046276
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,De'Von Achane,Rushing Yards,Over,61.5,1.869,0.5350455,0.5,2025-09-03T07:54:47.046543
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,De'Von Achane,Rushing Yards,Under,61.5,1.869,0.5350455,0.5,2025-09-03T07:54:47.046543
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,Jaylen Waddle,Receiving Yards,Over,57.5,1.869,0.5350455,0.5,2025-09-03T07:54:47.046798
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,Jaylen Waddle,Receiving Yards,Under,57.5,1.869,0.5350455,0.5,2025-09-03T07:54:47.046798
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,Jaylen Waddle,Receptions,Over,4.5,1.763,0.56721497,0.53024244,2025-09-03T07:54:47.047022
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,Jaylen Waddle,Receptions,Under,4.5,1.990,0.5025126,0.46975753,2025-09-03T07:54:47.047022
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,Jonathan Taylor,Rushing Yards,Over,77.5,1.833,0.54555374,0.510155,2025-09-03T07:54:47.047342
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,Jonathan Taylor,Rushing Yards,Under,77.5,1.909,0.52383447,0.48984504,2025-09-03T07:54:47.047342
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,Tua Tagovailoa,Pass Attempts,Over,33.5,1.869,0.5350455,0.5,2025-09-03T07:54:47.047546
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,Tua Tagovailoa,Pass Attempts,Under,33.5,1.869,0.5350455,0.5,2025-09-03T07:54:47.047546
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,Tua Tagovailoa,Pass Completions,Over,23.5,1.781,0.5614823,0.5251933,2025-09-03T07:54:47.047735
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,Tua Tagovailoa,Pass Completions,Under,23.5,1.970,0.5076142,0.4748067,2025-09-03T07:54:47.047735
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,Tua Tagovailoa,Passing Yards,Over,250.5,1.869,0.5350455,0.5,2025-09-03T07:54:47.048009
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,Tua Tagovailoa,Passing Yards,Under,250.5,1.869,0.5350455,0.5,2025-09-03T07:54:47.048009
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,Tua Tagovailoa,Touchdown Passes,Over,1.5,1.854,0.53937435,0.5040129,2025-09-03T07:54:47.048270
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,Tua Tagovailoa,Touchdown Passes,Under,1.5,1.884,0.53078556,0.49598715,2025-09-03T07:54:47.048270
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,Tyreek Hill,Receiving Yards,Over,70.5,1.869,0.5350455,0.5,2025-09-03T07:54:47.048534
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,Tyreek Hill,Receiving Yards,Under,70.5,1.869,0.5350455,0.5,2025-09-03T07:54:47.048534
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,Tyreek Hill,Receptions,Over,5.5,1.787,0.55959713,0.52321243,2025-09-03T07:54:47.048761
+2025-09-07,1,Miami Dolphins,Indianapolis Colts,Tyreek Hill,Receptions,Under,5.5,1.961,0.5099439,0.47678763,2025-09-03T07:54:47.048761
+2025-09-07,1,New York Giants,Washington Commanders,Austin Ekeler,Receiving Yards,Over,21.5,1.757,0.569152,0.53233963,2025-09-03T07:54:48.448870
+2025-09-07,1,New York Giants,Washington Commanders,Austin Ekeler,Receiving Yards,Under,21.5,2.000,0.5,0.46766034,2025-09-03T07:54:48.448870
+2025-09-07,1,New York Giants,Washington Commanders,Austin Ekeler,Receptions,Over,2.5,1.714,0.5834306,0.54583997,2025-09-03T07:54:48.449112
+2025-09-07,1,New York Giants,Washington Commanders,Austin Ekeler,Receptions,Under,2.5,2.060,0.48543692,0.45416006,2025-09-03T07:54:48.449112
+2025-09-07,1,New York Giants,Washington Commanders,Austin Ekeler,Rushing Yards,Over,20.5,1.735,0.57636887,0.5379494,2025-09-03T07:54:48.449337
+2025-09-07,1,New York Giants,Washington Commanders,Austin Ekeler,Rushing Yards,Under,20.5,2.020,0.4950495,0.4620506,2025-09-03T07:54:48.449337
+2025-09-07,1,New York Giants,Washington Commanders,Chris Rodriguez,Rushing Yards,Over,28.5,1.775,0.5633803,0.5260347,2025-09-03T07:54:48.449569
+2025-09-07,1,New York Giants,Washington Commanders,Chris Rodriguez,Rushing Yards,Under,28.5,1.970,0.5076142,0.47396526,2025-09-03T07:54:48.449569
+2025-09-07,1,New York Giants,Washington Commanders,Darius Slayton,Receiving Yards,Over,22.5,1.719,0.5817336,0.54391086,2025-09-03T07:54:48.449814
+2025-09-07,1,New York Giants,Washington Commanders,Darius Slayton,Receiving Yards,Under,22.5,2.050,0.4878049,0.45608914,2025-09-03T07:54:48.449814
+2025-09-07,1,New York Giants,Washington Commanders,Darius Slayton,Receptions,Over,1.5,1.632,0.6127451,0.57187825,2025-09-03T07:54:48.450012
+2025-09-07,1,New York Giants,Washington Commanders,Darius Slayton,Receptions,Under,1.5,2.180,0.4587156,0.42812172,2025-09-03T07:54:48.450012
+2025-09-07,1,New York Giants,Washington Commanders,Deebo Samuel,Receiving Yards,Over,46.5,1.854,0.53937435,0.5040129,2025-09-03T07:54:48.450230
+2025-09-07,1,New York Giants,Washington Commanders,Deebo Samuel,Receiving Yards,Under,46.5,1.884,0.53078556,0.49598715,2025-09-03T07:54:48.450230
+2025-09-07,1,New York Giants,Washington Commanders,Deebo Samuel,Receptions,Over,3.5,1.684,0.5938242,0.55496824,2025-09-03T07:54:48.450422
+2025-09-07,1,New York Giants,Washington Commanders,Deebo Samuel,Receptions,Under,3.5,2.100,0.4761905,0.44503173,2025-09-03T07:54:48.450422
+2025-09-07,1,New York Giants,Washington Commanders,Jacory Croskey-Merritt,Rushing Yards,Over,33.5,2.350,0.42553192,0.39728135,2025-09-03T07:54:48.450657
+2025-09-07,1,New York Giants,Washington Commanders,Jacory Croskey-Merritt,Rushing Yards,Under,33.5,1.549,0.6455778,0.6027186,2025-09-03T07:54:48.450657
+2025-09-07,1,New York Giants,Washington Commanders,Jayden Daniels,Pass Attempts,Over,31.5,1.990,0.5025126,0.46975753,2025-09-03T07:54:48.450838
+2025-09-07,1,New York Giants,Washington Commanders,Jayden Daniels,Pass Attempts,Under,31.5,1.763,0.56721497,0.53024244,2025-09-03T07:54:48.450838
+2025-09-07,1,New York Giants,Washington Commanders,Jayden Daniels,Pass Completions,Over,21.5,1.869,0.5350455,0.5,2025-09-03T07:54:48.451053
+2025-09-07,1,New York Giants,Washington Commanders,Jayden Daniels,Pass Completions,Under,21.5,1.869,0.5350455,0.5,2025-09-03T07:54:48.451053
+2025-09-07,1,New York Giants,Washington Commanders,Jayden Daniels,Passing Yards,Over,222.5,1.869,0.5350455,0.5,2025-09-03T07:54:48.451228
+2025-09-07,1,New York Giants,Washington Commanders,Jayden Daniels,Passing Yards,Under,222.5,1.869,0.5350455,0.5,2025-09-03T07:54:48.451228
+2025-09-07,1,New York Giants,Washington Commanders,Jayden Daniels,Rushing Yards,Over,42.5,1.781,0.5614823,0.52405137,2025-09-03T07:54:48.451431
+2025-09-07,1,New York Giants,Washington Commanders,Jayden Daniels,Rushing Yards,Under,42.5,1.961,0.5099439,0.47594872,2025-09-03T07:54:48.451431
+2025-09-07,1,New York Giants,Washington Commanders,Jayden Daniels,Touchdown Passes,Over,1.5,1.869,0.5350455,0.5,2025-09-03T07:54:48.451645
+2025-09-07,1,New York Giants,Washington Commanders,Jayden Daniels,Touchdown Passes,Under,1.5,1.869,0.5350455,0.5,2025-09-03T07:54:48.451645
+2025-09-07,1,New York Giants,Washington Commanders,Malik Nabers,Receiving Yards,Over,74.5,1.869,0.5350455,0.5,2025-09-03T07:54:48.451829
+2025-09-07,1,New York Giants,Washington Commanders,Malik Nabers,Receiving Yards,Under,74.5,1.869,0.5350455,0.5,2025-09-03T07:54:48.451829
+2025-09-07,1,New York Giants,Washington Commanders,Malik Nabers,Receptions,Over,6.5,1.970,0.5076142,0.4748067,2025-09-03T07:54:48.452017
+2025-09-07,1,New York Giants,Washington Commanders,Malik Nabers,Receptions,Under,6.5,1.781,0.5614823,0.5251933,2025-09-03T07:54:48.452017
+2025-09-07,1,New York Giants,Washington Commanders,Russell Wilson,Pass Attempts,Over,31.5,1.909,0.52383447,0.48984504,2025-09-03T07:54:48.452256
+2025-09-07,1,New York Giants,Washington Commanders,Russell Wilson,Pass Attempts,Under,31.5,1.833,0.54555374,0.510155,2025-09-03T07:54:48.452256
+2025-09-07,1,New York Giants,Washington Commanders,Russell Wilson,Pass Completions,Over,19.5,1.819,0.5497526,0.5141559,2025-09-03T07:54:48.452591
+2025-09-07,1,New York Giants,Washington Commanders,Russell Wilson,Pass Completions,Under,19.5,1.925,0.5194805,0.48584402,2025-09-03T07:54:48.452591
+2025-09-07,1,New York Giants,Washington Commanders,Russell Wilson,Passing Yards,Over,217.5,1.869,0.5350455,0.5,2025-09-03T07:54:48.452817
+2025-09-07,1,New York Giants,Washington Commanders,Russell Wilson,Passing Yards,Under,217.5,1.869,0.5350455,0.5,2025-09-03T07:54:48.452817
+2025-09-07,1,New York Giants,Washington Commanders,Russell Wilson,Touchdown Passes,Over,1.5,2.390,0.41841003,0.39092764,2025-09-03T07:54:48.452999
+2025-09-07,1,New York Giants,Washington Commanders,Russell Wilson,Touchdown Passes,Under,1.5,1.534,0.65189046,0.6090724,2025-09-03T07:54:48.452999
+2025-09-07,1,New York Giants,Washington Commanders,Terry McLaurin,Receiving Yards,Over,61.5,2.130,0.46948355,0.43829113,2025-09-03T07:54:48.453207
+2025-09-07,1,New York Giants,Washington Commanders,Terry McLaurin,Receiving Yards,Under,61.5,1.662,0.60168475,0.56170887,2025-09-03T07:54:48.453207
+2025-09-07,1,New York Giants,Washington Commanders,Terry McLaurin,Receptions,Over,4.5,1.699,0.5885815,0.55041015,2025-09-03T07:54:48.453373
+2025-09-07,1,New York Giants,Washington Commanders,Terry McLaurin,Receptions,Under,4.5,2.080,0.48076925,0.44958988,2025-09-03T07:54:48.453373
+2025-09-07,1,New York Giants,Washington Commanders,Theo Johnson,Receiving Yards,Over,23.5,1.869,0.5350455,0.5,2025-09-03T07:54:48.453603
+2025-09-07,1,New York Giants,Washington Commanders,Theo Johnson,Receiving Yards,Under,23.5,1.869,0.5350455,0.5,2025-09-03T07:54:48.453603
+2025-09-07,1,New York Giants,Washington Commanders,Theo Johnson,Receptions,Over,2.5,2.040,0.49019608,0.45874235,2025-09-03T07:54:48.453787
+2025-09-07,1,New York Giants,Washington Commanders,Theo Johnson,Receptions,Under,2.5,1.729,0.578369,0.5412576,2025-09-03T07:54:48.453787
+2025-09-07,1,New York Giants,Washington Commanders,Tyrone Tracy,Receiving Yards,Over,10.5,1.869,0.5350455,0.5,2025-09-03T07:54:48.453995
+2025-09-07,1,New York Giants,Washington Commanders,Tyrone Tracy,Receiving Yards,Under,10.5,1.869,0.5350455,0.5,2025-09-03T07:54:48.453995
+2025-09-07,1,New York Giants,Washington Commanders,Tyrone Tracy,Receptions,Over,1.5,1.549,0.6455778,0.60373497,2025-09-03T07:54:48.454163
+2025-09-07,1,New York Giants,Washington Commanders,Tyrone Tracy,Receptions,Under,1.5,2.360,0.42372882,0.39626503,2025-09-03T07:54:48.454163
+2025-09-07,1,New York Giants,Washington Commanders,Tyrone Tracy,Rushing Yards,Over,58.5,2.070,0.4830918,0.45151034,2025-09-03T07:54:48.454353
+2025-09-07,1,New York Giants,Washington Commanders,Tyrone Tracy,Rushing Yards,Under,58.5,1.704,0.58685446,0.54848963,2025-09-03T07:54:48.454353
+2025-09-07,1,New York Giants,Washington Commanders,Wan'Dale Robinson,Receiving Yards,Over,37.5,1.869,0.5350455,0.5,2025-09-03T07:54:48.454539
+2025-09-07,1,New York Giants,Washington Commanders,Wan'Dale Robinson,Receiving Yards,Under,37.5,1.869,0.5350455,0.5,2025-09-03T07:54:48.454539
+2025-09-07,1,New York Giants,Washington Commanders,Wan'Dale Robinson,Receptions,Over,4.5,1.980,0.5050505,0.47270304,2025-09-03T07:54:48.454812
+2025-09-07,1,New York Giants,Washington Commanders,Wan'Dale Robinson,Receptions,Under,4.5,1.775,0.5633803,0.52729696,2025-09-03T07:54:48.454812
+2025-09-07,1,New York Giants,Washington Commanders,Zach Ertz,Receiving Yards,Over,32.5,1.869,0.5350455,0.5,2025-09-03T07:54:48.455098
+2025-09-07,1,New York Giants,Washington Commanders,Zach Ertz,Receiving Yards,Under,32.5,1.869,0.5350455,0.5,2025-09-03T07:54:48.455098
+2025-09-07,1,New York Giants,Washington Commanders,Zach Ertz,Receptions,Over,3.5,1.847,0.5414185,0.5060176,2025-09-03T07:54:48.455355
+2025-09-07,1,New York Giants,Washington Commanders,Zach Ertz,Receptions,Under,3.5,1.892,0.52854127,0.49398237,2025-09-03T07:54:48.455355
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Alvin Kamara,Receiving Yards,Over,28.5,1.869,0.5350455,0.5,2025-09-03T07:54:49.889444
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Alvin Kamara,Receiving Yards,Under,28.5,1.869,0.5350455,0.5,2025-09-03T07:54:49.889444
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Alvin Kamara,Receptions,Over,4.5,1.980,0.5050505,0.47270304,2025-09-03T07:54:49.889653
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Alvin Kamara,Receptions,Under,4.5,1.775,0.5633803,0.52729696,2025-09-03T07:54:49.889653
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Alvin Kamara,Rushing Yards,Over,61.5,1.980,0.5050505,0.47185916,2025-09-03T07:54:49.889892
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Alvin Kamara,Rushing Yards,Under,61.5,1.769,0.5652911,0.52814084,2025-09-03T07:54:49.889892
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Chris Olave,Receiving Yards,Over,49.5,1.869,0.5350455,0.5,2025-09-03T07:54:49.890199
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Chris Olave,Receiving Yards,Under,49.5,1.869,0.5350455,0.5,2025-09-03T07:54:49.890199
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Chris Olave,Receptions,Over,4.5,2.000,0.5,0.46766034,2025-09-03T07:54:49.890474
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Chris Olave,Receptions,Under,4.5,1.757,0.569152,0.53233963,2025-09-03T07:54:49.890474
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,James Conner,Receiving Yards,Over,15.5,1.869,0.5350455,0.5,2025-09-03T07:54:49.890716
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,James Conner,Receiving Yards,Under,15.5,1.869,0.5350455,0.5,2025-09-03T07:54:49.890716
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,James Conner,Receptions,Over,2.5,1.869,0.5350455,0.5,2025-09-03T07:54:49.890947
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,James Conner,Receptions,Under,2.5,1.869,0.5350455,0.5,2025-09-03T07:54:49.890947
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,James Conner,Rushing Yards,Over,65.5,1.724,0.5800464,0.54197663,2025-09-03T07:54:49.891257
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,James Conner,Rushing Yards,Under,65.5,2.040,0.49019608,0.45802337,2025-09-03T07:54:49.891257
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Juwan Johnson,Receiving Yards,Over,24.5,1.757,0.569152,0.53233963,2025-09-03T07:54:49.891466
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Juwan Johnson,Receiving Yards,Under,24.5,2.000,0.5,0.46766034,2025-09-03T07:54:49.891466
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Juwan Johnson,Receptions,Over,2.5,1.781,0.5614823,0.52405137,2025-09-03T07:54:49.891691
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Juwan Johnson,Receptions,Under,2.5,1.961,0.5099439,0.47594872,2025-09-03T07:54:49.891691
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Kyler Murray,Pass Attempts,Over,32.5,1.900,0.5263158,0.49197862,2025-09-03T07:54:49.891909
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Kyler Murray,Pass Attempts,Under,32.5,1.840,0.54347825,0.50802135,2025-09-03T07:54:49.891909
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Kyler Murray,Pass Completions,Over,21.5,1.847,0.5414185,0.5060176,2025-09-03T07:54:49.892128
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Kyler Murray,Pass Completions,Under,21.5,1.892,0.52854127,0.49398237,2025-09-03T07:54:49.892128
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Kyler Murray,Passing Yards,Over,221.5,1.869,0.5350455,0.5,2025-09-03T07:54:49.892392
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Kyler Murray,Passing Yards,Under,221.5,1.869,0.5350455,0.5,2025-09-03T07:54:49.892392
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Kyler Murray,Rushing Yards,Over,25.5,1.714,0.5834306,0.54583997,2025-09-03T07:54:49.892943
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Kyler Murray,Rushing Yards,Under,25.5,2.060,0.48543692,0.45416006,2025-09-03T07:54:49.892943
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Kyler Murray,Touchdown Passes,Over,1.5,2.160,0.46296296,0.432922,2025-09-03T07:54:49.893217
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Kyler Murray,Touchdown Passes,Under,1.5,1.649,0.60642815,0.567078,2025-09-03T07:54:49.893217
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Marvin Harrison,Receiving Yards,Over,59.5,1.862,0.5370569,0.5020059,2025-09-03T07:54:49.893459
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Marvin Harrison,Receiving Yards,Under,59.5,1.877,0.53276503,0.4979941,2025-09-03T07:54:49.893459
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Marvin Harrison,Receptions,Over,4.5,1.900,0.5263158,0.49197862,2025-09-03T07:54:49.893700
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Marvin Harrison,Receptions,Under,4.5,1.840,0.54347825,0.50802135,2025-09-03T07:54:49.893700
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Michael Wilson,Receiving Yards,Over,27.5,1.869,0.5350455,0.5,2025-09-03T07:54:49.894019
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Michael Wilson,Receiving Yards,Under,27.5,1.869,0.5350455,0.5,2025-09-03T07:54:49.894019
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Michael Wilson,Receptions,Over,2.5,2.170,0.46082947,0.43119264,2025-09-03T07:54:49.894235
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Michael Wilson,Receptions,Under,2.5,1.645,0.60790277,0.56880736,2025-09-03T07:54:49.894235
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Rashid Shaheed,Receiving Yards,Over,37.5,1.757,0.569152,0.53233963,2025-09-03T07:54:49.894511
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Rashid Shaheed,Receiving Yards,Under,37.5,2.000,0.5,0.46766034,2025-09-03T07:54:49.894511
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Rashid Shaheed,Receptions,Over,2.5,1.598,0.6257822,0.5847193,2025-09-03T07:54:49.894772
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Rashid Shaheed,Receptions,Under,2.5,2.250,0.44444445,0.41528067,2025-09-03T07:54:49.894772
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Spencer Rattler,Pass Attempts,Over,30.5,1.909,0.52383447,0.48984504,2025-09-03T07:54:49.895005
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Spencer Rattler,Pass Attempts,Under,30.5,1.833,0.54555374,0.510155,2025-09-03T07:54:49.895005
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Spencer Rattler,Pass Completions,Over,19.5,2.090,0.47846892,0.44767442,2025-09-03T07:54:49.895207
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Spencer Rattler,Pass Completions,Under,19.5,1.694,0.5903188,0.5523256,2025-09-03T07:54:49.895207
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Spencer Rattler,Passing Yards,Over,187.5,1.806,0.55370986,0.5182715,2025-09-03T07:54:49.895447
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Spencer Rattler,Passing Yards,Under,187.5,1.943,0.51466805,0.48172843,2025-09-03T07:54:49.895447
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Spencer Rattler,Rushing Yards,Over,22.5,1.934,0.5170631,0.48288772,2025-09-03T07:54:49.895778
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Spencer Rattler,Rushing Yards,Under,22.5,1.806,0.55370986,0.5171123,2025-09-03T07:54:49.895778
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Spencer Rattler,Touchdown Passes,Over,1.5,3.050,0.32786885,0.30634522,2025-09-03T07:54:49.896030
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Spencer Rattler,Touchdown Passes,Under,1.5,1.347,0.7423905,0.6936548,2025-09-03T07:54:49.896030
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Trey Benson,Rushing Yards,Over,25.5,1.869,0.5350455,0.5,2025-09-03T07:54:49.896251
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Trey Benson,Rushing Yards,Under,25.5,1.869,0.5350455,0.5,2025-09-03T07:54:49.896251
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Trey McBride,Receiving Yards,Over,63.5,1.869,0.5350455,0.5,2025-09-03T07:54:49.896541
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Trey McBride,Receiving Yards,Under,63.5,1.869,0.5350455,0.5,2025-09-03T07:54:49.896541
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Trey McBride,Receptions,Over,6.5,2.150,0.46511626,0.43465683,2025-09-03T07:54:49.896832
+2025-09-07,1,Arizona Cardinals,New Orleans Saints,Trey McBride,Receptions,Under,6.5,1.653,0.6049607,0.56534314,2025-09-03T07:54:49.896832
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Brock Purdy,Pass Attempts,Over,31.5,1.869,0.5350455,0.5,2025-09-03T07:54:51.325280
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Brock Purdy,Pass Attempts,Under,31.5,1.869,0.5350455,0.5,2025-09-03T07:54:51.325280
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Brock Purdy,Pass Completions,Over,21.5,1.980,0.5050505,0.47270304,2025-09-03T07:54:51.325525
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Brock Purdy,Pass Completions,Under,21.5,1.775,0.5633803,0.52729696,2025-09-03T07:54:51.325525
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Brock Purdy,Passing Yards,Over,245.5,1.869,0.5350455,0.5,2025-09-03T07:54:51.325797
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Brock Purdy,Passing Yards,Under,245.5,1.869,0.5350455,0.5,2025-09-03T07:54:51.325797
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Brock Purdy,Rushing Yards,Over,12.5,1.819,0.5497526,0.5141559,2025-09-03T07:54:51.326109
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Brock Purdy,Rushing Yards,Under,12.5,1.925,0.5194805,0.48584402,2025-09-03T07:54:51.326109
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Brock Purdy,Touchdown Passes,Over,1.5,1.934,0.5170631,0.4838538,2025-09-03T07:54:51.326389
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Brock Purdy,Touchdown Passes,Under,1.5,1.813,0.55157197,0.5161463,2025-09-03T07:54:51.326389
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Christian McCaffrey,Receiving Yards,Over,34.5,1.854,0.53937435,0.5040129,2025-09-03T07:54:51.326664
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Christian McCaffrey,Receiving Yards,Under,34.5,1.884,0.53078556,0.49598715,2025-09-03T07:54:51.326664
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Christian McCaffrey,Receptions,Over,4.5,2.160,0.46296296,0.432922,2025-09-03T07:54:51.326954
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Christian McCaffrey,Receptions,Under,4.5,1.649,0.60642815,0.567078,2025-09-03T07:54:51.326954
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Christian McCaffrey,Rushing Yards,Over,72.5,1.862,0.5370569,0.5020059,2025-09-03T07:54:51.327201
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Christian McCaffrey,Rushing Yards,Under,72.5,1.877,0.53276503,0.4979941,2025-09-03T07:54:51.327201
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Cooper Kupp,Receiving Yards,Over,35.5,1.632,0.6127451,0.57299846,2025-09-03T07:54:51.327464
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Cooper Kupp,Receiving Yards,Under,35.5,2.190,0.456621,0.42700157,2025-09-03T07:54:51.327464
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Cooper Kupp,Receptions,Over,3.5,1.884,0.53078556,0.49598715,2025-09-03T07:54:51.327717
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Cooper Kupp,Receptions,Under,3.5,1.854,0.53937435,0.5040129,2025-09-03T07:54:51.327717
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,George Kittle,Receiving Yards,Over,64.5,1.869,0.5350455,0.5,2025-09-03T07:54:51.327957
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,George Kittle,Receiving Yards,Under,64.5,1.869,0.5350455,0.5,2025-09-03T07:54:51.327957
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,George Kittle,Receptions,Over,4.5,1.675,0.59701496,0.5574637,2025-09-03T07:54:51.328221
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,George Kittle,Receptions,Under,4.5,2.110,0.47393367,0.44253632,2025-09-03T07:54:51.328221
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Jaxon Smith-Njigba,Receiving Yards,Over,58.5,1.869,0.5350455,0.5,2025-09-03T07:54:51.328469
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Jaxon Smith-Njigba,Receiving Yards,Under,58.5,1.869,0.5350455,0.5,2025-09-03T07:54:51.328469
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Jaxon Smith-Njigba,Receptions,Over,4.5,1.617,0.6184292,0.57747585,2025-09-03T07:54:51.328711
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Jaxon Smith-Njigba,Receptions,Under,4.5,2.210,0.4524887,0.42252418,2025-09-03T07:54:51.328711
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Kenneth Walker,Rushing Yards,Over,62.5,2.120,0.47169814,0.44078082,2025-09-03T07:54:51.328947
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Kenneth Walker,Rushing Yards,Under,62.5,1.671,0.59844404,0.5592192,2025-09-03T07:54:51.328947
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Sam Darnold,Pass Attempts,Over,29.5,1.862,0.5370569,0.5020059,2025-09-03T07:54:51.329180
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Sam Darnold,Pass Attempts,Under,29.5,1.877,0.53276503,0.4979941,2025-09-03T07:54:51.329180
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Sam Darnold,Pass Completions,Over,19.5,1.781,0.5614823,0.5251933,2025-09-03T07:54:51.329418
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Sam Darnold,Pass Completions,Under,19.5,1.970,0.5076142,0.4748067,2025-09-03T07:54:51.329418
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Sam Darnold,Passing Yards,Over,205.5,1.869,0.5350455,0.5,2025-09-03T07:54:51.329656
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Sam Darnold,Passing Yards,Under,205.5,1.869,0.5350455,0.5,2025-09-03T07:54:51.329656
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Sam Darnold,Rushing Yards,Over,8.5,1.869,0.5350455,0.5,2025-09-03T07:54:51.329907
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Sam Darnold,Rushing Yards,Under,8.5,1.869,0.5350455,0.5,2025-09-03T07:54:51.329907
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Sam Darnold,Touchdown Passes,Over,1.5,2.190,0.456621,0.42640126,2025-09-03T07:54:51.330158
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Sam Darnold,Touchdown Passes,Under,1.5,1.628,0.6142506,0.57359874,2025-09-03T07:54:51.330158
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Zach Charbonnet,Rushing Yards,Over,31.5,2.100,0.4761905,0.44576406,2025-09-03T07:54:51.330402
+2025-09-07,1,San Francisco 49ers,Seattle Seahawks,Zach Charbonnet,Rushing Yards,Under,31.5,1.689,0.5920663,0.5542359,2025-09-03T07:54:51.330402
+2025-09-07,1,Tennessee Titans,Denver Broncos,Bo Nix,Pass Attempts,Over,31.5,1.917,0.5216484,0.487844,2025-09-03T07:54:52.760701
+2025-09-07,1,Tennessee Titans,Denver Broncos,Bo Nix,Pass Attempts,Under,31.5,1.826,0.54764515,0.51215607,2025-09-03T07:54:52.760701
+2025-09-07,1,Tennessee Titans,Denver Broncos,Bo Nix,Pass Completions,Over,20.5,1.757,0.569152,0.53233963,2025-09-03T07:54:52.760930
+2025-09-07,1,Tennessee Titans,Denver Broncos,Bo Nix,Pass Completions,Under,20.5,2.000,0.5,0.46766034,2025-09-03T07:54:52.760930
+2025-09-07,1,Tennessee Titans,Denver Broncos,Bo Nix,Passing Yards,Over,210.5,1.869,0.5350455,0.5,2025-09-03T07:54:52.761169
+2025-09-07,1,Tennessee Titans,Denver Broncos,Bo Nix,Passing Yards,Under,210.5,1.869,0.5350455,0.5,2025-09-03T07:54:52.761169
+2025-09-07,1,Tennessee Titans,Denver Broncos,Bo Nix,Rushing Yards,Over,18.5,1.806,0.55370986,0.5171123,2025-09-03T07:54:52.761367
+2025-09-07,1,Tennessee Titans,Denver Broncos,Bo Nix,Rushing Yards,Under,18.5,1.934,0.5170631,0.48288772,2025-09-03T07:54:52.761367
+2025-09-07,1,Tennessee Titans,Denver Broncos,Bo Nix,Touchdown Passes,Over,1.5,1.826,0.54764515,0.51215607,2025-09-03T07:54:52.761592
+2025-09-07,1,Tennessee Titans,Denver Broncos,Bo Nix,Touchdown Passes,Under,1.5,1.917,0.5216484,0.487844,2025-09-03T07:54:52.761592
+2025-09-07,1,Tennessee Titans,Denver Broncos,Calvin Ridley,Receiving Yards,Over,53.5,1.943,0.51466805,0.48172843,2025-09-03T07:54:52.761804
+2025-09-07,1,Tennessee Titans,Denver Broncos,Calvin Ridley,Receiving Yards,Under,53.5,1.806,0.55370986,0.5182715,2025-09-03T07:54:52.761804
+2025-09-07,1,Tennessee Titans,Denver Broncos,Calvin Ridley,Receptions,Over,4.5,2.280,0.4385965,0.40993792,2025-09-03T07:54:52.762042
+2025-09-07,1,Tennessee Titans,Denver Broncos,Calvin Ridley,Receptions,Under,4.5,1.584,0.63131315,0.59006214,2025-09-03T07:54:52.762042
+2025-09-07,1,Tennessee Titans,Denver Broncos,Cam Ward,Pass Attempts,Over,31.5,1.961,0.5099439,0.47678763,2025-09-03T07:54:52.762308
+2025-09-07,1,Tennessee Titans,Denver Broncos,Cam Ward,Pass Attempts,Under,31.5,1.787,0.55959713,0.52321243,2025-09-03T07:54:52.762308
+2025-09-07,1,Tennessee Titans,Denver Broncos,Cam Ward,Pass Completions,Over,19.5,1.819,0.5497526,0.5141559,2025-09-03T07:54:52.762508
+2025-09-07,1,Tennessee Titans,Denver Broncos,Cam Ward,Pass Completions,Under,19.5,1.925,0.5194805,0.48584402,2025-09-03T07:54:52.762508
+2025-09-07,1,Tennessee Titans,Denver Broncos,Cam Ward,Passing Yards,Over,191.5,1.869,0.5350455,0.5,2025-09-03T07:54:52.762708
+2025-09-07,1,Tennessee Titans,Denver Broncos,Cam Ward,Passing Yards,Under,191.5,1.869,0.5350455,0.5,2025-09-03T07:54:52.762708
+2025-09-07,1,Tennessee Titans,Denver Broncos,Cam Ward,Rushing Yards,Over,13.5,1.869,0.5350455,0.5,2025-09-03T07:54:52.762945
+2025-09-07,1,Tennessee Titans,Denver Broncos,Cam Ward,Rushing Yards,Under,13.5,1.869,0.5350455,0.5,2025-09-03T07:54:52.762945
+2025-09-07,1,Tennessee Titans,Denver Broncos,Cam Ward,Touchdown Passes,Over,0.5,1.446,0.69156295,0.6461086,2025-09-03T07:54:52.763143
+2025-09-07,1,Tennessee Titans,Denver Broncos,Cam Ward,Touchdown Passes,Under,0.5,2.640,0.37878788,0.3538913,2025-09-03T07:54:52.763143
+2025-09-07,1,Tennessee Titans,Denver Broncos,Chig Okonkwo,Receiving Yards,Over,32.5,2.040,0.49019608,0.45874235,2025-09-03T07:54:52.763354
+2025-09-07,1,Tennessee Titans,Denver Broncos,Chig Okonkwo,Receiving Yards,Under,32.5,1.729,0.578369,0.5412576,2025-09-03T07:54:52.763354
+2025-09-07,1,Tennessee Titans,Denver Broncos,Chig Okonkwo,Receptions,Over,3.5,1.970,0.5076142,0.4748067,2025-09-03T07:54:52.763599
+2025-09-07,1,Tennessee Titans,Denver Broncos,Chig Okonkwo,Receptions,Under,3.5,1.781,0.5614823,0.5251933,2025-09-03T07:54:52.763599
+2025-09-07,1,Tennessee Titans,Denver Broncos,Courtland Sutton,Receiving Yards,Over,58.5,1.869,0.5350455,0.5,2025-09-03T07:54:52.763821
+2025-09-07,1,Tennessee Titans,Denver Broncos,Courtland Sutton,Receiving Yards,Under,58.5,1.869,0.5350455,0.5,2025-09-03T07:54:52.763821
+2025-09-07,1,Tennessee Titans,Denver Broncos,Courtland Sutton,Receptions,Over,4.5,1.787,0.55959713,0.52321243,2025-09-03T07:54:52.764015
+2025-09-07,1,Tennessee Titans,Denver Broncos,Courtland Sutton,Receptions,Under,4.5,1.961,0.5099439,0.47678763,2025-09-03T07:54:52.764015
+2025-09-07,1,Tennessee Titans,Denver Broncos,Evan Engram,Receiving Yards,Over,34.5,1.869,0.5350455,0.5,2025-09-03T07:54:52.764268
+2025-09-07,1,Tennessee Titans,Denver Broncos,Evan Engram,Receiving Yards,Under,34.5,1.869,0.5350455,0.5,2025-09-03T07:54:52.764268
+2025-09-07,1,Tennessee Titans,Denver Broncos,Evan Engram,Receptions,Over,3.5,1.625,0.61538464,0.5751634,2025-09-03T07:54:52.764454
+2025-09-07,1,Tennessee Titans,Denver Broncos,Evan Engram,Receptions,Under,3.5,2.200,0.45454544,0.42483658,2025-09-03T07:54:52.764454
+2025-09-07,1,Tennessee Titans,Denver Broncos,Marvin Mims,Receiving Yards,Over,37.5,2.080,0.48076925,0.44958988,2025-09-03T07:54:52.764764
+2025-09-07,1,Tennessee Titans,Denver Broncos,Marvin Mims,Receiving Yards,Under,37.5,1.699,0.5885815,0.55041015,2025-09-03T07:54:52.764764
+2025-09-07,1,Tennessee Titans,Denver Broncos,Marvin Mims,Receptions,Over,3.5,2.390,0.41841003,0.39092764,2025-09-03T07:54:52.764959
+2025-09-07,1,Tennessee Titans,Denver Broncos,Marvin Mims,Receptions,Under,3.5,1.534,0.65189046,0.6090724,2025-09-03T07:54:52.764959
+2025-09-07,1,Tennessee Titans,Denver Broncos,RJ Harvey,Receiving Yards,Over,12.5,1.854,0.53937435,0.5040129,2025-09-03T07:54:52.765142
+2025-09-07,1,Tennessee Titans,Denver Broncos,RJ Harvey,Receiving Yards,Under,12.5,1.884,0.53078556,0.49598715,2025-09-03T07:54:52.765142
+2025-09-07,1,Tennessee Titans,Denver Broncos,RJ Harvey,Receptions,Over,2.5,2.430,0.41152263,0.38481012,2025-09-03T07:54:52.765325
+2025-09-07,1,Tennessee Titans,Denver Broncos,RJ Harvey,Receptions,Under,2.5,1.520,0.65789473,0.61518985,2025-09-03T07:54:52.765325
+2025-09-07,1,Tennessee Titans,Denver Broncos,RJ Harvey,Rushing Yards,Over,32.5,1.826,0.54764515,0.51215607,2025-09-03T07:54:52.765605
+2025-09-07,1,Tennessee Titans,Denver Broncos,RJ Harvey,Rushing Yards,Under,32.5,1.917,0.5216484,0.487844,2025-09-03T07:54:52.765605
+2025-09-07,1,Tennessee Titans,Denver Broncos,Tony Pollard,Receiving Yards,Over,14.5,2.010,0.49751243,0.46556768,2025-09-03T07:54:52.765780
+2025-09-07,1,Tennessee Titans,Denver Broncos,Tony Pollard,Receiving Yards,Under,14.5,1.751,0.5711022,0.53443235,2025-09-03T07:54:52.765780
+2025-09-07,1,Tennessee Titans,Denver Broncos,Tony Pollard,Receptions,Over,2.5,1.724,0.5800464,0.54197663,2025-09-03T07:54:52.765955
+2025-09-07,1,Tennessee Titans,Denver Broncos,Tony Pollard,Receptions,Under,2.5,2.040,0.49019608,0.45802337,2025-09-03T07:54:52.765955
+2025-09-07,1,Tennessee Titans,Denver Broncos,Tony Pollard,Rushing Yards,Over,63.5,1.869,0.5350455,0.5,2025-09-03T07:54:52.766183
+2025-09-07,1,Tennessee Titans,Denver Broncos,Tony Pollard,Rushing Yards,Under,63.5,1.869,0.5350455,0.5,2025-09-03T07:54:52.766183
+2025-09-07,1,Tennessee Titans,Denver Broncos,Troy Franklin,Receiving Yards,Over,20.5,1.990,0.5025126,0.46975753,2025-09-03T07:54:52.766422
+2025-09-07,1,Tennessee Titans,Denver Broncos,Troy Franklin,Receiving Yards,Under,20.5,1.763,0.56721497,0.53024244,2025-09-03T07:54:52.766422
+2025-09-07,1,Tennessee Titans,Denver Broncos,Troy Franklin,Receptions,Over,2.5,2.950,0.33898306,0.31697154,2025-09-03T07:54:52.766681
+2025-09-07,1,Tennessee Titans,Denver Broncos,Troy Franklin,Receptions,Under,2.5,1.369,0.7304602,0.6830285,2025-09-03T07:54:52.766681
+2025-09-07,1,Tennessee Titans,Denver Broncos,Tyler Lockett,Receiving Yards,Over,21.5,1.854,0.53937435,0.5040129,2025-09-03T07:54:52.766957
+2025-09-07,1,Tennessee Titans,Denver Broncos,Tyler Lockett,Receiving Yards,Under,21.5,1.884,0.53078556,0.49598715,2025-09-03T07:54:52.766957
+2025-09-07,1,Tennessee Titans,Denver Broncos,Tyler Lockett,Receptions,Over,2.5,2.180,0.4587156,0.4287212,2025-09-03T07:54:52.767232
+2025-09-07,1,Tennessee Titans,Denver Broncos,Tyler Lockett,Receptions,Under,2.5,1.636,0.61124694,0.57127887,2025-09-03T07:54:52.767232
+2025-09-07,1,Detroit Lions,Green Bay Packers,Amon-Ra St. Brown,Receiving Yards,Over,66.5,1.869,0.5350455,0.5,2025-09-03T07:54:54.148325
+2025-09-07,1,Detroit Lions,Green Bay Packers,Amon-Ra St. Brown,Receiving Yards,Under,66.5,1.869,0.5350455,0.5,2025-09-03T07:54:54.148325
+2025-09-07,1,Detroit Lions,Green Bay Packers,Amon-Ra St. Brown,Receptions,Over,6.5,2.080,0.48076925,0.44958988,2025-09-03T07:54:54.148637
+2025-09-07,1,Detroit Lions,Green Bay Packers,Amon-Ra St. Brown,Receptions,Under,6.5,1.699,0.5885815,0.55041015,2025-09-03T07:54:54.148637
+2025-09-07,1,Detroit Lions,Green Bay Packers,David Montgomery,Rushing Yards,Over,42.5,1.869,0.5350455,0.5,2025-09-03T07:54:54.148922
+2025-09-07,1,Detroit Lions,Green Bay Packers,David Montgomery,Rushing Yards,Under,42.5,1.869,0.5350455,0.5,2025-09-03T07:54:54.148922
+2025-09-07,1,Detroit Lions,Green Bay Packers,Isaac TeSlaa,Receiving Yards,Over,20.5,2.130,0.46948355,0.43829113,2025-09-03T07:54:54.149156
+2025-09-07,1,Detroit Lions,Green Bay Packers,Isaac TeSlaa,Receiving Yards,Under,20.5,1.662,0.60168475,0.56170887,2025-09-03T07:54:54.149156
+2025-09-07,1,Detroit Lions,Green Bay Packers,Isaac TeSlaa,Receptions,Over,1.5,1.840,0.54347825,0.50802135,2025-09-03T07:54:54.149381
+2025-09-07,1,Detroit Lions,Green Bay Packers,Isaac TeSlaa,Receptions,Under,1.5,1.900,0.5263158,0.49197862,2025-09-03T07:54:54.149381
+2025-09-07,1,Detroit Lions,Green Bay Packers,Jahmyr Gibbs,Receiving Yards,Over,23.5,1.854,0.53937435,0.5040129,2025-09-03T07:54:54.149588
+2025-09-07,1,Detroit Lions,Green Bay Packers,Jahmyr Gibbs,Receiving Yards,Under,23.5,1.884,0.53078556,0.49598715,2025-09-03T07:54:54.149588
+2025-09-07,1,Detroit Lions,Green Bay Packers,Jahmyr Gibbs,Receptions,Over,2.5,1.487,0.67249495,0.62889946,2025-09-03T07:54:54.149844
+2025-09-07,1,Detroit Lions,Green Bay Packers,Jahmyr Gibbs,Receptions,Under,2.5,2.520,0.3968254,0.3711006,2025-09-03T07:54:54.149844
+2025-09-07,1,Detroit Lions,Green Bay Packers,Jahmyr Gibbs,Rushing Yards,Over,68.5,2.000,0.5,0.46766034,2025-09-03T07:54:54.150056
+2025-09-07,1,Detroit Lions,Green Bay Packers,Jahmyr Gibbs,Rushing Yards,Under,68.5,1.757,0.569152,0.53233963,2025-09-03T07:54:54.150056
+2025-09-07,1,Detroit Lions,Green Bay Packers,Jameson Williams,Receiving Yards,Over,52.5,1.869,0.5350455,0.5,2025-09-03T07:54:54.150334
+2025-09-07,1,Detroit Lions,Green Bay Packers,Jameson Williams,Receiving Yards,Under,52.5,1.869,0.5350455,0.5,2025-09-03T07:54:54.150334
+2025-09-07,1,Detroit Lions,Green Bay Packers,Jameson Williams,Receptions,Over,3.5,1.763,0.56721497,0.53024244,2025-09-03T07:54:54.150535
+2025-09-07,1,Detroit Lions,Green Bay Packers,Jameson Williams,Receptions,Under,3.5,1.990,0.5025126,0.46975753,2025-09-03T07:54:54.150535
+2025-09-07,1,Detroit Lions,Green Bay Packers,Jared Goff,Pass Attempts,Over,32.5,1.877,0.53276503,0.4979941,2025-09-03T07:54:54.150730
+2025-09-07,1,Detroit Lions,Green Bay Packers,Jared Goff,Pass Attempts,Under,32.5,1.862,0.5370569,0.5020059,2025-09-03T07:54:54.150730
+2025-09-07,1,Detroit Lions,Green Bay Packers,Jared Goff,Pass Completions,Over,22.5,1.854,0.53937435,0.5040129,2025-09-03T07:54:54.150930
+2025-09-07,1,Detroit Lions,Green Bay Packers,Jared Goff,Pass Completions,Under,22.5,1.884,0.53078556,0.49598715,2025-09-03T07:54:54.150930
+2025-09-07,1,Detroit Lions,Green Bay Packers,Jared Goff,Passing Yards,Over,241.5,1.869,0.5350455,0.5,2025-09-03T07:54:54.151119
+2025-09-07,1,Detroit Lions,Green Bay Packers,Jared Goff,Passing Yards,Under,241.5,1.869,0.5350455,0.5,2025-09-03T07:54:54.151119
+2025-09-07,1,Detroit Lions,Green Bay Packers,Jared Goff,Touchdown Passes,Over,1.5,1.840,0.54347825,0.50802135,2025-09-03T07:54:54.151373
+2025-09-07,1,Detroit Lions,Green Bay Packers,Jared Goff,Touchdown Passes,Under,1.5,1.900,0.5263158,0.49197862,2025-09-03T07:54:54.151373
+2025-09-07,1,Detroit Lions,Green Bay Packers,Jordan Love,Pass Attempts,Over,30.5,1.869,0.5350455,0.5,2025-09-03T07:54:54.151623
+2025-09-07,1,Detroit Lions,Green Bay Packers,Jordan Love,Pass Attempts,Under,30.5,1.869,0.5350455,0.5,2025-09-03T07:54:54.151623
+2025-09-07,1,Detroit Lions,Green Bay Packers,Jordan Love,Pass Completions,Over,20.5,1.892,0.52854127,0.49398237,2025-09-03T07:54:54.151842
+2025-09-07,1,Detroit Lions,Green Bay Packers,Jordan Love,Pass Completions,Under,20.5,1.847,0.5414185,0.5060176,2025-09-03T07:54:54.151842
+2025-09-07,1,Detroit Lions,Green Bay Packers,Jordan Love,Passing Yards,Over,234.5,1.869,0.5350455,0.5,2025-09-03T07:54:54.152046
+2025-09-07,1,Detroit Lions,Green Bay Packers,Jordan Love,Passing Yards,Under,234.5,1.869,0.5350455,0.5,2025-09-03T07:54:54.152046
+2025-09-07,1,Detroit Lions,Green Bay Packers,Jordan Love,Touchdown Passes,Over,1.5,1.917,0.5216484,0.4868844,2025-09-03T07:54:54.152294
+2025-09-07,1,Detroit Lions,Green Bay Packers,Jordan Love,Touchdown Passes,Under,1.5,1.819,0.5497526,0.51311564,2025-09-03T07:54:54.152294
+2025-09-07,1,Detroit Lions,Green Bay Packers,Josh Jacobs,Receiving Yards,Over,14.5,1.869,0.5350455,0.5,2025-09-03T07:54:54.152529
+2025-09-07,1,Detroit Lions,Green Bay Packers,Josh Jacobs,Receiving Yards,Under,14.5,1.869,0.5350455,0.5,2025-09-03T07:54:54.152529
+2025-09-07,1,Detroit Lions,Green Bay Packers,Josh Jacobs,Receptions,Over,2.5,2.480,0.4032258,0.3764144,2025-09-03T07:54:54.152732
+2025-09-07,1,Detroit Lions,Green Bay Packers,Josh Jacobs,Receptions,Under,2.5,1.497,0.66800267,0.6235856,2025-09-03T07:54:54.152732
+2025-09-07,1,Detroit Lions,Green Bay Packers,Josh Jacobs,Rushing Yards,Over,72.5,1.869,0.5350455,0.5,2025-09-03T07:54:54.152940
+2025-09-07,1,Detroit Lions,Green Bay Packers,Josh Jacobs,Rushing Yards,Under,72.5,1.869,0.5350455,0.5,2025-09-03T07:54:54.152940
+2025-09-07,1,Detroit Lions,Green Bay Packers,Matthew Golden,Receiving Yards,Over,47.5,1.869,0.5350455,0.5,2025-09-03T07:54:54.153171
+2025-09-07,1,Detroit Lions,Green Bay Packers,Matthew Golden,Receiving Yards,Under,47.5,1.869,0.5350455,0.5,2025-09-03T07:54:54.153171
+2025-09-07,1,Detroit Lions,Green Bay Packers,Matthew Golden,Receptions,Over,3.5,1.561,0.640615,0.59881777,2025-09-03T07:54:54.153400
+2025-09-07,1,Detroit Lions,Green Bay Packers,Matthew Golden,Receptions,Under,3.5,2.330,0.42918456,0.40118223,2025-09-03T07:54:54.153400
+2025-09-07,1,Detroit Lions,Green Bay Packers,Sam LaPorta,Receiving Yards,Over,38.5,1.854,0.53937435,0.5040129,2025-09-03T07:54:54.153605
+2025-09-07,1,Detroit Lions,Green Bay Packers,Sam LaPorta,Receiving Yards,Under,38.5,1.884,0.53078556,0.49598715,2025-09-03T07:54:54.153605
+2025-09-07,1,Detroit Lions,Green Bay Packers,Sam LaPorta,Receptions,Over,3.5,1.632,0.6127451,0.57299846,2025-09-03T07:54:54.153789
+2025-09-07,1,Detroit Lions,Green Bay Packers,Sam LaPorta,Receptions,Under,3.5,2.190,0.456621,0.42700157,2025-09-03T07:54:54.153789
+2025-09-07,1,Detroit Lions,Green Bay Packers,Tucker Kraft,Receiving Yards,Over,34.5,1.724,0.5800464,0.54197663,2025-09-03T07:54:54.154018
+2025-09-07,1,Detroit Lions,Green Bay Packers,Tucker Kraft,Receiving Yards,Under,34.5,2.040,0.49019608,0.45802337,2025-09-03T07:54:54.154018
+2025-09-07,1,Detroit Lions,Green Bay Packers,Tucker Kraft,Receptions,Over,3.5,2.150,0.46511626,0.43465683,2025-09-03T07:54:54.154246
+2025-09-07,1,Detroit Lions,Green Bay Packers,Tucker Kraft,Receptions,Under,3.5,1.653,0.6049607,0.56534314,2025-09-03T07:54:54.154246
+2025-09-07,1,Houston Texans,Los Angeles Rams,C.J. Stroud,Pass Attempts,Over,31.5,1.735,0.57636887,0.5379494,2025-09-03T07:54:55.557674
+2025-09-07,1,Houston Texans,Los Angeles Rams,C.J. Stroud,Pass Attempts,Under,31.5,2.020,0.4950495,0.4620506,2025-09-03T07:54:55.557674
+2025-09-07,1,Houston Texans,Los Angeles Rams,C.J. Stroud,Pass Completions,Over,20.5,1.925,0.5194805,0.48584402,2025-09-03T07:54:55.557965
+2025-09-07,1,Houston Texans,Los Angeles Rams,C.J. Stroud,Pass Completions,Under,20.5,1.819,0.5497526,0.5141559,2025-09-03T07:54:55.557965
+2025-09-07,1,Houston Texans,Los Angeles Rams,C.J. Stroud,Passing Yards,Over,231.5,1.869,0.5350455,0.5,2025-09-03T07:54:55.558212
+2025-09-07,1,Houston Texans,Los Angeles Rams,C.J. Stroud,Passing Yards,Under,231.5,1.869,0.5350455,0.5,2025-09-03T07:54:55.558212
+2025-09-07,1,Houston Texans,Los Angeles Rams,C.J. Stroud,Rushing Yards,Over,11.5,1.869,0.5350455,0.5,2025-09-03T07:54:55.558496
+2025-09-07,1,Houston Texans,Los Angeles Rams,C.J. Stroud,Rushing Yards,Under,11.5,1.869,0.5350455,0.5,2025-09-03T07:54:55.558496
+2025-09-07,1,Houston Texans,Los Angeles Rams,C.J. Stroud,Touchdown Passes,Over,1.5,2.200,0.45454544,0.42483658,2025-09-03T07:54:55.558739
+2025-09-07,1,Houston Texans,Los Angeles Rams,C.J. Stroud,Touchdown Passes,Under,1.5,1.625,0.61538464,0.5751634,2025-09-03T07:54:55.558739
+2025-09-07,1,Houston Texans,Los Angeles Rams,Christian Kirk,Receiving Yards,Over,39.5,1.704,0.58685446,0.54848963,2025-09-03T07:54:55.559007
+2025-09-07,1,Houston Texans,Los Angeles Rams,Christian Kirk,Receiving Yards,Under,39.5,2.070,0.4830918,0.45151034,2025-09-03T07:54:55.559007
+2025-09-07,1,Houston Texans,Los Angeles Rams,Christian Kirk,Receptions,Over,3.5,2.000,0.5,0.46766034,2025-09-03T07:54:55.559292
+2025-09-07,1,Houston Texans,Los Angeles Rams,Christian Kirk,Receptions,Under,3.5,1.757,0.569152,0.53233963,2025-09-03T07:54:55.559292
+2025-09-07,1,Houston Texans,Los Angeles Rams,Dalton Schultz,Receiving Yards,Over,23.5,1.869,0.5350455,0.5,2025-09-03T07:54:55.559645
+2025-09-07,1,Houston Texans,Los Angeles Rams,Dalton Schultz,Receiving Yards,Under,23.5,1.869,0.5350455,0.5,2025-09-03T07:54:55.559645
+2025-09-07,1,Houston Texans,Los Angeles Rams,Dalton Schultz,Receptions,Over,2.5,1.775,0.5633803,0.52729696,2025-09-03T07:54:55.559914
+2025-09-07,1,Houston Texans,Los Angeles Rams,Dalton Schultz,Receptions,Under,2.5,1.980,0.5050505,0.47270304,2025-09-03T07:54:55.559914
+2025-09-07,1,Houston Texans,Los Angeles Rams,Davante Adams,Receiving Yards,Over,56.5,1.869,0.5350455,0.5,2025-09-03T07:54:55.560185
+2025-09-07,1,Houston Texans,Los Angeles Rams,Davante Adams,Receiving Yards,Under,56.5,1.869,0.5350455,0.5,2025-09-03T07:54:55.560185
+2025-09-07,1,Houston Texans,Los Angeles Rams,Davante Adams,Receptions,Over,4.5,1.657,0.6035003,0.5636028,2025-09-03T07:54:55.560474
+2025-09-07,1,Houston Texans,Los Angeles Rams,Davante Adams,Receptions,Under,4.5,2.140,0.4672897,0.4363971,2025-09-03T07:54:55.560474
+2025-09-07,1,Houston Texans,Los Angeles Rams,Kyren Williams,Receiving Yards,Over,9.5,1.819,0.5497526,0.5141559,2025-09-03T07:54:55.560694
+2025-09-07,1,Houston Texans,Los Angeles Rams,Kyren Williams,Receiving Yards,Under,9.5,1.925,0.5194805,0.48584402,2025-09-03T07:54:55.560694
+2025-09-07,1,Houston Texans,Los Angeles Rams,Kyren Williams,Receptions,Over,1.5,1.543,0.64808816,0.6056734,2025-09-03T07:54:55.560956
+2025-09-07,1,Houston Texans,Los Angeles Rams,Kyren Williams,Receptions,Under,1.5,2.370,0.42194095,0.3943266,2025-09-03T07:54:55.560956
+2025-09-07,1,Houston Texans,Los Angeles Rams,Kyren Williams,Rushing Yards,Over,66.5,1.862,0.5370569,0.5020059,2025-09-03T07:54:55.561208
+2025-09-07,1,Houston Texans,Los Angeles Rams,Kyren Williams,Rushing Yards,Under,66.5,1.877,0.53276503,0.4979941,2025-09-03T07:54:55.561208
+2025-09-07,1,Houston Texans,Los Angeles Rams,Matthew Stafford,Pass Attempts,Over,32.5,1.735,0.57636887,0.5391766,2025-09-03T07:54:55.561544
+2025-09-07,1,Houston Texans,Los Angeles Rams,Matthew Stafford,Pass Attempts,Under,32.5,2.030,0.49261084,0.46082336,2025-09-03T07:54:55.561544
+2025-09-07,1,Houston Texans,Los Angeles Rams,Matthew Stafford,Pass Completions,Over,20.5,1.689,0.5920663,0.55305636,2025-09-03T07:54:55.561770
+2025-09-07,1,Houston Texans,Los Angeles Rams,Matthew Stafford,Pass Completions,Under,20.5,2.090,0.47846892,0.44694367,2025-09-03T07:54:55.561770
+2025-09-07,1,Houston Texans,Los Angeles Rams,Matthew Stafford,Passing Yards,Over,233.5,1.869,0.5350455,0.5,2025-09-03T07:54:55.562113
+2025-09-07,1,Houston Texans,Los Angeles Rams,Matthew Stafford,Passing Yards,Under,233.5,1.869,0.5350455,0.5,2025-09-03T07:54:55.562113
+2025-09-07,1,Houston Texans,Los Angeles Rams,Matthew Stafford,Touchdown Passes,Over,1.5,1.990,0.5025126,0.46975753,2025-09-03T07:54:55.562321
+2025-09-07,1,Houston Texans,Los Angeles Rams,Matthew Stafford,Touchdown Passes,Under,1.5,1.763,0.56721497,0.53024244,2025-09-03T07:54:55.562321
+2025-09-07,1,Houston Texans,Los Angeles Rams,Nick Chubb,Rushing Yards,Over,44.5,2.020,0.4950495,0.46276596,2025-09-03T07:54:55.562895
+2025-09-07,1,Houston Texans,Los Angeles Rams,Nick Chubb,Rushing Yards,Under,44.5,1.740,0.57471263,0.53723407,2025-09-03T07:54:55.562895
+2025-09-07,1,Houston Texans,Los Angeles Rams,Nico Collins,Receiving Yards,Over,78.5,1.833,0.54555374,0.510155,2025-09-03T07:54:55.563125
+2025-09-07,1,Houston Texans,Los Angeles Rams,Nico Collins,Receiving Yards,Under,78.5,1.909,0.52383447,0.48984504,2025-09-03T07:54:55.563125
+2025-09-07,1,Houston Texans,Los Angeles Rams,Nico Collins,Receptions,Over,5.5,1.751,0.5711022,0.53443235,2025-09-03T07:54:55.563484
+2025-09-07,1,Houston Texans,Los Angeles Rams,Nico Collins,Receptions,Under,5.5,2.010,0.49751243,0.46556768,2025-09-03T07:54:55.563484
+2025-09-07,1,Houston Texans,Los Angeles Rams,Puka Nacua,Receiving Yards,Over,74.5,1.869,0.5350455,0.5,2025-09-03T07:54:55.563685
+2025-09-07,1,Houston Texans,Los Angeles Rams,Puka Nacua,Receiving Yards,Under,74.5,1.869,0.5350455,0.5,2025-09-03T07:54:55.563685
+2025-09-07,1,Houston Texans,Los Angeles Rams,Puka Nacua,Receptions,Over,6.5,2.060,0.48543692,0.45343596,2025-09-03T07:54:55.563985
+2025-09-07,1,Houston Texans,Los Angeles Rams,Puka Nacua,Receptions,Under,6.5,1.709,0.5851375,0.54656404,2025-09-03T07:54:55.563985
+2025-09-07,1,Houston Texans,Los Angeles Rams,Tutu Atwell,Receiving Yards,Over,22.5,1.869,0.5350455,0.5,2025-09-03T07:54:55.564247
+2025-09-07,1,Houston Texans,Los Angeles Rams,Tutu Atwell,Receiving Yards,Under,22.5,1.869,0.5350455,0.5,2025-09-03T07:54:55.564247
+2025-09-07,1,Houston Texans,Los Angeles Rams,Tutu Atwell,Receptions,Over,2.5,2.480,0.4032258,0.3768844,2025-09-03T07:54:55.564931
+2025-09-07,1,Houston Texans,Los Angeles Rams,Tutu Atwell,Receptions,Under,2.5,1.500,0.6666667,0.62311554,2025-09-03T07:54:55.564931
+2025-09-07,1,Houston Texans,Los Angeles Rams,Tyler Higbee,Receiving Yards,Over,22.5,1.869,0.5350455,0.5,2025-09-03T07:54:55.565246
+2025-09-07,1,Houston Texans,Los Angeles Rams,Tyler Higbee,Receiving Yards,Under,22.5,1.869,0.5350455,0.5,2025-09-03T07:54:55.565246
+2025-09-07,1,Houston Texans,Los Angeles Rams,Tyler Higbee,Receptions,Over,2.5,1.869,0.5350455,0.5,2025-09-03T07:54:55.565446
+2025-09-07,1,Houston Texans,Los Angeles Rams,Tyler Higbee,Receptions,Under,2.5,1.869,0.5350455,0.5,2025-09-03T07:54:55.565446
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Derrick Henry,Rushing Yards,Over,83.5,1.869,0.5350455,0.5,2025-09-03T07:54:57.438845
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Derrick Henry,Rushing Yards,Under,83.5,1.869,0.5350455,0.5,2025-09-03T07:54:57.438845
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,James Cook,Rushing Yards,Over,54.5,1.869,0.5350455,0.5,2025-09-03T07:54:57.439096
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,James Cook,Rushing Yards,Under,54.5,1.869,0.5350455,0.5,2025-09-03T07:54:57.439096
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Josh Allen,Pass Attempts,Over,30.5,1.800,0.5555556,0.51910233,2025-09-03T07:54:57.439352
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Josh Allen,Pass Attempts,Under,30.5,1.943,0.51466805,0.4808977,2025-09-03T07:54:57.439352
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Josh Allen,Pass Completions,Over,19.5,1.806,0.55370986,0.5182715,2025-09-03T07:54:57.439631
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Josh Allen,Pass Completions,Under,19.5,1.943,0.51466805,0.48172843,2025-09-03T07:54:57.439631
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Josh Allen,Passing Yards,Over,233.5,1.869,0.5350455,0.5,2025-09-03T07:54:57.439909
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Josh Allen,Passing Yards,Under,233.5,1.869,0.5350455,0.5,2025-09-03T07:54:57.439909
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Josh Allen,Rushing Yards,Over,31.5,1.869,0.5350455,0.5,2025-09-03T07:54:57.440176
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Josh Allen,Rushing Yards,Under,31.5,1.869,0.5350455,0.5,2025-09-03T07:54:57.440176
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Josh Allen,Touchdown Passes,Over,1.5,1.793,0.5577245,0.5212283,2025-09-03T07:54:57.440498
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Josh Allen,Touchdown Passes,Under,1.5,1.952,0.51229507,0.47877172,2025-09-03T07:54:57.440498
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Lamar Jackson,Pass Attempts,Over,28.5,1.862,0.5370569,0.5020059,2025-09-03T07:54:57.440833
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Lamar Jackson,Pass Attempts,Under,28.5,1.877,0.53276503,0.4979941,2025-09-03T07:54:57.440833
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Lamar Jackson,Pass Completions,Over,18.5,1.751,0.5711022,0.53319114,2025-09-03T07:54:57.441077
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Lamar Jackson,Pass Completions,Under,18.5,2.000,0.5,0.4668089,2025-09-03T07:54:57.441077
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Lamar Jackson,Passing Yards,Over,233.5,1.869,0.5350455,0.5,2025-09-03T07:54:57.441298
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Lamar Jackson,Passing Yards,Under,233.5,1.869,0.5350455,0.5,2025-09-03T07:54:57.441298
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Lamar Jackson,Rushing Yards,Over,47.5,1.869,0.5350455,0.5,2025-09-03T07:54:57.441513
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Lamar Jackson,Rushing Yards,Under,47.5,1.869,0.5350455,0.5,2025-09-03T07:54:57.441513
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Lamar Jackson,Touchdown Passes,Over,1.5,1.735,0.57636887,0.5379494,2025-09-03T07:54:57.441760
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Lamar Jackson,Touchdown Passes,Under,1.5,2.020,0.4950495,0.4620506,2025-09-03T07:54:57.441760
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Mark Andrews,Receiving Yards,Over,44.5,1.869,0.5350455,0.5,2025-09-03T07:54:57.442020
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Mark Andrews,Receiving Yards,Under,44.5,1.869,0.5350455,0.5,2025-09-03T07:54:57.442020
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Mark Andrews,Receptions,Over,4.5,2.350,0.42553192,0.39774472,2025-09-03T07:54:57.442264
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Mark Andrews,Receptions,Under,4.5,1.552,0.6443299,0.6022552,2025-09-03T07:54:57.442264
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Rashod Bateman,Receiving Yards,Over,37.5,1.869,0.5350455,0.5,2025-09-03T07:54:57.442484
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Rashod Bateman,Receiving Yards,Under,37.5,1.869,0.5350455,0.5,2025-09-03T07:54:57.442484
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Rashod Bateman,Receptions,Over,2.5,1.689,0.5920663,0.55305636,2025-09-03T07:54:57.442731
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Rashod Bateman,Receptions,Under,2.5,2.090,0.47846892,0.44694367,2025-09-03T07:54:57.442731
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Ray Davis,Rushing Yards,Over,16.5,1.869,0.5350455,0.5,2025-09-03T07:54:57.442972
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Ray Davis,Rushing Yards,Under,16.5,1.869,0.5350455,0.5,2025-09-03T07:54:57.442972
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Zay Flowers,Receiving Yards,Over,57.5,1.869,0.5350455,0.5,2025-09-03T07:54:57.443253
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Zay Flowers,Receiving Yards,Under,57.5,1.869,0.5350455,0.5,2025-09-03T07:54:57.443253
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Zay Flowers,Receptions,Over,4.5,1.793,0.5577245,0.5212283,2025-09-03T07:54:57.443636
+2025-09-07,1,Baltimore Ravens,Buffalo Bills,Zay Flowers,Receptions,Under,4.5,1.952,0.51229507,0.47877172,2025-09-03T07:54:57.443636
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Aaron Jones,Receiving Yards,Over,16.5,1.869,0.5350455,0.5,2025-09-03T07:54:58.791850
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Aaron Jones,Receiving Yards,Under,16.5,1.869,0.5350455,0.5,2025-09-03T07:54:58.791850
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Aaron Jones,Receptions,Over,2.5,1.769,0.5652911,0.52814084,2025-09-03T07:54:58.792177
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Aaron Jones,Receptions,Under,2.5,1.980,0.5050505,0.47185916,2025-09-03T07:54:58.792177
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Aaron Jones,Rushing Yards,Over,50.5,1.869,0.5350455,0.5,2025-09-03T07:54:58.792471
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Aaron Jones,Rushing Yards,Under,50.5,1.869,0.5350455,0.5,2025-09-03T07:54:58.792471
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Caleb Williams,Pass Attempts,Over,31.5,1.775,0.5633803,0.5260347,2025-09-03T07:54:58.792843
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Caleb Williams,Pass Attempts,Under,31.5,1.970,0.5076142,0.47396526,2025-09-03T07:54:58.792843
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Caleb Williams,Pass Completions,Over,20.5,1.775,0.5633803,0.52729696,2025-09-03T07:54:58.793144
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Caleb Williams,Pass Completions,Under,20.5,1.980,0.5050505,0.47270304,2025-09-03T07:54:58.793144
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Caleb Williams,Passing Yards,Over,219.5,1.869,0.5350455,0.5,2025-09-03T07:54:58.793444
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Caleb Williams,Passing Yards,Under,219.5,1.869,0.5350455,0.5,2025-09-03T07:54:58.793444
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Caleb Williams,Rushing Yards,Over,20.5,1.869,0.5350455,0.5,2025-09-03T07:54:58.793699
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Caleb Williams,Rushing Yards,Under,20.5,1.869,0.5350455,0.5,2025-09-03T07:54:58.793699
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Caleb Williams,Touchdown Passes,Over,1.5,2.070,0.4830918,0.45151034,2025-09-03T07:54:58.794085
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Caleb Williams,Touchdown Passes,Under,1.5,1.704,0.58685446,0.54848963,2025-09-03T07:54:58.794085
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Colston Loveland,Receiving Yards,Over,26.5,1.699,0.5885815,0.55041015,2025-09-03T07:54:58.794433
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Colston Loveland,Receiving Yards,Under,26.5,2.080,0.48076925,0.44958988,2025-09-03T07:54:58.794433
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Colston Loveland,Receptions,Over,2.5,1.595,0.62695926,0.5862516,2025-09-03T07:54:58.794713
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Colston Loveland,Receptions,Under,2.5,2.260,0.44247788,0.41374838,2025-09-03T07:54:58.794713
+2025-09-08,1,Minnesota Vikings,Chicago Bears,D'Andre Swift,Receiving Yards,Over,14.5,1.833,0.54555374,0.510155,2025-09-03T07:54:58.794976
+2025-09-08,1,Minnesota Vikings,Chicago Bears,D'Andre Swift,Receiving Yards,Under,14.5,1.909,0.52383447,0.48984504,2025-09-03T07:54:58.794976
+2025-09-08,1,Minnesota Vikings,Chicago Bears,D'Andre Swift,Receptions,Over,2.5,2.130,0.46948355,0.43888304,2025-09-03T07:54:58.795229
+2025-09-08,1,Minnesota Vikings,Chicago Bears,D'Andre Swift,Receptions,Under,2.5,1.666,0.6002401,0.561117,2025-09-03T07:54:58.795229
+2025-09-08,1,Minnesota Vikings,Chicago Bears,D'Andre Swift,Rushing Yards,Over,52.5,1.869,0.5350455,0.5,2025-09-03T07:54:58.795483
+2025-09-08,1,Minnesota Vikings,Chicago Bears,D'Andre Swift,Rushing Yards,Under,52.5,1.869,0.5350455,0.5,2025-09-03T07:54:58.795483
+2025-09-08,1,Minnesota Vikings,Chicago Bears,DJ Moore,Receiving Yards,Over,57.5,1.869,0.5350455,0.5,2025-09-03T07:54:58.795780
+2025-09-08,1,Minnesota Vikings,Chicago Bears,DJ Moore,Receiving Yards,Under,57.5,1.869,0.5350455,0.5,2025-09-03T07:54:58.795780
+2025-09-08,1,Minnesota Vikings,Chicago Bears,DJ Moore,Receptions,Over,5.5,1.980,0.5050505,0.47185916,2025-09-03T07:54:58.796065
+2025-09-08,1,Minnesota Vikings,Chicago Bears,DJ Moore,Receptions,Under,5.5,1.769,0.5652911,0.52814084,2025-09-03T07:54:58.796065
+2025-09-08,1,Minnesota Vikings,Chicago Bears,J.J. McCarthy,Pass Attempts,Over,31.5,1.869,0.5350455,0.5,2025-09-03T07:54:58.796373
+2025-09-08,1,Minnesota Vikings,Chicago Bears,J.J. McCarthy,Pass Attempts,Under,31.5,1.869,0.5350455,0.5,2025-09-03T07:54:58.796373
+2025-09-08,1,Minnesota Vikings,Chicago Bears,J.J. McCarthy,Pass Completions,Over,20.5,1.925,0.5194805,0.48584402,2025-09-03T07:54:58.796675
+2025-09-08,1,Minnesota Vikings,Chicago Bears,J.J. McCarthy,Pass Completions,Under,20.5,1.819,0.5497526,0.5141559,2025-09-03T07:54:58.796675
+2025-09-08,1,Minnesota Vikings,Chicago Bears,J.J. McCarthy,Passing Yards,Over,220.5,1.869,0.5350455,0.5,2025-09-03T07:54:58.796999
+2025-09-08,1,Minnesota Vikings,Chicago Bears,J.J. McCarthy,Passing Yards,Under,220.5,1.869,0.5350455,0.5,2025-09-03T07:54:58.796999
+2025-09-08,1,Minnesota Vikings,Chicago Bears,J.J. McCarthy,Rushing Yards,Over,13.5,1.757,0.569152,0.53233963,2025-09-03T07:54:58.797267
+2025-09-08,1,Minnesota Vikings,Chicago Bears,J.J. McCarthy,Rushing Yards,Under,13.5,2.000,0.5,0.46766034,2025-09-03T07:54:58.797267
+2025-09-08,1,Minnesota Vikings,Chicago Bears,J.J. McCarthy,Touchdown Passes,Over,1.5,2.110,0.47393367,0.44253632,2025-09-03T07:54:58.797587
+2025-09-08,1,Minnesota Vikings,Chicago Bears,J.J. McCarthy,Touchdown Passes,Under,1.5,1.675,0.59701496,0.5574637,2025-09-03T07:54:58.797587
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Jordan Mason,Rushing Yards,Over,42.5,1.869,0.5350455,0.5,2025-09-03T07:54:58.797886
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Jordan Mason,Rushing Yards,Under,42.5,1.869,0.5350455,0.5,2025-09-03T07:54:58.797886
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Justin Jefferson,Receiving Yards,Over,78.5,1.869,0.5350455,0.5,2025-09-03T07:54:58.798156
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Justin Jefferson,Receiving Yards,Under,78.5,1.869,0.5350455,0.5,2025-09-03T07:54:58.798156
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Justin Jefferson,Receptions,Over,6.5,2.150,0.46511626,0.43465683,2025-09-03T07:54:58.798375
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Justin Jefferson,Receptions,Under,6.5,1.653,0.6049607,0.56534314,2025-09-03T07:54:58.798375
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Rome Odunze,Receiving Yards,Over,51.5,1.869,0.5350455,0.5,2025-09-03T07:54:58.798674
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Rome Odunze,Receiving Yards,Under,51.5,1.869,0.5350455,0.5,2025-09-03T07:54:58.798674
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Rome Odunze,Receptions,Over,4.5,2.110,0.47393367,0.44327176,2025-09-03T07:54:58.798983
+2025-09-08,1,Minnesota Vikings,Chicago Bears,Rome Odunze,Receptions,Under,4.5,1.680,0.5952381,0.5567282,2025-09-03T07:54:58.798983
+2025-09-08,1,Minnesota Vikings,Chicago Bears,T.J. Hockenson,Receiving Yards,Over,41.5,1.869,0.5350455,0.5,2025-09-03T07:54:58.799258
+2025-09-08,1,Minnesota Vikings,Chicago Bears,T.J. Hockenson,Receiving Yards,Under,41.5,1.869,0.5350455,0.5,2025-09-03T07:54:58.799258
+2025-09-08,1,Minnesota Vikings,Chicago Bears,T.J. Hockenson,Receptions,Over,4.5,2.060,0.48543692,0.47368422,2025-09-03T07:54:58.799478
+2025-09-08,1,Minnesota Vikings,Chicago Bears,T.J. Hockenson,Receptions,Under,4.5,1.854,0.53937435,0.5263158,2025-09-03T07:54:58.799478

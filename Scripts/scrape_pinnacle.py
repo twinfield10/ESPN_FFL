@@ -225,6 +225,8 @@ def clean_raw_pinny(df):
     # Get Rid of Unnecessary Bets
     filt_bets = ['Correct Score', 'Exact', 'Winning Margin', 'Winner/Total', 'Range', 'Odd/Even', 'Alternate Lines']
 
+    print(df.filter(pl.col('title').str.contains_any(['TD Scorer', 'Anytime', 'Interceptions', 'Reception', 'Yards', 'Receptions', 'Kicking', 'Completion', 'Attempts', 'Passes'])))
+
     # Base Clean All Data
     final_df = df.filter(~pl.col('title').str.contains_any(filt_bets)) \
             .with_columns(pl.when(pl.col('title').str.contains_any(['Game', 'Alternate Lines'])).then(pl.lit('Game'))
@@ -238,16 +240,18 @@ def clean_raw_pinny(df):
             .with_columns(pl.col('split_teams').list.last().str.strip_chars().str.replace_all("-", " ").str.to_titlecase().alias('Home')) \
             .drop('split_teams', 'AllTeams', 'url')
 
-    print(final_df.head())
+    print(final_df.filter(pl.col('title').str.contains_any(['TD Scorer', 'Anytime', 'Interceptions', 'Reception', 'Yards', 'Receptions', 'Kicking', 'Completion', 'Attempts', 'Passes'])).head())
     return final_df
 
 def clean_props(df):
     ## Build + Save Prop DF
-    prop_df = df.filter((pl.col('Period') == 'PlayerProp')) \
+    prop_df = df.filter(pl.col('title').str.contains_any(['TD Scorer', 'Anytime', 'Interceptions', 'Reception', 'Yards', 'Receptions', 'Kicking', 'Completion', 'Attempts', 'Passes']))
+    print(prop_df)
+    prop_df = prop_df \
                 .with_columns(pl.col('title').str.replace('(BUF)', '').alias('Title')) \
-                .with_columns(pl.col('Title').str.extract(r'\((.*?)\)').alias('PropType')) \
+                .with_columns(pl.col('Title').str.extract(r'Total\s+(.*)').alias('PropType')) \
                 .with_columns(pl.col('Title').str.replace(r'\(.*?\)', '').alias('Title')) \
-                .with_columns(pl.col('Title').str.replace(r'\(\)', '').str.strip_chars().alias('Player')) \
+                .with_columns(pl.col('Title').str.extract(r'^(.*?)\s+Total').alias('Player')) \
                 .with_columns(pl.col('label').str.extract(r'(Over|Under)').alias('OverUnder')) \
                 .with_columns(pl.col('label').str.extract(r'(\d+\.\d+|\d+)').alias('Value')) \
                 .with_columns((1/(pl.col('Price').cast(pl.Float32))).alias('Implied')) \
@@ -262,12 +266,13 @@ def clean_props(df):
                                .when((pl.col('PropType') == 'Anytime TD') & (pl.col('num_bets') % 2 != 1)).then(pl.lit('Under'))
                                .otherwise(pl.col('OverUnder')).alias('OverUnder')
                         ) \
-                .select('officialDate', 'week', 'Away', 'Home', 'Player', 'PropType', 'OverUnder', 'Value', 'Price', 'Implied', 'ImpNoVig', 'BetTimeStamp') \
-                .filter(~pl.col('PropType').is_in(['1st TD Scorer', 'Last TD Scorer']))
+                .select('officialDate', 'week', 'Away', 'Home', 'Player', 'PropType', 'OverUnder', 'Value', 'Price', 'Implied', 'ImpNoVig', 'BetTimeStamp') #\
+                #.filter(~(pl.col('PropType').is_in(['1st TD Scorer', 'Last TD Scorer'])))
     
-    #prop_path = 'Data/Projections/Pinnacle/Pinnacle_Props_New.csv'
-    #prop_df.write_csv(prop_path)
-    #print(prop_df.head())
+    prop_path = 'Data/Projections/Pinnacle/Pinnacle_Props_New.csv'
+    prop_df.write_csv(prop_path)
+    prop_df.write_parquet('Data/Projections/Pinnacle/Props/Pinnacle_Props_New.parquet')
+    print(prop_df.head())
     
     return prop_df
 
@@ -279,6 +284,14 @@ def reconcile_props(prop_df: pl.DataFrame, base_path = "Data/Projections/Pinnacl
 
     # Clean for Join
     prop_df = prop_df\
+        .with_columns([
+            pl.col('Value').cast(pl.Float64),
+            pl.col('Price').cast(pl.Float64),
+            pl.col('Implied').cast(pl.Float64),
+            pl.col('ImpNoVig').cast(pl.Float64)
+        ])
+    
+    all_df = all_df\
         .with_columns([
             pl.col('Value').cast(pl.Float64),
             pl.col('Price').cast(pl.Float64),

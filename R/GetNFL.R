@@ -3,12 +3,14 @@ library(tidyverse)
 library(nflfastR)
 
 ## Fantasy Football Data
-schedules <- nflreadr::load_schedules(2024) %>%
-  filter(game_type == 'REG')
+schedules <- nflreadr::load_schedules(2025) %>%
+  filter(game_type == 'REG') %>%
+  filter(!is.na(total_line))
+write_csv(schedules, file = "./Data/NFL_Schedules.csv")
 
-pbp <- nflfastR::load_pbp(2024)
+pbp <- nflfastR::load_pbp(2025)
 
-stats <- nflfastR::load_player_stats(2024)
+stats <- nflfastR::load_player_stats(2025)
 
 # Sum Stats
 cols_to_sum <- c(
@@ -30,7 +32,6 @@ season_stats <- stats %>%
   )
 
 # Save Datasets
-write_csv(schedules, file = ".\\Data\\NFL\\NFL_Schedules.csv")
 write_csv(stats, file = ".\\Data\\NFL\\NFL_Stats.csv")
 write_csv(season_stats, file = ".\\Data\\NFL\\NFL_Season_Stats.csv")
 
