@@ -304,6 +304,7 @@ def get_x_stat(stat = 'anytimeTouchdown'):
             .with_columns([
                 (pl.col('value') + (pl.col('Juice_Diff') * pl.col('value') * pl.lit(0.5))).alias(f'proj_{stat}')
             ])
+        
         return clean.select(['BOL_game_id', 'week','player_name', 'position', 'team', f'proj_{stat}'])
 
     # Handle Values

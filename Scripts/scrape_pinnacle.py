@@ -225,14 +225,14 @@ def clean_raw_pinny(df):
     # Get Rid of Unnecessary Bets
     filt_bets = ['Correct Score', 'Exact', 'Winning Margin', 'Winner/Total', 'Range', 'Odd/Even', 'Alternate Lines']
 
-    print(df.filter(pl.col('title').str.contains_any(['TD Scorer', 'Anytime', 'Interceptions', 'Reception', 'Yards', 'Receptions', 'Kicking', 'Completion', 'Attempts', 'Passes'])))
+    print(df.filter(pl.col('title').str.contains_any(['Touchdowns', 'Anytime', 'Interceptions', 'Reception', 'Yards', 'Receptions', 'Kicking', 'Completion', 'Attempts', 'Passes'])))
 
     # Base Clean All Data
     final_df = df.filter(~pl.col('title').str.contains_any(filt_bets)) \
             .with_columns(pl.when(pl.col('title').str.contains_any(['Game', 'Alternate Lines'])).then(pl.lit('Game'))
                             .when(pl.col('title').str.contains('1st Half')).then(pl.lit('1H'))
                             .when(pl.col('title').str.contains('1st Quarter')).then(pl.lit('1Q'))
-                            .when(pl.col('title').str.contains_any(['TD Scorer', 'Anytime', 'Interceptions', 'Reception', 'Yards', 'Receptions', 'Kicking', 'Completion', 'Attempts', 'Passes'])).then(pl.lit('PlayerProp'))
+                            .when(pl.col('title').str.contains_any(['Touchdowns', 'Anytime', 'Interceptions', 'Reception', 'Yards', 'Receptions', 'Kicking', 'Completion', 'Attempts', 'Passes'])).then(pl.lit('PlayerProp'))
                             .otherwise(pl.lit('Other')).alias('Period')) \
             .with_columns(pl.col("url").str.extract(r'nfl\/(.*?)\/\d+\/#all').alias('AllTeams')) \
             .with_columns(pl.col("AllTeams").str.split('-vs-').alias('split_teams')) \
@@ -240,12 +240,12 @@ def clean_raw_pinny(df):
             .with_columns(pl.col('split_teams').list.last().str.strip_chars().str.replace_all("-", " ").str.to_titlecase().alias('Home')) \
             .drop('split_teams', 'AllTeams', 'url')
 
-    print(final_df.filter(pl.col('title').str.contains_any(['TD Scorer', 'Anytime', 'Interceptions', 'Reception', 'Yards', 'Receptions', 'Kicking', 'Completion', 'Attempts', 'Passes'])).head())
+    print(final_df.filter(pl.col('title').str.contains_any(['Touchdowns', 'Anytime', 'Interceptions', 'Reception', 'Yards', 'Receptions', 'Kicking', 'Completion', 'Attempts', 'Passes'])).head())
     return final_df
 
 def clean_props(df):
     ## Build + Save Prop DF
-    prop_df = df.filter(pl.col('title').str.contains_any(['TD Scorer', 'Anytime', 'Interceptions', 'Reception', 'Yards', 'Receptions', 'Kicking', 'Completion', 'Attempts', 'Passes']))
+    prop_df = df.filter(pl.col('title').str.contains_any(['Touchdowns', 'Anytime', 'Interceptions', 'Reception', 'Yards', 'Receptions', 'Kicking', 'Completion', 'Attempts', 'Passes']))
     print(prop_df)
     prop_df = prop_df \
                 .with_columns(pl.col('title').str.replace('(BUF)', '').alias('Title')) \
