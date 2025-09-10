@@ -10,6 +10,9 @@ from aws_utils import *
 # Scrape
 from bs4 import BeautifulSoup
 
+# Get Schedule and Active Week
+from nfl_utils import NFL_SCHEDULE
+WEEK = NFL_SCHEDULE.filter(pl.col('away_score') == 'NA')['week'].min()
 
 pos_list = ['qb', 'rb', 'wr', 'te', 'k', 'dst']
 
@@ -175,7 +178,7 @@ def get_fp(wk):
 
 
 proj_list = []
-for w in [1]:
+for w in range(1,WEEK+1):
     fp_proj = get_fp(wk = w)
     proj_list.append(fp_proj)
 

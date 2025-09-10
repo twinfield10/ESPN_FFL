@@ -2,6 +2,8 @@
 library(tidyverse)
 library(nflfastR)
 
+setwd("/Users/tommywinfield/GitRepos/ESPN_FFL")
+
 ## Fantasy Football Data
 schedules <- nflreadr::load_schedules(2025) %>%
   filter(game_type == 'REG') %>%

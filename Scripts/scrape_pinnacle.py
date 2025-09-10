@@ -16,6 +16,31 @@ chrome_options  = webdriver.ChromeOptions()
 chrome_options .add_argument('--ignore-certificate-errors')
 chrome_options .add_argument('--ignore-ssl-errors')
 
+# Constants
+prop_to_stat={
+    "Touchdowns": 'rushingTouchdowns',
+    "Rushing Yards": "rushingYards",
+    "Rush Attempts": 'rushingAttempts',
+    "Receiving Yards": "receivingYards",
+    "Receptions": "receivingReceptions",
+    "Touchdown Passes": "passingTouchdowns",
+    "Pass Completions": "passingCompletions",
+    "Pass Attempts": "passingAttempts",
+    "Passing Yards": "passingYards",
+    "Interceptions": "passingInterceptions"
+}
+
+name_changes={
+    # Pinny -> ESPN #
+    "Tre Harris": "Tre' Harris",
+    "Marvin Mims": "Marvin Mims Jr.",
+    "Travis Etienne": "Travis Etienne Jr.",
+    "Aaron Jones": "Aaron Jones Sr.",
+    "Kyle Pitts": "Kyle Pitts Sr.",
+    "Calvin Austin": "Calvin Austin III",
+    "Ollie Gordon":"Ollie Gordon II"
+}
+
 def get_links_soup():
     # Get the page's HTML and parse it with Beautiful Soup
     page_source = driver.page_source
@@ -38,6 +63,7 @@ def get_links_soup():
     link_elap_time = round((link_end_time - start_time)/60, 2)
 
     print(f"Found {len(links_list)} Games in {link_elap_time} Minutes")
+    print("")
     return links_list
 
 def get_links():
@@ -268,40 +294,128 @@ def clean_props(df):
                         ) \
                 .select('officialDate', 'week', 'Away', 'Home', 'Player', 'PropType', 'OverUnder', 'Value', 'Price', 'Implied', 'ImpNoVig', 'BetTimeStamp') #\
                 #.filter(~(pl.col('PropType').is_in(['1st TD Scorer', 'Last TD Scorer'])))
-    
-    prop_path = 'Data/Projections/Pinnacle/Pinnacle_Props_New.csv'
-    prop_df.write_csv(prop_path)
-    prop_df.write_parquet('Data/Projections/Pinnacle/Props/Pinnacle_Props_New.parquet')
-    print(prop_df.head())
-    
-    return prop_df
 
-def reconcile_props(prop_df: pl.DataFrame, base_path = "Data/Projections/Pinnacle/Props/Pinnacle_Props_Week_"):
+    # Begin Secondary Clean To Match ESPN
+    prop_df = prop_df.with_columns([
+        pl.col('PropType').replace_strict(prop_to_stat, default=pl.col('PropType')),
+        pl.col('Player').replace_strict(prop_to_stat, default=pl.col('Player')),
+        pl.col('Value').fill_null(pl.col('ImpNoVig')),
+        pl.col('BetTimeStamp').max().over(['week', 'Player', 'Home', 'Away', 'officialDate'])
+    ])\
+    .select([
+        pl.col('officialDate'),
+        pl.col('week'),
+        pl.col('Away'),
+        pl.col('Home'),
+        pl.col('Player'),
+        pl.col('PropType'),
+        pl.col('Value').cast(pl.Float64),
+        pl.col('BetTimeStamp'),
+        pl.col('OverUnder'),
+        pl.col('Price').cast(pl.Float64),
+        pl.col('Implied').cast(pl.Float64),
+        pl.col('ImpNoVig').cast(pl.Float64),
+    ])
+
+    def adjust_value_polars(df):
+        # Pivot the data
+        pivoted_df = df.pivot(
+            index=['officialDate', 'week', 'Away', 'Home', 'Player', 'PropType', 'Value', 'BetTimeStamp'],
+            on='OverUnder',
+            values=['Price', 'Implied', 'ImpNoVig'],
+            aggregate_function='first'
+        )
+        
+        # Create Adjusted Values From Juice
+        pivoted_df = pivoted_df.with_columns([
+            (pl.col('Implied_Over') + pl.col('Implied_Under')).alias('Juice'),
+            (1 / pl.col('Implied_Over') - 1).alias('Over_Juice'),
+            (1 / pl.col('Implied_Under') - 1).alias('Under_Juice')
+        ]).with_columns([
+            (pl.col('Under_Juice') - pl.col('Over_Juice')).alias('Juice_Diff')
+        ]).with_columns([
+            (pl.col('Value') + (pl.col('Juice_Diff') * pl.col('Value') * 0.5)).alias('AdjValue')
+        ])
+        
+        return pivoted_df
+    
+    # Get Adjusted Value
+    pivoted_df = adjust_value_polars(prop_df)
+
+    clean = pivoted_df.select([
+        pl.col('week'),
+        pl.col('officialDate'),
+        pl.col('Away'),
+        pl.col('Home'),
+        pl.col('Player').alias('player_name'),
+        pl.col('PropType').alias('statType'),
+        pl.col('AdjValue').alias('statValue'),
+        pl.col('BetTimeStamp')
+    ])
+
+    # Pivot again
+    clean = clean.pivot(
+        index=['week', 'officialDate', 'Away', 'Home', 'player_name', 'BetTimeStamp'],
+        on='statType',
+        values='statValue',
+        aggregate_function='mean'
+    )
+
+    if 'rushingTouchdowns' in clean.columns:
+        clean = clean.with_columns([
+            (pl.col('rushingTouchdowns') * 
+             (pl.col('receivingYards') / (pl.col('receivingYards') + pl.col('rushingYards')))
+            ).alias('receivingTouchdowns')
+        ]).with_columns([
+            (pl.col('rushingTouchdowns') - pl.col('receivingTouchdowns')).alias('rushingTouchdowns')
+        ])
+
+    stat_columns = [col for col in clean.columns if col not in ['week', 'officialDate', 'Away', 'Home', 'player_name', 'BetTimeStamp']]
+    rename_mapping = {col: f'proj_{col}' for col in stat_columns}
+    
+    clean = clean.rename(rename_mapping)
+    
+    prop_path = 'Data/Projections/Pinnacle/Landing/Pinnacle_Props_Week_New.csv'
+    clean.write_csv(prop_path)
+    clean.write_parquet('Data/Projections/Pinnacle/Landing/Pinnacle_Props_Week_New.parquet')
+    print(clean.head())
+    
+    return clean
+
+def reconcile_props(prop_df: pl.DataFrame, base_path = "Data/Projections/Pinnacle/Season/Pinnacle_Props_Week_"):
     
     # Load Previous
     all_path = f"{base_path}All.parquet"
     all_df = pl.read_parquet(all_path)
 
+    old_df_rows = all_df.height
+    old_df_games = all_df['officialDate', 'week', 'Away', 'Home'].n_unique()
+
     # Clean for Join
     prop_df = prop_df\
-        .with_columns([
-            pl.col('Value').cast(pl.Float64),
-            pl.col('Price').cast(pl.Float64),
-            pl.col('Implied').cast(pl.Float64),
-            pl.col('ImpNoVig').cast(pl.Float64)
-        ])
+        .with_columns(
+            pl.col("^proj_.*$").cast(pl.Float64)
+        )
     
     all_df = all_df\
-        .with_columns([
-            pl.col('Value').cast(pl.Float64),
-            pl.col('Price').cast(pl.Float64),
-            pl.col('Implied').cast(pl.Float64),
-            pl.col('ImpNoVig').cast(pl.Float64)
-        ])
+         .with_columns(
+            pl.col("^proj_.*$").cast(pl.Float64)
+        )
 
     # Perform Join
-    join_cols = [col for col in all_df.columns if col not in 'BetTimeStamp']
+    all_df_cols = set(all_df.columns) - {'BetTimeStamp'}
+    prop_df_cols = set(prop_df.columns)
+
+    for col in all_df_cols:
+        if col not in prop_df_cols:
+            prop_df = prop_df.with_columns(pl.lit(None).cast(pl.Float64).alias(col))
+            print(f"{col} In All DF - Not in Prop DF")
+
+    all_df_cols = set(all_df.columns) - {'BetTimeStamp'}
+    prop_df_cols = set(prop_df.columns)
+    join_cols = list(all_df_cols.intersection(prop_df_cols))
     full_df = all_df.join(prop_df, on=join_cols, how='full', suffix='_new')
+    
 
     coalesce_cols = [
         pl.coalesce([pl.col(col), pl.col(f"{col}_new")]).alias(col)
@@ -311,26 +425,37 @@ def reconcile_props(prop_df: pl.DataFrame, base_path = "Data/Projections/Pinnacl
 
     df_filtered = (
         final_df.sort("BetTimeStamp", descending=True)
-          .group_by(['officialDate', 'week', 'Away', 'Home', 'Player', 'PropType', 'OverUnder'])
+          .group_by(['officialDate', 'week', 'Away', 'Home', 'player_name'])
           .agg(pl.all().first())
         )
     
     # Sort + Index
-    df_filtered = df_filtered.sort(by=['week', 'officialDate', 'Away', 'Player', 'PropType', 'OverUnder'])
+    df_filtered = df_filtered.sort(by=['week', 'officialDate', 'Away', 'Home', 'player_name'])
+
+    # Metrics
+    new_df_rows = df_filtered.height
+    new_df_games = df_filtered['officialDate', 'week', 'Away', 'Home'].n_unique()
+
+    add_rows = new_df_rows - old_df_rows
+    add_games = new_df_games - old_df_games
 
     # Save All
     df_filtered.write_parquet(all_path)
-    print(f"All Pinnacle Player Prop File Updated with {df_filtered.height} Rows")
+    print(f"All Pinnacle Player Prop File Contains {df_filtered.height} Rows")
+    print(f"{add_rows} Rows Added to Pinnacle Player Prop File ({add_games} New Games)")
+    print("")
 
     # Save - Split Into Weeks:
     weeks_list = df_filtered['week'].unique().to_list()
     for w in weeks_list:
         week_df = df_filtered.filter(pl.col('week') == w)
-        week_df.write_parquet(f"{base_path}{w}.parquet")
-        print(f"Pinnacle Week {w} Player Prop File Updated with {week_df.height} Rows")
+        n_games = week_df['officialDate', 'week', 'Away', 'Home'].n_unique()
+        week_path = f"{base_path}{w}.parquet"
+        week_df.write_parquet(week_path)
+        print(f"WEEK {w} Bet Online Player Prop File Contains {week_df.height} Rows ({n_games} Games)")
 
 def clean_base(df):
-    # Build + Save 
+    # Build
     clean_df = df.filter(pl.col('Period') != 'PlayerProp')\
                        .with_columns(pl.when(~pl.col('title').str.contains(' –')).then(pl.col('title'))
                                      .otherwise(pl.col('title').str.split(' –').map_elements(lambda x: x[0], return_dtype=pl.Utf8)).alias('BetType'),
@@ -373,9 +498,9 @@ def clean_base(df):
                             .otherwise(pl.lit(0)).alias("IsPrimary")
                          ) \
                         .select('officialDate', 'week', 'Home', 'Away', 'Period', 'BetType', 'BetSide', 'BetValue', 'Price', 'IsPrimary', 'BetImpProb', 'BetTimeStamp')
-                   
+
     print(clean_df.head())
-    clean_path = 'Data/Projections/Pinnacle/Pinnacle_Base_New.csv'
+    clean_path = 'Data/Projections/Pinnacle/Landing/Pinnacle_Base_New.csv'
     clean_df.write_csv(clean_path)
 
     return clean_df
@@ -385,7 +510,7 @@ start_time = time.time()
 driver = webdriver.Chrome(options=chrome_options)
 
 driver.get('https://www.pinnacle.com/en/football/nfl/matchups/#period:0')
-WebDriverWait(driver, 2).until(EC.visibility_of_element_located((By.CSS_SELECTOR, 'div[class*="matchupMetadata"]')))
+WebDriverWait(driver, 5).until(EC.visibility_of_element_located((By.CSS_SELECTOR, 'div[class*="matchupMetadata"]')))
 print("Link Element Located")
 
 # Execute

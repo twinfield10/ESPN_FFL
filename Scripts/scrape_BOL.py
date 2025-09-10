@@ -2,6 +2,7 @@ import time
 from datetime import datetime
 import requests
 import polars as pl
+from pathlib import Path
 #from nfl_utils import NFL_SCHEDULE
 
 
@@ -23,7 +24,7 @@ week = NFL_SCHEDULE.filter(pl.col('away_score') == 'NA')['week'].min()
 print(f"Now Loading NFL Week {week}:")
 
 # BetOnline ID For First Game
-id_var = 259322
+id_var = 259338
 
 # Statistic Mapping
 stats = {
@@ -239,6 +240,8 @@ def reconcile_BOL(prop_df: pl.DataFrame, base_path="Data/Projections/BetOnline/S
     # Outline Pathway + Load
     all_path = "Data/Projections/BetOnline/Season/BetOnline_AllProps.parquet"
     all_df = pl.read_parquet(all_path)
+    old_df_rows = all_df.height
+    old_df_games = all_df['BOL_game_id'].n_unique()
 
     # Current Data
     prop_df = prop_df.with_columns(pl.col('week').cast(pl.Int32))
@@ -260,16 +263,33 @@ def reconcile_BOL(prop_df: pl.DataFrame, base_path="Data/Projections/BetOnline/S
     
     df_filtered = df_filtered.sort(by=['week', 'player_name', 'position', 'team'])
 
+    # Metrics
+    new_df_rows = df_filtered.height
+    new_df_games = df_filtered['BOL_game_id'].n_unique()
+
+    add_rows = new_df_rows - old_df_rows
+    add_games = new_df_games - old_df_games
+
     # Save All
     df_filtered.write_parquet(all_path)
-    print(f"All Pinnacle Player Prop File Updated with {df_filtered.height} Rows")
+    print(f"All BetOnline Player Prop File Contains {new_df_rows} Rows")
+    print(f"{add_rows} Rows Added to BetOnline Player Prop File ({add_games} New Games)")
+    print("")
 
     # Save - Split Into Weeks:
     weeks_list = df_filtered['week'].unique().to_list()
     for w in weeks_list:
+        # Get Week DataFrame
         week_df = df_filtered.filter(pl.col('week') == w)
-        week_df.write_parquet(f"Data/Projections/BetOnline/Season/Week {w}/BetOnline_AllProps_Week_{w}.parquet")
-        print(f"Bet Online Player Prop File For Week {w} Updated with {week_df.height} Rows")
+        n_games = week_df['BOL_game_id'].n_unique()
+
+        # Identify Week Path + Create Folder If Not Exists
+        week_path = f"Data/Projections/BetOnline/Season/Week {w}/BetOnline_AllProps_Week_{w}.parquet"
+        Path(week_path).parent.mkdir(parents=True, exist_ok=True)
+
+        # Save as Parquet
+        week_df.write_parquet(week_path)
+        print(f"WEEK {w} Bet Online Player Prop File Contains {week_df.height} Rows ({n_games} Games)")
 
 # Get Stat by Name
 def get_x_stat(stat = 'anytimeTouchdown'):
