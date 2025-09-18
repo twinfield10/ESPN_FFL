@@ -24,7 +24,7 @@ week = NFL_SCHEDULE.filter(pl.col('away_score') == 'NA')['week'].min()
 print(f"Now Loading NFL Week {week}:")
 
 # BetOnline ID For First Game
-id_var = 259338
+id_var = 259354
 
 # Statistic Mapping
 stats = {

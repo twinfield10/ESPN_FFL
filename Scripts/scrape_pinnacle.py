@@ -31,15 +31,20 @@ prop_to_stat={
 }
 
 name_changes={
-    # Pinny -> ESPN #
-    "Tre Harris": "Tre' Harris",
-    "Marvin Mims": "Marvin Mims Jr.",
-    "Travis Etienne": "Travis Etienne Jr.",
-    "Aaron Jones": "Aaron Jones Sr.",
-    "Kyle Pitts": "Kyle Pitts Sr.",
-    "Calvin Austin": "Calvin Austin III",
-    "Ollie Gordon":"Ollie Gordon II"
-}
+        # Pinny -> ESPN #
+        "Tre Harris": "Tre' Harris",
+        "Marvin Mims": "Marvin Mims Jr.",
+        "Travis Etienne": "Travis Etienne Jr.",
+        "Aaron Jones": "Aaron Jones Sr.",
+        "Kyle Pitts": "Kyle Pitts Sr.",
+        "Calvin Austin": "Calvin Austin III",
+        "Ollie Gordon":"Ollie Gordon II",
+        "Marvin Harrison": "Marvin Harrison Jr.",
+        "Kyle Pitts": "Kyle Pitts Sr.",
+        "Marvin Mims": "Marvin Mims Jr.",
+        "Travis Etienne": "Travis Etienne Jr.",
+        "Aaron Jones": "Aaron Jones Sr."
+    }
 
 def get_links_soup():
     # Get the page's HTML and parse it with Beautiful Soup
@@ -171,6 +176,7 @@ def get_raw_pinny_soup(links_list):
                 # Load URL and interact with dynamic elements using Selenium
                 driver.get(url)
                 print(url)
+                time.sleep(1.5)
 
                 # Get Game Date
                 try:
@@ -394,12 +400,14 @@ def reconcile_props(prop_df: pl.DataFrame, base_path = "Data/Projections/Pinnacl
     # Clean for Join
     prop_df = prop_df\
         .with_columns(
-            pl.col("^proj_.*$").cast(pl.Float64)
+            pl.col("^proj_.*$").cast(pl.Float64),
+            pl.col('player_name').replace_strict(prop_to_stat, default=pl.col('player_name'))
         )
     
     all_df = all_df\
          .with_columns(
-            pl.col("^proj_.*$").cast(pl.Float64)
+            pl.col("^proj_.*$").cast(pl.Float64),
+            pl.col('player_name').replace_strict(prop_to_stat, default=pl.col('player_name'))
         )
 
     # Perform Join
@@ -452,7 +460,7 @@ def reconcile_props(prop_df: pl.DataFrame, base_path = "Data/Projections/Pinnacl
         n_games = week_df['officialDate', 'week', 'Away', 'Home'].n_unique()
         week_path = f"{base_path}{w}.parquet"
         week_df.write_parquet(week_path)
-        print(f"WEEK {w} Bet Online Player Prop File Contains {week_df.height} Rows ({n_games} Games)")
+        print(f"WEEK {w} Pinnacle Player Prop File Contains {week_df.height} Rows ({n_games} Games)")
 
 def clean_base(df):
     # Build
