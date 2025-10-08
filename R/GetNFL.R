@@ -37,3 +37,4 @@ season_stats <- stats %>%
 write_csv(stats, file = ".\\Data\\NFL\\NFL_Stats.csv")
 write_csv(season_stats, file = ".\\Data\\NFL\\NFL_Season_Stats.csv")
 
+rm(pbp)

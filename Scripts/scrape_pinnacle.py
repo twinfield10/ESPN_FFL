@@ -224,7 +224,7 @@ def get_raw_pinny_soup(links_list):
                     if bet_titles and lab_list and price_list:
                         # Create Data Frame    
                         bet_data = {'title': [bet_titles[0]] * len(price_list),
-                                    'label': lab_list,
+                                    'label': lab_list[0:len(price_list)],
                                     'Price': price_list}
 
                         bet_df = pl.DataFrame(bet_data).with_columns(
