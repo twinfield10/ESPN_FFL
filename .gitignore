@@ -4,3 +4,4 @@
 .Ruserdata
 *.env
 config.yaml
+gs4creds.json

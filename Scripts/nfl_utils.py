@@ -1,6 +1,6 @@
 import polars as pl
 
-NFL_SCHEDULE = pl.read_csv('Data/NFL_Schedules.csv')
+NFL_SCHEDULE = pl.read_csv('Data/NFL_Schedules.csv', infer_schema_length=10000)
 #STATS_WEEK = pl.read_csv('Data/NFL/NFL_Stats.csv')
 #STATS_SEASON = pl.read_csv('Data/NFL/NFL_Season_Stats.csv')
 DATE_WEEK = NFL_SCHEDULE[['gameday', 'week']].unique()

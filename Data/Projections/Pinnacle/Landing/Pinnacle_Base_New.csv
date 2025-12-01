@@ -1,251 +1,441 @@
 officialDate,week,Home,Away,Period,BetType,BetSide,BetValue,Price,IsPrimary,BetImpProb,BetTimeStamp
-2025-10-09,6,New York Giants,Philadelphia Eagles,Game,Money Line,Philadelphia Eagles,0.0,1.23,1,0.8130081,2025-10-08T17:54:29.793051
-2025-10-09,6,New York Giants,Philadelphia Eagles,Game,Money Line,New York Giants,0.0,4.46,1,0.22421524,2025-10-08T17:54:29.793051
-2025-10-09,6,New York Giants,Philadelphia Eagles,Game,Handicap,Philadelphia Eagles,-7.5,2.01,1,0.49751243,2025-10-08T17:54:29.795287
-2025-10-09,6,New York Giants,Philadelphia Eagles,Game,Handicap,New York Giants,7.5,1.877,1,0.53276503,2025-10-08T17:54:29.795287
-2025-10-09,6,New York Giants,Philadelphia Eagles,Game,Total,Over,40.5,1.99,1,0.5025126,2025-10-08T17:54:29.795725
-2025-10-09,6,New York Giants,Philadelphia Eagles,Game,Total,Under,40.5,1.884,1,0.53078556,2025-10-08T17:54:29.795725
-2025-10-09,6,New York Giants,Philadelphia Eagles,Game,TeamTotal_Away,Over,25.5,2.12,1,0.47169814,2025-10-08T17:54:29.796305
-2025-10-09,6,New York Giants,Philadelphia Eagles,Game,TeamTotal_Home,Under,25.5,1.763,1,0.56721497,2025-10-08T17:54:29.796305
-2025-10-09,6,New York Giants,Philadelphia Eagles,Game,TeamTotal_Away,Over,16.5,1.97,1,0.5076142,2025-10-08T17:54:29.796305
-2025-10-09,6,New York Giants,Philadelphia Eagles,Game,TeamTotal_Home,Under,16.5,1.884,1,0.53078556,2025-10-08T17:54:29.796305
-2025-10-09,6,New York Giants,Philadelphia Eagles,1H,Money Line,Philadelphia Eagles,0.0,1.444,1,0.6925208,2025-10-08T17:54:29.797957
-2025-10-09,6,New York Giants,Philadelphia Eagles,1H,Money Line,New York Giants,0.0,2.94,1,0.34013605,2025-10-08T17:54:29.797957
-2025-10-09,6,New York Giants,Philadelphia Eagles,1H,Handicap,Philadelphia Eagles,-4.0,1.99,1,0.5025126,2025-10-08T17:54:29.798241
-2025-10-09,6,New York Giants,Philadelphia Eagles,1H,Handicap,New York Giants,4.0,1.892,1,0.52854127,2025-10-08T17:54:29.798241
-2025-10-09,6,New York Giants,Philadelphia Eagles,1H,Total,Over,21.0,2.05,1,0.4878049,2025-10-08T17:54:29.798477
-2025-10-09,6,New York Giants,Philadelphia Eagles,1H,Total,Under,21.0,1.826,1,0.54764515,2025-10-08T17:54:29.798477
-2025-10-09,6,New York Giants,Philadelphia Eagles,1H,TeamTotal_Away,Over,12.5,1.884,1,0.53078556,2025-10-08T17:54:29.798798
-2025-10-09,6,New York Giants,Philadelphia Eagles,1H,TeamTotal_Home,Under,12.5,1.99,1,0.5025126,2025-10-08T17:54:29.798798
-2025-10-09,6,New York Giants,Philadelphia Eagles,1H,TeamTotal_Away,Over,7.5,2.2,1,0.45454544,2025-10-08T17:54:29.798798
-2025-10-09,6,New York Giants,Philadelphia Eagles,1H,TeamTotal_Home,Under,7.5,1.724,1,0.5800464,2025-10-08T17:54:29.798798
-2025-10-09,6,New York Giants,Philadelphia Eagles,1Q,Money Line,Philadelphia Eagles,0.0,1.561,1,0.640615,2025-10-08T17:54:29.799069
-2025-10-09,6,New York Giants,Philadelphia Eagles,1Q,Money Line,New York Giants,0.0,2.52,1,0.3968254,2025-10-08T17:54:29.799069
-2025-10-09,6,New York Giants,Philadelphia Eagles,1Q,Handicap,Philadelphia Eagles,-0.5,2.03,1,0.49261084,2025-10-08T17:54:29.799390
-2025-10-09,6,New York Giants,Philadelphia Eagles,1Q,Handicap,New York Giants,0.5,1.847,1,0.5414185,2025-10-08T17:54:29.799390
-2025-10-09,6,New York Giants,Philadelphia Eagles,1Q,Total,Over,7.5,2.17,1,0.46082947,2025-10-08T17:54:29.799627
-2025-10-09,6,New York Giants,Philadelphia Eagles,1Q,Total,Under,7.5,1.729,1,0.578369,2025-10-08T17:54:29.799627
-2025-10-09,6,New York Giants,Philadelphia Eagles,1Q,TeamTotal_Away,Over,3.5,1.952,1,0.51229507,2025-10-08T17:54:29.800001
-2025-10-09,6,New York Giants,Philadelphia Eagles,1Q,TeamTotal_Home,Under,3.5,1.9,1,0.5263158,2025-10-08T17:54:29.800001
-2025-10-09,6,New York Giants,Philadelphia Eagles,1Q,TeamTotal_Away,Over,0.5,1.793,1,0.5577245,2025-10-08T17:54:29.800001
-2025-10-09,6,New York Giants,Philadelphia Eagles,1Q,TeamTotal_Home,Under,0.5,2.08,1,0.48076925,2025-10-08T17:54:29.800001
-2025-10-12,6,New York Jets,Denver Broncos,Game,Money Line,Denver Broncos,0.0,1.274,1,0.78492934,2025-10-08T17:54:31.930374
-2025-10-12,6,New York Jets,Denver Broncos,Game,Money Line,New York Jets,0.0,3.97,1,0.25188917,2025-10-08T17:54:31.930374
-2025-10-12,6,New York Jets,Denver Broncos,Game,Handicap,Denver Broncos,-7.0,1.961,1,0.5099439,2025-10-08T17:54:31.930800
-2025-10-12,6,New York Jets,Denver Broncos,Game,Handicap,New York Jets,7.0,1.925,1,0.5194805,2025-10-08T17:54:31.930800
-2025-10-12,6,New York Jets,Denver Broncos,Game,Total,Over,43.5,1.97,1,0.5076142,2025-10-08T17:54:31.931124
-2025-10-12,6,New York Jets,Denver Broncos,Game,Total,Under,43.5,1.9,1,0.5263158,2025-10-08T17:54:31.931124
-2025-10-12,6,New York Jets,Denver Broncos,Game,TeamTotal_Away,Over,25.5,1.909,1,0.52383447,2025-10-08T17:54:31.931583
-2025-10-12,6,New York Jets,Denver Broncos,Game,TeamTotal_Home,Under,25.5,1.943,1,0.51466805,2025-10-08T17:54:31.931583
-2025-10-12,6,New York Jets,Denver Broncos,Game,TeamTotal_Away,Over,17.5,2.01,1,0.49751243,2025-10-08T17:54:31.931583
-2025-10-12,6,New York Jets,Denver Broncos,Game,TeamTotal_Home,Under,17.5,1.847,1,0.5414185,2025-10-08T17:54:31.931583
-2025-10-12,6,Jacksonville Jaguars,Seattle Seahawks,Game,Money Line,Seattle Seahawks,0.0,2.01,1,0.49751243,2025-10-08T17:54:34.010222
-2025-10-12,6,Jacksonville Jaguars,Seattle Seahawks,Game,Money Line,Jacksonville Jaguars,0.0,1.884,1,0.53078556,2025-10-08T17:54:34.010222
-2025-10-12,6,Jacksonville Jaguars,Seattle Seahawks,Game,Handicap,Seattle Seahawks,1.0,1.943,1,0.51466805,2025-10-08T17:54:34.010615
-2025-10-12,6,Jacksonville Jaguars,Seattle Seahawks,Game,Handicap,Jacksonville Jaguars,-1.0,1.943,1,0.51466805,2025-10-08T17:54:34.010615
-2025-10-12,6,Jacksonville Jaguars,Seattle Seahawks,Game,Total,Over,47.5,1.97,1,0.5076142,2025-10-08T17:54:34.010890
-2025-10-12,6,Jacksonville Jaguars,Seattle Seahawks,Game,Total,Under,47.5,1.9,1,0.5263158,2025-10-08T17:54:34.010890
-2025-10-12,6,Jacksonville Jaguars,Seattle Seahawks,Game,TeamTotal_Away,Over,23.5,1.934,1,0.5170631,2025-10-08T17:54:34.011162
-2025-10-12,6,Jacksonville Jaguars,Seattle Seahawks,Game,TeamTotal_Home,Under,23.5,1.917,1,0.5216484,2025-10-08T17:54:34.011162
-2025-10-12,6,Jacksonville Jaguars,Seattle Seahawks,Game,TeamTotal_Away,Over,23.5,1.833,1,0.54555374,2025-10-08T17:54:34.011162
-2025-10-12,6,Jacksonville Jaguars,Seattle Seahawks,Game,TeamTotal_Home,Under,23.5,2.03,1,0.49261084,2025-10-08T17:54:34.011162
-2025-10-12,6,Miami Dolphins,Los Angeles Chargers,Game,Money Line,Los Angeles Chargers,0.0,1.492,1,0.6702413,2025-10-08T17:54:35.987092
-2025-10-12,6,Miami Dolphins,Los Angeles Chargers,Game,Money Line,Miami Dolphins,0.0,2.77,1,0.36101082,2025-10-08T17:54:35.987092
-2025-10-12,6,Miami Dolphins,Los Angeles Chargers,Game,Handicap,Los Angeles Chargers,-4.0,1.99,1,0.5025126,2025-10-08T17:54:35.987509
-2025-10-12,6,Miami Dolphins,Los Angeles Chargers,Game,Handicap,Miami Dolphins,4.0,1.9,1,0.5263158,2025-10-08T17:54:35.987509
-2025-10-12,6,Miami Dolphins,Los Angeles Chargers,Game,Total,Over,43.0,1.9,1,0.5263158,2025-10-08T17:54:35.987862
-2025-10-12,6,Miami Dolphins,Los Angeles Chargers,Game,Total,Under,43.0,1.97,1,0.5076142,2025-10-08T17:54:35.987862
-2025-10-12,6,Miami Dolphins,Los Angeles Chargers,Game,TeamTotal_Away,Over,24.5,2.16,1,0.46296296,2025-10-08T17:54:35.988252
-2025-10-12,6,Miami Dolphins,Los Angeles Chargers,Game,TeamTotal_Home,Under,24.5,1.735,1,0.57636887,2025-10-08T17:54:35.988252
-2025-10-12,6,Miami Dolphins,Los Angeles Chargers,Game,TeamTotal_Away,Over,20.5,2.09,1,0.47846892,2025-10-08T17:54:35.988252
-2025-10-12,6,Miami Dolphins,Los Angeles Chargers,Game,TeamTotal_Home,Under,20.5,1.781,1,0.5614823,2025-10-08T17:54:35.988252
-2025-10-12,6,Pittsburgh Steelers,Cleveland Browns,Game,Money Line,Cleveland Browns,0.0,3.19,1,0.31347963,2025-10-08T17:54:38.008285
-2025-10-12,6,Pittsburgh Steelers,Cleveland Browns,Game,Money Line,Pittsburgh Steelers,0.0,1.389,1,0.7199424,2025-10-08T17:54:38.008285
-2025-10-12,6,Pittsburgh Steelers,Cleveland Browns,Game,Handicap,Cleveland Browns,5.5,1.97,1,0.5076142,2025-10-08T17:54:38.008694
-2025-10-12,6,Pittsburgh Steelers,Cleveland Browns,Game,Handicap,Pittsburgh Steelers,-5.5,1.909,1,0.52383447,2025-10-08T17:54:38.008694
-2025-10-12,6,Pittsburgh Steelers,Cleveland Browns,Game,Total,Over,38.0,1.9,1,0.5263158,2025-10-08T17:54:38.008995
-2025-10-12,6,Pittsburgh Steelers,Cleveland Browns,Game,Total,Under,38.0,1.97,1,0.5076142,2025-10-08T17:54:38.008995
-2025-10-12,6,Pittsburgh Steelers,Cleveland Browns,Game,TeamTotal_Away,Over,15.5,1.869,1,0.5350455,2025-10-08T17:54:38.009361
-2025-10-12,6,Pittsburgh Steelers,Cleveland Browns,Game,TeamTotal_Home,Under,15.5,1.98,1,0.5050505,2025-10-08T17:54:38.009361
-2025-10-12,6,Pittsburgh Steelers,Cleveland Browns,Game,TeamTotal_Away,Over,21.5,1.943,1,0.51466805,2025-10-08T17:54:38.009361
-2025-10-12,6,Pittsburgh Steelers,Cleveland Browns,Game,TeamTotal_Home,Under,21.5,1.909,1,0.52383447,2025-10-08T17:54:38.009361
-2025-10-12,6,Baltimore Ravens,Los Angeles Rams,Game,Money Line,Los Angeles Rams,0.0,1.256,1,0.79617834,2025-10-08T17:54:39.894587
-2025-10-12,6,Baltimore Ravens,Los Angeles Rams,Game,Money Line,Baltimore Ravens,0.0,4.15,1,0.24096385,2025-10-08T17:54:39.894587
-2025-10-12,6,Baltimore Ravens,Los Angeles Rams,Game,Handicap,Los Angeles Rams,-7.5,1.99,1,0.5025126,2025-10-08T17:54:39.894931
-2025-10-12,6,Baltimore Ravens,Los Angeles Rams,Game,Handicap,Baltimore Ravens,7.5,1.9,1,0.5263158,2025-10-08T17:54:39.894931
-2025-10-12,6,Baltimore Ravens,Los Angeles Rams,Game,Total,Over,44.5,1.934,1,0.5170631,2025-10-08T17:54:39.895212
-2025-10-12,6,Baltimore Ravens,Los Angeles Rams,Game,Total,Under,44.5,1.934,1,0.5170631,2025-10-08T17:54:39.895212
-2025-10-12,6,Baltimore Ravens,Los Angeles Rams,Game,TeamTotal_Away,Over,27.5,2.09,1,0.47846892,2025-10-08T17:54:39.895560
-2025-10-12,6,Baltimore Ravens,Los Angeles Rams,Game,TeamTotal_Home,Under,27.5,1.787,1,0.55959713,2025-10-08T17:54:39.895560
-2025-10-12,6,Baltimore Ravens,Los Angeles Rams,Game,TeamTotal_Away,Over,18.5,1.97,1,0.5076142,2025-10-08T17:54:39.895560
-2025-10-12,6,Baltimore Ravens,Los Angeles Rams,Game,TeamTotal_Home,Under,18.5,1.884,1,0.53078556,2025-10-08T17:54:39.895560
-2025-10-12,6,New Orleans Saints,New England Patriots,Game,Money Line,New England Patriots,0.0,1.555,1,0.64308685,2025-10-08T17:54:41.956166
-2025-10-12,6,New Orleans Saints,New England Patriots,Game,Money Line,New Orleans Saints,0.0,2.58,1,0.3875969,2025-10-08T17:54:41.956166
-2025-10-12,6,New Orleans Saints,New England Patriots,Game,Handicap,New England Patriots,-3.5,2.05,1,0.4878049,2025-10-08T17:54:41.956634
-2025-10-12,6,New Orleans Saints,New England Patriots,Game,Handicap,New Orleans Saints,3.5,1.847,1,0.5414185,2025-10-08T17:54:41.956634
-2025-10-12,6,New Orleans Saints,New England Patriots,Game,Total,Over,46.0,1.961,1,0.5099439,2025-10-08T17:54:41.956947
-2025-10-12,6,New Orleans Saints,New England Patriots,Game,Total,Under,46.0,1.909,1,0.52383447,2025-10-08T17:54:41.956947
-2025-10-12,6,New Orleans Saints,New England Patriots,Game,TeamTotal_Away,Over,24.5,2.02,1,0.4950495,2025-10-08T17:54:41.957256
-2025-10-12,6,New Orleans Saints,New England Patriots,Game,TeamTotal_Home,Under,24.5,1.84,1,0.54347825,2025-10-08T17:54:41.957256
-2025-10-12,6,New Orleans Saints,New England Patriots,Game,TeamTotal_Away,Over,20.5,1.806,1,0.55370986,2025-10-08T17:54:41.957256
-2025-10-12,6,New Orleans Saints,New England Patriots,Game,TeamTotal_Home,Under,20.5,2.06,1,0.48543692,2025-10-08T17:54:41.957256
-2025-10-12,6,Carolina Panthers,Dallas Cowboys,Game,Money Line,Dallas Cowboys,0.0,1.621,1,0.6169031,2025-10-08T17:54:43.989176
-2025-10-12,6,Carolina Panthers,Dallas Cowboys,Game,Money Line,Carolina Panthers,0.0,2.42,1,0.41322312,2025-10-08T17:54:43.989176
-2025-10-12,6,Carolina Panthers,Dallas Cowboys,Game,Handicap,Dallas Cowboys,-3.0,1.98,1,0.5050505,2025-10-08T17:54:43.989521
-2025-10-12,6,Carolina Panthers,Dallas Cowboys,Game,Handicap,Carolina Panthers,3.0,1.909,1,0.52383447,2025-10-08T17:54:43.989521
-2025-10-12,6,Carolina Panthers,Dallas Cowboys,Game,Total,Over,49.0,1.854,1,0.53937435,2025-10-08T17:54:43.989801
-2025-10-12,6,Carolina Panthers,Dallas Cowboys,Game,Total,Under,49.0,2.02,1,0.4950495,2025-10-08T17:54:43.989801
-2025-10-12,6,Carolina Panthers,Dallas Cowboys,Game,TeamTotal_Away,Over,26.5,1.869,1,0.5350455,2025-10-08T17:54:43.990122
-2025-10-12,6,Carolina Panthers,Dallas Cowboys,Game,TeamTotal_Home,Under,26.5,1.98,1,0.5050505,2025-10-08T17:54:43.990122
-2025-10-12,6,Carolina Panthers,Dallas Cowboys,Game,TeamTotal_Away,Over,22.5,1.769,1,0.5652911,2025-10-08T17:54:43.990122
-2025-10-12,6,Carolina Panthers,Dallas Cowboys,Game,TeamTotal_Home,Under,22.5,2.11,1,0.47393367,2025-10-08T17:54:43.990122
-2025-10-12,6,Indianapolis Colts,Arizona Cardinals,Game,Money Line,Arizona Cardinals,0.0,3.75,1,0.26666668,2025-10-08T17:54:46.027077
-2025-10-12,6,Indianapolis Colts,Arizona Cardinals,Game,Money Line,Indianapolis Colts,0.0,1.3,1,0.7692308,2025-10-08T17:54:46.027077
-2025-10-12,6,Indianapolis Colts,Arizona Cardinals,Game,Handicap,Arizona Cardinals,7.0,1.961,1,0.5099439,2025-10-08T17:54:46.027406
-2025-10-12,6,Indianapolis Colts,Arizona Cardinals,Game,Handicap,Indianapolis Colts,-7.0,1.925,1,0.5194805,2025-10-08T17:54:46.027406
-2025-10-12,6,Indianapolis Colts,Arizona Cardinals,Game,Total,Over,47.0,1.961,1,0.5099439,2025-10-08T17:54:46.027701
-2025-10-12,6,Indianapolis Colts,Arizona Cardinals,Game,Total,Under,47.0,1.909,1,0.52383447,2025-10-08T17:54:46.027701
-2025-10-12,6,Indianapolis Colts,Arizona Cardinals,Game,TeamTotal_Away,Over,20.5,2.07,1,0.4830918,2025-10-08T17:54:46.027996
-2025-10-12,6,Indianapolis Colts,Arizona Cardinals,Game,TeamTotal_Home,Under,20.5,1.8,1,0.5555556,2025-10-08T17:54:46.027996
-2025-10-12,6,Indianapolis Colts,Arizona Cardinals,Game,TeamTotal_Away,Over,26.5,1.74,1,0.57471263,2025-10-08T17:54:46.027996
-2025-10-12,6,Indianapolis Colts,Arizona Cardinals,Game,TeamTotal_Home,Under,26.5,2.15,1,0.46511626,2025-10-08T17:54:46.027996
-2025-10-12,6,Las Vegas Raiders,Tennessee Titans,Game,Money Line,Tennessee Titans,0.0,2.95,1,0.33898306,2025-10-08T17:54:47.956911
-2025-10-12,6,Las Vegas Raiders,Tennessee Titans,Game,Money Line,Las Vegas Raiders,0.0,1.44,1,0.6944444,2025-10-08T17:54:47.956911
-2025-10-12,6,Las Vegas Raiders,Tennessee Titans,Game,Handicap,Tennessee Titans,5.0,1.833,1,0.54555374,2025-10-08T17:54:47.957355
-2025-10-12,6,Las Vegas Raiders,Tennessee Titans,Game,Handicap,Las Vegas Raiders,-5.0,2.07,1,0.4830918,2025-10-08T17:54:47.957355
-2025-10-12,6,Las Vegas Raiders,Tennessee Titans,Game,Total,Over,41.5,2.01,1,0.49751243,2025-10-08T17:54:47.957663
-2025-10-12,6,Las Vegas Raiders,Tennessee Titans,Game,Total,Under,41.5,1.862,1,0.5370569,2025-10-08T17:54:47.957663
-2025-10-12,6,Las Vegas Raiders,Tennessee Titans,Game,TeamTotal_Away,Over,16.5,1.704,1,0.58685446,2025-10-08T17:54:47.958002
-2025-10-12,6,Las Vegas Raiders,Tennessee Titans,Game,TeamTotal_Home,Under,16.5,2.21,1,0.4524887,2025-10-08T17:54:47.958002
-2025-10-12,6,Las Vegas Raiders,Tennessee Titans,Game,TeamTotal_Away,Over,23.5,2.02,1,0.4950495,2025-10-08T17:54:47.958002
-2025-10-12,6,Las Vegas Raiders,Tennessee Titans,Game,TeamTotal_Home,Under,23.5,1.84,1,0.54347825,2025-10-08T17:54:47.958002
-2025-10-12,6,Green Bay Packers,Cincinnati Bengals,Game,Money Line,Cincinnati Bengals,0.0,8.69,1,0.115074806,2025-10-08T17:54:49.941984
-2025-10-12,6,Green Bay Packers,Cincinnati Bengals,Game,Money Line,Green Bay Packers,0.0,1.084,1,0.92250925,2025-10-08T17:54:49.941984
-2025-10-12,6,Green Bay Packers,Cincinnati Bengals,Game,Handicap,Cincinnati Bengals,15.0,1.84,1,0.54347825,2025-10-08T17:54:49.942393
-2025-10-12,6,Green Bay Packers,Cincinnati Bengals,Game,Handicap,Green Bay Packers,-15.0,2.06,1,0.48543692,2025-10-08T17:54:49.942393
-2025-10-12,6,Green Bay Packers,Cincinnati Bengals,Game,Total,Over,45.0,1.961,1,0.5099439,2025-10-08T17:54:49.942754
-2025-10-12,6,Green Bay Packers,Cincinnati Bengals,Game,Total,Under,45.0,1.909,1,0.52383447,2025-10-08T17:54:49.942754
-2025-10-12,6,Green Bay Packers,Cincinnati Bengals,Game,TeamTotal_Away,Over,14.5,2.0,1,0.5,2025-10-08T17:54:49.943084
-2025-10-12,6,Green Bay Packers,Cincinnati Bengals,Game,TeamTotal_Home,Under,14.5,1.854,1,0.53937435,2025-10-08T17:54:49.943084
-2025-10-12,6,Green Bay Packers,Cincinnati Bengals,Game,TeamTotal_Away,Over,28.5,1.862,1,0.5370569,2025-10-08T17:54:49.943084
-2025-10-12,6,Green Bay Packers,Cincinnati Bengals,Game,TeamTotal_Home,Under,28.5,2.0,1,0.5,2025-10-08T17:54:49.943084
-2025-10-12,6,Tampa Bay Buccaneers,San Francisco 49ers,Game,Money Line,San Francisco 49ers,0.0,2.35,1,0.42553192,2025-10-08T17:54:51.864117
-2025-10-12,6,Tampa Bay Buccaneers,San Francisco 49ers,Game,Money Line,Tampa Bay Buccaneers,0.0,1.657,1,0.6035003,2025-10-08T17:54:51.864117
-2025-10-12,6,Tampa Bay Buccaneers,San Francisco 49ers,Game,Handicap,San Francisco 49ers,3.0,1.877,1,0.53276503,2025-10-08T17:54:51.864508
-2025-10-12,6,Tampa Bay Buccaneers,San Francisco 49ers,Game,Handicap,Tampa Bay Buccaneers,-3.0,2.01,1,0.49751243,2025-10-08T17:54:51.864508
-2025-10-12,6,Tampa Bay Buccaneers,San Francisco 49ers,Game,Total,Over,47.5,1.961,1,0.5099439,2025-10-08T17:54:51.864777
-2025-10-12,6,Tampa Bay Buccaneers,San Francisco 49ers,Game,Total,Under,47.5,1.909,1,0.52383447,2025-10-08T17:54:51.864777
-2025-10-12,6,Tampa Bay Buccaneers,San Francisco 49ers,Game,TeamTotal_Away,Over,22.5,1.925,1,0.5194805,2025-10-08T17:54:51.865166
-2025-10-12,6,Tampa Bay Buccaneers,San Francisco 49ers,Game,TeamTotal_Home,Under,22.5,1.925,1,0.5194805,2025-10-08T17:54:51.865166
-2025-10-12,6,Tampa Bay Buccaneers,San Francisco 49ers,Game,TeamTotal_Away,Over,24.5,1.961,1,0.5099439,2025-10-08T17:54:51.865166
-2025-10-12,6,Tampa Bay Buccaneers,San Francisco 49ers,Game,TeamTotal_Home,Under,24.5,1.892,1,0.52854127,2025-10-08T17:54:51.865166
-2025-10-12,6,Kansas City Chiefs,Detroit Lions,Game,Money Line,Detroit Lions,0.0,2.18,1,0.4587156,2025-10-08T17:54:53.889324
-2025-10-12,6,Kansas City Chiefs,Detroit Lions,Game,Money Line,Kansas City Chiefs,0.0,1.746,1,0.5727377,2025-10-08T17:54:53.889324
-2025-10-12,6,Kansas City Chiefs,Detroit Lions,Game,Handicap,Detroit Lions,2.5,1.925,1,0.5194805,2025-10-08T17:54:53.889783
-2025-10-12,6,Kansas City Chiefs,Detroit Lions,Game,Handicap,Kansas City Chiefs,-2.5,1.961,1,0.5099439,2025-10-08T17:54:53.889783
-2025-10-12,6,Kansas City Chiefs,Detroit Lions,Game,Total,Over,52.5,1.884,1,0.53078556,2025-10-08T17:54:53.890113
-2025-10-12,6,Kansas City Chiefs,Detroit Lions,Game,Total,Under,52.5,1.99,1,0.5025126,2025-10-08T17:54:53.890113
-2025-10-12,6,Kansas City Chiefs,Detroit Lions,Game,TeamTotal_Away,Over,24.5,1.862,1,0.5370569,2025-10-08T17:54:53.890426
-2025-10-12,6,Kansas City Chiefs,Detroit Lions,Game,TeamTotal_Home,Under,24.5,2.0,1,0.5,2025-10-08T17:54:53.890426
-2025-10-12,6,Kansas City Chiefs,Detroit Lions,Game,TeamTotal_Away,Over,26.5,1.735,1,0.57636887,2025-10-08T17:54:53.890426
-2025-10-12,6,Kansas City Chiefs,Detroit Lions,Game,TeamTotal_Home,Under,26.5,2.16,1,0.46296296,2025-10-08T17:54:53.890426
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Money Line,Buffalo Bills,0.0,1.473,1,0.6788866,2025-10-08T17:54:55.674282
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Money Line,Atlanta Falcons,0.0,2.83,1,0.3533569,2025-10-08T17:54:55.674282
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Handicap,Buffalo Bills,-6.5,2.22,0,0.45045045,2025-10-08T17:54:55.675117
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Handicap,Atlanta Falcons,6.5,1.704,0,0.58685446,2025-10-08T17:54:55.675117
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Handicap,Buffalo Bills,-6.0,2.15,0,0.46511626,2025-10-08T17:54:55.675117
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Handicap,Atlanta Falcons,6.0,1.751,0,0.5711022,2025-10-08T17:54:55.675117
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Handicap,Buffalo Bills,-5.5,2.06,0,0.48543692,2025-10-08T17:54:55.675117
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Handicap,Atlanta Falcons,5.5,1.813,0,0.55157197,2025-10-08T17:54:55.675117
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Handicap,Buffalo Bills,-5.0,2.01,0,0.49751243,2025-10-08T17:54:55.675117
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Handicap,Atlanta Falcons,5.0,1.862,0,0.5370569,2025-10-08T17:54:55.675117
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Handicap,Buffalo Bills,-4.5,1.97,1,0.5076142,2025-10-08T17:54:55.675117
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Handicap,Atlanta Falcons,4.5,1.909,1,0.52383447,2025-10-08T17:54:55.675117
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Handicap,Buffalo Bills,-4.0,1.909,0,0.52383447,2025-10-08T17:54:55.675117
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Handicap,Atlanta Falcons,4.0,1.98,0,0.5050505,2025-10-08T17:54:55.675117
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Handicap,Buffalo Bills,-3.5,1.84,0,0.54347825,2025-10-08T17:54:55.675117
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Handicap,Atlanta Falcons,3.5,2.05,0,0.4878049,2025-10-08T17:54:55.675117
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Handicap,Buffalo Bills,-3.0,1.694,0,0.5903188,2025-10-08T17:54:55.675117
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Handicap,Atlanta Falcons,3.0,2.25,0,0.44444445,2025-10-08T17:54:55.675117
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Handicap,Buffalo Bills,-2.5,1.591,0,0.6285355,2025-10-08T17:54:55.675117
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Handicap,Atlanta Falcons,2.5,2.44,0,0.40983605,2025-10-08T17:54:55.675117
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Handicap,Buffalo Bills,-2.0,1.558,0,0.64184856,2025-10-08T17:54:55.675117
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Handicap,Atlanta Falcons,2.0,2.52,0,0.3968254,2025-10-08T17:54:55.675117
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Handicap,Buffalo Bills,-1.5,1.534,0,0.65189046,2025-10-08T17:54:55.675117
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Handicap,Atlanta Falcons,1.5,2.58,0,0.3875969,2025-10-08T17:54:55.675117
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Total,Over,47.5,1.689,0,0.5920663,2025-10-08T17:54:55.675916
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Total,Under,47.5,2.24,0,0.44642857,2025-10-08T17:54:55.675916
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Total,Over,48.0,1.735,0,0.57636887,2025-10-08T17:54:55.675916
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Total,Under,48.0,2.16,0,0.46296296,2025-10-08T17:54:55.675916
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Total,Over,48.5,1.787,0,0.55959713,2025-10-08T17:54:55.675916
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Total,Under,48.5,2.09,0,0.47846892,2025-10-08T17:54:55.675916
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Total,Over,49.0,1.84,0,0.54347825,2025-10-08T17:54:55.675916
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Total,Under,49.0,2.02,0,0.4950495,2025-10-08T17:54:55.675916
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Total,Over,49.5,1.909,1,0.52383447,2025-10-08T17:54:55.675916
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Total,Under,49.5,1.943,1,0.51466805,2025-10-08T17:54:55.675916
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Total,Over,50.0,1.99,0,0.5025126,2025-10-08T17:54:55.675916
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Total,Under,50.0,1.884,0,0.53078556,2025-10-08T17:54:55.675916
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Total,Over,50.5,2.06,0,0.48543692,2025-10-08T17:54:55.675916
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Total,Under,50.5,1.813,0,0.55157197,2025-10-08T17:54:55.675916
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Total,Over,51.0,2.13,0,0.46948355,2025-10-08T17:54:55.675916
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Total,Under,51.0,1.751,0,0.5711022,2025-10-08T17:54:55.675916
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Total,Over,51.5,2.21,0,0.4524887,2025-10-08T17:54:55.675916
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Total,Under,51.5,1.704,0,0.58685446,2025-10-08T17:54:55.675916
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Total,Over,52.0,2.3,0,0.43478262,2025-10-08T17:54:55.675916
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Total,Under,52.0,1.657,0,0.6035003,2025-10-08T17:54:55.675916
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Total,Over,52.5,2.38,0,0.42016804,2025-10-08T17:54:55.675916
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,Total,Under,52.5,1.613,0,0.6199628,2025-10-08T17:54:55.675916
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,TeamTotal_Away,Over,26.5,1.714,1,0.5834306,2025-10-08T17:54:55.676278
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,TeamTotal_Home,Under,26.5,2.2,1,0.45454544,2025-10-08T17:54:55.676278
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,TeamTotal_Away,Over,21.5,1.806,1,0.55370986,2025-10-08T17:54:55.676278
-2025-10-13,6,Atlanta Falcons,Buffalo Bills,Game,TeamTotal_Home,Under,21.5,2.07,1,0.4830918,2025-10-08T17:54:55.676278
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Money Line,Chicago Bears,0.0,2.88,1,0.3472222,2025-10-08T17:54:57.499884
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Money Line,Washington Commanders,0.0,1.458,1,0.68587106,2025-10-08T17:54:57.499884
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Handicap,Chicago Bears,2.0,2.53,0,0.3952569,2025-10-08T17:54:57.500785
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Handicap,Washington Commanders,-2.0,1.555,0,0.64308685,2025-10-08T17:54:57.500785
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Handicap,Chicago Bears,2.5,2.46,0,0.40650406,2025-10-08T17:54:57.500785
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Handicap,Washington Commanders,-2.5,1.584,0,0.63131315,2025-10-08T17:54:57.500785
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Handicap,Chicago Bears,3.0,2.27,0,0.44052863,2025-10-08T17:54:57.500785
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Handicap,Washington Commanders,-3.0,1.68,0,0.5952381,2025-10-08T17:54:57.500785
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Handicap,Chicago Bears,3.5,2.07,0,0.4830918,2025-10-08T17:54:57.500785
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Handicap,Washington Commanders,-3.5,1.819,0,0.5497526,2025-10-08T17:54:57.500785
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Handicap,Chicago Bears,4.0,1.99,0,0.5025126,2025-10-08T17:54:57.500785
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Handicap,Washington Commanders,-4.0,1.884,0,0.53078556,2025-10-08T17:54:57.500785
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Handicap,Chicago Bears,4.5,1.917,1,0.5216484,2025-10-08T17:54:57.500785
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Handicap,Washington Commanders,-4.5,1.961,1,0.5099439,2025-10-08T17:54:57.500785
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Handicap,Chicago Bears,5.0,1.862,0,0.5370569,2025-10-08T17:54:57.500785
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Handicap,Washington Commanders,-5.0,2.02,0,0.4950495,2025-10-08T17:54:57.500785
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Handicap,Chicago Bears,5.5,1.813,0,0.55157197,2025-10-08T17:54:57.500785
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Handicap,Washington Commanders,-5.5,2.07,0,0.4830918,2025-10-08T17:54:57.500785
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Handicap,Chicago Bears,6.0,1.746,0,0.5727377,2025-10-08T17:54:57.500785
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Handicap,Washington Commanders,-6.0,2.16,0,0.46296296,2025-10-08T17:54:57.500785
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Handicap,Chicago Bears,6.5,1.684,0,0.5938242,2025-10-08T17:54:57.500785
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Handicap,Washington Commanders,-6.5,2.26,0,0.44247788,2025-10-08T17:54:57.500785
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Handicap,Chicago Bears,7.0,1.606,0,0.62266505,2025-10-08T17:54:57.500785
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Handicap,Washington Commanders,-7.0,2.41,0,0.41493773,2025-10-08T17:54:57.500785
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Total,Over,47.5,1.684,0,0.5938242,2025-10-08T17:54:57.501646
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Total,Under,47.5,2.24,0,0.44642857,2025-10-08T17:54:57.501646
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Total,Over,48.0,1.729,0,0.578369,2025-10-08T17:54:57.501646
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Total,Under,48.0,2.17,0,0.46082947,2025-10-08T17:54:57.501646
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Total,Over,48.5,1.787,0,0.55959713,2025-10-08T17:54:57.501646
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Total,Under,48.5,2.09,0,0.47846892,2025-10-08T17:54:57.501646
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Total,Over,49.0,1.84,0,0.54347825,2025-10-08T17:54:57.501646
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Total,Under,49.0,2.02,0,0.4950495,2025-10-08T17:54:57.501646
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Total,Over,49.5,1.9,1,0.5263158,2025-10-08T17:54:57.501646
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Total,Under,49.5,1.952,1,0.51229507,2025-10-08T17:54:57.501646
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Total,Over,50.0,1.98,0,0.5050505,2025-10-08T17:54:57.501646
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Total,Under,50.0,1.884,0,0.53078556,2025-10-08T17:54:57.501646
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Total,Over,50.5,2.05,0,0.4878049,2025-10-08T17:54:57.501646
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Total,Under,50.5,1.813,0,0.55157197,2025-10-08T17:54:57.501646
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Total,Over,51.0,2.13,0,0.46948355,2025-10-08T17:54:57.501646
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Total,Under,51.0,1.757,0,0.569152,2025-10-08T17:54:57.501646
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Total,Over,51.5,2.21,0,0.4524887,2025-10-08T17:54:57.501646
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Total,Under,51.5,1.709,0,0.5851375,2025-10-08T17:54:57.501646
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Total,Over,52.0,2.29,0,0.43668124,2025-10-08T17:54:57.501646
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Total,Under,52.0,1.657,0,0.6035003,2025-10-08T17:54:57.501646
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Total,Over,52.5,2.38,0,0.42016804,2025-10-08T17:54:57.501646
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,Total,Under,52.5,1.613,0,0.6199628,2025-10-08T17:54:57.501646
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,TeamTotal_Away,Over,22.5,1.826,1,0.54764515,2025-10-08T17:54:57.502036
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,TeamTotal_Home,Under,22.5,2.04,1,0.49019608,2025-10-08T17:54:57.502036
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,TeamTotal_Away,Over,27.5,1.909,1,0.52383447,2025-10-08T17:54:57.502036
-2025-10-13,6,Washington Commanders,Chicago Bears,Game,TeamTotal_Home,Under,27.5,1.943,1,0.51466805,2025-10-08T17:54:57.502036
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,Game,Money Line,Arizona Cardinals,0.0,2.58,1,0.3875969,2025-11-30T10:02:53.937965
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,Game,Money Line,Tampa Bay Buccaneers,0.0,1.568,1,0.6377551,2025-11-30T10:02:53.937965
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,Game,Handicap,Arizona Cardinals,3.5,1.884,1,0.53078556,2025-11-30T10:02:53.944385
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,Game,Handicap,Tampa Bay Buccaneers,-3.5,2.02,1,0.4950495,2025-11-30T10:02:53.944385
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,Game,Total,Over,44.5,1.952,1,0.51229507,2025-11-30T10:02:53.944891
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,Game,Total,Under,44.5,1.934,1,0.5170631,2025-11-30T10:02:53.944891
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,Game,TeamTotal_Away,Over,20.5,1.934,1,0.5170631,2025-11-30T10:02:53.945188
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,Game,TeamTotal_Home,Under,20.5,1.917,1,0.5216484,2025-11-30T10:02:53.945188
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,Game,TeamTotal_Away,Over,23.5,1.813,1,0.55157197,2025-11-30T10:02:53.945188
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,Game,TeamTotal_Home,Under,23.5,2.05,1,0.4878049,2025-11-30T10:02:53.945188
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,1H,Money Line,Arizona Cardinals,0.0,2.47,1,0.4048583,2025-11-30T10:02:53.946730
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,1H,Money Line,Tampa Bay Buccaneers,0.0,1.595,1,0.62695926,2025-11-30T10:02:53.946730
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,1H,Handicap,Arizona Cardinals,3.0,1.877,1,0.53276503,2025-11-30T10:02:53.946998
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,1H,Handicap,Tampa Bay Buccaneers,-3.0,2.01,1,0.49751243,2025-11-30T10:02:53.946998
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,1H,Total,Over,22.0,1.961,1,0.5099439,2025-11-30T10:02:53.947325
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,1H,Total,Under,22.0,1.909,1,0.52383447,2025-11-30T10:02:53.947325
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,1H,TeamTotal_Away,Over,9.5,1.869,1,0.5350455,2025-11-30T10:02:53.947675
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,1H,TeamTotal_Home,Under,9.5,2.0,1,0.5,2025-11-30T10:02:53.947675
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,1H,TeamTotal_Away,Over,12.5,1.917,1,0.5216484,2025-11-30T10:02:53.947675
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,1H,TeamTotal_Home,Under,12.5,1.952,1,0.51229507,2025-11-30T10:02:53.947675
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,1Q,Money Line,Arizona Cardinals,0.0,2.24,1,0.44642857,2025-11-30T10:02:53.947966
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,1Q,Money Line,Tampa Bay Buccaneers,0.0,1.699,1,0.5885815,2025-11-30T10:02:53.947966
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,1Q,Handicap,Arizona Cardinals,0.5,1.746,1,0.5727377,2025-11-30T10:02:53.948292
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,1Q,Handicap,Tampa Bay Buccaneers,-0.5,2.16,1,0.46296296,2025-11-30T10:02:53.948292
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,1Q,Total,Over,7.5,2.03,1,0.49261084,2025-11-30T10:02:53.948499
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,1Q,Total,Under,7.5,1.826,1,0.54764515,2025-11-30T10:02:53.948499
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,1Q,TeamTotal_Away,Over,0.5,1.666,1,0.6002401,2025-11-30T10:02:53.948834
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,1Q,TeamTotal_Home,Under,0.5,2.27,1,0.44052863,2025-11-30T10:02:53.948834
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,1Q,TeamTotal_Away,Over,6.5,2.12,1,0.47169814,2025-11-30T10:02:53.948834
+2025-11-30,13,Tampa Bay Buccaneers,Arizona Cardinals,1Q,TeamTotal_Home,Under,6.5,1.763,1,0.56721497,2025-11-30T10:02:53.948834
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,Game,Money Line,Los Angeles Rams,0.0,1.21,1,0.82644624,2025-11-30T10:02:55.887552
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,Game,Money Line,Carolina Panthers,0.0,4.86,1,0.20576131,2025-11-30T10:02:55.887552
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,Game,Handicap,Los Angeles Rams,-10.5,2.04,1,0.49019608,2025-11-30T10:02:55.888197
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,Game,Handicap,Carolina Panthers,10.5,1.869,1,0.5350455,2025-11-30T10:02:55.888197
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,Game,Total,Over,45.0,1.952,1,0.51229507,2025-11-30T10:02:55.888476
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,Game,Total,Under,45.0,1.934,1,0.5170631,2025-11-30T10:02:55.888476
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,Game,TeamTotal_Away,Over,27.5,1.84,1,0.54347825,2025-11-30T10:02:55.889758
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,Game,TeamTotal_Home,Under,27.5,2.02,1,0.4950495,2025-11-30T10:02:55.889758
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,Game,TeamTotal_Away,Over,16.5,1.833,1,0.54555374,2025-11-30T10:02:55.889758
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,Game,TeamTotal_Home,Under,16.5,2.03,1,0.49261084,2025-11-30T10:02:55.889758
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,1H,Money Line,Los Angeles Rams,0.0,1.357,1,0.7369197,2025-11-30T10:02:55.891093
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,1H,Money Line,Carolina Panthers,0.0,3.36,1,0.29761904,2025-11-30T10:02:55.891093
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,1H,Handicap,Los Angeles Rams,-6.5,2.06,1,0.48543692,2025-11-30T10:02:55.891314
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,1H,Handicap,Carolina Panthers,6.5,1.84,1,0.54347825,2025-11-30T10:02:55.891314
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,1H,Total,Over,23.0,1.952,1,0.51229507,2025-11-30T10:02:55.891623
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,1H,Total,Under,23.0,1.917,1,0.5216484,2025-11-30T10:02:55.891623
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,1H,TeamTotal_Away,Over,13.5,1.769,1,0.5652911,2025-11-30T10:02:55.892053
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,1H,TeamTotal_Home,Under,13.5,2.13,1,0.46948355,2025-11-30T10:02:55.892053
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,1H,TeamTotal_Away,Over,7.5,2.03,1,0.49261084,2025-11-30T10:02:55.892053
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,1H,TeamTotal_Home,Under,7.5,1.847,1,0.5414185,2025-11-30T10:02:55.892053
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,1Q,Money Line,Los Angeles Rams,0.0,1.507,1,0.66357005,2025-11-30T10:02:55.892374
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,1Q,Money Line,Carolina Panthers,0.0,2.68,1,0.37313432,2025-11-30T10:02:55.892374
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,1Q,Handicap,Los Angeles Rams,-3.0,2.15,1,0.46511626,2025-11-30T10:02:55.892716
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,1Q,Handicap,Carolina Panthers,3.0,1.757,1,0.569152,2025-11-30T10:02:55.892716
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,1Q,Total,Over,7.5,1.877,1,0.53276503,2025-11-30T10:02:55.893018
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,1Q,Total,Under,7.5,1.98,1,0.5050505,2025-11-30T10:02:55.893018
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,1Q,TeamTotal_Away,Over,6.5,1.869,1,0.5350455,2025-11-30T10:02:55.893304
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,1Q,TeamTotal_Home,Under,6.5,1.98,1,0.5050505,2025-11-30T10:02:55.893304
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,1Q,TeamTotal_Away,Over,0.5,1.675,1,0.59701496,2025-11-30T10:02:55.893304
+2025-11-30,13,Carolina Panthers,Los Angeles Rams,1Q,TeamTotal_Home,Under,0.5,2.26,1,0.44247788,2025-11-30T10:02:55.893304
+2025-11-30,13,Indianapolis Colts,Houston Texans,Game,Money Line,Houston Texans,0.0,2.49,1,0.4016064,2025-11-30T10:02:57.822449
+2025-11-30,13,Indianapolis Colts,Houston Texans,Game,Money Line,Indianapolis Colts,0.0,1.602,1,0.6242197,2025-11-30T10:02:57.822449
+2025-11-30,13,Indianapolis Colts,Houston Texans,Game,Handicap,Houston Texans,3.0,2.02,1,0.4950495,2025-11-30T10:02:57.822835
+2025-11-30,13,Indianapolis Colts,Houston Texans,Game,Handicap,Indianapolis Colts,-3.0,1.884,1,0.53078556,2025-11-30T10:02:57.822835
+2025-11-30,13,Indianapolis Colts,Houston Texans,Game,Total,Over,44.0,1.884,1,0.53078556,2025-11-30T10:02:57.823169
+2025-11-30,13,Indianapolis Colts,Houston Texans,Game,Total,Under,44.0,2.01,1,0.49751243,2025-11-30T10:02:57.823169
+2025-11-30,13,Indianapolis Colts,Houston Texans,Game,TeamTotal_Away,Over,20.5,1.9,1,0.5263158,2025-11-30T10:02:57.823537
+2025-11-30,13,Indianapolis Colts,Houston Texans,Game,TeamTotal_Home,Under,20.5,1.952,1,0.51229507,2025-11-30T10:02:57.823537
+2025-11-30,13,Indianapolis Colts,Houston Texans,Game,TeamTotal_Away,Over,24.5,2.15,1,0.46511626,2025-11-30T10:02:57.823537
+2025-11-30,13,Indianapolis Colts,Houston Texans,Game,TeamTotal_Home,Under,24.5,1.74,1,0.57471263,2025-11-30T10:02:57.823537
+2025-11-30,13,Indianapolis Colts,Houston Texans,1H,Money Line,Houston Texans,0.0,2.43,1,0.41152263,2025-11-30T10:02:57.824812
+2025-11-30,13,Indianapolis Colts,Houston Texans,1H,Money Line,Indianapolis Colts,0.0,1.617,1,0.6184292,2025-11-30T10:02:57.824812
+2025-11-30,13,Indianapolis Colts,Houston Texans,1H,Handicap,Houston Texans,2.5,2.02,1,0.4950495,2025-11-30T10:02:57.825066
+2025-11-30,13,Indianapolis Colts,Houston Texans,1H,Handicap,Indianapolis Colts,-2.5,1.869,1,0.5350455,2025-11-30T10:02:57.825066
+2025-11-30,13,Indianapolis Colts,Houston Texans,1H,Total,Over,21.5,1.909,1,0.52383447,2025-11-30T10:02:57.825312
+2025-11-30,13,Indianapolis Colts,Houston Texans,1H,Total,Under,21.5,1.961,1,0.5099439,2025-11-30T10:02:57.825312
+2025-11-30,13,Indianapolis Colts,Houston Texans,1H,TeamTotal_Away,Over,9.5,1.806,1,0.55370986,2025-11-30T10:02:57.825586
+2025-11-30,13,Indianapolis Colts,Houston Texans,1H,TeamTotal_Home,Under,9.5,2.08,1,0.48076925,2025-11-30T10:02:57.825586
+2025-11-30,13,Indianapolis Colts,Houston Texans,1H,TeamTotal_Away,Over,11.5,1.892,1,0.52854127,2025-11-30T10:02:57.825586
+2025-11-30,13,Indianapolis Colts,Houston Texans,1H,TeamTotal_Home,Under,11.5,1.98,1,0.5050505,2025-11-30T10:02:57.825586
+2025-11-30,13,Indianapolis Colts,Houston Texans,1Q,Money Line,Houston Texans,0.0,2.35,1,0.42553192,2025-11-30T10:02:57.825819
+2025-11-30,13,Indianapolis Colts,Houston Texans,1Q,Money Line,Indianapolis Colts,0.0,1.636,1,0.61124694,2025-11-30T10:02:57.825819
+2025-11-30,13,Indianapolis Colts,Houston Texans,1Q,Handicap,Houston Texans,0.5,1.813,1,0.55157197,2025-11-30T10:02:57.826058
+2025-11-30,13,Indianapolis Colts,Houston Texans,1Q,Handicap,Indianapolis Colts,-0.5,2.07,1,0.4830918,2025-11-30T10:02:57.826058
+2025-11-30,13,Indianapolis Colts,Houston Texans,1Q,Total,Over,7.5,1.961,1,0.5099439,2025-11-30T10:02:57.826283
+2025-11-30,13,Indianapolis Colts,Houston Texans,1Q,Total,Under,7.5,1.892,1,0.52854127,2025-11-30T10:02:57.826283
+2025-11-30,13,Indianapolis Colts,Houston Texans,1Q,TeamTotal_Away,Over,0.5,1.68,1,0.5952381,2025-11-30T10:02:57.826560
+2025-11-30,13,Indianapolis Colts,Houston Texans,1Q,TeamTotal_Home,Under,0.5,2.25,1,0.44444445,2025-11-30T10:02:57.826560
+2025-11-30,13,Indianapolis Colts,Houston Texans,1Q,TeamTotal_Away,Over,3.5,1.877,1,0.53276503,2025-11-30T10:02:57.826560
+2025-11-30,13,Indianapolis Colts,Houston Texans,1Q,TeamTotal_Home,Under,3.5,1.97,1,0.5076142,2025-11-30T10:02:57.826560
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,Game,Money Line,San Francisco 49ers,0.0,1.406,1,0.71123755,2025-11-30T10:02:59.699692
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,Game,Money Line,Cleveland Browns,0.0,3.15,1,0.3174603,2025-11-30T10:02:59.699692
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,Game,Handicap,San Francisco 49ers,-5.5,1.952,1,0.51229507,2025-11-30T10:02:59.701789
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,Game,Handicap,Cleveland Browns,5.5,1.952,1,0.51229507,2025-11-30T10:02:59.701789
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,Game,Total,Over,35.5,2.0,1,0.5,2025-11-30T10:02:59.702718
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,Game,Total,Under,35.5,1.892,1,0.52854127,2025-11-30T10:02:59.702718
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,Game,TeamTotal_Away,Over,21.5,2.29,1,0.43668124,2025-11-30T10:02:59.704338
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,Game,TeamTotal_Home,Under,21.5,1.657,1,0.6035003,2025-11-30T10:02:59.704338
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,Game,TeamTotal_Away,Over,15.5,2.09,1,0.47846892,2025-11-30T10:02:59.704338
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,Game,TeamTotal_Home,Under,15.5,1.787,1,0.55959713,2025-11-30T10:02:59.704338
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,1H,Money Line,San Francisco 49ers,0.0,1.537,1,0.65061814,2025-11-30T10:02:59.709909
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,1H,Money Line,Cleveland Browns,0.0,2.63,1,0.38022813,2025-11-30T10:02:59.709909
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,1H,Handicap,San Francisco 49ers,-3.0,1.99,1,0.5025126,2025-11-30T10:02:59.710689
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,1H,Handicap,Cleveland Browns,3.0,1.9,1,0.5263158,2025-11-30T10:02:59.710689
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,1H,Total,Over,17.5,2.07,1,0.4830918,2025-11-30T10:02:59.711809
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,1H,Total,Under,17.5,1.819,1,0.5497526,2025-11-30T10:02:59.711809
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,1H,TeamTotal_Away,Over,9.5,1.793,1,0.5577245,2025-11-30T10:02:59.713069
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,1H,TeamTotal_Home,Under,9.5,2.1,1,0.4761905,2025-11-30T10:02:59.713069
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,1H,TeamTotal_Away,Over,6.5,1.689,1,0.5920663,2025-11-30T10:02:59.713069
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,1H,TeamTotal_Home,Under,6.5,2.26,1,0.44247788,2025-11-30T10:02:59.713069
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,1Q,Money Line,San Francisco 49ers,0.0,1.632,1,0.6127451,2025-11-30T10:02:59.713689
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,1Q,Money Line,Cleveland Browns,0.0,2.37,1,0.42194095,2025-11-30T10:02:59.713689
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,1Q,Handicap,San Francisco 49ers,-0.5,2.25,1,0.44444445,2025-11-30T10:02:59.714616
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,1Q,Handicap,Cleveland Browns,0.5,1.694,1,0.5903188,2025-11-30T10:02:59.714616
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,1Q,Total,Over,7.0,2.16,1,0.46296296,2025-11-30T10:02:59.715598
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,1Q,Total,Under,7.0,1.735,1,0.57636887,2025-11-30T10:02:59.715598
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,1Q,TeamTotal_Away,Over,3.5,2.31,1,0.43290043,2025-11-30T10:02:59.716293
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,1Q,TeamTotal_Home,Under,3.5,1.645,1,0.60790277,2025-11-30T10:02:59.716293
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,1Q,TeamTotal_Away,Over,0.5,1.943,1,0.51466805,2025-11-30T10:02:59.716293
+2025-11-30,13,Cleveland Browns,San Francisco 49ers,1Q,TeamTotal_Home,Under,0.5,1.909,1,0.52383447,2025-11-30T10:02:59.716293
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,Game,Money Line,Jacksonville Jaguars,0.0,1.392,1,0.7183908,2025-11-30T10:03:01.630903
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,Game,Money Line,Tennessee Titans,0.0,3.23,1,0.30959752,2025-11-30T10:03:01.630903
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,Game,Handicap,Jacksonville Jaguars,-6.0,2.03,1,0.49261084,2025-11-30T10:03:01.631272
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,Game,Handicap,Tennessee Titans,6.0,1.877,1,0.53276503,2025-11-30T10:03:01.631272
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,Game,Total,Over,42.0,1.925,1,0.5194805,2025-11-30T10:03:01.631583
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,Game,Total,Under,42.0,1.961,1,0.5099439,2025-11-30T10:03:01.631583
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,Game,TeamTotal_Away,Over,24.5,2.08,1,0.48076925,2025-11-30T10:03:01.631930
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,Game,TeamTotal_Home,Under,24.5,1.787,1,0.55959713,2025-11-30T10:03:01.631930
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,Game,TeamTotal_Away,Over,16.5,1.684,1,0.5938242,2025-11-30T10:03:01.631930
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,Game,TeamTotal_Home,Under,16.5,2.24,1,0.44642857,2025-11-30T10:03:01.631930
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,1H,Money Line,Jacksonville Jaguars,0.0,1.512,1,0.6613757,2025-11-30T10:03:01.633279
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,1H,Money Line,Tennessee Titans,0.0,2.7,1,0.37037036,2025-11-30T10:03:01.633279
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,1H,Handicap,Jacksonville Jaguars,-3.0,1.877,1,0.53276503,2025-11-30T10:03:01.633540
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,1H,Handicap,Tennessee Titans,3.0,2.02,1,0.4950495,2025-11-30T10:03:01.633540
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,1H,Total,Over,21.0,1.943,1,0.51466805,2025-11-30T10:03:01.633788
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,1H,Total,Under,21.0,1.925,1,0.5194805,2025-11-30T10:03:01.633788
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,1H,TeamTotal_Away,Over,12.5,1.909,1,0.52383447,2025-11-30T10:03:01.634196
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,1H,TeamTotal_Home,Under,12.5,1.961,1,0.5099439,2025-11-30T10:03:01.634196
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,1H,TeamTotal_Away,Over,7.5,1.99,1,0.5025126,2025-11-30T10:03:01.634196
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,1H,TeamTotal_Home,Under,7.5,1.884,1,0.53078556,2025-11-30T10:03:01.634196
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,1Q,Money Line,Jacksonville Jaguars,0.0,1.625,1,0.61538464,2025-11-30T10:03:01.634515
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,1Q,Money Line,Tennessee Titans,0.0,2.38,1,0.42016804,2025-11-30T10:03:01.634515
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,1Q,Handicap,Jacksonville Jaguars,-0.5,2.08,1,0.48076925,2025-11-30T10:03:01.634837
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,1Q,Handicap,Tennessee Titans,0.5,1.806,1,0.55370986,2025-11-30T10:03:01.634837
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,1Q,Total,Over,7.5,2.04,1,0.49019608,2025-11-30T10:03:01.635090
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,1Q,Total,Under,7.5,1.826,1,0.54764515,2025-11-30T10:03:01.635090
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,1Q,TeamTotal_Away,Over,3.5,1.934,1,0.5170631,2025-11-30T10:03:01.635348
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,1Q,TeamTotal_Home,Under,3.5,1.917,1,0.5216484,2025-11-30T10:03:01.635348
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,1Q,TeamTotal_Away,Over,0.5,1.724,1,0.5800464,2025-11-30T10:03:01.635348
+2025-11-30,13,Tennessee Titans,Jacksonville Jaguars,1Q,TeamTotal_Home,Under,0.5,2.18,1,0.4587156,2025-11-30T10:03:01.635348
+2025-11-30,13,New York Jets,Atlanta Falcons,Game,Money Line,Atlanta Falcons,0.0,1.591,1,0.6285355,2025-11-30T10:03:03.546589
+2025-11-30,13,New York Jets,Atlanta Falcons,Game,Money Line,New York Jets,0.0,2.51,1,0.3984064,2025-11-30T10:03:03.546589
+2025-11-30,13,New York Jets,Atlanta Falcons,Game,Handicap,Atlanta Falcons,-3.0,1.884,1,0.53078556,2025-11-30T10:03:03.547132
+2025-11-30,13,New York Jets,Atlanta Falcons,Game,Handicap,New York Jets,3.0,2.03,1,0.49261084,2025-11-30T10:03:03.547132
+2025-11-30,13,New York Jets,Atlanta Falcons,Game,Total,Over,38.5,1.961,1,0.5099439,2025-11-30T10:03:03.547621
+2025-11-30,13,New York Jets,Atlanta Falcons,Game,Total,Under,38.5,1.925,1,0.5194805,2025-11-30T10:03:03.547621
+2025-11-30,13,New York Jets,Atlanta Falcons,Game,TeamTotal_Away,Over,20.5,1.9,1,0.5263158,2025-11-30T10:03:03.547940
+2025-11-30,13,New York Jets,Atlanta Falcons,Game,TeamTotal_Home,Under,20.5,1.952,1,0.51229507,2025-11-30T10:03:03.547940
+2025-11-30,13,New York Jets,Atlanta Falcons,Game,TeamTotal_Away,Over,19.5,2.2,1,0.45454544,2025-11-30T10:03:03.547940
+2025-11-30,13,New York Jets,Atlanta Falcons,Game,TeamTotal_Home,Under,19.5,1.714,1,0.5834306,2025-11-30T10:03:03.547940
+2025-11-30,13,New York Jets,Atlanta Falcons,1H,Money Line,Atlanta Falcons,0.0,1.653,1,0.6049607,2025-11-30T10:03:03.549146
+2025-11-30,13,New York Jets,Atlanta Falcons,1H,Money Line,New York Jets,0.0,2.35,1,0.42553192,2025-11-30T10:03:03.549146
+2025-11-30,13,New York Jets,Atlanta Falcons,1H,Handicap,Atlanta Falcons,-2.5,1.943,1,0.51466805,2025-11-30T10:03:03.549399
+2025-11-30,13,New York Jets,Atlanta Falcons,1H,Handicap,New York Jets,2.5,1.943,1,0.51466805,2025-11-30T10:03:03.549399
+2025-11-30,13,New York Jets,Atlanta Falcons,1H,Total,Over,19.5,1.909,1,0.52383447,2025-11-30T10:03:03.549727
+2025-11-30,13,New York Jets,Atlanta Falcons,1H,Total,Under,19.5,1.961,1,0.5099439,2025-11-30T10:03:03.549727
+2025-11-30,13,New York Jets,Atlanta Falcons,1H,TeamTotal_Away,Over,9.5,1.751,1,0.5711022,2025-11-30T10:03:03.549982
+2025-11-30,13,New York Jets,Atlanta Falcons,1H,TeamTotal_Home,Under,9.5,2.16,1,0.46296296,2025-11-30T10:03:03.549982
+2025-11-30,13,New York Jets,Atlanta Falcons,1H,TeamTotal_Away,Over,7.5,2.06,1,0.48543692,2025-11-30T10:03:03.549982
+2025-11-30,13,New York Jets,Atlanta Falcons,1H,TeamTotal_Home,Under,7.5,1.819,1,0.5497526,2025-11-30T10:03:03.549982
+2025-11-30,13,New York Jets,Atlanta Falcons,1Q,Money Line,Atlanta Falcons,0.0,1.699,1,0.5885815,2025-11-30T10:03:03.550196
+2025-11-30,13,New York Jets,Atlanta Falcons,1Q,Money Line,New York Jets,0.0,2.24,1,0.44642857,2025-11-30T10:03:03.550196
+2025-11-30,13,New York Jets,Atlanta Falcons,1Q,Handicap,Atlanta Falcons,-0.5,2.26,1,0.44247788,2025-11-30T10:03:03.550423
+2025-11-30,13,New York Jets,Atlanta Falcons,1Q,Handicap,New York Jets,0.5,1.689,1,0.5920663,2025-11-30T10:03:03.550423
+2025-11-30,13,New York Jets,Atlanta Falcons,1Q,Total,Over,7.0,1.862,1,0.5370569,2025-11-30T10:03:03.550729
+2025-11-30,13,New York Jets,Atlanta Falcons,1Q,Total,Under,7.0,2.0,1,0.5,2025-11-30T10:03:03.550729
+2025-11-30,13,New York Jets,Atlanta Falcons,1Q,TeamTotal_Away,Over,3.5,2.17,1,0.46082947,2025-11-30T10:03:03.551041
+2025-11-30,13,New York Jets,Atlanta Falcons,1Q,TeamTotal_Home,Under,3.5,1.729,1,0.578369,2025-11-30T10:03:03.551041
+2025-11-30,13,New York Jets,Atlanta Falcons,1Q,TeamTotal_Away,Over,0.5,1.757,1,0.569152,2025-11-30T10:03:03.551041
+2025-11-30,13,New York Jets,Atlanta Falcons,1Q,TeamTotal_Home,Under,0.5,2.12,1,0.47169814,2025-11-30T10:03:03.551041
+2025-11-30,13,Miami Dolphins,New Orleans Saints,Game,Money Line,New Orleans Saints,0.0,3.06,1,0.3267974,2025-11-30T10:03:05.432378
+2025-11-30,13,Miami Dolphins,New Orleans Saints,Game,Money Line,Miami Dolphins,0.0,1.427,1,0.70077085,2025-11-30T10:03:05.432378
+2025-11-30,13,Miami Dolphins,New Orleans Saints,Game,Handicap,New Orleans Saints,5.0,1.934,1,0.5170631,2025-11-30T10:03:05.432765
+2025-11-30,13,Miami Dolphins,New Orleans Saints,Game,Handicap,Miami Dolphins,-5.0,1.97,1,0.5076142,2025-11-30T10:03:05.432765
+2025-11-30,13,Miami Dolphins,New Orleans Saints,Game,Total,Over,42.0,1.97,1,0.5076142,2025-11-30T10:03:05.433047
+2025-11-30,13,Miami Dolphins,New Orleans Saints,Game,Total,Under,42.0,1.917,1,0.5216484,2025-11-30T10:03:05.433047
+2025-11-30,13,Miami Dolphins,New Orleans Saints,Game,TeamTotal_Away,Over,17.5,1.952,1,0.51229507,2025-11-30T10:03:05.433390
+2025-11-30,13,Miami Dolphins,New Orleans Saints,Game,TeamTotal_Home,Under,17.5,1.9,1,0.5263158,2025-11-30T10:03:05.433390
+2025-11-30,13,Miami Dolphins,New Orleans Saints,Game,TeamTotal_Away,Over,23.5,1.884,1,0.53078556,2025-11-30T10:03:05.433390
+2025-11-30,13,Miami Dolphins,New Orleans Saints,Game,TeamTotal_Home,Under,23.5,1.97,1,0.5076142,2025-11-30T10:03:05.433390
+2025-11-30,13,Miami Dolphins,New Orleans Saints,1H,Money Line,New Orleans Saints,0.0,2.72,1,0.36764705,2025-11-30T10:03:05.434726
+2025-11-30,13,Miami Dolphins,New Orleans Saints,1H,Money Line,Miami Dolphins,0.0,1.507,1,0.66357005,2025-11-30T10:03:05.434726
+2025-11-30,13,Miami Dolphins,New Orleans Saints,1H,Handicap,New Orleans Saints,3.0,2.01,1,0.49751243,2025-11-30T10:03:05.434999
+2025-11-30,13,Miami Dolphins,New Orleans Saints,1H,Handicap,Miami Dolphins,-3.0,1.877,1,0.53276503,2025-11-30T10:03:05.434999
+2025-11-30,13,Miami Dolphins,New Orleans Saints,1H,Total,Over,21.0,1.98,1,0.5050505,2025-11-30T10:03:05.435250
+2025-11-30,13,Miami Dolphins,New Orleans Saints,1H,Total,Under,21.0,1.892,1,0.52854127,2025-11-30T10:03:05.435250
+2025-11-30,13,Miami Dolphins,New Orleans Saints,1H,TeamTotal_Away,Over,7.5,2.01,1,0.49751243,2025-11-30T10:03:05.435558
+2025-11-30,13,Miami Dolphins,New Orleans Saints,1H,TeamTotal_Home,Under,7.5,1.862,1,0.5370569,2025-11-30T10:03:05.435558
+2025-11-30,13,Miami Dolphins,New Orleans Saints,1H,TeamTotal_Away,Over,12.5,1.934,1,0.5170631,2025-11-30T10:03:05.435558
+2025-11-30,13,Miami Dolphins,New Orleans Saints,1H,TeamTotal_Home,Under,12.5,1.934,1,0.5170631,2025-11-30T10:03:05.435558
+2025-11-30,13,Miami Dolphins,New Orleans Saints,1Q,Money Line,New Orleans Saints,0.0,2.49,1,0.4016064,2025-11-30T10:03:05.435785
+2025-11-30,13,Miami Dolphins,New Orleans Saints,1Q,Money Line,Miami Dolphins,0.0,1.578,1,0.6337136,2025-11-30T10:03:05.435785
+2025-11-30,13,Miami Dolphins,New Orleans Saints,1Q,Handicap,New Orleans Saints,0.5,1.854,1,0.53937435,2025-11-30T10:03:05.436100
+2025-11-30,13,Miami Dolphins,New Orleans Saints,1Q,Handicap,Miami Dolphins,-0.5,2.02,1,0.4950495,2025-11-30T10:03:05.436100
+2025-11-30,13,Miami Dolphins,New Orleans Saints,1Q,Total,Over,7.5,2.06,1,0.48543692,2025-11-30T10:03:05.436414
+2025-11-30,13,Miami Dolphins,New Orleans Saints,1Q,Total,Under,7.5,1.806,1,0.55370986,2025-11-30T10:03:05.436414
+2025-11-30,13,Miami Dolphins,New Orleans Saints,1Q,TeamTotal_Away,Over,0.5,1.724,1,0.5800464,2025-11-30T10:03:05.436705
+2025-11-30,13,Miami Dolphins,New Orleans Saints,1Q,TeamTotal_Home,Under,0.5,2.17,1,0.46082947,2025-11-30T10:03:05.436705
+2025-11-30,13,Miami Dolphins,New Orleans Saints,1Q,TeamTotal_Away,Over,3.5,1.9,1,0.5263158,2025-11-30T10:03:05.436705
+2025-11-30,13,Miami Dolphins,New Orleans Saints,1Q,TeamTotal_Home,Under,3.5,1.952,1,0.51229507,2025-11-30T10:03:05.436705
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,Game,Money Line,Minnesota Vikings,0.0,6.64,1,0.15060242,2025-11-30T10:03:07.355528
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,Game,Money Line,Seattle Seahawks,0.0,1.134,1,0.88183427,2025-11-30T10:03:07.355528
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,Game,Handicap,Minnesota Vikings,13.0,1.806,1,0.55370986,2025-11-30T10:03:07.355884
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,Game,Handicap,Seattle Seahawks,-13.0,2.12,1,0.47169814,2025-11-30T10:03:07.355884
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,Game,Total,Over,41.0,1.925,1,0.5194805,2025-11-30T10:03:07.356128
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,Game,Total,Under,41.0,1.961,1,0.5099439,2025-11-30T10:03:07.356128
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,Game,TeamTotal_Away,Over,16.5,2.4,1,0.41666666,2025-11-30T10:03:07.356452
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,Game,TeamTotal_Home,Under,16.5,1.602,1,0.6242197,2025-11-30T10:03:07.356452
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,Game,TeamTotal_Away,Over,26.5,1.84,1,0.54347825,2025-11-30T10:03:07.356452
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,Game,TeamTotal_Home,Under,26.5,2.02,1,0.4950495,2025-11-30T10:03:07.356452
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,1H,Money Line,Minnesota Vikings,0.0,4.3,1,0.23255813,2025-11-30T10:03:07.357655
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,1H,Money Line,Seattle Seahawks,0.0,1.243,1,0.8045052,2025-11-30T10:03:07.357655
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,1H,Handicap,Minnesota Vikings,7.0,1.892,1,0.52854127,2025-11-30T10:03:07.357903
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,1H,Handicap,Seattle Seahawks,-7.0,2.0,1,0.5,2025-11-30T10:03:07.357903
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,1H,Total,Over,21.0,1.934,1,0.5170631,2025-11-30T10:03:07.358160
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,1H,Total,Under,21.0,1.934,1,0.5170631,2025-11-30T10:03:07.358160
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,1H,TeamTotal_Away,Over,6.5,1.729,1,0.578369,2025-11-30T10:03:07.358471
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,1H,TeamTotal_Home,Under,6.5,2.19,1,0.456621,2025-11-30T10:03:07.358471
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,1H,TeamTotal_Away,Over,13.5,1.781,1,0.5614823,2025-11-30T10:03:07.358471
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,1H,TeamTotal_Home,Under,13.5,2.11,1,0.47393367,2025-11-30T10:03:07.358471
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,1Q,Money Line,Minnesota Vikings,0.0,3.23,1,0.30959752,2025-11-30T10:03:07.358790
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,1Q,Money Line,Seattle Seahawks,0.0,1.369,1,0.7304602,2025-11-30T10:03:07.358790
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,1Q,Handicap,Minnesota Vikings,3.0,1.917,1,0.5216484,2025-11-30T10:03:07.359076
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,1Q,Handicap,Seattle Seahawks,-3.0,1.952,1,0.51229507,2025-11-30T10:03:07.359076
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,1Q,Total,Over,7.5,2.07,1,0.4830918,2025-11-30T10:03:07.359333
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,1Q,Total,Under,7.5,1.8,1,0.5555556,2025-11-30T10:03:07.359333
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,1Q,TeamTotal_Away,Over,0.5,1.98,1,0.5050505,2025-11-30T10:03:07.359634
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,1Q,TeamTotal_Home,Under,0.5,1.877,1,0.53276503,2025-11-30T10:03:07.359634
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,1Q,TeamTotal_Away,Over,6.5,1.869,1,0.5350455,2025-11-30T10:03:07.359634
+2025-11-30,13,Seattle Seahawks,Minnesota Vikings,1Q,TeamTotal_Home,Under,6.5,1.99,1,0.5025126,2025-11-30T10:03:07.359634
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,Game,Money Line,Las Vegas Raiders,0.0,5.3,1,0.18867923,2025-11-30T10:03:09.438685
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,Game,Money Line,Los Angeles Chargers,0.0,1.185,1,0.8438819,2025-11-30T10:03:09.438685
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,Game,Handicap,Las Vegas Raiders,10.0,1.943,1,0.51466805,2025-11-30T10:03:09.439078
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,Game,Handicap,Los Angeles Chargers,-10.0,1.961,1,0.5099439,2025-11-30T10:03:09.439078
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,Game,Total,Over,41.0,2.0,1,0.5,2025-11-30T10:03:09.439376
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,Game,Total,Under,41.0,1.892,1,0.52854127,2025-11-30T10:03:09.439376
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,Game,TeamTotal_Away,Over,14.5,2.01,1,0.49751243,2025-11-30T10:03:09.439685
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,Game,TeamTotal_Home,Under,14.5,1.847,1,0.5414185,2025-11-30T10:03:09.439685
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,Game,TeamTotal_Away,Over,25.5,1.917,1,0.5216484,2025-11-30T10:03:09.439685
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,Game,TeamTotal_Home,Under,25.5,1.934,1,0.5170631,2025-11-30T10:03:09.439685
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,1H,Money Line,Las Vegas Raiders,0.0,3.59,1,0.27855155,2025-11-30T10:03:09.440982
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,1H,Money Line,Los Angeles Chargers,0.0,1.32,1,0.75757575,2025-11-30T10:03:09.440982
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,1H,Handicap,Las Vegas Raiders,6.5,1.917,1,0.5216484,2025-11-30T10:03:09.441260
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,1H,Handicap,Los Angeles Chargers,-6.5,1.97,1,0.5076142,2025-11-30T10:03:09.441260
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,1H,Total,Over,20.5,1.9,1,0.5263158,2025-11-30T10:03:09.441478
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,1H,Total,Under,20.5,1.97,1,0.5076142,2025-11-30T10:03:09.441478
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,1H,TeamTotal_Away,Over,6.5,1.709,1,0.5851375,2025-11-30T10:03:09.441744
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,1H,TeamTotal_Home,Under,6.5,2.23,1,0.44843048,2025-11-30T10:03:09.441744
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,1H,TeamTotal_Away,Over,13.5,1.925,1,0.5194805,2025-11-30T10:03:09.441744
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,1H,TeamTotal_Home,Under,13.5,1.943,1,0.51466805,2025-11-30T10:03:09.441744
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,1Q,Money Line,Las Vegas Raiders,0.0,3.16,1,0.3164557,2025-11-30T10:03:09.441951
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,1Q,Money Line,Los Angeles Chargers,0.0,1.384,1,0.72254336,2025-11-30T10:03:09.441951
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,1Q,Handicap,Las Vegas Raiders,3.0,1.884,1,0.53078556,2025-11-30T10:03:09.442198
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,1Q,Handicap,Los Angeles Chargers,-3.0,1.99,1,0.5025126,2025-11-30T10:03:09.442198
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,1Q,Total,Over,7.5,2.12,1,0.47169814,2025-11-30T10:03:09.442446
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,1Q,Total,Under,7.5,1.763,1,0.56721497,2025-11-30T10:03:09.442446
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,1Q,TeamTotal_Away,Over,0.5,1.97,1,0.5076142,2025-11-30T10:03:09.442770
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,1Q,TeamTotal_Home,Under,0.5,1.877,1,0.53276503,2025-11-30T10:03:09.442770
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,1Q,TeamTotal_Away,Over,6.5,1.909,1,0.52383447,2025-11-30T10:03:09.442770
+2025-11-30,13,Los Angeles Chargers,Las Vegas Raiders,1Q,TeamTotal_Home,Under,6.5,1.943,1,0.51466805,2025-11-30T10:03:09.442770
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,Game,Money Line,Buffalo Bills,0.0,1.628,1,0.6142506,2025-11-30T10:03:11.375168
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,Game,Money Line,Pittsburgh Steelers,0.0,2.43,1,0.41152263,2025-11-30T10:03:11.375168
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,Game,Handicap,Buffalo Bills,-3.0,1.98,1,0.5050505,2025-11-30T10:03:11.375560
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,Game,Handicap,Pittsburgh Steelers,3.0,1.925,1,0.5194805,2025-11-30T10:03:11.375560
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,Game,Total,Over,46.0,2.04,1,0.49019608,2025-11-30T10:03:11.375853
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,Game,Total,Under,46.0,1.854,1,0.53937435,2025-11-30T10:03:11.375853
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,Game,TeamTotal_Away,Over,26.5,2.12,1,0.47169814,2025-11-30T10:03:11.376191
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,Game,TeamTotal_Home,Under,26.5,1.763,1,0.56721497,2025-11-30T10:03:11.376191
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,Game,TeamTotal_Away,Over,21.5,2.05,1,0.4878049,2025-11-30T10:03:11.376191
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,Game,TeamTotal_Home,Under,21.5,1.813,1,0.55157197,2025-11-30T10:03:11.376191
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,1H,Money Line,Buffalo Bills,0.0,1.699,1,0.5885815,2025-11-30T10:03:11.377506
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,1H,Money Line,Pittsburgh Steelers,0.0,2.26,1,0.44247788,2025-11-30T10:03:11.377506
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,1H,Handicap,Buffalo Bills,-1.5,1.934,1,0.5170631,2025-11-30T10:03:11.377813
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,1H,Handicap,Pittsburgh Steelers,1.5,1.952,1,0.51229507,2025-11-30T10:03:11.377813
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,1H,Total,Over,22.5,1.917,1,0.5216484,2025-11-30T10:03:11.378079
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,1H,Total,Under,22.5,1.952,1,0.51229507,2025-11-30T10:03:11.378079
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,1H,TeamTotal_Away,Over,12.5,1.934,1,0.5170631,2025-11-30T10:03:11.378362
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,1H,TeamTotal_Home,Under,12.5,1.934,1,0.5170631,2025-11-30T10:03:11.378362
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,1H,TeamTotal_Away,Over,9.5,1.751,1,0.5711022,2025-11-30T10:03:11.378362
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,1H,TeamTotal_Home,Under,9.5,2.16,1,0.46296296,2025-11-30T10:03:11.378362
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,1Q,Money Line,Buffalo Bills,0.0,1.769,1,0.5652911,2025-11-30T10:03:11.378600
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,1Q,Money Line,Pittsburgh Steelers,0.0,2.13,1,0.46948355,2025-11-30T10:03:11.378600
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,1Q,Handicap,Buffalo Bills,-0.5,2.22,1,0.45045045,2025-11-30T10:03:11.378831
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,1Q,Handicap,Pittsburgh Steelers,0.5,1.709,1,0.5851375,2025-11-30T10:03:11.378831
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,1Q,Total,Over,7.5,1.869,1,0.5350455,2025-11-30T10:03:11.379056
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,1Q,Total,Under,7.5,1.99,1,0.5025126,2025-11-30T10:03:11.379056
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,1Q,TeamTotal_Away,Over,3.5,1.909,1,0.52383447,2025-11-30T10:03:11.379344
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,1Q,TeamTotal_Home,Under,3.5,1.943,1,0.51466805,2025-11-30T10:03:11.379344
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,1Q,TeamTotal_Away,Over,3.5,2.24,1,0.44642857,2025-11-30T10:03:11.379344
+2025-11-30,13,Pittsburgh Steelers,Buffalo Bills,1Q,TeamTotal_Home,Under,3.5,1.684,1,0.5938242,2025-11-30T10:03:11.379344
+2025-11-30,13,Washington Commanders,Denver Broncos,Game,Money Line,Denver Broncos,0.0,1.338,1,0.74738413,2025-11-30T10:03:13.314157
+2025-11-30,13,Washington Commanders,Denver Broncos,Game,Money Line,Washington Commanders,0.0,3.54,1,0.28248587,2025-11-30T10:03:13.314157
+2025-11-30,13,Washington Commanders,Denver Broncos,Game,Handicap,Denver Broncos,-6.5,1.952,1,0.51229507,2025-11-30T10:03:13.314504
+2025-11-30,13,Washington Commanders,Denver Broncos,Game,Handicap,Washington Commanders,6.5,1.952,1,0.51229507,2025-11-30T10:03:13.314504
+2025-11-30,13,Washington Commanders,Denver Broncos,Game,Total,Over,42.5,1.847,1,0.5414185,2025-11-30T10:03:13.314790
+2025-11-30,13,Washington Commanders,Denver Broncos,Game,Total,Under,42.5,2.05,1,0.4878049,2025-11-30T10:03:13.314790
+2025-11-30,13,Washington Commanders,Denver Broncos,Game,TeamTotal_Away,Over,24.5,1.952,1,0.51229507,2025-11-30T10:03:13.315166
+2025-11-30,13,Washington Commanders,Denver Broncos,Game,TeamTotal_Home,Under,24.5,1.9,1,0.5263158,2025-11-30T10:03:13.315166
+2025-11-30,13,Washington Commanders,Denver Broncos,Game,TeamTotal_Away,Over,18.5,1.952,1,0.51229507,2025-11-30T10:03:13.315166
+2025-11-30,13,Washington Commanders,Denver Broncos,Game,TeamTotal_Home,Under,18.5,1.892,1,0.52854127,2025-11-30T10:03:13.315166
+2025-11-30,13,Washington Commanders,Denver Broncos,1H,Money Line,Denver Broncos,0.0,1.5,1,0.6666667,2025-11-30T10:03:13.316505
+2025-11-30,13,Washington Commanders,Denver Broncos,1H,Money Line,Washington Commanders,0.0,2.74,1,0.3649635,2025-11-30T10:03:13.316505
+2025-11-30,13,Washington Commanders,Denver Broncos,1H,Handicap,Denver Broncos,-3.5,2.02,1,0.4950495,2025-11-30T10:03:13.316777
+2025-11-30,13,Washington Commanders,Denver Broncos,1H,Handicap,Washington Commanders,3.5,1.869,1,0.5350455,2025-11-30T10:03:13.316777
+2025-11-30,13,Washington Commanders,Denver Broncos,1H,Total,Over,21.5,1.99,1,0.5025126,2025-11-30T10:03:13.317024
+2025-11-30,13,Washington Commanders,Denver Broncos,1H,Total,Under,21.5,1.877,1,0.53276503,2025-11-30T10:03:13.317024
+2025-11-30,13,Washington Commanders,Denver Broncos,1H,TeamTotal_Away,Over,12.5,1.854,1,0.53937435,2025-11-30T10:03:13.317302
+2025-11-30,13,Washington Commanders,Denver Broncos,1H,TeamTotal_Home,Under,12.5,2.02,1,0.4950495,2025-11-30T10:03:13.317302
+2025-11-30,13,Washington Commanders,Denver Broncos,1H,TeamTotal_Away,Over,7.5,1.952,1,0.51229507,2025-11-30T10:03:13.317302
+2025-11-30,13,Washington Commanders,Denver Broncos,1H,TeamTotal_Home,Under,7.5,1.917,1,0.5216484,2025-11-30T10:03:13.317302
+2025-11-30,13,Washington Commanders,Denver Broncos,1Q,Money Line,Denver Broncos,0.0,1.568,1,0.6377551,2025-11-30T10:03:13.317518
+2025-11-30,13,Washington Commanders,Denver Broncos,1Q,Money Line,Washington Commanders,0.0,2.51,1,0.3984064,2025-11-30T10:03:13.317518
+2025-11-30,13,Washington Commanders,Denver Broncos,1Q,Handicap,Denver Broncos,-0.5,1.99,1,0.5025126,2025-11-30T10:03:13.317761
+2025-11-30,13,Washington Commanders,Denver Broncos,1Q,Handicap,Washington Commanders,0.5,1.884,1,0.53078556,2025-11-30T10:03:13.317761
+2025-11-30,13,Washington Commanders,Denver Broncos,1Q,Total,Over,7.5,1.97,1,0.5076142,2025-11-30T10:03:13.317987
+2025-11-30,13,Washington Commanders,Denver Broncos,1Q,Total,Under,7.5,1.884,1,0.53078556,2025-11-30T10:03:13.317987
+2025-11-30,13,Washington Commanders,Denver Broncos,1Q,TeamTotal_Away,Over,3.5,1.84,1,0.54347825,2025-11-30T10:03:13.318263
+2025-11-30,13,Washington Commanders,Denver Broncos,1Q,TeamTotal_Home,Under,3.5,2.02,1,0.4950495,2025-11-30T10:03:13.318263
+2025-11-30,13,Washington Commanders,Denver Broncos,1Q,TeamTotal_Away,Over,0.5,1.694,1,0.5903188,2025-11-30T10:03:13.318263
+2025-11-30,13,Washington Commanders,Denver Broncos,1Q,TeamTotal_Home,Under,0.5,2.22,1,0.45045045,2025-11-30T10:03:13.318263
+2025-12-01,13,New England Patriots,New York Giants,Game,Money Line,New York Giants,0.0,3.85,1,0.25974026,2025-11-30T10:03:15.236633
+2025-12-01,13,New England Patriots,New York Giants,Game,Money Line,New England Patriots,0.0,1.288,1,0.7763975,2025-11-30T10:03:15.236633
+2025-12-01,13,New England Patriots,New York Giants,Game,Handicap,New York Giants,7.5,1.8,1,0.5555556,2025-11-30T10:03:15.236988
+2025-12-01,13,New England Patriots,New York Giants,Game,Handicap,New England Patriots,-7.5,2.11,1,0.47393367,2025-11-30T10:03:15.236988
+2025-12-01,13,New England Patriots,New York Giants,Game,Total,Over,46.5,1.934,1,0.5170631,2025-11-30T10:03:15.237240
+2025-12-01,13,New England Patriots,New York Giants,Game,Total,Under,46.5,1.934,1,0.5170631,2025-11-30T10:03:15.237240
+2025-12-01,13,New England Patriots,New York Giants,Game,TeamTotal_Away,Over,19.5,1.84,1,0.54347825,2025-11-30T10:03:15.237576
+2025-12-01,13,New England Patriots,New York Giants,Game,TeamTotal_Home,Under,19.5,2.02,1,0.4950495,2025-11-30T10:03:15.237576
+2025-12-01,13,New England Patriots,New York Giants,Game,TeamTotal_Away,Over,27.5,2.02,1,0.4950495,2025-11-30T10:03:15.237576
+2025-12-01,13,New England Patriots,New York Giants,Game,TeamTotal_Home,Under,27.5,1.84,1,0.54347825,2025-11-30T10:03:15.237576
+2025-12-01,13,New England Patriots,New York Giants,1H,Money Line,New York Giants,0.0,3.14,1,0.3184713,2025-11-30T10:03:15.238885
+2025-12-01,13,New England Patriots,New York Giants,1H,Money Line,New England Patriots,0.0,1.398,1,0.7153076,2025-11-30T10:03:15.238885
+2025-12-01,13,New England Patriots,New York Giants,1H,Handicap,New York Giants,4.5,1.877,1,0.53276503,2025-11-30T10:03:15.239169
+2025-12-01,13,New England Patriots,New York Giants,1H,Handicap,New England Patriots,-4.5,2.01,1,0.49751243,2025-11-30T10:03:15.239169
+2025-12-01,13,New England Patriots,New York Giants,1H,Total,Over,23.0,1.9,1,0.5263158,2025-11-30T10:03:15.239433
+2025-12-01,13,New England Patriots,New York Giants,1H,Total,Under,23.0,1.97,1,0.5076142,2025-11-30T10:03:15.239433
+2025-12-01,13,New England Patriots,New York Giants,1H,TeamTotal_Away,Over,9.5,2.0,1,0.5,2025-11-30T10:03:15.239729
+2025-12-01,13,New England Patriots,New York Giants,1H,TeamTotal_Home,Under,9.5,1.869,1,0.5350455,2025-11-30T10:03:15.239729
+2025-12-01,13,New England Patriots,New York Giants,1H,TeamTotal_Away,Over,13.5,1.806,1,0.55370986,2025-11-30T10:03:15.239729
+2025-12-01,13,New England Patriots,New York Giants,1H,TeamTotal_Home,Under,13.5,2.08,1,0.48076925,2025-11-30T10:03:15.239729
+2025-12-01,13,New England Patriots,New York Giants,1Q,Money Line,New York Giants,0.0,2.79,1,0.35842294,2025-11-30T10:03:15.239963
+2025-12-01,13,New England Patriots,New York Giants,1Q,Money Line,New England Patriots,0.0,1.473,1,0.6788866,2025-11-30T10:03:15.239963
+2025-12-01,13,New England Patriots,New York Giants,1Q,Handicap,New York Giants,3.0,1.826,1,0.54764515,2025-11-30T10:03:15.240229
+2025-12-01,13,New England Patriots,New York Giants,1Q,Handicap,New England Patriots,-3.0,2.05,1,0.4878049,2025-11-30T10:03:15.240229
+2025-12-01,13,New England Patriots,New York Giants,1Q,Total,Over,9.5,1.943,1,0.51466805,2025-11-30T10:03:15.240505
+2025-12-01,13,New England Patriots,New York Giants,1Q,Total,Under,9.5,1.909,1,0.52383447,2025-11-30T10:03:15.240505
+2025-12-01,13,New England Patriots,New York Giants,1Q,TeamTotal_Away,Over,0.5,1.699,1,0.5885815,2025-11-30T10:03:15.240861
+2025-12-01,13,New England Patriots,New York Giants,1Q,TeamTotal_Home,Under,0.5,2.21,1,0.4524887,2025-11-30T10:03:15.240861
+2025-12-01,13,New England Patriots,New York Giants,1Q,TeamTotal_Away,Over,6.5,1.8,1,0.5555556,2025-11-30T10:03:15.240861
+2025-12-01,13,New England Patriots,New York Giants,1Q,TeamTotal_Home,Under,6.5,2.07,1,0.4830918,2025-11-30T10:03:15.240861
+2025-12-04,,Detroit Lions,Dallas Cowboys,Game,Money Line,Dallas Cowboys,0.0,2.5,1,0.4,2025-11-30T10:03:17.115879
+2025-12-04,,Detroit Lions,Dallas Cowboys,Game,Money Line,Detroit Lions,0.0,1.588,1,0.6297229,2025-11-30T10:03:17.115879
+2025-12-04,,Detroit Lions,Dallas Cowboys,Game,Handicap,Dallas Cowboys,3.5,1.806,1,0.55370986,2025-11-30T10:03:17.116298
+2025-12-04,,Detroit Lions,Dallas Cowboys,Game,Handicap,Detroit Lions,-3.5,2.1,1,0.4761905,2025-11-30T10:03:17.116298
+2025-12-04,,Detroit Lions,Dallas Cowboys,Game,Total,Over,53.5,1.877,1,0.53276503,2025-11-30T10:03:17.116642
+2025-12-04,,Detroit Lions,Dallas Cowboys,Game,Total,Under,53.5,1.98,1,0.5050505,2025-11-30T10:03:17.116642
+2025-12-04,,Detroit Lions,Dallas Cowboys,Game,TeamTotal_Away,Over,24.5,1.917,1,0.5216484,2025-11-30T10:03:17.116997
+2025-12-04,,Detroit Lions,Dallas Cowboys,Game,TeamTotal_Home,Under,24.5,1.97,1,0.5076142,2025-11-30T10:03:17.116997
+2025-12-04,,Detroit Lions,Dallas Cowboys,Game,TeamTotal_Away,Over,27.5,1.735,1,0.57636887,2025-11-30T10:03:17.116997
+2025-12-04,,Detroit Lions,Dallas Cowboys,Game,TeamTotal_Home,Under,27.5,2.21,1,0.4524887,2025-11-30T10:03:17.116997
+2025-12-04,,Detroit Lions,Dallas Cowboys,1H,Money Line,Dallas Cowboys,0.0,2.39,1,0.41841003,2025-11-30T10:03:17.118465
+2025-12-04,,Detroit Lions,Dallas Cowboys,1H,Money Line,Detroit Lions,0.0,1.632,1,0.6127451,2025-11-30T10:03:17.118465
+2025-12-04,,Detroit Lions,Dallas Cowboys,1H,Handicap,Dallas Cowboys,2.5,2.02,1,0.4950495,2025-11-30T10:03:17.118770
+2025-12-04,,Detroit Lions,Dallas Cowboys,1H,Handicap,Detroit Lions,-2.5,1.869,1,0.5350455,2025-11-30T10:03:17.118770
+2025-12-04,,Detroit Lions,Dallas Cowboys,1H,Total,Over,26.5,1.854,1,0.53937435,2025-11-30T10:03:17.119032
+2025-12-04,,Detroit Lions,Dallas Cowboys,1H,Total,Under,26.5,2.02,1,0.4950495,2025-11-30T10:03:17.119032
+2025-12-04,,Detroit Lions,Dallas Cowboys,1H,TeamTotal_Away,Over,10.5,1.862,1,0.5370569,2025-11-30T10:03:17.119352
+2025-12-04,,Detroit Lions,Dallas Cowboys,1H,TeamTotal_Home,Under,10.5,2.01,1,0.49751243,2025-11-30T10:03:17.119352
+2025-12-04,,Detroit Lions,Dallas Cowboys,1H,TeamTotal_Away,Over,13.5,1.724,1,0.5800464,2025-11-30T10:03:17.119352
+2025-12-04,,Detroit Lions,Dallas Cowboys,1H,TeamTotal_Home,Under,13.5,2.2,1,0.45454544,2025-11-30T10:03:17.119352
+2025-12-04,,Detroit Lions,Dallas Cowboys,1Q,Money Line,Dallas Cowboys,0.0,2.3,1,0.43478262,2025-11-30T10:03:17.119588
+2025-12-04,,Detroit Lions,Dallas Cowboys,1Q,Money Line,Detroit Lions,0.0,1.666,1,0.6002401,2025-11-30T10:03:17.119588
+2025-12-04,,Detroit Lions,Dallas Cowboys,1Q,Handicap,Dallas Cowboys,0.5,1.787,1,0.55959713,2025-11-30T10:03:17.119814
+2025-12-04,,Detroit Lions,Dallas Cowboys,1Q,Handicap,Detroit Lions,-0.5,2.11,1,0.47393367,2025-11-30T10:03:17.119814
+2025-12-04,,Detroit Lions,Dallas Cowboys,1Q,Total,Over,10.0,1.892,1,0.52854127,2025-11-30T10:03:17.120063
+2025-12-04,,Detroit Lions,Dallas Cowboys,1Q,Total,Under,10.0,1.961,1,0.5099439,2025-11-30T10:03:17.120063
+2025-12-04,,Detroit Lions,Dallas Cowboys,1Q,TeamTotal_Away,Over,3.5,2.07,1,0.4830918,2025-11-30T10:03:17.120358
+2025-12-04,,Detroit Lions,Dallas Cowboys,1Q,TeamTotal_Home,Under,3.5,1.8,1,0.5555556,2025-11-30T10:03:17.120358
+2025-12-04,,Detroit Lions,Dallas Cowboys,1Q,TeamTotal_Away,Over,6.5,1.775,1,0.5633803,2025-11-30T10:03:17.120358
+2025-12-04,,Detroit Lions,Dallas Cowboys,1Q,TeamTotal_Home,Under,6.5,2.1,1,0.4761905,2025-11-30T10:03:17.120358
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Money Line,Chicago Bears,0.0,2.95,1,0.33898306,2025-11-30T10:03:18.819318
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Money Line,Green Bay Packers,0.0,1.431,1,0.698812,2025-11-30T10:03:18.819318
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Handicap,Chicago Bears,2.5,2.51,0,0.3984064,2025-11-30T10:03:18.820272
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Handicap,Green Bay Packers,-2.5,1.561,0,0.640615,2025-11-30T10:03:18.820272
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Handicap,Chicago Bears,3.0,2.32,0,0.4310345,2025-11-30T10:03:18.820272
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Handicap,Green Bay Packers,-3.0,1.649,0,0.60642815,2025-11-30T10:03:18.820272
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Handicap,Chicago Bears,3.5,2.12,0,0.47169814,2025-11-30T10:03:18.820272
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Handicap,Green Bay Packers,-3.5,1.769,0,0.5652911,2025-11-30T10:03:18.820272
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Handicap,Chicago Bears,4.0,2.06,0,0.48543692,2025-11-30T10:03:18.820272
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Handicap,Green Bay Packers,-4.0,1.819,0,0.5497526,2025-11-30T10:03:18.820272
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Handicap,Chicago Bears,4.5,2.0,0,0.5,2025-11-30T10:03:18.820272
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Handicap,Green Bay Packers,-4.5,1.877,0,0.53276503,2025-11-30T10:03:18.820272
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Handicap,Chicago Bears,5.0,1.952,1,0.51229507,2025-11-30T10:03:18.820272
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Handicap,Green Bay Packers,-5.0,1.934,1,0.5170631,2025-11-30T10:03:18.820272
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Handicap,Chicago Bears,5.5,1.9,0,0.5263158,2025-11-30T10:03:18.820272
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Handicap,Green Bay Packers,-5.5,1.98,0,0.5050505,2025-11-30T10:03:18.820272
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Handicap,Chicago Bears,6.0,1.819,0,0.5497526,2025-11-30T10:03:18.820272
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Handicap,Green Bay Packers,-6.0,2.06,0,0.48543692,2025-11-30T10:03:18.820272
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Handicap,Chicago Bears,6.5,1.757,0,0.569152,2025-11-30T10:03:18.820272
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Handicap,Green Bay Packers,-6.5,2.14,0,0.4672897,2025-11-30T10:03:18.820272
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Handicap,Chicago Bears,7.0,1.666,0,0.6002401,2025-11-30T10:03:18.820272
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Handicap,Green Bay Packers,-7.0,2.29,0,0.43668124,2025-11-30T10:03:18.820272
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Handicap,Chicago Bears,7.5,1.591,0,0.6285355,2025-11-30T10:03:18.820272
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Handicap,Green Bay Packers,-7.5,2.44,0,0.40983605,2025-11-30T10:03:18.820272
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Total,Over,43.0,1.657,0,0.6035003,2025-11-30T10:03:18.821152
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Total,Under,43.0,2.29,0,0.43668124,2025-11-30T10:03:18.821152
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Total,Over,43.5,1.704,0,0.58685446,2025-11-30T10:03:18.821152
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Total,Under,43.5,2.21,0,0.4524887,2025-11-30T10:03:18.821152
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Total,Over,44.0,1.751,0,0.5711022,2025-11-30T10:03:18.821152
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Total,Under,44.0,2.13,0,0.46948355,2025-11-30T10:03:18.821152
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Total,Over,44.5,1.806,0,0.55370986,2025-11-30T10:03:18.821152
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Total,Under,44.5,2.06,0,0.48543692,2025-11-30T10:03:18.821152
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Total,Over,45.0,1.869,0,0.5350455,2025-11-30T10:03:18.821152
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Total,Under,45.0,1.99,0,0.5025126,2025-11-30T10:03:18.821152
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Total,Over,45.5,1.943,1,0.51466805,2025-11-30T10:03:18.821152
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Total,Under,45.5,1.925,1,0.5194805,2025-11-30T10:03:18.821152
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Total,Over,46.0,2.01,0,0.49751243,2025-11-30T10:03:18.821152
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Total,Under,46.0,1.847,0,0.5414185,2025-11-30T10:03:18.821152
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Total,Over,46.5,2.08,0,0.48076925,2025-11-30T10:03:18.821152
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Total,Under,46.5,1.787,0,0.55959713,2025-11-30T10:03:18.821152
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Total,Over,47.0,2.16,0,0.46296296,2025-11-30T10:03:18.821152
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Total,Under,47.0,1.735,0,0.57636887,2025-11-30T10:03:18.821152
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Total,Over,47.5,2.24,0,0.44642857,2025-11-30T10:03:18.821152
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Total,Under,47.5,1.684,0,0.5938242,2025-11-30T10:03:18.821152
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Total,Over,48.0,2.32,0,0.4310345,2025-11-30T10:03:18.821152
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,Total,Under,48.0,1.641,0,0.60938454,2025-11-30T10:03:18.821152
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,TeamTotal_Away,Over,20.5,1.961,1,0.5099439,2025-11-30T10:03:18.821496
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,TeamTotal_Home,Under,20.5,1.884,1,0.53078556,2025-11-30T10:03:18.821496
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,TeamTotal_Away,Over,24.5,1.934,1,0.5170631,2025-11-30T10:03:18.821496
+2025-12-07,,Green Bay Packers,Chicago Bears,Game,TeamTotal_Home,Under,24.5,1.917,1,0.5216484,2025-11-30T10:03:18.821496

@@ -334,13 +334,13 @@ def clean_props(df):
         
         # Create Adjusted Values From Juice
         pivoted_df = pivoted_df.with_columns([
-            (pl.col('Implied_Over') + pl.col('Implied_Under')).alias('Juice'),
+            -1*(1 - (pl.col('Implied_Over') + (pl.col('Implied_Under')))).alias('Juice'),
             (1 / pl.col('Implied_Over') - 1).alias('Over_Juice'),
             (1 / pl.col('Implied_Under') - 1).alias('Under_Juice')
         ]).with_columns([
             (pl.col('Under_Juice') - pl.col('Over_Juice')).alias('Juice_Diff')
         ]).with_columns([
-            (pl.col('Value') + (pl.col('Juice_Diff') * pl.col('Value') * 0.5)).alias('AdjValue')
+            (pl.col('Value') + (pl.col('Juice_Diff') * pl.col('Value') * 0.25)).alias('AdjValue')
         ])
         
         return pivoted_df

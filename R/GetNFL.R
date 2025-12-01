@@ -12,26 +12,34 @@ write_csv(schedules, file = "./Data/NFL_Schedules.csv")
 
 pbp <- nflfastR::load_pbp(2025)
 
-stats <- nflfastR::load_player_stats(2025)
+stats <- calculate_stats(2025, "season", "player")
 
-# Sum Stats
-cols_to_sum <- c(
-                'completions', 'attempts', 'passing_yards', 'passing_tds', 'interceptions', 'sacks', 'sack_yards', 'sack_fumbles', 'sack_fumbles_lost', 'passing_air_yards', 'passing_yards_after_catch', 'passing_first_downs', 'passing_epa', 'passing_2pt_conversions',
-                'carries', 'rushing_yards', 'rushing_tds', 'rushing_fumbles', 'rushing_fumbles_lost', 'rushing_first_downs', 'rushing_epa', 'rushing_2pt_conversions',
-                'receptions', 'targets', 'receiving_yards', 'receiving_tds', 'receiving_fumbles', 'receiving_fumbles_lost', 'receiving_air_yards', 'receiving_yards_after_catch','receiving_first_downs', 'receiving_epa', 'receiving_2pt_conversions'
-                )
-
-# Other
-cols_to_avg <- c('pacr', 'dakota', 'racr', 'target_share', 'air_yards_share', 'wopr')
-
-season_stats <- stats %>%
-  group_by(season, player_id, player_name, player_display_name, position, position_group) %>%
+def_pos_tkl <- stats %>%
+  filter(position_group %in% c('DL', 'DB', 'LB')) %>%
+  mutate(
+    pos = case_when(
+      position_group == 'LB' ~ 'LB',
+      position == 'DE' ~ 'DE',
+      position %in% c('DL', 'NT', 'DT') ~ 'DT',
+      position %in% c('CB') ~ 'CB',
+      position %in% c('SAF', 'S', 'FS', 'DB') ~ 'S',
+      TRUE ~ NA
+    )
+  ) %>%
+  group_by(pos) %>%
   summarise(
-    # Sum Statistics
-    across(all_of(cols_to_sum), ~ sum(., na.rm=TRUE)),
-    across(all_of(cols_to_avg), ~ sum(., na.rm=TRUE)),
-    .groups = 'drop'
-  )
+    solo = sum(def_tackles_solo, na.rm = TRUE),
+    assists = sum(def_tackle_assists, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    solo_pct = solo / (solo + assists),
+    assists_pct = assists / (solo + assists),
+    tackle_ratio = solo / assists
+  ) %>%
+  select(pos, tackle_ratio)
+
+write_csv(def_pos_tkl, file = "./Data/NFL_Tackles_By_Position.csv")
 
 # Save Datasets
 write_csv(stats, file = ".\\Data\\NFL\\NFL_Stats.csv")

@@ -3,13 +3,13 @@ from datetime import datetime
 import requests
 import polars as pl
 from pathlib import Path
-#from nfl_utils import NFL_SCHEDULE
+from nfl_utils import NFL_SCHEDULE
 
 
 ## Constants
 
 # NFL Schedule
-NFL_SCHEDULE = pl.read_csv('Data/NFL_Schedules.csv')
+#NFL_SCHEDULE = pl.read_csv('Data/NFL_Schedules.csv')
 SLIM_SCHED = pl.DataFrame(NFL_SCHEDULE)\
                 .select([
                     pl.col('game_id').alias('NFL_game_id')
@@ -24,7 +24,7 @@ week = NFL_SCHEDULE.filter(pl.col('away_score') == 'NA')['week'].min()
 print(f"Now Loading NFL Week {week}:")
 
 # BetOnline ID For First Game
-id_var = 259400 #259415
+id_var = 259500 #259500
 
 # Statistic Mapping
 stats = {
@@ -447,9 +447,10 @@ for espn, bol in stats.items():
 
 # Get BOL Data By Game
 for espn, bol in stats.items():
-    df = get_BOL_data_OU(ids=BOL_IDs[week],link_stat = bol,espn_stat=espn)
-    if df is not None:
-        full_df = full_df.vstack(df)
+    if bol not in ['Sacks', 'Interceptions', 'Touchdowns']:
+        df = get_BOL_data_OU(ids=BOL_IDs[week],link_stat = bol,espn_stat=espn)
+        if df is not None:
+            full_df = full_df.vstack(df)
 
 with pl.Config(tbl_cols=-1):
     print(full_df)
