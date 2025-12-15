@@ -133,7 +133,8 @@ def clean_pinny(pinny_path="Data/Projections/Pinnacle/Season/Pinnacle_Props_Week
         "Kyle Pitts": "Kyle Pitts Sr.",
         "Marvin Mims": "Marvin Mims Jr.",
         "Travis Etienne": "Travis Etienne Jr.",
-        "Aaron Jones": "Aaron Jones Sr."
+        "Aaron Jones": "Aaron Jones Sr.",
+        "Zonovan Knight": "Bam Knight"
     }
 
     # Load
@@ -223,7 +224,10 @@ def clean_bol(bol_path = "Data/Projections/BetOnline/Season/BetOnline_AllProps.p
         "Chris Godwin": "Chris Godwin Jr.",
         "Anthony Richardson": "Anthony Richardson Sr.",
         "Oronde Gadsden": "Oronde Gadsden II",
-        "James Cook": "James Cook III"
+        "James Cook": "James Cook III",
+        "Zonovan Knight": "Bam Knight",
+        "Calvin Austin": "Calvin Austin III",
+        "Ollie Gordon": "Ollie Gordon II"
     }
 
     if 'proj_defensiveTotalTackles' in raw.columns:
@@ -1199,12 +1203,16 @@ cooleen = ['Big Red Fantasy Football']
 
 for l in all:
     select_league = l
+
+    # Get League
     league = fetch_league(
         league_id=lg_vars[select_league]['ID'],
         year=lg_vars[select_league]['end'],
         swid=lg_vars[select_league]['SWID'],
         espn_s2=lg_vars[select_league]['ESPN_S2']
     )
+
+    # Lineup Tables
     lineups = get_ply_stats_by_matchup(league_id=lg_vars[select_league]['ID'],
                     year=2025,
                     swid=lg_vars[select_league]['SWID'],
@@ -1214,8 +1222,10 @@ for l in all:
     lineups = pd.concat([lineups, free_agents])
     lineups.fillna(0, inplace=True)
     lineups = lineups.drop_duplicates(subset=['week', 'player_name'])
-    ## Build Basic Lineup Table
+
+    ## Build Combined Lineup Table
     LINEUPS = clean_lineups(df=lineups, lg=league)
+
     # Data Dictionary
     df_dict = {
         "League_Projections": get_league_projections(week = curr_week, lu=LINEUPS),

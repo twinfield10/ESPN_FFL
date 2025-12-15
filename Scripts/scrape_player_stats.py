@@ -198,6 +198,11 @@ def get_ply_stats_by_matchup(
 
     # Loop through each week that has happened
     current_matchup_period = league.settings.week_to_matchup_period[league.current_week]
+    if league.league_id == 521152 and league.current_week in [15, 17]:
+        current_matchup_period = league.current_week
+        
+    print(f"Current Week: {league.current_week}")
+    print(f"Current Matchup Period: {current_matchup_period}")
 
     for week in range(current_matchup_period):
         league.load_roster_week(week + 1)
