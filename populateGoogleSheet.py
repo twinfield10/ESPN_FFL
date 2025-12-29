@@ -44,7 +44,8 @@ for league_name, league_data in config['leagues'].items():
         'twelve_dudes_one_cup': '12 Dudes one Cup',
         'big_red_fantasy_football': 'Big Red Fantasy Football',
         'john_pc_league': 'John_PC_League',
-        'john_atl_league': 'John_ATL_League'
+        'john_atl_league': 'John_ATL_League',
+        'fields_league': 'Washed_Up_Fijians'
     }[league_name]
     
     # Resolve references and convert to your expected format
@@ -1195,11 +1196,12 @@ def write_to_google(df_dict, league_name):
             except:
                 print(f"Error Loading {sheet_name} | Position Does Not Exist in League")
 
-all = ['GOP_Degenerates', 'Winfield_Football', 'Knights_FFL', 'Weenieless_Wanderers', 'John_PC_League', 'John_ATL_League', "12 Dudes one Cup", 'Big Red Fantasy Football']
+all = ['GOP_Degenerates', 'Knights_FFL', 'Weenieless_Wanderers', 'John_PC_League', 'John_ATL_League', "12 Dudes one Cup", 'Big Red Fantasy Football', 'Washed_Up_Fijians'] #, 'Winfield_Football'
 john = ['John_PC_League', 'John_ATL_League']
 tommy = ['Winfield_Football', 'Knights_FFL', 'GOP_Degenerates', 'Weenieless_Wanderers']
 will = ["12 Dudes one Cup"]
 cooleen = ['Big Red Fantasy Football']
+fields = ['Washed_Up_Fijians']
 
 for l in all:
     select_league = l

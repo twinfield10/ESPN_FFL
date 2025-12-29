@@ -15,8 +15,11 @@ def build_scoring_table(league: League):
     # Convert "Every" Stats To Decimals
     repl_scoring = {
         8: {'abbr': 'PY','label': 'Passing Yards','id': 3,'points': 0.04},
+        27:{'abbr': 'RY','label': 'Rushing Yards','id': 24,'points': 0.1},
         28:{'abbr': 'RY','label': 'Rushing Yards','id': 24,'points': 0.1},
+        47:{'abbr': 'REY','label': 'Receiving Yards','id': 42,'points': 0.1},
         48:{'abbr': 'REY','label': 'Receiving Yards','id': 42,'points': 0.1}
+
     }
 
     for key, changes in repl_scoring.items():
