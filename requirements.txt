@@ -1,0 +1,43 @@
+# Pinned to the versions the 2025 season actually ran on.
+# There was no requirements file before; the dependency set was only
+# discoverable by reading imports, and the committed .venv/ contained nothing
+# but pip and setuptools (real packages lived in user site-packages).
+#
+#   python3.11 -m venv .venv && source .venv/bin/activate
+#   pip install -r requirements.txt
+
+# --- ESPN ---------------------------------------------------------------
+espn-api==0.45.1
+
+# --- Data ---------------------------------------------------------------
+pandas==2.3.3
+polars==1.19.0
+numpy==2.4.3
+pyarrow==18.1.0
+
+# --- Modelling ----------------------------------------------------------
+scikit-learn==1.7.2
+statsmodels==0.14.5
+joblib==1.5.3
+
+# --- Scraping -----------------------------------------------------------
+requests==2.32.5
+beautifulsoup4==4.12.2
+lxml==5.3.1
+selenium==4.20.0          # Pinnacle only; needs a local Chrome + chromedriver
+
+# --- Google Sheets output -----------------------------------------------
+gspread==6.1.2
+gspread-dataframe==4.0.0
+oauth2client==4.1.3       # deprecated upstream; google-auth is the successor
+
+# --- Config -------------------------------------------------------------
+PyYAML==6.0.1
+
+# --- Optional -----------------------------------------------------------
+boto3==1.35.88            # S3 persistence in Scripts/aws_utils.py (dormant)
+
+# --- Notebook only ------------------------------------------------------
+matplotlib==3.10.8
+seaborn==0.12.2
+plotly==6.3.0

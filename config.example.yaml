@@ -1,0 +1,45 @@
+# config.example.yaml
+#
+# Copy to config.yaml and fill in your own values. config.yaml is gitignored
+# and must never be committed -- it holds live ESPN session cookies.
+#
+# Finding your ESPN credentials:
+#   1. Log in to fantasy.espn.com in a browser.
+#   2. Open DevTools -> Application -> Cookies -> https://fantasy.espn.com
+#   3. Copy the values of the `espn_s2` and `SWID` cookies.
+#   4. `espn_s2` must be URL-encoded exactly as the cookie stores it.
+#      `SWID` includes the surrounding braces, e.g. '{ABCDEF12-...}'.
+# These expire periodically; a sudden ESPNAccessDenied usually means refresh them.
+#
+# Private leagues need credentials belonging to a member of that league, which
+# is why leagues owned by other people carry their own pair below.
+
+# Season the pipeline operates on. Bump this once per year; it drives every
+# league's default year and the season-scoped data directories.
+season: 2026
+
+credentials:
+  # Shared fallback pair, used by any league that does not define its own.
+  espn_id: 'YOUR_URL_ENCODED_ESPN_S2_COOKIE'
+  s_id: '{YOUR-SWID-COOKIE-WITH-BRACES}'
+
+leagues:
+  # `display_name` is the key used everywhere downstream, and must match the
+  # Google Sheet name exactly -- write_to_google() calls client.open() with it.
+  example_league:
+    id: 123456
+    display_name: 'Example_League'
+    start: 2020            # earliest season with data on ESPN
+    end: 2026              # season to pull; normally matches `season` above
+    primary_owner: 'Your Name'
+    # Omit espn_s2/swid to inherit the shared `credentials` pair above.
+
+  example_other_owners_league:
+    id: 654321
+    display_name: 'Someone Elses League'
+    start: 2024
+    end: 2026
+    primary_owner: 'League Member Name'
+    # A league you are not a member of needs that member's own cookies:
+    espn_s2: 'THEIR_URL_ENCODED_ESPN_S2_COOKIE'
+    swid: '{THEIR-SWID-COOKIE}'

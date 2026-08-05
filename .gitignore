@@ -1,7 +1,40 @@
+# --- Secrets -------------------------------------------------------------
+# Patterns, not literal filenames. This previously listed exactly
+# "config.yaml" and "gs4creds.json", so a copy or rename (config_2026.yaml,
+# creds.json) would have been committed silently. Note that "*.env" does NOT
+# match a bare ".env" -- hence ".env*" below.
+config*.yaml
+config*.yml
+!config.example.yaml
+*creds*.json
+*credential*.json
+service-account*.json
+.env*
+*.env
+*.pem
+*.key
+
+# --- Python --------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# --- R -------------------------------------------------------------------
 .Rproj.user
 .Rhistory
 .RData
 .Ruserdata
-*.env
-config.yaml
-gs4creds.json
+
+# --- OS ------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+
+# --- Regenerable local data ------------------------------------------------
+# Equivalence snapshots: large, and rebuilt from the pipeline on demand.
+Data/Equivalence/
