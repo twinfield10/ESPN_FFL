@@ -1,28 +1,98 @@
 from typing import List
+import warnings
+
 import pandas as pd
 from espn_api.football import League, Team, Player
 from espn_api.requests.constant import FANTASY_BASE_ENDPOINT
 from Scripts.fetch_utils import fetch_league
 
-def build_scoring_table(league: League):
+
+class ScoringCoverageWarning(UserWarning):
+    """A league scores a stat this pipeline cannot model.
+
+    Raised as a warning rather than an error because the resulting table is
+    still usable -- it is just missing one rule's contribution.
+    """
+
+
+class UnmappedScoringRuleError(ValueError):
+    """Strict-mode counterpart to :class:`ScoringCoverageWarning`."""
+
+
+# Scoring rules ESPN expresses as "every N yards" rather than as a rate on the
+# underlying yardage stat. Each is rewritten onto the stat it actually counts,
+# with an equivalent per-yard rate, because ``proj_to_score`` can only multiply
+# a stat column by a constant.
+REPL_SCORING = {
+    8: {'abbr': 'PY', 'label': 'Passing Yards', 'id': 3, 'points': 0.04},
+    27: {'abbr': 'RY', 'label': 'Rushing Yards', 'id': 24, 'points': 0.1},
+    28: {'abbr': 'RY', 'label': 'Rushing Yards', 'id': 24, 'points': 0.1},
+    47: {'abbr': 'REY', 'label': 'Receiving Yards', 'id': 42, 'points': 0.1},
+    48: {'abbr': 'REY', 'label': 'Receiving Yards', 'id': 42, 'points': 0.1},
+    # FGY50 ("Every 50 FG Made yards"), new to GOP_Degenerates in 2026, where it
+    # replaced the flat 0.1/yd rule on stat 214.
+    #
+    # The rate here is NOT the naive 5.0 / 50 = 0.1. ESPN awards this per game,
+    # on the floor of the yardage: stat 221 == floor(stat 214 / 50) held on
+    # 14/14 sampled player-weeks. The sub-50 remainder is discarded every game,
+    # so the realised per-yard rate is well below 0.1. Measured across the 21
+    # kickers with >=300 FG made yards in 2025: 0.0642 pts/yd.
+    #
+    # A single linear rate cannot capture a floor exactly -- high-volume kickers
+    # waste proportionally less remainder (0.073/yd) than low-volume ones
+    # (0.050/yd) -- but it is unbiased at the observed yardage distribution,
+    # where 0.1/yd overstates a starting kicker by ~2.4 pts/week.
+    221: {'abbr': 'FGY', 'label': 'FG Yards', 'id': 214, 'points': 0.064},
+}
+
+# Rules deliberately excluded: FG 60+ (201), 2-pt return (206), 1-pt safety
+# (209). These are scored by ESPN but not modelled here.
+IGNORED_SCORING_IDS = [201, 206, 209]
+
+
+def build_scoring_table(league: League, strict: bool = False) -> pd.DataFrame:
+    """Translate a league's ESPN scoring settings into stat->points rows.
+
+    Args:
+        league: ESPN ``League``. Reads ``league.settings.scoring_format``.
+        strict: Raise instead of warning when a scoring rule cannot be mapped
+            to a stat column.
+
+    Returns:
+        pd.DataFrame: One row per scoring rule with ``id``, ``abbr``, ``label``,
+        ``points``, ``source_id`` and ``colName``. ``colName`` is the key to look
+        up in a player's ``points_breakdown`` / ``projected_breakdown``. ``id`` is
+        the stat the rule is scored against, which for an "every N yards" rule is
+        not the id the commissioner configured -- ``source_id`` keeps that, for
+        auditing.
+
+    Raises:
+        UnmappedScoringRuleError: Only when ``strict=True`` and the league
+            scores a stat with no ``colName``.
+
+    Warns:
+        ScoringCoverageWarning: The league scores a stat with no ``colName``,
+            so that rule contributes nothing to projections. This used to pass
+            silently: an unrecognised id produced a NaN ``colName``, which
+            ``proj_to_score`` turned into the column name ``"TRUE_nan"``, found
+            missing, and skipped -- yielding normal-looking but wrong points.
+    """
 
     # League Scoring DataFrame
     league_scoring = pd.DataFrame(league.settings.scoring_format)
 
     # Filter Stuffs + FGs 60+
-    league_scoring = league_scoring[~league_scoring['id'].isin([201, 206, 209])]
+    league_scoring = league_scoring[~league_scoring['id'].isin(IGNORED_SCORING_IDS)]
+
+    # Preserve the commissioner-configured rule id before REPL_SCORING rewrites
+    # `id` to the stat the rule actually counts. Without this an audit cannot
+    # distinguish "rule 214 was repriced" from "rule 214 was replaced by rule
+    # 221, and we chose to model it at 0.064/yd" -- the second is a scoring
+    # change, the first is not.
+    league_scoring = league_scoring.assign(source_id=league_scoring['id'])
 
     # Convert "Every" Stats To Decimals
-    repl_scoring = {
-        8: {'abbr': 'PY','label': 'Passing Yards','id': 3,'points': 0.04},
-        27:{'abbr': 'RY','label': 'Rushing Yards','id': 24,'points': 0.1},
-        28:{'abbr': 'RY','label': 'Rushing Yards','id': 24,'points': 0.1},
-        47:{'abbr': 'REY','label': 'Receiving Yards','id': 42,'points': 0.1},
-        48:{'abbr': 'REY','label': 'Receiving Yards','id': 42,'points': 0.1}
-
-    }
-
-    for key, changes in repl_scoring.items():
+    for key, changes in REPL_SCORING.items():
         league_scoring.loc[league_scoring['id'] == key, ['abbr', 'label', 'id', 'points']] = [
             changes['abbr'], changes['label'], changes['id'], changes['points']
         ]
@@ -49,7 +119,14 @@ def build_scoring_table(league: League):
         57: 'receivingYards200+Game',
         63: 'fumbleRecoveredForTD',
         72: 'fumbles',
+        # ESPN's older id for FG made 50+; 198 below is the modern one. Scored by
+        # Winfield_Football 2016-2019 and Weenieless_Wanderers 2017-2019 at
+        # 5.0 pts, and silently dropped from those seasons until now. No
+        # league-season scores both 74 and 198, so this cannot double-count.
+        74: 'madeFieldGoalsFrom50Plus',
         77: 'madeFieldGoalsFrom40To49',
+        # FGM40, new to GOP_Degenerates in 2026.
+        79: 'missedFieldGoalsFrom40To49',
         80: 'madeFieldGoalsFromUnder40',
         82: 'missedFieldGoalsFromUnder40',
         85: 'missedFieldGoals',
@@ -99,11 +176,64 @@ def build_scoring_table(league: League):
 
     score_df = pd.DataFrame(score_to_lab_dict.items(), columns=['id', 'colName'])
 
-    
+
     scores_df = league_scoring.merge(score_df, on='id', how='left')
     scores_df = scores_df.sort_values(['id'])
 
+    _check_scoring_coverage(league, scores_df, strict=strict)
+
     return scores_df
+
+
+def _check_scoring_coverage(
+    league: League, scores_df: pd.DataFrame, strict: bool = False
+) -> pd.DataFrame:
+    """Flag scoring rules that will contribute nothing to projections.
+
+    A rule with a NaN ``colName`` and non-zero ``points`` is a rule the league
+    scores and this pipeline drops. Rules worth zero points are ignored -- they
+    are inert either way, and every league carries a long tail of them.
+
+    Args:
+        league: The league the table was built from, for the message.
+        scores_df: Output of :func:`build_scoring_table` before returning.
+        strict: Raise rather than warn.
+
+    Returns:
+        pd.DataFrame: The offending rows, empty when coverage is complete.
+
+    Raises:
+        UnmappedScoringRuleError: When ``strict`` and there are offending rows.
+    """
+    unmapped = scores_df[scores_df['colName'].isna() & (scores_df['points'] != 0)]
+    if unmapped.empty:
+        return unmapped
+
+    rules = ", ".join(
+        f"id={int(row.id)} {row.abbr} ({row.label!r}) pts={row.points}"
+        for row in unmapped.itertuples()
+    )
+    msg = (
+        f"{getattr(league, 'name', league.league_id)} {league.year}: "
+        f"{len(unmapped)} scoring rule(s) are not modelled, so they contribute "
+        f"nothing to projections: {rules}. Map the stat id in "
+        f"score_to_lab_dict (or REPL_SCORING, for an 'every N yards' rule) in "
+        f"Scripts/scrape_player_stats.py, or add it to IGNORED_SCORING_IDS if "
+        f"it genuinely cannot be modelled."
+    )
+
+    if strict:
+        raise UnmappedScoringRuleError(msg)
+
+    # Emitted inside catch_warnings so that Scripts/fetch_utils.py's module-level
+    # warnings.filterwarnings("ignore") cannot swallow it. Filtering here rather
+    # than narrowing that global filter keeps this independent of import order,
+    # and of docs/plans/06-performance.md, which removes it properly.
+    with warnings.catch_warnings():
+        warnings.simplefilter("always", ScoringCoverageWarning)
+        warnings.warn(msg, ScoringCoverageWarning, stacklevel=3)
+
+    return unmapped
 
 
 def extract_player_stats(
@@ -187,13 +317,16 @@ def get_ply_stats_by_matchup(
     Returns:
         pd.DataFrame: Historical player stats dataframe
     """
+    # Deferred: Scripts.scoring imports this module, so a top-level import cycles.
+    from Scripts.scoring import get_scoring_table
+
     # Fetch league for year
     league = fetch_league(league_id=league_id,
                     year=year,
                     espn_s2=espn_s2,
                     swid=swid)
-    
-    score_settings = build_scoring_table(league=league)
+
+    score_settings = get_scoring_table(league)
 
 
     # Instantiate data frame
@@ -333,8 +466,11 @@ def build_fa_market(league:League, qbs=20, rbs=30, wrs=30, tes=20, ks=20):
                league.free_agents(size = wrs, position = 'DE') +
                league.free_agents(position = 'D/ST')][0]
     
-    score_settings = build_scoring_table(league=league)
-    
+    # Deferred: Scripts.scoring imports this module, so a top-level import cycles.
+    from Scripts.scoring import get_scoring_table
+
+    score_settings = get_scoring_table(league)
+
     fa = extract_fa_stats(team_lineup = fa_list, score_cols=list(score_settings['colName']), league=league)
 
     return fa
