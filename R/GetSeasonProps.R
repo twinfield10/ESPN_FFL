@@ -12,6 +12,37 @@ suppressMessages(library(purrr))
 suppressWarnings(suppressMessages(library(jsonlite)))
 suppressMessages(library(lubridate))
 suppressMessages(library(httr))
+# readr, for write_csv. The `library(tidyverse)` line above is commented out, so
+# write_csv was never actually in scope -- this script could only ever have run
+# inside an interactive session that had loaded tidyverse separately. Under
+# Rscript it failed with "could not find function write_csv".
+suppressMessages(library(readr))
+
+# --- Season and paths ---------------------------------------------------
+# The output filename was hardcoded to '2025_BetOnlineProps_Offense.csv' and
+# written to a bare relative path, so it landed wherever the interpreter happened
+# to be and each season overwrote the last. Both are now resolved the same way
+# GetNFL.R does it: explicit season, repo-root-relative, season-scoped.
+#
+# Usage:
+#   Rscript R/GetSeasonProps.R          # season inferred (rolls over in July)
+#   Rscript R/GetSeasonProps.R 2026     # explicit
+args <- commandArgs(trailingOnly = TRUE)
+SEASON <- if (length(args) >= 1) as.integer(args[1]) else {
+  today <- Sys.Date()
+  if (as.integer(format(today, "%m")) >= 7) as.integer(format(today, "%Y"))
+  else as.integer(format(today, "%Y")) - 1L
+}
+
+script_path <- tryCatch(
+  normalizePath(sys.frame(1)$ofile, mustWork = TRUE),
+  error = function(e) NA_character_
+)
+repo_root <- if (!is.na(script_path)) dirname(dirname(script_path)) else normalizePath(".", mustWork = TRUE)
+out_dir <- file.path(repo_root, "Data", "Projections", "BetOnline", "Season", as.character(SEASON))
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+message(sprintf("BetOnline season props for %d -> %s", SEASON, out_dir))
 
 nfl_teams <- c(
   # AFC East
@@ -332,23 +363,45 @@ df_to_stats <- function(clean_df){
     mutate(pos_rank = rank(desc(PPR_PTS), ties.method = "min")) %>%
     ungroup() %>%
     arrange(pos, pos_rank)
-  
-  
-  return(wide_data)
+
+
+  # Return the long frame as well as the wide one. `df` carries every prop,
+  # including SK_DEF / INT_DEF / TKL_DEF; `wide_data` keeps only the _PASS/_RUSH/
+  # _REC columns, so the wide form silently drops the defensive props -- which are
+  # the only IDP projections any source provides. See docs/plans/03.
+  return(list(long = df, wide = wide_data))
 }
 
-bol_raw <- map_dfr(nfl_teams, parse_betonline_json) 
-bol_clean <- df_to_stats(bol_raw) %>% filter(pos != 'DEF')
+bol_raw <- map_dfr(nfl_teams, parse_betonline_json)
+bol_parsed <- df_to_stats(bol_raw)
+
+# --- Long format: every prop, offence and defence -----------------------
+# This is the file the Python pipeline should read. Keeping it long means a new
+# stat type shows up as extra rows rather than needing a schema change, and
+# nothing is dropped on the way through.
+bol_long <- bol_parsed$long
+write_csv(bol_long, file.path(out_dir, "BetOnline_SeasonProps_All.csv"))
+message(sprintf("  BetOnline_SeasonProps_All.csv: %d props, %d players, %d teams",
+                nrow(bol_long), dplyr::n_distinct(bol_long$player),
+                dplyr::n_distinct(bol_long$team)))
+def_props <- bol_long %>% filter(grepl("_DEF$", stat_short))
+message(sprintf("    of which defensive/IDP: %d props, %d players",
+                nrow(def_props), dplyr::n_distinct(def_props$player)))
+
+# --- Wide offence: unchanged shape, for existing consumers ---------------
+bol_clean <- bol_parsed$wide %>% filter(pos != 'DEF')
 bol_clean[is.na(bol_clean)] <- 0
-
-write_csv(bol_clean, '2025_BetOnlineProps_Offense.csv')
-
-bol_clean %>% filter(pos == 'WR/TE')
+write_csv(bol_clean, file.path(out_dir, "BetOnline_SeasonProps_Offense.csv"))
+message(sprintf("  BetOnline_SeasonProps_Offense.csv: %d players", nrow(bol_clean)))
 
 
-get_bol_raw(team='pittsburgh-steelers')
-
-pmap_dfr()
+# Removed two stray top-level expressions left over from an interactive session:
+#   get_bol_raw(team='pittsburgh-steelers')   # wrong arg name; the parameter is `t`
+#   pmap_dfr()                                # called with no arguments
+# Both errored, and being after the writes they made a successful props scrape
+# exit non-zero.
+#
+# Note the MLB parsing below is unused by the NFL pipeline.
 parse_mlb_data <- function(json_data) {
   
   # Extract the games array
@@ -562,6 +615,19 @@ clean_bol <- function(data){
   ))
 }
 
-REG_List <- clean_bol(pmap_dfr(list(get_bol_ids()), get_bol_game))
-LV_Info_DF <- REG_List$info_df
-LV_DF <- REG_List$compare_df
+# --- LowVig game lines (separate concern, opt-in) ------------------------
+# This scrapes LowVig game lines rather than BetOnline player props, and it is
+# unrelated to the season-props output above. It used to run unconditionally at
+# the tail of the script, so a LowVig outage failed the whole run *after* the
+# props had been written -- making a successful props scrape look like a failure.
+# Opt in with LOWVIG=1.
+if (identical(Sys.getenv("LOWVIG"), "1")) {
+  REG_List <- clean_bol(pmap_dfr(list(get_bol_ids()), get_bol_game))
+  LV_Info_DF <- REG_List$info_df
+  LV_DF <- REG_List$compare_df
+  message(sprintf("  LowVig lines: %d rows", nrow(LV_DF)))
+} else {
+  message("  LowVig game lines skipped (set LOWVIG=1 to include).")
+}
+
+message("Done.")
