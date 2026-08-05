@@ -26,608 +26,30 @@ from gspread_dataframe import set_with_dataframe
 from oauth2client.service_account import ServiceAccountCredentials
 
 # Config Leagues
-import yaml
+from Scripts.config_utils import build_lg_vars, get_season, load_config
+
+config = load_config()
+lg_vars = build_lg_vars(config)
+SEASON = get_season(config)
+
+# Projection blending pipeline. These 12 functions used to be defined here and
+# pasted into FF Analysis Notebook.ipynb as a second, drifting copy; they now
+# live in one place and both callers import them.
+from Scripts.projection_utils import (
+    change_col_prefix,
+    check_week,
+    clean_bol,
+    clean_lineups,
+    clean_pinny,
+    compute_weighted_stats,
+    create_mean_cols,
+    get_league_projections,
+    get_match_details,
+    get_rankings,
+    impute_columns,
+    proj_to_score,
+)
 
-# Load the YAML file
-with open('config.yaml', 'r') as file:
-    config = yaml.safe_load(file)
-
-# Access your data
-lg_vars = {}
-for league_name, league_data in config['leagues'].items():
-    # Convert snake_case back to your original naming
-    original_name = {
-        'winfield_football': 'Winfield_Football',
-        'weenieless_wanderers': 'Weenieless_Wanderers', 
-        'gop_degenerates': 'GOP_Degenerates',
-        'knights_ffl': 'Knights_FFL',
-        'twelve_dudes_one_cup': '12 Dudes one Cup',
-        'big_red_fantasy_football': 'Big Red Fantasy Football',
-        'john_pc_league': 'John_PC_League',
-        'john_atl_league': 'John_ATL_League',
-        'fields_league': 'Washed_Up_Fijians'
-    }[league_name]
-    
-    # Resolve references and convert to your expected format
-    espn_s2 = league_data.get('espn_s2') or config['credentials']['espn_id']
-    swid = league_data.get('swid') or config['credentials']['s_id']
-    
-    lg_vars[original_name] = {
-        'ID': league_data['id'],
-        'ESPN_S2': espn_s2,
-        'SWID': swid,
-        'start': league_data['start'],
-        'end': league_data['end'],
-        'primary_own': league_data['primary_owner']
-    }
-
-# Load Tackle Split
-TKLS_DIM = pd.read_csv('Data/NFL_Tackles_By_Position.csv')
-
-def change_col_prefix(df, old_pfix, new_pfix):
-
-    df = df
-    df.columns = df.columns.str.replace(f'{old_pfix}', new_pfix, regex=False)
-    return df
-
-def impute_columns(df, target_prefix, source_prefix):
-    target_cols = [col for col in df.columns if col.startswith(target_prefix)]
-    source_cols = [col for col in df.columns if col.startswith(source_prefix)]
-
-    for source_col in source_cols:
-        # Define the corresponding target column name
-        target_col = target_prefix + source_col[len(source_prefix):]
-        
-        # If the target column does not exist, create it by copying the values from the source column
-        if target_col not in df.columns:
-            df[target_col] = df[source_col]
-        
-        # If the target column exists, impute missing values from the source column
-        elif source_col in df.columns:
-            df[target_col] = df[target_col].fillna(df[source_col])
-    
-    return df
-
-def create_mean_cols(df, target_prefix, source_prefix, mean_prefix='MEAN_'):
-    target_cols = [col for col in df.columns if col.startswith(target_prefix)]
-    source_cols = [col for col in df.columns if col.startswith(source_prefix)]
-
-    for source_col in source_cols:
-        target_col = target_prefix + source_col[len(source_prefix):]
-        mean_col = mean_prefix + source_col[len(source_prefix):]
-
-        if target_col in df.columns and source_col in df.columns:
-            df[mean_col] = df[[target_col, source_col]].mean(axis=1)
-
-    df = df[['week', 'player_name', 'primaryPosition','player_active_status']  + list(df.filter(like='MEAN_').columns)]
-
-    return df
-
-def clean_pinny(pinny_path="Data/Projections/Pinnacle/Season/Pinnacle_Props_Week_All.parquet"):
-
-    # Constants
-    prop_to_stat={
-        "Touchdowns": 'rushingTouchdowns',
-        "Rushing Yards": "rushingYards",
-        "Rush Attempts": 'rushingAttempts',
-
-        "Receiving Yards": "receivingYards",
-        "Receptions": "receivingReceptions",
-
-        "Touchdown Passes": "passingTouchdowns",
-        "Pass Completions": "passingCompletions",
-        "Pass Attempts": "passingAttempts",
-        "Passing Yards": "passingYards",
-        "Interceptions": "passingInterceptions"
-    }
-
-    name_changes={
-        # Pinny -> ESPN #
-        "Tre Harris": "Tre' Harris",
-        "Marvin Mims": "Marvin Mims Jr.",
-        "Travis Etienne": "Travis Etienne Jr.",
-        "Aaron Jones": "Aaron Jones Sr.",
-        "Kyle Pitts": "Kyle Pitts Sr.",
-        "Calvin Austin": "Calvin Austin III",
-        "Ollie Gordon":"Ollie Gordon II",
-        "Marvin Harrison": "Marvin Harrison Jr.",
-        "Kyle Pitts": "Kyle Pitts Sr.",
-        "Marvin Mims": "Marvin Mims Jr.",
-        "Travis Etienne": "Travis Etienne Jr.",
-        "Aaron Jones": "Aaron Jones Sr.",
-        "Zonovan Knight": "Bam Knight"
-    }
-
-    # Load
-    raw=pd.read_parquet(pinny_path)
-
-    # Get Stats
-    #raw.replace({"PropType": prop_to_stat}, inplace=True)
-
-    # Filter
-    #raw = raw[raw['PropType'].isin(list(prop_to_stat.values()))]
-
-    # Clean Names
-    raw.replace({"player_name": name_changes}, inplace=True)
-
-    # Replace NaN in Value with ImpNoVig
-    #raw['Value'] = raw['Value'].fillna(raw['ImpNoVig'])
-
-    def adjust_value(df):
-        pivoted_df = df.pivot_table(
-            index=['officialDate', 'week', 'Away', 'Home', 'Player', 'PropType', 'Value', 'BetTimeStamp'],
-            columns='OverUnder',
-            values=['Price', 'Implied', 'ImpNoVig'],
-            aggfunc='first'  # Use 'first' in case there are duplicates
-        ).reset_index()
-
-        # Flatten the column names and add OverUnder values as suffixes
-        pivoted_df.columns.name = None
-        new_columns = []
-
-        for col in pivoted_df.columns:
-            if col[0] in ['Price', 'Implied', 'ImpNoVig']:
-                new_columns.append(f"{col[0]}_{col[1]}")
-            else:
-                new_columns.append(col[0])
-
-        pivoted_df.columns = new_columns
-
-        # Create Adjusted Values From Juice
-        pivoted_df["Juice"] = pivoted_df['Implied_Over'] + pivoted_df['Implied_Under']
-        pivoted_df["Over_Juice"] = (1 / pivoted_df['Implied_Over'] - 1)
-        pivoted_df["Under_Juice"] = (1 / pivoted_df['Implied_Under'] - 1)
-        pivoted_df["Juice_Diff"] = pivoted_df["Under_Juice"] - pivoted_df["Over_Juice"]
-        pivoted_df["AdjValue"] = pivoted_df["Value"] + (pivoted_df["Juice_Diff"] * pivoted_df["Value"] * 0.5)
-
-        return pivoted_df
-    
-    #adjusted = adjust_value(raw)
-
-
-    #adjusted = adjusted[['week', 'Player', 'PropType', 'AdjValue']]
-    #adjusted.columns = ['week', 'player_name', 'statType', 'statValue']
-
-    # Pivot
-    #clean = adjusted.pivot_table(index=['week','player_name'], columns='statType', values='statValue', aggfunc='mean').reset_index()
-
-    
-
-    # Split Touchdowns by Usage (Rushing/Receiving)
-    #if 'rushingTouchdowns' in clean.columns:
-    #    clean['receivingTouchdowns'] = clean['rushingTouchdowns'] * (clean['receivingYards'] / (clean['receivingYards'] + clean['rushingYards']))
-    #    clean['rushingTouchdowns'] = clean['rushingTouchdowns'] - clean['receivingTouchdowns']
-
-    #clean.columns = ['week', 'player_name'] + ['proj_' + str(col) for col in clean.columns[2:]]
-    #clean = clean[['week', 'player_name'] + list(clean.columns[2:])]
-
-    # Flatten If Needed
-    #clean.columns.name = None
-    #clean.columns = [col if col is not None else 'StatValue' for col in clean.columns]
-
-    #final = proj_to_score(proj_df=clean, col_pfix="PINNY")
-
-    return raw
-
-def clean_bol(bol_path = "Data/Projections/BetOnline/Season/BetOnline_AllProps.parquet"):
-
-    # Load
-    raw = pd.read_parquet(bol_path).drop(columns=['team'])
-
-    name_changes={
-        # BOL -> ESPN #
-        "Tre Harris": "Tre' Harris",
-        "Kyle Pitts": "Kyle Pitts Sr.",
-        "Deebo Samuel Sr.":"Deebo Samuel",
-        "Cameron Ward":"Cam Ward",
-        "Marquise Brown":"Hollywood Brown",
-        "Ray-Ray McCloud": "Ray-Ray McCloud III",
-        "Chris Godwin": "Chris Godwin Jr.",
-        "Anthony Richardson": "Anthony Richardson Sr.",
-        "Oronde Gadsden": "Oronde Gadsden II",
-        "James Cook": "James Cook III",
-        "Zonovan Knight": "Bam Knight",
-        "Calvin Austin": "Calvin Austin III",
-        "Ollie Gordon": "Ollie Gordon II"
-    }
-
-    if 'proj_defensiveTotalTackles' in raw.columns:
-        raw = raw.merge(TKLS_DIM, left_on="position", right_on="pos", how="left")
-        raw['proj_defensiveAssistedTackles'] = raw['proj_defensiveTotalTackles'] / (raw['tackle_ratio'] + 0.5)
-        raw['proj_defensiveSoloTackles'] = raw['tackle_ratio'] * raw['proj_defensiveAssistedTackles']
-
-    # Join Tackle DataFrame
-    raw = raw.drop(columns=['position', 'pos'])
-
-    raw.replace({"player_name": name_changes}, inplace=True)
-
-    return raw
-
-def get_match_details(df1, df2, keys, check_col2, tbl_lab, min_wk):
-
-    # Only Check Weeks that Exist in Data w/ Projected Stats
-    df1 = df1[((df1['week'] == min_wk) & (~df1['primaryPosition'].isin(['D/ST', 'K', 'DL', 'DE', 'LB', 'NT', 'CB', 'S', 'DT', 'DB', 'OLB'])))]
-    df1 = df1[df1.filter(like='MEAN_').sum(axis=1) > 0]
-    df1 = df1[df1['player_active_status'] == 'active']
-
-    # Option 1 - Count unmatched values
-    merged_df = pd.merge(df1, df2, on=keys, how='left')
-    unmatched_from_df2 = merged_df[check_col2].isnull().sum()
-    
-    # If > 0, print more information
-    if unmatched_from_df2 > 0:
-        print(f'Unmatched from {tbl_lab}: {unmatched_from_df2}')
-
-        merged_df = pd.merge(df1, df2, on=keys, how='left', indicator=True)
-        unmatched_rows = merged_df[merged_df['_merge'] != 'both']
-        unmatched_count = unmatched_rows.shape[0]
-        print(unmatched_rows[['week', 'player_name']])
-
-        # Option 3 - Grouping To get Count
-        unmatched_count = merged_df['_merge'].value_counts()
-        print(unmatched_count)
-        print(" ")
-    elif unmatched_from_df2 == 0:
-        print(f"All Rows in {tbl_lab} Match")
-        print(" ")
-
-def compute_weighted_stats(df, stats_list, weights_dict):
-    """
-    Compute weighted stats for the given statistics in the DataFrame.
-
-    Parameters:
-    - df (pd.DataFrame): The DataFrame containing the stats.
-    - stats_list (list): A list of stat prefixes to compute.
-    - weights_dict (dict): A nested dictionary where keys are stat prefixes and values are dictionaries
-                           of sources and their corresponding weights.
-
-    Returns:
-    - pd.DataFrame: The updated DataFrame with the new weighted stat columns.
-    """
-    for stat in stats_list:
-        new_column_name = f'TRUE_{stat}'
-        df[new_column_name] = 0  # Initialize the new column
-
-        # Check if the stat has specific weights defined
-        if stat in weights_dict:
-            for source, weight in weights_dict[stat].items():
-                # Construct the column name based on the source and stat
-                col_name = f"{source}_{stat}"
-                if col_name in df.columns:
-                    # Add the weighted contribution to the new column
-                    df[new_column_name] += df[col_name] * weight
-        else:
-            # If no specific weights are defined for the stat, use default weights
-            for source, weight in weights_dict['default'].items():
-                col_name = f"{source}_{stat}"
-                if col_name in df.columns:
-                    df[new_column_name] += df[col_name] * weight
-    
-    return df
-
-def proj_to_score(proj_df, s_league, col_pfix_list=['ESPN', 'FP', 'MEAN', 'PINNY', 'BOL', 'TRUE']):
-
-    s_df = build_scoring_table(league=s_league)
-
-    # Update scores in s_df for D/ST positions and specific conditions
-    if 1727104 in list(proj_df['league_id'].unique()):
-        dp_df = proj_df[proj_df['primaryPosition'].isin(['DL', 'DE', 'LB', 'NT', 'CB', 'S', 'DT', 'DB', 'OLB'])]
-        normal_df = proj_df[~proj_df['primaryPosition'].isin(['DL', 'DE', 'LB', 'NT', 'CB', 'S', 'DT', 'DB', 'OLB'])]
-
-        s_df.loc[s_df['id'] == 99, 'points'] = 1
-        s_df.loc[s_df['id'] == 109, 'points'] = 0
-        s_df.loc[s_df['id'] == 112, 'points'] = 0
-        s_df.loc[s_df['id'] == 113, 'points'] = 0
-        s_df.loc[s_df['id'] == 95, 'points'] = 1
-        s_df.loc[s_df['id'] == 97, 'points'] = 1
-
-        # Iterate over each prefix in the prefix list
-        for col_pfix in col_pfix_list:
-            # Initialize the score column to 0
-            normal_df[f'{col_pfix}_Points'] = 0.0
-
-            # Iterate over each score row in s_df
-            for _, score_row in s_df.iterrows():
-                col_name = f"{col_pfix}_{score_row['colName']}"
-
-                # If the corresponding stat column exists in proj_df, calculate the weighted score
-                if col_name in normal_df.columns:
-                    normal_df[f'{col_pfix}_Points'] += normal_df[col_name] * score_row['points']
-
-
-        # Handle DP 
-        s_df.loc[s_df['id'] == 95, 'points'] = 12
-        s_df.loc[s_df['id'] == 97, 'points'] = 2
-        s_df.loc[s_df['id'] == 99, 'points'] = 10
-        s_df.loc[s_df['id'] == 112, 'points'] = 5
-        s_df.loc[s_df['id'] == 113, 'points'] = 5
-        s_df.loc[s_df['id'] == 107, 'points'] = 0.5
-        s_df.loc[s_df['id'] == 108, 'points'] = 2
-
-        # Iterate over each prefix in the prefix list
-        for col_pfix in col_pfix_list:
-            # Initialize the score column to 0
-            dp_df[f'{col_pfix}_Points'] = 0.0
-
-            # Iterate over each score row in s_df
-            for _, score_row in s_df.iterrows():
-                col_name = f"{col_pfix}_{score_row['colName']}"
-
-                # If the corresponding stat column exists in proj_df, calculate the weighted score
-                if col_name in dp_df.columns:
-                    dp_df[f'{col_pfix}_Points'] += dp_df[col_name] * score_row['points']
-
-        dp_df['TRUE_Points'] = (dp_df['ESPN_Points'] + dp_df['BOL_Points']) / 2
-
-        proj_df = pd.concat([normal_df, dp_df])
-
-    else:
-        # Iterate over each prefix in the prefix list
-        for col_pfix in col_pfix_list:
-            # Initialize the score column to 0
-            proj_df[f'{col_pfix}_Points'] = 0.0
-
-            # Iterate over each score row in s_df
-            for _, score_row in s_df.iterrows():
-                col_name = f"{col_pfix}_{score_row['colName']}"
-
-                # If the corresponding stat column exists in proj_df, calculate the weighted score
-                if col_name in proj_df.columns:
-                    proj_df[f'{col_pfix}_Points'] += proj_df[col_name] * score_row['points']
-    
-    return proj_df
-
-def clean_lineups(df, lg):
-
-    # Get Base of Projections (player_name, week, team, etc.)
-    base_cols = ['league_id','year','week', 'team_owner', 'team_name', 'team_division', 'player_name', 'player_id', 'slotPosition', 'primaryPosition', 'eligiblePositions', 'pro_team', 'current_team_id' ,'player_position' ,'player_active_status', 'points', 'projPoints']
-    scores_df = build_scoring_table(league=lg)
-    actual_scoring_cols = scores_df['colName'].to_list()
-    base = df[base_cols + actual_scoring_cols]
-
-    curr_week = lg.current_week
-
-    # Constants
-
-    ## Defensive Positions
-    d_pos = ['DL', 'DE', 'LB', 'NT', 'CB', 'S', 'DT', 'DB', 'OLB']
-
-    ## Duplicate Error
-    fix_list = ['ESPN_rushingYards', 'ESPN_receivingYards', 'ESPN_passingYards']
-
-    # 1) Combine ESPN and Fantasy Pros Data
-
-    ## a) Build ESPN From Raw Data
-    espn_proj = df[['week', 'player_name', 'primaryPosition', 'player_active_status']  + list(df.filter(like='proj_').columns)]
-    espn_proj = change_col_prefix(df=espn_proj, old_pfix="proj", new_pfix="ESPN")
-
-    ## b) Build Fantasy Pros From Scrape
-    fp_proj = pd.read_parquet("Data/Projections/FantasyPros/FantasyPros_Projections_Week_All.parquet").drop(columns=['STD_FantasyPoints', 'TimeStamp'])
-    fp_proj = change_col_prefix(df=fp_proj, old_pfix="proj", new_pfix="FP")
-
-    ## c) Combine ESPN and FP
-    trans1_df = espn_proj.merge(fp_proj, how='left', on=['week', 'player_name'])
-    get_match_details(df1=espn_proj, df2=fp_proj, keys=["week", "player_name"], check_col2="FP_rushingTouchdowns", min_wk=curr_week, tbl_lab="FantasyPros Table")
-
-    ## d) Correct Error Where ESPN Duplicates Yards
-    print("=============================== Correcting ESPN Doubled Yard Projections ===============================")
-    print(" ")
-    for column in fix_list:
-        FP_Col = column.replace("ESPN_", "FP_")
-        # Apply with a conditional print statement
-        trans1_df[column] = trans1_df.apply(
-            lambda row: (
-                # Check if the condition is true
-                print(f"Player: {row['player_name']}, Week: {row['week']}, "
-                      f"Original {column}: {row[column]}, "
-                      f"New {column}: {row[column] / 2}") or row[column] / 2
-                if (row[column] > (row[FP_Col] * 1.75)) and (row[column] > 40) else row[column]
-            ),
-            axis=1
-        )
-
-    print(" ")
-    print("======================================== End Doubled Correction ========================================")
-    print(" ")
-
-    ## e) Impute FP with ESPN + Create Means
-    trans1_df = impute_columns(trans1_df, target_prefix='FP_', source_prefix='ESPN_')
-    mean_df = create_mean_cols(trans1_df, target_prefix='FP_', source_prefix='ESPN_')
-
-    ## f) Retain New ESPN Values For Join With Books + Add To Base
-    base = base.merge(trans1_df, on=['week', 'player_name', 'primaryPosition','player_active_status'], how='left')
-
-    ## f) Create Dataframe of Means For Imputing Sportsbook Data
-    mean_df = create_mean_cols(trans1_df, target_prefix='FP_', source_prefix='ESPN_')
-    
-
-    # 2) Combine Pinnacle Data With ESPN and Impute
-    ## a) Clean Pinnacle Data
-    pinny_proj = clean_pinny() #pd.read_parquet("Data/Projections/Pinnacle/Season/Pinnacle_Props_Week_All.parquet")
-    pinny_proj = change_col_prefix(df=pinny_proj, old_pfix="proj", new_pfix="PINNY")
-
-    ## b) Impute Missing Data From ESPN
-    trans2_df = mean_df.merge(pinny_proj, on=["week", "player_name"], how='left')
-    get_match_details(df1=mean_df, df2=pinny_proj, keys=["week", "player_name"], check_col2="PINNY_receivingYards", min_wk=curr_week, tbl_lab="Pinnacle Sportsbook Table")
-    trans2_df = impute_columns(trans2_df, target_prefix='PINNY_', source_prefix="MEAN_")
-    
-
-    ## c) Slim Columns To Only Pinnacle Data
-    trans2_df = trans2_df[['week', 'player_name', 'primaryPosition','player_active_status'] + list(trans2_df.filter(like='PINNY').columns)]
-    ## d) Join Slim Transformation Back To Base
-    base = base.merge(trans2_df, on=['week', 'player_name', 'primaryPosition','player_active_status'], how='left')
-
-
-    # 3) Combine BetOnline Data With ESPN and Impute
-    bol_proj = clean_bol()
-    bol_proj = change_col_prefix(df=bol_proj, old_pfix="proj", new_pfix="BOL")
-
-    ## b) Impute Missing Data From ESPN
-    trans3_df = mean_df.merge(bol_proj, on=["week", "player_name"], how='left')
-    get_match_details(df1=mean_df, df2=bol_proj, keys=["week", "player_name"], check_col2="NFL_game_id", min_wk=curr_week, tbl_lab="BetOnline Sportsbook Table")
-    trans3_df = impute_columns(trans3_df, target_prefix='BOL_', source_prefix="MEAN_")
-
-    ## c) Slim Columns To Only BOL Data
-    trans3_df = trans3_df[['week', 'player_name', 'primaryPosition','player_active_status'] + list(trans3_df.filter(like='BOL_').columns)]
-
-    ## d) Join Slim Transformation Back To Base
-    base = base.merge(trans3_df, on=['week', 'player_name', 'primaryPosition','player_active_status'], how='left')
-
-    ## Clean Missing COlumns
-    base = impute_columns(base, target_prefix='PINNY_', source_prefix='MEAN_')
-    base = impute_columns(base, target_prefix='BOL_', source_prefix='MEAN_')
-
-
-    ## 5) Create Aggregate Columns For Each Projection Type (Manual Weights)
-    weights_dict = {
-        'passingYards': {'ESPN': 0.1,'FP': 0.7,'PINNY': 0.1,'BOL': 0.1},
-        'passingTouchdowns': {'ESPN': 0.1,'FP': 0.1,'PINNY': 0.4,'BOL': 0.4},
-        'rushingYards': {'ESPN': 0.2,'FP': 0.3,'PINNY': 0.25,'BOL': 0.25},
-        'receivingYards': {'ESPN': 0.2,'FP': 0.3,'PINNY': 0.25,'BOL': 0.25},
-        'default': {'ESPN': 0.2,'FP': 0.3,'PINNY': 0.25,'BOL': 0.25}
-    }
-
-    final = compute_weighted_stats(df=base, stats_list=actual_scoring_cols, weights_dict=weights_dict)
-
-    ## 6) Build Score Column
-    final = proj_to_score(proj_df=final, s_league=lg)
-
-    # a) Adjust For Extra ESPN Stats
-    final['adjustment'] = final['projPoints'] - final['ESPN_Points']
-    for i in ['ESPN', 'FP', 'MEAN', 'PINNY', 'BOL', 'TRUE']:
-        final[f'{i}_Points'] = final['adjustment'] + final[f'{i}_Points']
-
-
-    ## 7) Build Position Rank Columns
-    for i in ['ESPN', 'FP', 'MEAN', 'PINNY', 'BOL', 'TRUE']:
-        final[f"{i}_PosRank"] = final.groupby(['week', 'primaryPosition'])[f'{i}_Points'].rank(ascending=False, method='dense')
-
-    # Actual
-    final['PosRank'] = final.groupby(['week', 'primaryPosition'])['points'].rank(ascending=False, method='dense')
-
-    return final
-
-## Populate Table Functions
-def check_week(lu, week, own):
-
-    lu['trueDiff'] = lu['TRUE_Points'] - lu['projPoints']
-
-    # Get My Team
-    df = lu[(lu['week'] == week) & (lu['team_owner'] == own)][['week', 'team_name', 'player_name', 'slotPosition', 'primaryPosition',
-                                                               'points', 'projPoints', 'FP_Points', 'PINNY_Points', 'BOL_Points', 'TRUE_Points', 'trueDiff',
-                                                               'PosRank', 'ESPN_PosRank', 'FP_PosRank', 'PINNY_PosRank', 'BOL_PosRank', 'TRUE_PosRank']]
-    
-    df = df.rename(columns={
-        'team_name': 'team',
-        'player_name': 'player',
-        'slotPosition': 'rosPos',
-        'primaryPosition': 'primPos',
-        'points': 'Actual_PTS',
-        'projPoints': 'ESPN_PTS',
-        'FP_Points': 'FP_PTS',
-        'PINNY_Points': 'PINNY_PTS',
-        'BOL_Points': 'BOL_PTS',
-        'TRUE_Points': 'TRUE_PTS',
-        'trueDiff': 'DIFF_PTS',
-        'PosRank': 'Actual',
-        'ESPN_PosRank': 'ESPN',
-        'FP_PosRank': 'FP',
-        'PINNY_PosRank': 'PINNY',
-        'BOL_PosRank': 'BOL',
-        'TRUE_PosRank': 'TRUE',
-    })
-
-    # Order
-    bench = pd.DataFrame([{
-        'week': week,
-        'team': df['team'].iloc[0],
-        'player': 'Total',
-        'rosPos': 'Starting Lineup',
-        'primPos': 'Starting Lineup',
-        'Actual_PTS': df[~df['rosPos'].isin(['BE', 'IR'])]['Actual_PTS'].sum(),
-        'ESPN_PTS': df[~df['rosPos'].isin(['BE', 'IR'])]['ESPN_PTS'].sum(),
-        'FP_PTS': df[~df['rosPos'].isin(['BE', 'IR'])]['FP_PTS'].sum(),
-        'PINNY_PTS': df[~df['rosPos'].isin(['BE', 'IR'])]['PINNY_PTS'].sum(),
-        'BOL_PTS': df[~df['rosPos'].isin(['BE', 'IR'])]['BOL_PTS'].sum(),
-        'TRUE_PTS': df[~df['rosPos'].isin(['BE', 'IR'])]['TRUE_PTS'].sum(),
-        'DIFF_PTS': df[~df['rosPos'].isin(['BE', 'IR'])]['DIFF_PTS'].sum(),
-        'Actual': '',
-        'ESPN': '',
-        'FP': '',
-        'PINNY': '',
-        'BOL': '',
-        'TRUE': ''
-        
-    },
-    {
-        'week': week,
-        'team': df['team'].iloc[0],
-        'player': 'Total',
-        'rosPos': 'Bench',
-        'primPos': 'Bench',
-        'Actual_PTS': df[df['rosPos'].isin(['BE', 'IR'])]['Actual_PTS'].sum(),
-        'ESPN_PTS': df[df['rosPos'].isin(['BE', 'IR'])]['ESPN_PTS'].sum(),
-        'FP_PTS': df[df['rosPos'].isin(['BE', 'IR'])]['FP_PTS'].sum(),
-        'PINNY_PTS': df[df['rosPos'].isin(['BE', 'IR'])]['PINNY_PTS'].sum(),
-        'BOL_PTS': df[df['rosPos'].isin(['BE', 'IR'])]['BOL_PTS'].sum(),
-        'TRUE_PTS': df[df['rosPos'].isin(['BE', 'IR'])]['TRUE_PTS'].sum(),
-        'DIFF_PTS': df[df['rosPos'].isin(['BE', 'IR'])]['DIFF_PTS'].sum(),
-        'Actual': '',
-        'ESPN': '',
-        'FP': '',
-        'PINNY': '',
-        'BOL': '',
-        'TRUE': ''
-        
-    }])
-
-    # Append the summary row to the DataFrame
-    df = pd.concat([df, bench], ignore_index=True)
-
-    pos_order = ['QB', 'RB', 'WR', 'TE', 'RB/WR/TE', 'OP', 'DP', 'D/ST', 'K', 'Starting Lineup', 'BE', 'Bench', 'IR']
-    order_mapping = {val: idx for idx, val in enumerate(pos_order)}
-    df = df.sort_values(by=['rosPos', 'TRUE_PTS'], key=lambda x: x.map(order_mapping))
-
-    # Round
-    df = df.round(decimals={'FP_PTS': 2, 'PINNY_PTS': 2, 'BOL_PTS': 2, 'TRUE_PTS': 2, 'DIFF_PTS': 3})
-
-    # Drop Actual if Current Week
-    if week == curr_week:
-        df.drop(['Actual_PTS', 'Actual'], axis=1, inplace=True)
-
-    return df
-
-def get_league_projections(week, lu):
-    df = lu[(lu['week'] == week) & (lu['team_owner'] != 'Free Agent') & (~lu['slotPosition'].isin(['BE', 'IR']))][['week', 'team_owner', 'team_name',
-             'points', 'projPoints', 'FP_Points', 'BOL_Points', 'PINNY_Points', 'TRUE_Points']]
-    
-    df['TRUE_Points'] = df['TRUE_Points'].fillna(df['projPoints'])
-
-    result = df.groupby(['week', 'team_owner', 'team_name'], as_index=False).agg({
-        'points': 'sum',
-        'projPoints': 'sum',
-        'FP_Points': 'sum',
-        'BOL_Points': 'sum',
-        'PINNY_Points': 'sum',
-        'TRUE_Points': 'sum'
-        })
-    
-    result['point_diff'] = result['TRUE_Points'] - result['projPoints']
-
-    return result.sort_values(by='TRUE_Points', ascending=False)
-
-def get_rankings(pos, week, visualize = False, check_fa = False):
-    df = LINEUPS[(LINEUPS['primaryPosition'].isin(pos)) & (LINEUPS['week'] == week)]
-    df = df[['week', 'primaryPosition','player_name', 'team_owner', 'team_name',
-                  'points', 'projPoints', 'FP_Points', 'BOL_Points', 'PINNY_Points', 'TRUE_Points',
-                  'PosRank', 'ESPN_PosRank', 'FP_PosRank', 'BOL_PosRank', 'PINNY_PosRank', 'TRUE_PosRank']]
-    df = df.drop(columns=['points', 'PosRank']).sort_values(by=['TRUE_Points'], ascending=False)
-
-    if visualize == False:
-        if check_fa == True:
-            return df[df['team_owner'].isin([lg_vars[select_league]['primary_own'], 'Free Agent'])]
-        else:
-            return df
 
 def write_to_google(df_dict, league_name):
     # Set up authentication
@@ -1203,56 +625,71 @@ will = ["12 Dudes one Cup"]
 cooleen = ['Big Red Fantasy Football']
 fields = ['Washed_Up_Fijians']
 
-for l in all:
-    select_league = l
 
-    # Get League
-    league = fetch_league(
-        league_id=lg_vars[select_league]['ID'],
-        year=lg_vars[select_league]['end'],
-        swid=lg_vars[select_league]['SWID'],
-        espn_s2=lg_vars[select_league]['ESPN_S2']
-    )
+def run(leagues=None):
+    """Build and publish the weekly Sheets for each league.
 
-    # Lineup Tables
-    lineups = get_ply_stats_by_matchup(league_id=lg_vars[select_league]['ID'],
-                    year=2025,
-                    swid=lg_vars[select_league]['SWID'],
-                    espn_s2=lg_vars[select_league]['ESPN_S2'])
-    free_agents = build_fa_market(league=league)
-    curr_week = league.current_week
-    lineups = pd.concat([lineups, free_agents])
-    lineups.fillna(0, inplace=True)
-    lineups = lineups.drop_duplicates(subset=['week', 'player_name'])
+    Args:
+        leagues: Display names to process. Defaults to the ``all`` cohort.
+    """
+    leagues = all if leagues is None else leagues
+    for select_league in leagues:
+        # Get League. The year comes from config for both calls below -- these
+        # used to disagree, with fetch_league reading config and the lineup
+        # fetch hardcoding 2025, so league metadata and player stats could
+        # silently come from different seasons.
+        year = lg_vars[select_league]['end']
+        league = fetch_league(
+            league_id=lg_vars[select_league]['ID'],
+            year=year,
+            swid=lg_vars[select_league]['SWID'],
+            espn_s2=lg_vars[select_league]['ESPN_S2']
+        )
 
-    ## Build Combined Lineup Table
-    LINEUPS = clean_lineups(df=lineups, lg=league)
+        # Lineup Tables
+        lineups = get_ply_stats_by_matchup(league_id=lg_vars[select_league]['ID'],
+                        year=year,
+                        swid=lg_vars[select_league]['SWID'],
+                        espn_s2=lg_vars[select_league]['ESPN_S2'])
+        free_agents = build_fa_market(league=league)
+        curr_week = league.current_week
+        lineups = pd.concat([lineups, free_agents])
+        lineups.fillna(0, inplace=True)
+        lineups = lineups.drop_duplicates(subset=['week', 'player_name'])
 
-    # Data Dictionary
-    df_dict = {
-        "League_Projections": get_league_projections(week = curr_week, lu=LINEUPS),
-        "Lineup": check_week(lu = LINEUPS, week = curr_week, own=lg_vars[select_league]['primary_own']),
-        "FA_QBs": get_rankings(pos = ['QB'], week = curr_week, visualize=False, check_fa=False),
-        "FA_RBs": get_rankings(pos = ['RB'], week = curr_week, visualize=False, check_fa=False),
-        "FA_WRs": get_rankings(pos = ['WR'], week = curr_week, visualize=False, check_fa=False),
-        "FA_TEs": get_rankings(pos = ['TE'], week = curr_week, visualize=False, check_fa=False),
-        "FA_FLX": get_rankings(pos = ['RB', 'WR','TE'], week = curr_week, visualize=False, check_fa=False),
-        "FA_DST": get_rankings(pos = ['D/ST'], week = curr_week, visualize=False, check_fa=False),
-        "FA_KCK": get_rankings(pos = ['K'], week = curr_week, visualize=False, check_fa=False),
-        "FA_IDP": get_rankings(pos = ['LB', 'DE', 'S', 'CB', 'DT'], week = curr_week, visualize=False, check_fa=False),
-    }
-    # Save to Google Sheet
-    print("")
-    print(f"========= Now Writing Data For {select_league} ========")
-    print("")
-    write_to_google(df_dict=df_dict, league_name=select_league)
-    print("")
-    print(f"========= Successful Save For {select_league} ========")
-    print("")
-    
-    # Sleep
-    sleep_secs = 20
-    time.sleep(sleep_secs)
-    print(f"Now Sleeping For {sleep_secs} Seconds")
+        ## Build Combined Lineup Table
+        LINEUPS = clean_lineups(df=lineups, lg=league)
+
+        # Data Dictionary
+        primary_own = lg_vars[select_league]['primary_own']
+        df_dict = {
+            "League_Projections": get_league_projections(week = curr_week, lu=LINEUPS),
+            "Lineup": check_week(lu = LINEUPS, week = curr_week, own=primary_own),
+            "FA_QBs": get_rankings(pos = ['QB'], week = curr_week, lu=LINEUPS, primary_owner=primary_own, visualize=False, check_fa=False),
+            "FA_RBs": get_rankings(pos = ['RB'], week = curr_week, lu=LINEUPS, primary_owner=primary_own, visualize=False, check_fa=False),
+            "FA_WRs": get_rankings(pos = ['WR'], week = curr_week, lu=LINEUPS, primary_owner=primary_own, visualize=False, check_fa=False),
+            "FA_TEs": get_rankings(pos = ['TE'], week = curr_week, lu=LINEUPS, primary_owner=primary_own, visualize=False, check_fa=False),
+            "FA_FLX": get_rankings(pos = ['RB', 'WR','TE'], week = curr_week, lu=LINEUPS, primary_owner=primary_own, visualize=False, check_fa=False),
+            "FA_DST": get_rankings(pos = ['D/ST'], week = curr_week, lu=LINEUPS, primary_owner=primary_own, visualize=False, check_fa=False),
+            "FA_KCK": get_rankings(pos = ['K'], week = curr_week, lu=LINEUPS, primary_owner=primary_own, visualize=False, check_fa=False),
+            "FA_IDP": get_rankings(pos = ['LB', 'DE', 'S', 'CB', 'DT'], week = curr_week, lu=LINEUPS, primary_owner=primary_own, visualize=False, check_fa=False),
+        }
+        # Save to Google Sheet
+        print("")
+        print(f"========= Now Writing Data For {select_league} ========")
+        print("")
+        write_to_google(df_dict=df_dict, league_name=select_league)
+        print("")
+        print(f"========= Successful Save For {select_league} ========")
+        print("")
+
+        # Sleep. Google Sheets rate-limits aggressively on consecutive writes.
+        sleep_secs = 20
+        print(f"Now Sleeping For {sleep_secs} Seconds")
+        time.sleep(sleep_secs)
+
+
+if __name__ == "__main__":
+    run()
 
 

@@ -1,9 +1,15 @@
+import os
 import time
 from datetime import datetime
 import requests
 import polars as pl
 from pathlib import Path
-from nfl_utils import NFL_SCHEDULE
+from Scripts.nfl_utils import NFL_SCHEDULE, current_season, current_week
+from Scripts.paths import landing_dir, season_dir
+
+# Season being scraped, derived from the schedule file so that season and week
+# can never disagree. Every output path below is scoped to it.
+SEASON = current_season()
 
 
 ## Constants
@@ -20,11 +26,119 @@ SLIM_SCHED = pl.DataFrame(NFL_SCHEDULE)\
                 ])
 
 # Current Week
-week = NFL_SCHEDULE.filter(pl.col('away_score') == 'NA')['week'].min()
+week = current_week()
 print(f"Now Loading NFL Week {week}:")
 
-# BetOnline ID For First Game
-id_var = 259563 #259546
+# BetOnline game IDs are consecutive integers, and this is the id of the first
+# game of the week. It used to be a bare literal that had to be hand-edited
+# before every weekly run (259322 -> 259338 -> ... -> 259563 across the 2025
+# season) -- the single highest-friction step in the weekly ritual, and
+# documented nowhere. Set BOL_FIRST_GAME_ID to pin it; otherwise it is
+# discovered by probing outward from the last known value.
+BOL_ID_ENV = "BOL_FIRST_GAME_ID"
+LAST_KNOWN_ID = 259563  # first game of 2025 week 17
+
+
+class BetOnlineAccessError(RuntimeError):
+    """Raised when the BetOnline markets API refuses the request."""
+
+
+def probe_game(game_id: int, timeout: int = 15):
+    """Fetch the team list for a single BetOnline game id.
+
+    Args:
+        game_id: BetOnline game id to probe.
+        timeout: Request timeout in seconds.
+
+    Returns:
+        set[str] | None: Team abbreviations in that game, or ``None`` if the id
+        holds no market data.
+
+    Raises:
+        BetOnlineAccessError: If the API rejects the request outright.
+    """
+    url = (
+        "https://bv2-us.digitalsportstech.com/api/dfm/marketsBySs"
+        f"?sb=betonline&gameId={game_id}&statistic=Touchdowns"
+    )
+    r = requests.get(url, timeout=timeout)
+    if r.status_code == 403:
+        raise BetOnlineAccessError(
+            "BetOnline's markets API (bv2-us.digitalsportstech.com) returned "
+            "403 invalid_security_headers. It now requires a signed request "
+            "header that this scraper does not send, so weekly BetOnline props "
+            "cannot be collected. The season-long props used by the draft board "
+            "(api-offering.betonline.ag) are a different host and still work. "
+            "See docs/STATE_OF_THE_REPO.md."
+        )
+    if r.status_code != 200 or not r.content:
+        return None
+    data = r.json()
+    if not data:
+        return None
+    return {p["team"] for p in data[0].get("players", [])}
+
+
+def discover_first_game_id(sched: pl.DataFrame, week_num: int,
+                           start_hint: int = LAST_KNOWN_ID,
+                           span: int = 400) -> int:
+    """Find the BetOnline game id of the first game in ``week_num``.
+
+    Probes ids outward from ``start_hint`` until it finds one whose teams match
+    a game scheduled in the target week, then walks backwards to the first
+    consecutive id still inside that week.
+
+    Args:
+        sched: Slim schedule with ``week``, ``Away`` and ``Home`` columns.
+        week_num: NFL week to locate.
+        start_hint: Id to search outward from.
+        span: Maximum distance to search in each direction.
+
+    Returns:
+        int: Game id of the week's first game.
+
+    Raises:
+        BetOnlineAccessError: If the API is unreachable or no match is found.
+    """
+    wk = sched.filter(pl.col("week") == week_num)
+    wanted = set(wk["Away"].to_list()) | set(wk["Home"].to_list())
+    if not wanted:
+        raise BetOnlineAccessError(f"No week {week_num} games in the schedule.")
+
+    anchor = None
+    for offset in range(span):
+        for gid in {start_hint + offset, start_hint - offset}:
+            teams = probe_game(gid)
+            if teams and teams & wanted:
+                anchor = gid
+                break
+        if anchor is not None:
+            break
+
+    if anchor is None:
+        raise BetOnlineAccessError(
+            f"Could not locate a week {week_num} game within {span} ids of "
+            f"{start_hint}. Set {BOL_ID_ENV} to the correct first game id."
+        )
+
+    first = anchor
+    while first > 1:
+        teams = probe_game(first - 1)
+        if not (teams and teams & wanted):
+            break
+        first -= 1
+    return first
+
+
+def resolve_first_game_id(sched: pl.DataFrame, week_num: int) -> int:
+    """Return the week's first BetOnline game id, from env or by discovery."""
+    override = os.environ.get(BOL_ID_ENV)
+    if override:
+        print(f"Using {BOL_ID_ENV}={override}")
+        return int(override)
+    gid = discover_first_game_id(sched, week_num)
+    print(f"Discovered BetOnline first game id for week {week_num}: {gid}")
+    return gid
 
 # Statistic Mapping
 stats = {
@@ -235,11 +349,24 @@ def get_BOL_data_OU(ids: list, link_stat: str, espn_stat: str) -> pl.DataFrame:
         return None
 
 # Reconcile Full File
-def reconcile_BOL(prop_df: pl.DataFrame, base_path="Data/Projections/BetOnline/Season/BetOnline_AllProps_Week_"):
+def reconcile_BOL(prop_df: pl.DataFrame, season: int = None):
+    """Merge a fresh scrape into the season's accumulated prop file.
+
+    Args:
+        prop_df: Newly scraped props.
+        season: Season to reconcile into. Defaults to the schedule's season.
+
+    Returns:
+        None. Writes the combined file plus one parquet per week.
+    """
+    season = SEASON if season is None else season
 
     # Outline Pathway + Load
-    all_path = "Data/Projections/BetOnline/Season/BetOnline_AllProps.parquet"
-    all_df = pl.read_parquet(all_path)
+    all_path = season_dir("BetOnline", season, "BetOnline_AllProps.parquet")
+    all_df = (
+        pl.read_parquet(all_path) if all_path.exists()
+        else prop_df.clear()  # first scrape of a new season: start empty
+    )
     old_df_rows = all_df.height
     old_df_games = all_df['BOL_game_id'].n_unique()
 
@@ -284,7 +411,9 @@ def reconcile_BOL(prop_df: pl.DataFrame, base_path="Data/Projections/BetOnline/S
         n_games = week_df['BOL_game_id'].n_unique()
 
         # Identify Week Path + Create Folder If Not Exists
-        week_path = f"Data/Projections/BetOnline/Season/Week {w}/BetOnline_AllProps_Week_{w}.parquet"
+        week_path = season_dir(
+            "BetOnline", season, f"Week {w}", f"BetOnline_AllProps_Week_{w}.parquet"
+        )
         Path(week_path).parent.mkdir(parents=True, exist_ok=True)
 
         # Save as Parquet
@@ -294,7 +423,7 @@ def reconcile_BOL(prop_df: pl.DataFrame, base_path="Data/Projections/BetOnline/S
 # Get Stat by Name
 def get_x_stat(stat = 'anytimeTouchdown'):
     # Load
-    df = pl.read_parquet("Data/Projections/BetOnline/Landing/BetOnline_AllProps_Raw.parquet")\
+    df = pl.read_parquet(landing_dir("BetOnline", SEASON, "BetOnline_AllProps_Raw.parquet"))\
            .filter(pl.col('espn_stat') == stat)\
            .drop('market_id', 'condition', 'is_active', 'is_actual')
     
@@ -413,7 +542,9 @@ def clean_bol(stats_list = list(stats.keys())):
 ## Execute
 
 # Create Current IDs and Schedule
-BOL_IDs = get_week_ids(sched = SLIM_SCHED, week_num = week, id_start=id_var)
+BOL_IDs = get_week_ids(
+    sched=SLIM_SCHED, week_num=week, id_start=resolve_first_game_id(SLIM_SCHED, week)
+)
 CURRENT_SCHED = SLIM_SCHED.filter(pl.col('week') == week)
 
 
@@ -456,12 +587,12 @@ with pl.Config(tbl_cols=-1):
     print(full_df)
 
 ## Peek And Save Raw Data
-full_df.write_parquet("Data/Projections/BetOnline/Landing/BetOnline_AllProps_Raw.parquet")
+full_df.write_parquet(landing_dir("BetOnline", SEASON, "BetOnline_AllProps_Raw.parquet"))
 
 
 BOL_STATS = clean_bol()
-BOL_STATS.write_parquet("Data/Projections/BetOnline/Landing/BetOnline_AllProps_Clean.parquet")
-BOL_STATS.write_csv("Data/Projections/BetOnline/Landing/BetOnline_AllProps_Clean.csv")
+BOL_STATS.write_parquet(landing_dir("BetOnline", SEASON, "BetOnline_AllProps_Clean.parquet"))
+BOL_STATS.write_csv(landing_dir("BetOnline", SEASON, "BetOnline_AllProps_Clean.csv"))
 
 # Reconcile
 reconcile_BOL(prop_df=BOL_STATS)

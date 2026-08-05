@@ -5,14 +5,20 @@ import requests
 import polars as pl
 import pandas as pd
 from io import StringIO
-from aws_utils import *
 
 # Scrape
 from bs4 import BeautifulSoup
 
 # Get Schedule and Active Week
-from nfl_utils import NFL_SCHEDULE
-WEEK = NFL_SCHEDULE.filter(pl.col('away_score') == 'NA')['week'].min()
+from Scripts.nfl_utils import current_season, current_week
+from Scripts.paths import season_dir
+
+WEEK = current_week()
+SEASON = current_season()
+
+# FantasyPros serves full-season ("draft") projections under this sentinel in
+# place of a week number. Used to build the pre-season draft board.
+DRAFT_WEEK = "draft"
 
 pos_list = ['qb', 'rb', 'wr', 'te', 'k', 'dst']
 
@@ -84,7 +90,19 @@ dst_map = team_map = {'Kansas City Chiefs': 'Chiefs D/ST',
            }
 
 def get_fp(wk):
+    """Scrape FantasyPros projections for one week.
 
+    Args:
+        wk: Week number, or ``DRAFT_WEEK`` (``"draft"``) for full-season
+            projections. FantasyPros accepts the literal string ``draft`` in
+            place of a week number; the response layout is identical, so the
+            same parser handles both.
+
+    Returns:
+        pd.DataFrame: One row per player with ``proj_``-prefixed stat columns.
+        The ``week`` column carries ``wk`` verbatim, so season-long rows are
+        labelled ``"draft"`` rather than a week number.
+    """
     proj_dfs = []
 
     for pos in pos_list:
@@ -177,14 +195,81 @@ def get_fp(wk):
     return pd.concat(proj_dfs, ignore_index=True).fillna(0)
 
 
-proj_list = []
-for w in range(1,WEEK+1):
-    fp_proj = get_fp(wk = w)
-    proj_list.append(fp_proj)
+def scrape_weekly(season=None, week=None):
+    """Scrape week-by-week projections and write the season file.
 
-Fantasy_Pros_Projection_Data = pd.concat(proj_list, ignore_index=True)
-Fantasy_Pros_Projection_Data.to_csv("Data/Projections/FantasyPros/FantasyPros_Projections_Week_All.csv")
-Fantasy_Pros_Projection_Data.to_parquet("Data/Projections/FantasyPros/FantasyPros_Projections_Week_All.parquet")
+    Args:
+        season: Season for the output path. Defaults to the schedule's season.
+        week: Highest week to fetch. Defaults to the schedule's current week.
 
-# AWS Save
-#s3_write_parquet(Fantasy_Pros_Projection_Data, s3_obj="Fantasy_Pros_Projection_Data")
+    Returns:
+        pd.DataFrame: One row per player-week.
+    """
+    season = SEASON if season is None else season
+    week = WEEK if week is None else week
+
+    proj_list = [get_fp(wk=w) for w in range(1, week + 1)]
+    df = pd.concat(proj_list, ignore_index=True)
+
+    df.to_csv(season_dir("FantasyPros", season, "FantasyPros_Projections_Week_All.csv"))
+    df.to_parquet(season_dir("FantasyPros", season,
+                             "FantasyPros_Projections_Week_All.parquet"))
+    print(f"FantasyPros weekly {season}: {len(df)} rows, weeks 1-{week}, "
+          f"{df['player_name'].nunique()} players")
+    return df
+
+
+def scrape_season_long(season=None):
+    """Scrape full-season projections -- the draft-board input.
+
+    ``DRAFT_WEEK`` was defined but never called: the module-level loop only ever
+    ran ``range(1, WEEK + 1)``, so pre-season that is week 1 alone and the
+    season-long table was never fetched despite being one argument away.
+
+    Args:
+        season: Season for the output path. Defaults to the schedule's season.
+
+    Returns:
+        pd.DataFrame: One row per player, ``week`` set to ``"draft"``.
+    """
+    season = SEASON if season is None else season
+
+    df = get_fp(wk=DRAFT_WEEK)
+    out = season_dir("FantasyPros", season, "FantasyPros_Projections_Season.parquet")
+    df.to_parquet(out)
+    df.to_csv(out.with_suffix(".csv"), index=False)
+    print(f"FantasyPros season-long {season}: {len(df)} rows, "
+          f"{df['player_name'].nunique()} players")
+    if len(df) <= 60:
+        print("  NOTE: FantasyPros caps its public tables at 10 rows per position. "
+              "This is a top-10 teaser, not full coverage -- the blend renormalises "
+              "around it (docs/plans/03).")
+    return df
+
+
+def main(argv=None):
+    """Command-line entry point.
+
+    The scrape used to run at import time with no ``__main__`` guard, so simply
+    importing this module fired a live scrape and overwrote the season's file.
+    """
+    import argparse
+
+    p = argparse.ArgumentParser(
+        prog="python -m Scripts.scrape_FP",
+        description="Scrape FantasyPros projections.",
+    )
+    p.add_argument("--season", type=int, help="defaults to the schedule's season")
+    p.add_argument("--week", type=int, help="highest week for the weekly scrape")
+    p.add_argument("--what", choices=["weekly", "season", "both"], default="both")
+    args = p.parse_args(argv)
+
+    if args.what in ("weekly", "both"):
+        scrape_weekly(season=args.season, week=args.week)
+    if args.what in ("season", "both"):
+        scrape_season_long(season=args.season)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

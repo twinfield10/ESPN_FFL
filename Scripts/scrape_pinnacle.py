@@ -10,7 +10,12 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
-from nfl_utils import DATE_WEEK
+from Scripts.nfl_utils import DATE_WEEK, current_season
+from Scripts.paths import landing_dir, season_dir
+
+# Season being scraped, derived from the schedule file. All outputs are scoped
+# to it so a new season cannot merge into the previous one's files.
+SEASON = current_season()
 
 chrome_options  = webdriver.ChromeOptions()
 chrome_options .add_argument('--ignore-certificate-errors')
@@ -160,7 +165,7 @@ def get_raw_pinny(links_list):
     df = df.join(DATE_WEEK, left_on='officialDate', right_on='gameday', how = 'left')
     df = df.with_columns(pl.col("title").str.replace("Josh Allen \\(BUF\\)", "Josh Allen").alias("title"))
 
-    df.write_csv('Data/Projections/Pinnacle/Raw_Pinnacle.csv')
+    df.write_csv(landing_dir("Pinnacle", SEASON, "Raw_Pinnacle.csv"))
 
     return df
 
@@ -248,7 +253,7 @@ def get_raw_pinny_soup(links_list):
     df = df.join(DATE_WEEK, left_on='gameday', right_on='gameday', how='left').drop('gameday')
     df = df.with_columns(pl.col("title").str.replace("Josh Allen \\(BUF\\)", "Josh Allen").alias("title"))
 
-    df.write_csv('Data/Projections/Pinnacle/Raw_Pinnacle_New.csv')
+    df.write_csv(landing_dir("Pinnacle", SEASON, "Raw_Pinnacle_New.csv"))
 
     return df
 
@@ -381,18 +386,31 @@ def clean_props(df):
     
     clean = clean.rename(rename_mapping)
     
-    prop_path = 'Data/Projections/Pinnacle/Landing/Pinnacle_Props_Week_New.csv'
+    prop_path = landing_dir("Pinnacle", SEASON, "Pinnacle_Props_Week_New.csv")
     clean.write_csv(prop_path)
-    clean.write_parquet('Data/Projections/Pinnacle/Landing/Pinnacle_Props_Week_New.parquet')
+    clean.write_parquet(landing_dir("Pinnacle", SEASON, "Pinnacle_Props_Week_New.parquet"))
     print(clean.head())
     
     return clean
 
-def reconcile_props(prop_df: pl.DataFrame, base_path = "Data/Projections/Pinnacle/Season/Pinnacle_Props_Week_"):
-    
+def reconcile_props(prop_df: pl.DataFrame, season: int = None):
+    """Merge a fresh Pinnacle scrape into the season's accumulated prop file.
+
+    Args:
+        prop_df: Newly scraped props.
+        season: Season to reconcile into. Defaults to the schedule's season.
+
+    Returns:
+        None. Writes the combined file plus one parquet per week.
+    """
+    season = SEASON if season is None else season
+
     # Load Previous
-    all_path = f"{base_path}All.parquet"
-    all_df = pl.read_parquet(all_path)
+    all_path = season_dir("Pinnacle", season, "Pinnacle_Props_Week_All.parquet")
+    all_df = (
+        pl.read_parquet(all_path) if all_path.exists()
+        else prop_df.clear()  # first scrape of a new season: start empty
+    )
 
     old_df_rows = all_df.height
     old_df_games = all_df['officialDate', 'week', 'Away', 'Home'].n_unique()
@@ -458,7 +476,7 @@ def reconcile_props(prop_df: pl.DataFrame, base_path = "Data/Projections/Pinnacl
     for w in weeks_list:
         week_df = df_filtered.filter(pl.col('week') == w)
         n_games = week_df['officialDate', 'week', 'Away', 'Home'].n_unique()
-        week_path = f"{base_path}{w}.parquet"
+        week_path = season_dir("Pinnacle", season, f"Pinnacle_Props_Week_{w}.parquet")
         week_df.write_parquet(week_path)
         print(f"WEEK {w} Pinnacle Player Prop File Contains {week_df.height} Rows ({n_games} Games)")
 
@@ -508,7 +526,7 @@ def clean_base(df):
                         .select('officialDate', 'week', 'Home', 'Away', 'Period', 'BetType', 'BetSide', 'BetValue', 'Price', 'IsPrimary', 'BetImpProb', 'BetTimeStamp')
 
     print(clean_df.head())
-    clean_path = 'Data/Projections/Pinnacle/Landing/Pinnacle_Base_New.csv'
+    clean_path = landing_dir("Pinnacle", SEASON, "Pinnacle_Base_New.csv")
     clean_df.write_csv(clean_path)
 
     return clean_df
