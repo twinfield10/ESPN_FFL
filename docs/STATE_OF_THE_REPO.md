@@ -75,6 +75,12 @@ Fixed this cycle:
   `tests/` suite (30 tests, no network); broadened `.gitignore` from literal
   filenames to patterns; untracked 11 `.pyc` files; removed dead files and stale
   data directories.
+- **Upgraded `espn-api` 0.45.1 → 0.46.0** for the traded-player `proTeam` fix
+  ([plan 05](plans/05-dependency-upgrades.md)). The equivalence harness caught a
+  silent breaking change in the process: 0.46.0 repurposed `points_breakdown`
+  from raw stats to applied points, so every stat column became a point value
+  until the call sites moved to `['breakdown']`. 2025 ran on 0.45.1; 2026 runs on
+  0.46.0.
 
 **Credentials have never been committed** — verified across all of history.
 `config.yaml` and `gs4creds.json` are gitignored and remain plaintext on disk,

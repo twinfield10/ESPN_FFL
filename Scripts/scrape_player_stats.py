@@ -399,7 +399,15 @@ def extract_player_stats(
     df = pd.DataFrame()
     for i, player in enumerate(team_lineup):
         pp_bd = player.__dict__['projected_breakdown']
-        p_bd = player.__dict__['points_breakdown']
+        # `breakdown`, not `points_breakdown`. In espn-api 0.45.1 the attribute
+        # named points_breakdown was assigned the raw stat breakdown
+        # (box_player.py:33, `stats.get('breakdown', 0)`) -- a misnomer this code
+        # relied on. 0.46.0 fixed the naming and added a genuinely new
+        # points_breakdown holding *applied points*. Reading the old name under
+        # 0.46.0 silently swapped yards for points: Puka Nacua's week 16 went
+        # from 225.0 receiving yards to 22.5, the same number at 0.1 pts/yd.
+        # Requires espn-api >= 0.46.0, where `breakdown` exists on BoxPlayer.
+        p_bd = player.__dict__['breakdown']
 
         if player.active_status == 'bye' and pp_bd != {}:
             status = 'active'
@@ -554,7 +562,15 @@ def extract_fa_stats(
     df = pd.DataFrame()
     for i, player in enumerate(team_lineup):
         pp_bd = player.__dict__['projected_breakdown']
-        p_bd = player.__dict__['points_breakdown']
+        # `breakdown`, not `points_breakdown`. In espn-api 0.45.1 the attribute
+        # named points_breakdown was assigned the raw stat breakdown
+        # (box_player.py:33, `stats.get('breakdown', 0)`) -- a misnomer this code
+        # relied on. 0.46.0 fixed the naming and added a genuinely new
+        # points_breakdown holding *applied points*. Reading the old name under
+        # 0.46.0 silently swapped yards for points: Puka Nacua's week 16 went
+        # from 225.0 receiving yards to 22.5, the same number at 0.1 pts/yd.
+        # Requires espn-api >= 0.46.0, where `breakdown` exists on BoxPlayer.
+        p_bd = player.__dict__['breakdown']
 
         if player.active_status == 'bye' and pp_bd != {}:
             status = 'active'

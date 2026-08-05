@@ -1,13 +1,14 @@
 # 05 — Dependency upgrades
 
-**Priority:** Medium · **Effort:** Medium · **Status:** Not started
+**Priority:** Medium · **Effort:** Medium · **Status:** espn-api **done
+(2026-08-05)** · everything else open
 
 Everything is pinned in `requirements.txt` to what the 2025 season ran on. Most
 of it is safely behind; two items need real thought.
 
 | Package | Pinned | Latest | Action |
 |---|---|---|---|
-| **espn-api** | 0.45.1 | **0.46.0** | **Upgrade before the draft** |
+| **espn-api** | ~~0.45.1~~ **0.46.0** | 0.46.0 | ~~Upgrade before the draft~~ **Done** |
 | **pandas** | 2.3.3 | **3.0.5** | Defer — major version |
 | **oauth2client** | 4.1.3 | 4.1.3 (dead) | Replace with `google-auth` |
 | pyarrow | 18.1.0 | 25.0.0 | Upgrade |
@@ -41,6 +42,67 @@ integration surface is small — `fetch_utils.fetch_league` plus attribute reads
 **Verify:** re-run the Phase 0 equivalence check against 2025 (old vs new should
 still match except where the traded-player fix legitimately changes `pro_team`),
 then confirm all nine leagues still fetch for 2026.
+
+### Done 2026-08-05 — and "risk: low" was wrong
+
+The upgrade landed, but only after the equivalence harness caught a **silent
+breaking change** this plan did not anticipate. Upgrading and changing nothing
+else produced **332 differing (league, column) pairs**, including actual stat
+columns: `receivingYards` differed in 1,007 of 1,779 Winfield rows, by up to
+202.5.
+
+The cause. Puka Nacua's week 16 went from `225.0` to `22.5` — the same number at
+0.1 pts/yd. `points_breakdown` had stopped being yards and started being points:
+
+| version | `breakdown` | `points_breakdown` |
+|---|---|---|
+| 0.45.1 | *not set on BoxPlayer* | **raw stats** (`box_player.py:33`, `stats.get('breakdown', 0)`) |
+| 0.46.0 | **raw stats** | **applied points** |
+
+0.46.0 corrected a misnomer — the attribute called `points_breakdown` had never
+held points — and the pipeline was reading the old name. Every stat column
+silently became a point value, which then got multiplied by the scoring rate
+again. Fix is one line at each of two call sites in `scrape_player_stats.py`:
+read `['breakdown']`, not `['points_breakdown']`.
+
+**Nothing about this raised an error, and no test caught it.** It would have
+shipped as quietly wrong projections. `tests/test_espn_api_contract.py` now pins
+the semantics: the version floor, that `breakdown` carries the raw stat and
+`points_breakdown` the applied points, and that the call site reads the former.
+
+After the fix, the 2025 equivalence diff is exactly what this plan predicted —
+two non-numeric columns per league, every stat and projection identical:
+
+| column | cells (Knights 2025) | what changed |
+|---|---|---|
+| `pro_team` | 64 | The traded-player fix. `David Montgomery HOU → DET`, `Jakobi Meyers JAX → LV`, `Tyreek Hill None → MIA`. All corrections. |
+| `player_active_status` | 11 | D/ST units on a bye now report `bye` rather than `active`. Also a fix. |
+
+**Determinism was verified before attributing anything to the upgrade.** Two
+snapshots taken on the same version are byte-equivalent, so the diff is caused by
+the version change and not by run-to-run variation in the live fetch. Worth
+repeating for any future bump: without that control the 332-column diff is
+uninterpretable.
+
+Also fixed en route: `Scripts/equivalence.compare` crashed with
+`TypeError: numpy boolean subtract` on any snapshot containing the `*_is_imputed`
+provenance flags from [plan 03](03-projection-source-coverage.md), because
+`pd.api.types.is_numeric_dtype` is `True` for `bool`. The harness could not
+compare a post-plan-03 snapshot at all.
+
+**What 0.46.0 does *not* fix.** Both `espn_api` bugs the pipeline works around are
+still present, so neither workaround can be retired:
+
+- `Settings.__init__` still writes `points` onto the module-level
+  `SETTINGS_SCORING_FORMAT_MAP` dict, so `fetch_utils.isolate_scoring_format()`
+  stays. This answers the open question in [`README.md`](README.md).
+- It still reads only slot `'16'` and still uses a falsy-or, so an override of
+  exactly `0.0` falls through to the base — hence
+  [plan 11](11-per-slot-scoring.md) reads `mSettings` directly.
+
+The changelog's "Add/expose Point Breakdowns" is genuinely useful: the applied
+points are now available without the hand-rolled requests, which is worth
+revisiting when trimming `scrape_player_stats.py`.
 
 ## pandas 2.3 → 3.0 — defer, but it's not scary
 
@@ -82,7 +144,8 @@ One function, same credentials file. Worth doing before it breaks on its own.
 
 ## Suggested sequencing
 
-1. `espn-api` alone, verified against the equivalence harness. Before the draft.
+1. ~~`espn-api` alone, verified against the equivalence harness. Before the
+   draft.~~ **Done 2026-08-05** — see above.
 2. `oauth2client` → `google-auth`. Small and isolated.
 3. `pyarrow`, `polars`, and the routine minors together.
 4. `pandas` 3.0 in its own window, after the season or during a quiet week.

@@ -13,7 +13,7 @@ These are what the scan turned up *beyond* that.
 | 02 | [BetOnline access](02-betonline-access.md) | ~~High~~ **Done** | M | ~~One of four projection sources is dead~~ Weekly dead, season props wired up with IDP |
 | 03 | [Projection source coverage](03-projection-source-coverage.md) | **Partly done** | M | Renormalisation + provenance landed; weight re-tune deferred, Pinnacle import-time scrape open |
 | 04 | [Matchup-period handling](04-matchup-periods.md) | Medium | S | Winfield_Football silently loses a week of data |
-| 05 | [Dependency upgrades](05-dependency-upgrades.md) | Medium | M | `espn-api` has a traded-player fix we want before drafting |
+| 05 | [Dependency upgrades](05-dependency-upgrades.md) | **espn-api done** · rest Medium | M | ~~`espn-api` has a traded-player fix we want before drafting~~ Upgraded to 0.46.0; it also silently swapped stats for points, caught by the harness |
 | 06 | [Performance](06-performance.md) | Low | S | Backfills are slow enough to discourage re-running them |
 | 10 | [Scoring registry](10-scoring-registry.md) | ~~High~~ **Done** | S | ~~Scoring is re-derived from a mutable live object 4× per league, and never recorded~~ |
 | 11 | [Per-slot scoring](11-per-slot-scoring.md) | ~~High~~ **Done** | M | ~~`espn_api` collapses per-slot scoring to one value~~ Registry now has a `slot` dimension; GOP's D/ST was inflated ~16% |
@@ -38,18 +38,19 @@ ESPN data is currently never persisted anywhere.
 
 ## Suggested order
 
-**Before the draft:** ~~01~~ → ~~10~~ → ~~11~~ → 05 (espn-api only) → ~~02~~,
-then 07 → 09. The first few affect the numbers the draft board is built on, so
-they come first.
+**Before the draft:** ~~01~~ → ~~10~~ → ~~11~~ → ~~05 (espn-api only)~~ →
+~~02~~, then 07 → 09. The first few affect the numbers the draft board is built
+on, so they come first. **Everything before 07 is now done.**
 
 Note on 11, now done: it turned out to matter beyond GOP. The per-slot fix
 also stopped offensive players in *every* league being credited for imputed
 kick-return yards and points-allowed tiers at D/ST rates.
 
-Note for 05: plan 01 worked around an `espn_api` 0.45.1 bug that shares scoring
-dicts across `League` objects. Check whether the upgrade fixes it upstream; if it
-does, `fetch_utils.isolate_scoring_format()` becomes redundant, though its live
-test is worth keeping either way.
+Note for 05, now answered: **0.46.0 does not fix** the shared-scoring-dict bug,
+so `fetch_utils.isolate_scoring_format()` stays. Nor does it fix the per-slot
+override handling that [plan 11](11-per-slot-scoring.md) works around.
+`tests/test_espn_api_contract.py` asserts both are still upstream, so a future
+release that fixes either will fail the suite and prompt removal.
 
 **Before week 1:** 03 → 04 → 08 → 13. Plan 13 needs posted game lines, so it
 cannot be finished in August — 51 of 272 games had lines on 2026-08-03. Its

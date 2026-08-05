@@ -193,7 +193,17 @@ def compare(label_a: str, label_b: str, top: int = 25) -> pd.DataFrame:
         changed = []
         for col in sorted(set(a.columns) & set(b.columns)):
             sa, sb = a[col], b[col]
-            if pd.api.types.is_numeric_dtype(sa) and pd.api.types.is_numeric_dtype(sb):
+            both_bool = (pd.api.types.is_bool_dtype(sa)
+                         and pd.api.types.is_bool_dtype(sb))
+            if both_bool:
+                # is_numeric_dtype() is True for bool, which sent the *_is_imputed
+                # provenance flags down the arithmetic path below -- and numpy
+                # refuses `-` on booleans, so comparing any snapshot taken after
+                # plan 03 raised TypeError. Count disagreements instead.
+                neq = sa.fillna(False).ne(sb.fillna(False))
+                n, worst = int(neq.sum()), float("nan")
+            elif (pd.api.types.is_numeric_dtype(sa)
+                    and pd.api.types.is_numeric_dtype(sb)):
                 diff = (sa.fillna(0) - sb.fillna(0)).abs()
                 n = int((diff > TOLERANCE).sum())
                 worst = float(diff.max()) if len(diff) else 0.0

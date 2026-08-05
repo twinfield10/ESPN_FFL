@@ -7,7 +7,12 @@
 #   pip install -r requirements.txt
 
 # --- ESPN ---------------------------------------------------------------
-espn-api==0.45.1
+# 0.46.0 is a hard floor, not a preference: scrape_player_stats reads
+# player.__dict__['breakdown'] for raw per-week stats, and BoxPlayer only sets
+# that attribute from 0.46.0. On 0.45.1 the raw stats sit under the misleading
+# name 'points_breakdown', which 0.46.0 repurposed to hold applied points.
+# tests/test_espn_api_contract.py enforces the floor and the semantics.
+espn-api==0.46.0
 
 # --- Data ---------------------------------------------------------------
 pandas==2.3.3
