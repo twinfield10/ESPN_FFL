@@ -16,7 +16,7 @@ These are what the scan turned up *beyond* that.
 | 05 | [Dependency upgrades](05-dependency-upgrades.md) | Medium | M | `espn-api` has a traded-player fix we want before drafting |
 | 06 | [Performance](06-performance.md) | Low | S | Backfills are slow enough to discourage re-running them |
 | 10 | [Scoring registry](10-scoring-registry.md) | ~~High~~ **Done** | S | ~~Scoring is re-derived from a mutable live object 4× per league, and never recorded~~ |
-| 11 | [Per-slot scoring](11-per-slot-scoring.md) | **High** | M | `espn_api` collapses per-slot scoring to one value; GOP's IDP points are wrong |
+| 11 | [Per-slot scoring](11-per-slot-scoring.md) | ~~High~~ **Done** | M | ~~`espn_api` collapses per-slot scoring to one value~~ Registry now has a `slot` dimension; GOP's D/ST was inflated ~16% |
 | 12 | [Season projections](12-season-projections.md) | ~~High~~ **Done** | M | ~~Draft board has no book data~~ Phase 2 done: season props blended and scored per league |
 | 13 | [D/ST from Vegas lines](13-dst-from-vegas-lines.md) | Medium → High in-season | M | D/ST is the only position with zero market coverage; game lines imply points allowed |
 
@@ -38,10 +38,13 @@ ESPN data is currently never persisted anywhere.
 
 ## Suggested order
 
-**Before the draft:** ~~01~~ → ~~10~~ → 11 → 05 (espn-api only) → 02, then
-07 → 09. The first few affect the numbers the draft board is built on, so they
-come first. 11 only matters if GOP_Degenerates is being drafted, but it matters a
-lot there.
+**Before the draft:** ~~01~~ → ~~10~~ → ~~11~~ → 05 (espn-api only) → ~~02~~,
+then 07 → 09. The first few affect the numbers the draft board is built on, so
+they come first.
+
+Note on 11, now done: it turned out to matter beyond GOP. The per-slot fix
+also stopped offensive players in *every* league being credited for imputed
+kick-return yards and points-allowed tiers at D/ST rates.
 
 Note for 05: plan 01 worked around an `espn_api` 0.45.1 bug that shares scoring
 dicts across `League` objects. Check whether the upgrade fixes it upstream; if it

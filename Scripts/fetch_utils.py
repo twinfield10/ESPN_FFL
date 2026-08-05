@@ -201,6 +201,28 @@ def fetch_league(
     league.cookies = {"swid": swid, "espn_s2": espn_s2}
     # Set league endpoint
     set_league_endpoint(league)
+    # Read the per-slot scoring values espn_api cannot represent. Deferred import
+    # because scrape_player_stats imports this module.
+    from Scripts.scrape_player_stats import fetch_scoring_overrides
+    try:
+        league.scoring_overrides = fetch_scoring_overrides(league)
+    except Exception as e:
+        # Non-fatal: build_scoring_table falls back to espn_api's collapsed
+        # value, which is right for every league without IDP slots.
+        league.scoring_overrides = None
+        # Force the filter: this module calls warnings.filterwarnings("ignore")
+        # at import scope, which silenced this warning entirely the first time it
+        # fired -- every pre-2026 season fell back to collapsed scoring and said
+        # nothing. See docs/plans/06-performance.md for the global filter.
+        with warnings.catch_warnings():
+            warnings.simplefilter("always", RuntimeWarning)
+            warnings.warn(
+                f"Could not read per-slot scoring for league {league_id} {year} "
+                f"({type(e).__name__}: {e}). Falling back to espn_api's collapsed "
+                f"values, which misread a D/ST override of exactly 0.0 -- see "
+                f"docs/plans/11-per-slot-scoring.md.",
+                RuntimeWarning, stacklevel=2,
+            )
     # Get roster information
     get_roster_settings(league)
     # Set additinoal settings

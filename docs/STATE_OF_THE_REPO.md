@@ -1,6 +1,6 @@
 # State of the Repo
 
-**Last updated:** 2026-08-01, preparing for the 2026 season.
+**Last updated:** 2026-08-05, preparing for the 2026 season.
 
 A standing assessment of what works, what is broken, and what to do next. Update
 it as things change — particularly the *Known issues* table, which is the part
@@ -115,7 +115,7 @@ draft-relevant one, so the draft board is unaffected.
 | The 2025 Pinnacle juice formula changed mid-season in commit `c3b4d16` (sign flipped, coefficient halved 0.5 → 0.25) with no explanation in the message or the code. Unclear which is correct. | `scrape_pinnacle.py` |
 | BOL splits `anytimeTouchdown` 100% to rushing for QB/RB and 100% to receiving for WR/TE. Crude for pass-catching backs. | `scrape_BOL.py` |
 | Blend weights are hand-tuned ([plan 03](plans/03-projection-source-coverage.md)). Two learned-weight models (OLS per stat, and a `LinearRegression` combo) were built in the notebook and never productionised — with 2025 actuals in hand these could replace the guesses. | notebook cells 11, 14 |
-| League-specific branches hardcoded by id: IDP scoring for `1727104`, and a matchup-period hack for `521152` weeks 15/17 that is tied to 2025's playoff structure. | `projection_utils.py`, `scrape_player_stats.py:204` |
+| A matchup-period hack hardcoded by league id for `521152` weeks 15/17, tied to 2025's playoff structure. The IDP-scoring branch keyed on `1727104` is **gone** — replaced by the registry's `slot` dimension ([plan 11](plans/11-per-slot-scoring.md)). | `scrape_player_stats.py:204` |
 | `get_free_agent_stats()` is dead — wrong arity, references a non-existent `league.currentMatchupPeriod`. | `scrape_player_stats.py:242-259` |
 | FantasyPros URLs take no season parameter, so the 2025 CSV cannot be reproduced by re-scraping. Backtests must use archived data. | `scrape_FP.py` |
 

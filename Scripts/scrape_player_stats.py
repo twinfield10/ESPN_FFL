@@ -1,10 +1,22 @@
-from typing import List
+from typing import Dict, List, Optional
 import warnings
 
 import pandas as pd
+import requests
 from espn_api.football import League, Team, Player
 from espn_api.requests.constant import FANTASY_BASE_ENDPOINT
 from Scripts.fetch_utils import fetch_league
+
+
+#: ESPN's lineup-slot id for a D/ST unit. Scoring rules carry a
+#: ``pointsOverrides`` map keyed by slot id, and this is the only key that
+#: appears in any of the configured leagues -- verified live for 2026 across all
+#: nine. See ``docs/plans/11-per-slot-scoring.md``.
+SLOT_DST = "16"
+
+#: Pseudo-slot for a rule's configured base value, which is what every non-D/ST
+#: slot scores -- including individual defensive players.
+SLOT_BASE = "base"
 
 
 class ScoringCoverageWarning(UserWarning):
@@ -50,13 +62,114 @@ REPL_SCORING = {
 IGNORED_SCORING_IDS = [201, 206, 209]
 
 
-def build_scoring_table(league: League, strict: bool = False) -> pd.DataFrame:
+def fetch_scoring_overrides(league: League) -> Dict[int, Dict[str, float]]:
+    """Read each scoring rule's per-slot point values straight from ESPN.
+
+    ``espn_api`` 0.45.1 cannot express this. It collapses the whole override map
+    to a single number, reading only slot 16 and doing it with a falsy-or::
+
+        points_override = scoring_item.get('pointsOverrides', {}).get('16')
+        scoring_type['points'] = points_override or scoring_item.get('points', 0)
+
+    So an override of exactly ``0.0`` -- a rule the commissioner deliberately
+    zeroed for D/ST -- falls through to the base value, which is the value that
+    applies to *individual* defensive players. The resulting table is neither the
+    D/ST table nor the IDP one but a mix of both. This reads the raw
+    ``mSettings`` payload instead and keys on ``is None``.
+
+    Args:
+        league: A league carrying ``endpoint`` and ``cookies``, as
+            :func:`Scripts.fetch_utils.fetch_league` leaves it.
+
+    Returns:
+        dict: ``{stat_id: {'base': float, '16': float, ...}}``. Every rule has a
+        ``'base'`` entry; slot keys appear only where ESPN sets an override.
+
+    Raises:
+        AttributeError: If ``league`` has no ``endpoint``/``cookies``.
+    """
+    endpoint = f"{league.endpoint}view=mSettings"
+    r = requests.get(endpoint, cookies=league.cookies)
+    r.raise_for_status()
+    payload = r.json()
+    # A completed season is served from the leagueHistory endpoint, which wraps
+    # the league in a single-element list rather than returning it bare. Missing
+    # this made every pre-2026 season fall back silently.
+    if isinstance(payload, list):
+        if not payload:
+            raise ValueError(f"Empty leagueHistory payload from {endpoint}")
+        payload = payload[0]
+    items = payload["settings"]["scoringSettings"]["scoringItems"]
+
+    overrides: Dict[int, Dict[str, float]] = {}
+    for item in items:
+        by_slot = {SLOT_BASE: float(item.get("points", 0) or 0)}
+        for slot, value in (item.get("pointsOverrides") or {}).items():
+            # `is None`, not falsy: 0.0 is a meaningful override.
+            if value is not None:
+                by_slot[str(slot)] = float(value)
+        overrides[int(item["statId"])] = by_slot
+    return overrides
+
+
+def resolve_slot_points(by_slot: Dict[str, float], slot: str) -> float:
+    """Pick the points value that applies to one lineup slot.
+
+    A player in slot ``slot`` scores that slot's override where ESPN sets one,
+    and the rule's base value otherwise.
+
+    Args:
+        by_slot: One rule's per-slot values, as
+            :func:`fetch_scoring_overrides` returns them.
+        slot: Slot id, or :data:`SLOT_BASE` to force the base value.
+
+    Returns:
+        float: The applicable points.
+    """
+    if slot != SLOT_BASE and by_slot.get(slot) is not None:
+        return by_slot[slot]
+    return by_slot.get(SLOT_BASE, 0.0)
+
+
+def scoring_slots(overrides: Dict[int, Dict[str, float]]) -> List[str]:
+    """Every slot a league prices differently, base first.
+
+    Args:
+        overrides: As :func:`fetch_scoring_overrides` returns.
+
+    Returns:
+        list[str]: ``[SLOT_BASE]`` plus each overridden slot id, sorted. In
+        practice this is ``['base', '16']``, but nothing here assumes that.
+    """
+    slots = {s for by_slot in overrides.values() for s in by_slot} - {SLOT_BASE}
+    return [SLOT_BASE] + sorted(slots)
+
+
+def build_scoring_table(
+    league: League,
+    strict: bool = False,
+    slot: str = SLOT_DST,
+    overrides: Optional[Dict[int, Dict[str, float]]] = None,
+    check_coverage: bool = True,
+) -> pd.DataFrame:
     """Translate a league's ESPN scoring settings into stat->points rows.
 
     Args:
         league: ESPN ``League``. Reads ``league.settings.scoring_format``.
         strict: Raise instead of warning when a scoring rule cannot be mapped
             to a stat column.
+        slot: Which lineup slot's scoring to resolve. Defaults to
+            :data:`SLOT_DST`, which reproduces what ``espn_api`` intends -- and
+            what every league except an IDP one wants -- but gets the zeroed
+            overrides right. Pass :data:`SLOT_BASE` for individual defensive
+            players. Ignored unless per-slot values are available.
+        overrides: Per-slot values from :func:`fetch_scoring_overrides`. Falls
+            back to ``league.scoring_overrides``, which
+            :func:`Scripts.fetch_utils.fetch_league` attaches. When neither is
+            available the collapsed ``espn_api`` value is used unchanged, so a
+            bare ``League`` still works -- at the cost of the slot bug.
+        check_coverage: Run the unmapped-rule check. Off when building several
+            slots of the same league, so the warning is emitted once.
 
     Returns:
         pd.DataFrame: One row per scoring rule with ``id``, ``abbr``, ``label``,
@@ -90,6 +203,19 @@ def build_scoring_table(league: League, strict: bool = False) -> pd.DataFrame:
     # 221, and we chose to model it at 0.064/yd" -- the second is a scoring
     # change, the first is not.
     league_scoring = league_scoring.assign(source_id=league_scoring['id'])
+
+    # Re-point `points` at the requested slot. Keyed on source_id because that is
+    # the id ESPN's override map uses, and REPL_SCORING below is about to rewrite
+    # `id`. Rules REPL_SCORING touches carry no overrides -- they are offensive
+    # and kicking rules -- so its explicit rates still win, which is intended:
+    # those are modelled rates, not configured ones.
+    if overrides is None:
+        overrides = getattr(league, 'scoring_overrides', None)
+    if overrides:
+        league_scoring['points'] = [
+            resolve_slot_points(overrides[sid], slot) if sid in overrides else pts
+            for sid, pts in zip(league_scoring['source_id'], league_scoring['points'])
+        ]
 
     # Convert "Every" Stats To Decimals
     for key, changes in REPL_SCORING.items():
@@ -180,9 +306,40 @@ def build_scoring_table(league: League, strict: bool = False) -> pd.DataFrame:
     scores_df = league_scoring.merge(score_df, on='id', how='left')
     scores_df = scores_df.sort_values(['id'])
 
-    _check_scoring_coverage(league, scores_df, strict=strict)
+    if check_coverage:
+        _check_scoring_coverage(league, scores_df, strict=strict)
 
     return scores_df
+
+
+def build_scoring_rows(
+    league: League, strict: bool = False
+) -> pd.DataFrame:
+    """One scoring table per priced slot, stacked, for the registry.
+
+    Args:
+        league: ESPN ``League``, ideally carrying ``scoring_overrides``.
+        strict: Raise instead of warning on an unmapped rule.
+
+    Returns:
+        pd.DataFrame: :func:`build_scoring_table`'s columns plus ``slot``. A
+        league with no per-slot values yields a single ``SLOT_DST`` block, which
+        keeps the registry shape constant.
+    """
+    overrides = getattr(league, 'scoring_overrides', None)
+    if not overrides:
+        return build_scoring_table(league, strict=strict).assign(slot=SLOT_DST)
+
+    frames = []
+    for i, slot in enumerate(scoring_slots(overrides)):
+        table = build_scoring_table(
+            league, strict=strict, slot=slot, overrides=overrides,
+            # Coverage is a property of the rule set, not of a slot, so checking
+            # it once avoids N identical warnings per league.
+            check_coverage=(i == 0),
+        )
+        frames.append(table.assign(slot=slot))
+    return pd.concat(frames, ignore_index=True)
 
 
 def _check_scoring_coverage(

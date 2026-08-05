@@ -37,7 +37,13 @@ import pandas as pd
 
 from Scripts.config_utils import build_lg_vars, get_season
 from Scripts.paths import DATA_DIR
-from Scripts.scrape_player_stats import ScoringCoverageWarning, build_scoring_table
+from Scripts.scrape_player_stats import (
+    SLOT_BASE,
+    SLOT_DST,
+    ScoringCoverageWarning,
+    build_scoring_rows,
+    build_scoring_table,
+)
 
 SCORING_DIR = DATA_DIR / "Scoring"
 SCORING_CSV = SCORING_DIR / "scoring.csv"
@@ -48,10 +54,17 @@ SCORING_CSV = SCORING_DIR / "scoring.csv"
 #: is scored against after ``REPL_SCORING`` rewrites "every N yards" rules. They
 #: differ only for those rules, and auditing must use ``source_id`` -- otherwise
 #: replacing rule 214 with rule 221 looks like a reprice of 214.
+#: ``slot`` carries the lineup slot a row's ``points`` applies to: ``'base'`` for
+#: the configured value every non-D/ST slot scores -- including individual
+#: defensive players -- and a slot id such as ``'16'`` where ESPN overrides it.
+#: ESPN prices the same rule differently per slot, so without this dimension a
+#: single ``points`` per rule cannot represent an IDP league. See
+#: ``docs/plans/11-per-slot-scoring.md``.
 REGISTRY_COLUMNS = [
     "season",
     "league_key",
     "league_name",
+    "slot",
     "source_id",
     "id",
     "abbr",
@@ -64,11 +77,12 @@ REGISTRY_COLUMNS = [
 #: The columns that constitute a rule's content. Two rows agreeing on all of
 #: these are the same rule, unchanged, and keep their original ``recorded_at``.
 _CONTENT_COLUMNS = [
-    "season", "league_key", "source_id", "id", "abbr", "label", "points", "colName",
+    "season", "league_key", "slot", "source_id", "id", "abbr", "label",
+    "points", "colName",
 ]
 
 #: Columns that define a scoring rule's identity within a league-season.
-_KEY_COLUMNS = ["season", "league_key", "source_id"]
+_KEY_COLUMNS = ["season", "league_key", "slot", "source_id"]
 
 
 class ScoringRegistryWarning(UserWarning):
@@ -118,6 +132,14 @@ def _load_registry_cached(path: str, mtime: float) -> pd.DataFrame:
     df["id"] = df["id"].astype(int)
     df["source_id"] = df["source_id"].astype(int)
     df["points"] = df["points"].astype(float)
+    # A registry written before the slot dimension existed holds one row per rule,
+    # carrying the D/ST-resolved value -- which is what SLOT_DST means.
+    if "slot" not in df.columns:
+        df["slot"] = SLOT_DST
+    # '16' must stay a string: read_csv would otherwise infer int64 for a
+    # registry whose only slot happens to be numeric, and comparisons against
+    # SLOT_DST would silently never match.
+    df["slot"] = df["slot"].astype(str)
     # An all-empty colName column reads back as float NaN, which would break the
     # isna()/string handling downstream.
     df["colName"] = df["colName"].astype("object")
@@ -173,6 +195,7 @@ def get_scoring_table(
     season: Optional[int] = None,
     verify: bool = True,
     strict: bool = False,
+    slot: str = SLOT_DST,
 ) -> pd.DataFrame:
     """Resolve one league-season's scoring table.
 
@@ -194,6 +217,10 @@ def get_scoring_table(
         season: Season year. Taken from ``league.year`` when omitted.
         verify: Compare a registry hit against ``league``'s live settings.
         strict: Raise instead of warning on drift.
+        slot: Lineup slot to price the rules for. :data:`SLOT_DST` (the default)
+            suits every position except an individual defensive player, which
+            needs :data:`SLOT_BASE`. A league that prices no slot separately has
+            only ``SLOT_DST`` rows, and any other request falls back to them.
 
     Returns:
         pd.DataFrame: The scoring table, in the same shape
@@ -220,7 +247,7 @@ def get_scoring_table(
                 f"league_id {league.league_id} is not in config.yaml, so it has "
                 f"no registry entry. Deriving scoring from live ESPN settings."
             )
-            return build_scoring_table(league)
+            return build_scoring_table(league, slot=slot)
 
     registry = load_scoring_registry()
     hit = registry[
@@ -238,12 +265,25 @@ def get_scoring_table(
             f"No registry entry for {league_key} {season}; deriving from live "
             f"ESPN settings. Run `python -m Scripts.scoring --all` to record it."
         )
-        return build_scoring_table(league)
+        return build_scoring_table(league, slot=slot)
 
-    table = _to_scoring_table(hit)
+    for_slot = hit[hit["slot"] == slot]
+    if for_slot.empty:
+        # The league prices nothing for this slot. Falling back to SLOT_DST is
+        # correct rather than lenient: a registry with only SLOT_DST rows came
+        # from a league whose rules do not vary by slot at all.
+        for_slot = hit[hit["slot"] == SLOT_DST]
+        if for_slot.empty:
+            raise ValueError(
+                f"Registry has rows for {league_key} {season} but none for slot "
+                f"{slot!r} or {SLOT_DST!r}. Re-run `python -m Scripts.scoring "
+                f"--league {league_key} --season {season}`."
+            )
+
+    table = _to_scoring_table(for_slot)
 
     if verify and league is not None:
-        _verify_against_live(league, league_key, season, table, strict=strict)
+        _verify_against_live(league, league_key, season, table, strict=strict, slot=slot)
 
     return table
 
@@ -264,7 +304,8 @@ def _to_scoring_table(rows: pd.DataFrame) -> pd.DataFrame:
 
 
 def _verify_against_live(
-    league, league_key: str, season: int, stored: pd.DataFrame, strict: bool = False
+    league, league_key: str, season: int, stored: pd.DataFrame,
+    strict: bool = False, slot: str = SLOT_DST,
 ) -> pd.DataFrame:
     """Warn when stored scoring no longer matches the league's live settings.
 
@@ -274,6 +315,8 @@ def _verify_against_live(
         season: Season year, for the message.
         stored: The table resolved from the registry.
         strict: Raise instead of warning.
+        slot: The slot ``stored`` was resolved for. Live values are resolved the
+            same way, or the two would differ for every overridden rule.
 
     Returns:
         pd.DataFrame: The differing rules, empty when they agree.
@@ -281,7 +324,7 @@ def _verify_against_live(
     Raises:
         ScoringDriftError: When ``strict`` and they disagree.
     """
-    live = build_scoring_table(league)
+    live = build_scoring_table(league, slot=slot)
     # Compare on source_id: two rules can share an `id` after REPL_SCORING
     # rewrites them, which would make the merge ambiguous.
     merged = stored[["source_id", "points"]].merge(
@@ -388,7 +431,7 @@ def refresh_scoring(
                 # place a scoring gap is reported, rather than once per call site.
                 with warnings.catch_warnings(record=True) as caught:
                     warnings.simplefilter("always")
-                    table = build_scoring_table(league, strict=strict)
+                    table = build_scoring_rows(league, strict=strict)
             except Exception as e:
                 print(f"  FAIL {name} {year}: {type(e).__name__}: {e}")
                 continue
@@ -406,7 +449,9 @@ def refresh_scoring(
             rows["league_name"] = name
             rows["recorded_at"] = recorded_at
             written.append(rows[REGISTRY_COLUMNS])
-            print(f"  {cfg['key']:<26} {year}  {len(rows):>3} rules")
+            n_slots = rows["slot"].nunique()
+            print(f"  {cfg['key']:<26} {year}  {len(rows):>3} rows "
+                  f"({len(rows) // max(n_slots, 1)} rules x {n_slots} slot(s))")
 
     if not written:
         raise RuntimeError("Nothing fetched; registry left unchanged.")
@@ -494,9 +539,12 @@ def diff_scoring(league_key: str, season_a: int, season_b: int) -> pd.DataFrame:
     a = reg[(reg["league_key"] == league_key) & (reg["season"] == season_a)]
     b = reg[(reg["league_key"] == league_key) & (reg["season"] == season_b)]
 
-    cols = ["source_id", "abbr", "label", "points"]
+    # Merge on (source_id, slot): the same rule carries a different value per
+    # slot, so keying on source_id alone would pair a base row against a D/ST row
+    # and report every overridden rule as repriced.
+    cols = ["source_id", "slot", "abbr", "label", "points"]
     merged = a[cols].merge(
-        b[cols], on="source_id", how="outer",
+        b[cols], on=["source_id", "slot"], how="outer",
         suffixes=(f"_{season_a}", f"_{season_b}"), indicator=True,
     )
     pa, pb = f"points_{season_a}", f"points_{season_b}"
@@ -507,8 +555,8 @@ def diff_scoring(league_key: str, season_a: int, season_b: int) -> pd.DataFrame:
     changed["abbr"] = changed[f"abbr_{season_a}"].fillna(changed[f"abbr_{season_b}"])
     changed["label"] = changed[f"label_{season_a}"].fillna(changed[f"label_{season_b}"])
     return (
-        changed[["source_id", "abbr", "label", pa, pb, "change"]]
-        .sort_values(["change", "source_id"])
+        changed[["source_id", "slot", "abbr", "label", pa, pb, "change"]]
+        .sort_values(["change", "source_id", "slot"])
         .reset_index(drop=True)
     )
 
@@ -523,7 +571,13 @@ def coverage_gaps() -> pd.DataFrame:
     reg = load_scoring_registry()
     if reg.empty:
         return reg
-    return reg[reg["colName"].isna() & (reg["points"] != 0)].reset_index(drop=True)
+    gaps = reg[reg["colName"].isna() & (reg["points"] != 0)]
+    # Coverage is a property of the rule, not the slot, so a rule scored in both
+    # slots is one gap rather than two.
+    return (
+        gaps.drop_duplicates(subset=["season", "league_key", "source_id"])
+        .reset_index(drop=True)
+    )
 
 
 # --- CLI -----------------------------------------------------------------

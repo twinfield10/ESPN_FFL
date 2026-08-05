@@ -26,6 +26,7 @@ import pandas as pd
 
 from Scripts.paths import NFL_TACKLES_CSV, resolve, season_dir
 from Scripts.scoring import get_scoring_table
+from Scripts.scrape_player_stats import SLOT_BASE, SLOT_DST
 
 
 def fantasypros_parquet(season: int):
@@ -558,79 +559,89 @@ def compute_weighted_stats(df, stats_list, weights_dict, renormalise=True):
     return df
 
 
+#: Positions ESPN fills from individual defensive players rather than a team
+#: D/ST unit. Listed for clarity about what an IDP league rosters; the scoring
+#: split below keys on :data:`DST_POSITIONS` instead, because ESPN's override map
+#: singles out the D/ST slot rather than singling out IDP slots.
+IDP_POSITIONS = ['DL', 'DE', 'LB', 'NT', 'CB', 'S', 'DT', 'DB', 'OLB']
+
+#: The only position whose scoring comes from a ``pointsOverrides`` entry. Every
+#: other slot -- offence, kicker and every individual defensive slot -- scores the
+#: rule's base value, because ESPN sets no override for those slots.
+DST_POSITIONS = ['D/ST']
+
+
+def _apply_scoring(df, s_df, col_pfix_list):
+    """Sum each prefix's stat columns into a ``<prefix>_Points`` column.
+
+    Args:
+        df: Projection frame. Modified in place.
+        s_df: Scoring table with ``colName`` and ``points``.
+        col_pfix_list: Projection-source prefixes to score.
+
+    Returns:
+        The same frame, for chaining.
+    """
+    for col_pfix in col_pfix_list:
+        # Accumulate into one Series and assign once, rather than += onto the
+        # frame per rule, which fragments a 350-column block.
+        total = pd.Series(0.0, index=df.index)
+        for _, score_row in s_df.iterrows():
+            col_name = f"{col_pfix}_{score_row['colName']}"
+            if col_name in df.columns:
+                total = total + df[col_name] * score_row['points']
+        df[f'{col_pfix}_Points'] = total
+    return df
+
+
 def proj_to_score(proj_df, s_league, col_pfix_list=['ESPN', 'FP', 'MEAN', 'PINNY', 'BOL', 'TRUE']):
+    """Score projected stat lines with a league's rules, per lineup slot.
 
-    # get_scoring_table always hands back a fresh copy, which matters here: the
-    # D/ST and IDP re-scoring below mutates s_df in place.
-    s_df = get_scoring_table(s_league)
+    ESPN prices the same rule differently depending on the slot a player occupies
+    -- a sack is worth one thing to a D/ST unit and another to an individual
+    defensive player. It expresses this as a ``pointsOverrides`` map keyed by slot
+    id, and slot 16 (D/ST) is the only key any of the configured leagues sets. So
+    a D/ST unit is scored from the override and **everything else** -- offence,
+    kicker, and every individual defensive slot -- from the rule's base value.
 
-    # Update scores in s_df for D/ST positions and specific conditions
-    if 1727104 in list(proj_df['league_id'].unique()):
-        dp_df = proj_df[proj_df['primaryPosition'].isin(['DL', 'DE', 'LB', 'NT', 'CB', 'S', 'DT', 'DB', 'OLB'])]
-        normal_df = proj_df[~proj_df['primaryPosition'].isin(['DL', 'DE', 'LB', 'NT', 'CB', 'S', 'DT', 'DB', 'OLB'])]
+    Scoring offence from the override, as an earlier revision of this did, is
+    wrong in the same direction for both league types: it prices an offensive
+    player's stray imputed defensive stats at the D/ST rate.
 
-        s_df.loc[s_df['id'] == 99, 'points'] = 1
-        s_df.loc[s_df['id'] == 109, 'points'] = 0
-        s_df.loc[s_df['id'] == 112, 'points'] = 0
-        s_df.loc[s_df['id'] == 113, 'points'] = 0
-        s_df.loc[s_df['id'] == 95, 'points'] = 1
-        s_df.loc[s_df['id'] == 97, 'points'] = 1
+    This used to be a block keyed on the literal league id ``1727104`` that
+    patched in hardcoded constants. Six of its seven IDP values were wrong
+    against live settings, inflating that league's IDP projections roughly 2-3x;
+    it also overwrote three rules ``espn_api`` already reported correctly, and
+    missed the two it existed to fix. See ``docs/plans/11-per-slot-scoring.md``.
 
-        # Iterate over each prefix in the prefix list
-        for col_pfix in col_pfix_list:
-            # Initialize the score column to 0
-            normal_df[f'{col_pfix}_Points'] = 0.0
+    Args:
+        proj_df: Projection frame carrying ``<prefix>_<stat>`` columns and
+            ``primaryPosition``.
+        s_league: League whose scoring applies, passed to
+            :func:`Scripts.scoring.get_scoring_table`.
+        col_pfix_list: Projection-source prefixes to score.
 
-            # Iterate over each score row in s_df
-            for _, score_row in s_df.iterrows():
-                col_name = f"{col_pfix}_{score_row['colName']}"
+    Returns:
+        pd.DataFrame: ``proj_df`` with a ``<prefix>_Points`` column per prefix.
+    """
+    is_dst = proj_df['primaryPosition'].isin(DST_POSITIONS)
 
-                # If the corresponding stat column exists in proj_df, calculate the weighted score
-                if col_name in normal_df.columns:
-                    normal_df[f'{col_pfix}_Points'] += normal_df[col_name] * score_row['points']
+    # A frame with no D/ST unit has nothing the override applies to.
+    if not is_dst.any():
+        return _apply_scoring(
+            proj_df, get_scoring_table(s_league, slot=SLOT_BASE), col_pfix_list)
 
+    dst_df = proj_df[is_dst].copy()
+    rest_df = proj_df[~is_dst].copy()
 
-        # Handle DP 
-        s_df.loc[s_df['id'] == 95, 'points'] = 12
-        s_df.loc[s_df['id'] == 97, 'points'] = 2
-        s_df.loc[s_df['id'] == 99, 'points'] = 10
-        s_df.loc[s_df['id'] == 112, 'points'] = 5
-        s_df.loc[s_df['id'] == 113, 'points'] = 5
-        s_df.loc[s_df['id'] == 107, 'points'] = 0.5
-        s_df.loc[s_df['id'] == 108, 'points'] = 2
+    _apply_scoring(dst_df, get_scoring_table(s_league, slot=SLOT_DST), col_pfix_list)
+    _apply_scoring(rest_df, get_scoring_table(s_league, slot=SLOT_BASE), col_pfix_list)
 
-        # Iterate over each prefix in the prefix list
-        for col_pfix in col_pfix_list:
-            # Initialize the score column to 0
-            dp_df[f'{col_pfix}_Points'] = 0.0
-
-            # Iterate over each score row in s_df
-            for _, score_row in s_df.iterrows():
-                col_name = f"{col_pfix}_{score_row['colName']}"
-
-                # If the corresponding stat column exists in proj_df, calculate the weighted score
-                if col_name in dp_df.columns:
-                    dp_df[f'{col_pfix}_Points'] += dp_df[col_name] * score_row['points']
-
-        dp_df['TRUE_Points'] = (dp_df['ESPN_Points'] + dp_df['BOL_Points']) / 2
-
-        proj_df = pd.concat([normal_df, dp_df])
-
-    else:
-        # Iterate over each prefix in the prefix list
-        for col_pfix in col_pfix_list:
-            # Initialize the score column to 0
-            proj_df[f'{col_pfix}_Points'] = 0.0
-
-            # Iterate over each score row in s_df
-            for _, score_row in s_df.iterrows():
-                col_name = f"{col_pfix}_{score_row['colName']}"
-
-                # If the corresponding stat column exists in proj_df, calculate the weighted score
-                if col_name in proj_df.columns:
-                    proj_df[f'{col_pfix}_Points'] += proj_df[col_name] * score_row['points']
-    
-    return proj_df
+    # TRUE_Points comes from the TRUE_* columns like every other prefix. It used
+    # to be hardcoded for IDP rows as (ESPN_Points + BOL_Points) / 2, which
+    # bypassed the renormalised blend -- see
+    # docs/plans/03-projection-source-coverage.md.
+    return pd.concat([rest_df, dst_df])
 
 
 def clean_lineups(df, lg, season=None):

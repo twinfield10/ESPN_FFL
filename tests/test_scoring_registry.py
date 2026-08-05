@@ -14,7 +14,7 @@ import pandas as pd
 import pytest
 
 from Scripts import scoring
-from Scripts.scrape_player_stats import build_scoring_table
+from Scripts.scrape_player_stats import SLOT_BASE, SLOT_DST, build_scoring_table
 
 
 @pytest.fixture
@@ -49,10 +49,18 @@ def _store(registry_path, league_key, season, rows, name="Test League"):
     return df
 
 
-def _row(source_id, points, col_name, abbr="XX", label="L", stat_id=None):
+def _row(source_id, points, col_name, abbr="XX", label="L", stat_id=None,
+         slot=None):
+    """One registry row.
+
+    ``slot`` defaults to :data:`Scripts.scrape_player_stats.SLOT_DST` because
+    that is what ``get_scoring_table`` resolves by default, so a test that does
+    not care about slots gets rows its lookups will find.
+    """
     return {
         "source_id": source_id,
         "id": source_id if stat_id is None else stat_id,
+        "slot": SLOT_DST if slot is None else slot,
         "abbr": abbr, "label": label, "points": points, "colName": col_name,
     }
 
