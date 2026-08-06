@@ -17,9 +17,18 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = REPO_ROOT / "Data"
 PROJECTIONS_DIR = DATA_DIR / "Projections"
 
+#: The local data store that separates ESPN ingest from presentation. Written by
+#: ``Scripts/refresh.py``, read by ``app/``, and gitignored -- it is regenerable
+#: and large. See ``docs/plans/07-frontend-foundation.md``.
+STORE_DIR = DATA_DIR / "Store"
+
 # NFL reference data written by R/GetNFL.R
 NFL_SCHEDULE_CSV = DATA_DIR / "NFL_Schedules.csv"
 NFL_TACKLES_CSV = DATA_DIR / "NFL_Tackles_By_Position.csv"
+
+#: Cross-provider player identity table written by ``R/GetPlayerIDs.R``. Not
+#: season-scoped -- a player's ids do not change year to year.
+PLAYER_IDS_PARQUET = DATA_DIR / "NFL" / "player_ids.parquet"
 
 
 def resolve(path: Union[str, Path]) -> Path:
@@ -53,7 +62,7 @@ def projection_path(source: str, *parts: str, season: Optional[int] = None) -> P
     return base.joinpath(*parts)
 
 
-def season_dir(source: str, season: int, *parts: str) -> Path:
+def season_dir(source: str, season: int, *parts: str, create: bool = True) -> Path:
     """Season-scoped output directory for a projection source.
 
     Output paths carried no season component before 2026, so a new season's
@@ -64,12 +73,57 @@ def season_dir(source: str, season: int, *parts: str) -> Path:
         source: Provider directory name, e.g. ``"BetOnline"``.
         season: Season year.
         *parts: Additional components beneath the season directory.
+        create: Create the season directory and its parents. True by default so
+            writers need no ceremony. **Readers should pass False** -- otherwise
+            merely asking whether a source has a file for a season creates an
+            empty directory for it, which is how three ``2999/`` directories once
+            appeared under ``Data/Projections`` from a test that only checked
+            ``.exists()``.
 
     Returns:
-        Path: An absolute path with parent directories created.
+        Path: An absolute path.
     """
     p = PROJECTIONS_DIR / source / "Season" / str(season)
-    p.mkdir(parents=True, exist_ok=True)
+    if create:
+        p.mkdir(parents=True, exist_ok=True)
+    return p.joinpath(*parts)
+
+
+def store_root() -> Path:
+    """The store root, read at call time.
+
+    Resolved through a function rather than referenced directly so that tests can
+    redirect the store with ``monkeypatch.setattr(paths, "STORE_DIR", tmp_path)``.
+    A module that did ``from Scripts.paths import STORE_DIR`` would bind the
+    original value at import time and ignore the patch.
+
+    Returns:
+        Path: :data:`STORE_DIR`.
+    """
+    return STORE_DIR
+
+
+def store_dir(season: int, league_key: str, *parts: str, create: bool = False) -> Path:
+    """Season- and league-scoped store directory.
+
+    Unlike :func:`season_dir` and :func:`landing_dir`, this does **not** create
+    parents by default. Reads go through here too, and a read that creates an
+    empty directory would make it show up in ``store.list_leagues()`` as a league
+    that has a store when it does not.
+
+    Args:
+        season: Season year.
+        league_key: ``config.yaml`` league key, e.g. ``"knights_ffl"``. The key
+            rather than the display name, so paths hold no spaces.
+        *parts: Additional components beneath the league directory.
+        create: Create the league directory and its parents. Writers set this.
+
+    Returns:
+        Path: An absolute path.
+    """
+    p = store_root() / str(season) / league_key
+    if create:
+        p.mkdir(parents=True, exist_ok=True)
     return p.joinpath(*parts)
 
 

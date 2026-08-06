@@ -80,5 +80,39 @@ def build_lg_vars(config: Optional[Dict[str, Any]] = None) -> Dict[str, Dict[str
             "end": data["end"],
             "primary_own": data["primary_owner"],
             "key": key,
+            "display_name": display,
         }
     return lg_vars
+
+
+def resolve_league(
+    name: str, config: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """Look up one league by display name or by config key.
+
+    Callers use both spellings interchangeably -- ``"Knights_FFL"`` on the command
+    line, ``"knights_ffl"`` in a store path -- so accepting either is the only way
+    the two stay interoperable. This lookup was written inline in
+    ``Scripts.equivalence.build_league_frame`` and ``Scripts.season_projections.main``
+    before; both now call here.
+
+    Args:
+        name: Display name (``"12 Dudes one Cup"``) or config key
+            (``"twelve_dudes_one_cup"``).
+        config: Pre-loaded config. Loaded from disk when omitted.
+
+    Returns:
+        dict: The ``build_lg_vars`` entry, including ``key`` and ``display_name``.
+
+    Raises:
+        ValueError: When ``name`` matches neither, listing what is configured.
+    """
+    lg_vars = build_lg_vars(config)
+    by_key = {cfg["key"]: cfg for cfg in lg_vars.values()}
+    cfg = lg_vars.get(name) or by_key.get(name)
+    if cfg is None:
+        raise ValueError(
+            f"Unknown league {name!r}. Configured display names: "
+            f"{sorted(lg_vars)}; keys: {sorted(by_key)}."
+        )
+    return cfg
