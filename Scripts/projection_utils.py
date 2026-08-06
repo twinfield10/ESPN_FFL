@@ -20,7 +20,8 @@ where ``TRUE_*`` is the weighted blend and ``*_Points`` applies the league's own
 ESPN scoring settings via :func:`proj_to_score`.
 """
 
-from typing import Optional
+import warnings
+from typing import Dict, Optional
 
 import pandas as pd
 
@@ -29,19 +30,108 @@ from Scripts.scoring import get_scoring_table
 from Scripts.scrape_player_stats import SLOT_BASE, SLOT_DST
 
 
+# These three are read-only lookups -- the scrapers write through season_dir()
+# directly. create=False so that asking whether a season has a file cannot create
+# an empty directory for it.
+
 def fantasypros_parquet(season: int):
     """Season's FantasyPros projections file."""
-    return season_dir("FantasyPros", season, "FantasyPros_Projections_Week_All.parquet")
+    return season_dir("FantasyPros", season,
+                      "FantasyPros_Projections_Week_All.parquet", create=False)
 
 
 def pinnacle_parquet(season: int):
     """Season's accumulated Pinnacle props file."""
-    return season_dir("Pinnacle", season, "Pinnacle_Props_Week_All.parquet")
+    return season_dir("Pinnacle", season, "Pinnacle_Props_Week_All.parquet",
+                      create=False)
 
 
 def betonline_parquet(season: int):
     """Season's accumulated BetOnline props file."""
-    return season_dir("BetOnline", season, "BetOnline_AllProps.parquet")
+    return season_dir("BetOnline", season, "BetOnline_AllProps.parquet",
+                      create=False)
+
+
+#: The keys every weekly projection source is merged onto. A source with no file
+#: for the season returns an empty frame carrying only these -- see
+#: :func:`absent_weekly_source`.
+SOURCE_JOIN_KEYS = ["week", "player_name"]
+
+
+class MissingProjectionSourceWarning(UserWarning):
+    """A weekly projection source has no file for the requested season."""
+
+
+def _warn_missing(msg: str) -> None:
+    """Warn about an absent source in a way the global filter cannot swallow.
+
+    ``Scripts/fetch_utils.py`` calls ``warnings.filterwarnings("ignore")`` at
+    module scope, so a plain ``warnings.warn`` here would be silenced -- which is
+    the exact failure mode this warning exists to prevent. Mirrors
+    ``Scripts.scoring._warn``; see ``docs/plans/06-performance.md`` for the
+    global filter.
+
+    Args:
+        msg: The warning text.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("always", MissingProjectionSourceWarning)
+        warnings.warn(msg, MissingProjectionSourceWarning, stacklevel=3)
+
+
+def absent_weekly_source(label: str, path) -> pd.DataFrame:
+    """The empty frame that stands in for a weekly source with no file.
+
+    Returning this rather than raising lets the rest of the blend treat the
+    source as wholly absent: :func:`impute_columns` creates its columns from
+    ``MEAN_`` and flags every cell imputed, and :func:`compute_weighted_stats`
+    drops the imputed weight and renormalises over the sources that are real. The
+    result is an honest ESPN/FantasyPros blend rather than a crash.
+
+    This is the pre-season state every year -- weekly props do not exist until
+    the season starts -- and it is what the store in
+    ``docs/plans/07-frontend-foundation.md`` has to be buildable in.
+
+    Args:
+        label: Human-readable source name, e.g. ``"Pinnacle"``.
+        path: The file that was looked for, quoted in the warning.
+
+    Returns:
+        pd.DataFrame: Empty, with :data:`SOURCE_JOIN_KEYS` as its columns. Dtypes
+        are set explicitly rather than left as ``object``, because pandas
+        validates dtype compatibility on a merge key even when one side is empty.
+    """
+    _warn_missing(
+        f"{label} has no weekly props for this season ({path} does not exist). "
+        f"Its columns will be imputed from the ESPN/FantasyPros mean and dropped "
+        f"from the renormalised blend, so TRUE_* is an ESPN/FP number for every "
+        f"row. Check the coverage report below."
+    )
+    return pd.DataFrame({
+        "week": pd.Series(dtype="int64"),
+        "player_name": pd.Series(dtype="object"),
+    })
+
+
+def weekly_sources_present(season: int) -> Dict[str, bool]:
+    """Which weekly projection sources have a file for ``season``.
+
+    Recorded in the store's ``meta.json`` so the app can show a degraded source
+    rather than rendering an ESPN-only number that looks like a four-source
+    blend.
+
+    Args:
+        season: Season year.
+
+    Returns:
+        dict: ``{"fantasypros": bool, "pinnacle": bool, "betonline": bool}``.
+    """
+    return {
+        "fantasypros": fantasypros_parquet(season).exists(),
+        "pinnacle": pinnacle_parquet(season).exists(),
+        "betonline": betonline_parquet(season).exists(),
+    }
+
 
 _TACKLE_DIM: Optional[pd.DataFrame] = None
 
@@ -206,6 +296,12 @@ def coverage_report(df, sources=('ESPN', 'FP', 'PINNY', 'BOL'), stats=None):
                 real = int(df[col].notna().sum())
             rows.append({"source": source, "stat": stat, "n": n, "real": real,
                          "real_pct": round(100.0 * real / n, 1) if n else 0.0})
+    if not rows:
+        # A frame with no source-prefixed columns has an empty report, not a
+        # broken one. Without the declared columns, sort_values below raises
+        # KeyError: 'real_pct' -- which is how a store write could be taken down
+        # by the metadata it was only annotating.
+        return pd.DataFrame(columns=["source", "stat", "n", "real", "real_pct"])
     out = pd.DataFrame(rows)
     return out.sort_values(["real_pct", "source", "stat"]).reset_index(drop=True)
 
@@ -277,7 +373,12 @@ def clean_pinny(pinny_path=None, season=None):
         season: Season to load. Required unless ``pinny_path`` is given.
 
     Returns:
-        pd.DataFrame: Raw Pinnacle props.
+        pd.DataFrame: Raw Pinnacle props, or the empty frame from
+        :func:`absent_weekly_source` when ``season`` has no props file yet.
+
+    Raises:
+        FileNotFoundError: When an explicit ``pinny_path`` does not exist. A
+            named file that is missing is a typo, not an absent season.
 
     Note:
         Most of this function's body is commented out upstream -- the pivot,
@@ -289,6 +390,8 @@ def clean_pinny(pinny_path=None, season=None):
         pinny_path = resolve(pinny_path)
     elif season is not None:
         pinny_path = pinnacle_parquet(season)
+        if not pinny_path.exists():
+            return absent_weekly_source("Pinnacle", pinny_path)
     else:
         raise ValueError("clean_pinny requires either pinny_path or season")
 
@@ -409,13 +512,21 @@ def clean_bol(bol_path=None, season=None, tackle_dim=None):
             input carries ``proj_defensiveTotalTackles`` (IDP leagues).
 
     Returns:
-        pd.DataFrame: BetOnline projections with ESPN-compatible player names.
+        pd.DataFrame: BetOnline projections with ESPN-compatible player names, or
+        the empty frame from :func:`absent_weekly_source` when ``season`` has no
+        props file yet.
+
+    Raises:
+        FileNotFoundError: When an explicit ``bol_path`` does not exist. A named
+            file that is missing is a typo, not an absent season.
     """
     # Load
     if bol_path is not None:
         bol_path = resolve(bol_path)
     elif season is not None:
         bol_path = betonline_parquet(season)
+        if not bol_path.exists():
+            return absent_weekly_source("BetOnline", bol_path)
     else:
         raise ValueError("clean_bol requires either bol_path or season")
     raw = pd.read_parquet(bol_path).drop(columns=['team'])
@@ -452,6 +563,24 @@ def clean_bol(bol_path=None, season=None, tackle_dim=None):
 
 
 def get_match_details(df1, df2, keys, check_col2, tbl_lab, min_wk):
+    """Report how many of ``df1``'s players failed to join to ``df2``.
+
+    Args:
+        df1: Left frame, expected to carry ``week``, ``primaryPosition``,
+            ``player_active_status`` and ``MEAN_*`` columns.
+        df2: Right frame -- one projection source.
+        keys: Join keys.
+        check_col2: A column only ``df2`` supplies; its nullity after a left join
+            is what identifies an unmatched row.
+        tbl_lab: Label for the printed report.
+        min_wk: Restrict the check to this week.
+    """
+    if check_col2 not in df2.columns:
+        # The source has no file for this season, so there is nothing to match
+        # against. Indexing check_col2 below would raise KeyError.
+        print(f"{tbl_lab}: no data for this season, skipping the match check")
+        print(" ")
+        return
 
     # Only Check Weeks that Exist in Data w/ Projected Stats
     df1 = df1[((df1['week'] == min_wk) & (~df1['primaryPosition'].isin(['D/ST', 'K', 'DL', 'DE', 'LB', 'NT', 'CB', 'S', 'DT', 'DB', 'OLB'])))]

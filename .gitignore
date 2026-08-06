@@ -38,3 +38,6 @@ Thumbs.db
 # --- Regenerable local data ------------------------------------------------
 # Equivalence snapshots: large, and rebuilt from the pipeline on demand.
 Data/Equivalence/
+# The local data store the app reads. Rebuilt by `python -m Scripts.refresh`,
+# and a lineups.parquet is ~235 x 469 per league-season.
+Data/Store/

@@ -23,7 +23,7 @@ from typing import Dict, Iterable, List, Optional
 
 import pandas as pd
 
-from Scripts.config_utils import build_lg_vars, get_season
+from Scripts.config_utils import build_lg_vars, get_season, resolve_league
 from Scripts.paths import DATA_DIR
 
 EQUIV_DIR = DATA_DIR / "Equivalence"
@@ -51,32 +51,39 @@ def snapshot_dir(label: str):
     return p
 
 
-def build_league_frame(league_key_or_name: str, season: int) -> pd.DataFrame:
+def build_league_frame(
+    league_key_or_name: str, season: int, *, return_league: bool = False
+):
     """Run the full projection pipeline for one league-season.
 
     Mirrors what ``populateGoogleSheet.run()`` does before it writes to Sheets:
-    fetch, lineups by matchup, free-agent market, then the blend.
+    fetch, lineups by matchup, free-agent market, then the blend. This is the
+    single ingest path -- ``Scripts/refresh.py`` builds the store from it too, so
+    the store cannot drift from what the equivalence harness snapshots.
 
     Args:
         league_key_or_name: Display name or config key.
         season: Season year.
+        return_league: Also return the ``League`` object, which the store needs
+            for ``current_week`` and roster slots. Off by default so existing
+            callers are unaffected.
 
     Returns:
-        pd.DataFrame: ``clean_lineups`` output.
+        pd.DataFrame: ``clean_lineups`` output. When ``return_league``, a
+        ``(frame, league)`` tuple instead.
+
+    Note:
+        ``fetch_league`` is called here and again inside
+        ``get_ply_stats_by_matchup``, which takes ids rather than a ``League`` --
+        about 1s of duplicated ESPN round-trip per league. Fixing it means
+        changing that signature; see ``docs/plans/06-performance.md``.
     """
     # Deferred so `compare` does not pay for ESPN imports.
     from Scripts.fetch_utils import fetch_league
     from Scripts.projection_utils import clean_lineups
     from Scripts.scrape_player_stats import build_fa_market, get_ply_stats_by_matchup
 
-    lg_vars = build_lg_vars()
-    by_key = {c["key"]: c for c in lg_vars.values()}
-    cfg = lg_vars.get(league_key_or_name) or by_key.get(league_key_or_name)
-    if cfg is None:
-        raise ValueError(
-            f"Unknown league {league_key_or_name!r}. Configured: "
-            f"{sorted(lg_vars)} or {sorted(by_key)}."
-        )
+    cfg = resolve_league(league_key_or_name)
 
     league = fetch_league(
         league_id=cfg["ID"], year=season, swid=cfg["SWID"], espn_s2=cfg["ESPN_S2"],
@@ -90,7 +97,8 @@ def build_league_frame(league_key_or_name: str, season: int) -> pd.DataFrame:
     df.fillna(0, inplace=True)
     df = df.drop_duplicates(subset=["week", "player_name"])
 
-    return clean_lineups(df=df, lg=league)
+    final = clean_lineups(df=df, lg=league)
+    return (final, league) if return_league else final
 
 
 def take_snapshot(

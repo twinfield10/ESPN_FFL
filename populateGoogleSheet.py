@@ -1,24 +1,28 @@
+"""Publish each league's weekly tables to its Google Sheet.
+
+This is a **renderer over the store**, not a pipeline. It reads
+``Data/Store/<season>/<league_key>/`` and talks to Google; it does not talk to
+ESPN. Run ``python -m Scripts.refresh --all`` first.
+
+That split matters because ``run()`` used to hold a line-for-line copy of the
+ingest sequence in ``Scripts.equivalence.build_league_frame`` -- fetch, lineups by
+matchup, free-agent market, concat/fillna/dedupe, blend. Two copies of the same
+sequence is the shape that already cost this repo once: 12 projection functions
+existed here and in the notebook, and 8 had drifted, so the notebook used to
+*decide* a lineup and this script computed different numbers. Reading the store
+means there is one ingest path and Sheets cannot disagree with the app.
+
+The Sheet is deliberately kept alongside the app rather than retired: it is a
+*published artifact*, readable from a phone away from home with the laptop shut,
+which a locally-served app structurally cannot be. See
+``docs/plans/14-thin-google-sheets.md``.
+"""
+
 # Base
 import time
-import datetime
 
 # Data Manipulation
-import pandas as pd
-import polars as pl
 import numpy as np
-
-# Modeling
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import r2_score
-
-# Scripts
-from Scripts.fetch_utils import fetch_league
-from Scripts.analytic_utils import *
-from Scripts.scrape_player_stats import *
-from Scripts.scrape_team_stats import *
-from Scripts.luck_index import *
-from Scripts.tidbit_utils import *
-from Scripts.simulation_utils import *
 
 # Google Sheet
 import gspread
@@ -26,39 +30,49 @@ from gspread_dataframe import set_with_dataframe
 from oauth2client.service_account import ServiceAccountCredentials
 
 # Config Leagues
-from Scripts.config_utils import build_lg_vars, get_season, load_config
+from Scripts.config_utils import build_lg_vars, get_season, load_config, resolve_league
 
 config = load_config()
 lg_vars = build_lg_vars(config)
 SEASON = get_season(config)
 
-# Projection blending pipeline. These 12 functions used to be defined here and
-# pasted into FF Analysis Notebook.ipynb as a second, drifting copy; they now
-# live in one place and both callers import them.
+# The store: this script's only data source.
+from Scripts.store import read_league_store, read_meta, store_age_minutes
+
+# The view builders. The blend itself ran during `Scripts.refresh`, so the
+# projection primitives this file used to import are no longer needed here --
+# only the three functions that turn a stored frame into a table.
 from Scripts.projection_utils import (
-    change_col_prefix,
     check_week,
-    clean_bol,
-    clean_lineups,
-    clean_pinny,
-    compute_weighted_stats,
-    create_mean_cols,
     get_league_projections,
-    get_match_details,
     get_rankings,
-    impute_columns,
-    proj_to_score,
 )
 
 
-def write_to_google(df_dict, league_name):
+def write_to_google(df_dict, league_name, primary_owner):
+    """Publish one league's tables to its Google Sheet.
+
+    Args:
+        df_dict: Sheet name to frame. Keys drive which formatter runs.
+        league_name: Display name; must match the spreadsheet name exactly.
+        primary_owner: The owner whose players are kept alongside free agents on
+            the ``FA_*`` tabs.
+
+            This used to be read as ``lg_vars[select_league]['primary_own']``,
+            where ``select_league`` was a module-level global assigned by a
+            top-level loop. Commit 304ba39 moved that loop into ``run()``, making
+            it a local -- so every ``FA_*`` tab raised ``NameError``, which the
+            bare ``except`` below reported as "Position Does Not Exist in
+            League". Introduced 2026-08-05 and caught the same day, so no
+            published Sheet was affected -- but nothing would have reported it.
+    """
     # Set up authentication
     scope = ['https://spreadsheets.google.com/feeds',
              'https://www.googleapis.com/auth/drive']
 
     # Option 1: Using service account (recommended for automation)
     creds = ServiceAccountCredentials.from_json_keyfile_name(
-        'gs4creds.json', 
+        'gs4creds.json',
         scope
     )
 
@@ -607,16 +621,22 @@ def write_to_google(df_dict, league_name):
             format_league_projections(worksheet, df)
             time.sleep(5)
         elif "FA_" in sheet_name:
+            position = sheet_name.split("FA_")[1]
             try:
-                position = sheet_name.split("FA_")[1]
-                fa_df = df[df["team_owner"].isin(["Free Agent", lg_vars[select_league]['primary_own']])]
+                fa_df = df[df["team_owner"].isin(["Free Agent", primary_owner])]
                 fa_df.columns = ['WK', 'POS', 'PLAYER', 'OWNER', 'TEAM', 'ESPN_PTS', 'FP_PTS', 'BOL_PTS', 'PINNY_PTS', 'TRUE_PTS', 'ESPN', 'FP', 'BOL', 'PINNY', 'TRUE']
                 set_with_dataframe(worksheet, fa_df, include_index=False)
                 format_free_agents(worksheet, fa_df, position)
                 print(f"Written {sheet_name} to Google Sheets")
                 time.sleep(5)
-            except:
-                print(f"Error Loading {sheet_name} | Position Does Not Exist in League")
+            except (KeyError, ValueError, IndexError) as e:
+                # A league without this position yields an empty frame, so the
+                # column rename raises ValueError -- that one is expected and
+                # benign. Everything else is reported with its real cause: this
+                # was a bare `except` printing "Position Does Not Exist in
+                # League" for any failure, so a NameError in here was
+                # indistinguishable from a league simply having no kicker.
+                print(f"Skipped {sheet_name}: {type(e).__name__}: {e}")
 
 all = ['GOP_Degenerates', 'Knights_FFL', 'Weenieless_Wanderers', 'John_PC_League', 'John_ATL_League', "12 Dudes one Cup", 'Big Red Fantasy Football', 'Washed_Up_Fijians'] #, 'Winfield_Football'
 john = ['John_PC_League', 'John_ATL_League']
@@ -626,67 +646,112 @@ cooleen = ['Big Red Fantasy Football']
 fields = ['Washed_Up_Fijians']
 
 
-def run(leagues=None):
-    """Build and publish the weekly Sheets for each league.
+def build_tables(lineups, curr_week, primary_own):
+    """Turn a stored lineup frame into the ten tables the Sheet publishes.
+
+    Split out of :func:`run` so it can be tested and diffed without a Google
+    connection -- the equivalence check for the store migration compares these
+    ten frames, not the rendered Sheet.
 
     Args:
-        leagues: Display names to process. Defaults to the ``all`` cohort.
+        lineups: ``clean_lineups`` output, as read from the store.
+        curr_week: Week to report on.
+        primary_own: Team owner whose lineup and roster are highlighted.
+
+    Returns:
+        dict: Sheet name to frame, in publication order.
+    """
+    def fa(*positions):
+        return get_rankings(pos=list(positions), week=curr_week, lu=lineups,
+                            primary_owner=primary_own, visualize=False,
+                            check_fa=False)
+
+    return {
+        "League_Projections": get_league_projections(week=curr_week, lu=lineups),
+        "Lineup": check_week(lu=lineups, week=curr_week, own=primary_own),
+        "FA_QBs": fa('QB'),
+        "FA_RBs": fa('RB'),
+        "FA_WRs": fa('WR'),
+        "FA_TEs": fa('TE'),
+        "FA_FLX": fa('RB', 'WR', 'TE'),
+        "FA_DST": fa('D/ST'),
+        "FA_KCK": fa('K'),
+        "FA_IDP": fa('LB', 'DE', 'S', 'CB', 'DT'),
+    }
+
+
+def run(leagues=None, season=None):
+    """Publish the weekly Sheets for each league, from the store.
+
+    Reads ``Data/Store``; does not touch ESPN. Run
+    ``python -m Scripts.refresh --all`` first, or a league with no store is
+    skipped with the command that would build it.
+
+    A league that fails is reported and skipped rather than aborting the run --
+    publishing eight leagues should not be lost to one bad Sheet.
+
+    Args:
+        leagues: Display names or config keys. Defaults to the ``all`` cohort.
+        season: Season to publish. Defaults to each league's configured ``end``.
+
+    Returns:
+        dict: ``{league: "ok" | reason}``.
     """
     leagues = all if leagues is None else leagues
+    results = {}
+
     for select_league in leagues:
-        # Get League. The year comes from config for both calls below -- these
-        # used to disagree, with fetch_league reading config and the lineup
-        # fetch hardcoding 2025, so league metadata and player stats could
-        # silently come from different seasons.
-        year = lg_vars[select_league]['end']
-        league = fetch_league(
-            league_id=lg_vars[select_league]['ID'],
-            year=year,
-            swid=lg_vars[select_league]['SWID'],
-            espn_s2=lg_vars[select_league]['ESPN_S2']
-        )
+        cfg = resolve_league(select_league)
+        year = cfg['end'] if season is None else int(season)
+        primary_own = cfg['primary_own']
 
-        # Lineup Tables
-        lineups = get_ply_stats_by_matchup(league_id=lg_vars[select_league]['ID'],
-                        year=year,
-                        swid=lg_vars[select_league]['SWID'],
-                        espn_s2=lg_vars[select_league]['ESPN_S2'])
-        free_agents = build_fa_market(league=league)
-        curr_week = league.current_week
-        lineups = pd.concat([lineups, free_agents])
-        lineups.fillna(0, inplace=True)
-        lineups = lineups.drop_duplicates(subset=['week', 'player_name'])
+        try:
+            LINEUPS = read_league_store(year, cfg['key'], "lineups")
+            meta = read_meta(year, cfg['key'])
+        except (FileNotFoundError, ValueError) as e:
+            print(f"\nSkipping {select_league}: {e}")
+            results[select_league] = f"no store: {type(e).__name__}"
+            continue
 
-        ## Build Combined Lineup Table
-        LINEUPS = clean_lineups(df=lineups, lg=league)
+        # The store's current_week, recorded from league.current_week at refresh
+        # time. Taking it from here rather than re-fetching is the point: the Sheet
+        # and the app then report the same week from the same build.
+        curr_week = meta.get("current_week") or 1
+        age = store_age_minutes(meta)
+        age_note = "unknown age" if age is None else f"built {age:.0f} min ago"
+        print(f"\n===== {select_league}: week {curr_week}, {age_note} =====")
 
-        # Data Dictionary
-        primary_own = lg_vars[select_league]['primary_own']
-        df_dict = {
-            "League_Projections": get_league_projections(week = curr_week, lu=LINEUPS),
-            "Lineup": check_week(lu = LINEUPS, week = curr_week, own=primary_own),
-            "FA_QBs": get_rankings(pos = ['QB'], week = curr_week, lu=LINEUPS, primary_owner=primary_own, visualize=False, check_fa=False),
-            "FA_RBs": get_rankings(pos = ['RB'], week = curr_week, lu=LINEUPS, primary_owner=primary_own, visualize=False, check_fa=False),
-            "FA_WRs": get_rankings(pos = ['WR'], week = curr_week, lu=LINEUPS, primary_owner=primary_own, visualize=False, check_fa=False),
-            "FA_TEs": get_rankings(pos = ['TE'], week = curr_week, lu=LINEUPS, primary_owner=primary_own, visualize=False, check_fa=False),
-            "FA_FLX": get_rankings(pos = ['RB', 'WR','TE'], week = curr_week, lu=LINEUPS, primary_owner=primary_own, visualize=False, check_fa=False),
-            "FA_DST": get_rankings(pos = ['D/ST'], week = curr_week, lu=LINEUPS, primary_owner=primary_own, visualize=False, check_fa=False),
-            "FA_KCK": get_rankings(pos = ['K'], week = curr_week, lu=LINEUPS, primary_owner=primary_own, visualize=False, check_fa=False),
-            "FA_IDP": get_rankings(pos = ['LB', 'DE', 'S', 'CB', 'DT'], week = curr_week, lu=LINEUPS, primary_owner=primary_own, visualize=False, check_fa=False),
-        }
-        # Save to Google Sheet
-        print("")
-        print(f"========= Now Writing Data For {select_league} ========")
-        print("")
-        write_to_google(df_dict=df_dict, league_name=select_league)
-        print("")
-        print(f"========= Successful Save For {select_league} ========")
-        print("")
+        df_dict = build_tables(LINEUPS, curr_week, primary_own)
+        _publish(df_dict, select_league, primary_own)
+        results[select_league] = "ok"
 
-        # Sleep. Google Sheets rate-limits aggressively on consecutive writes.
-        sleep_secs = 20
-        print(f"Now Sleeping For {sleep_secs} Seconds")
-        time.sleep(sleep_secs)
+    failed = {k: v for k, v in results.items() if v != "ok"}
+    if failed:
+        print(f"\n{len(failed)} league(s) not published: {failed}")
+        print("Build their stores with `python -m Scripts.refresh --all`.")
+    return results
+
+
+def _publish(df_dict, league_name, primary_own):
+    """Write one league's tables to its Sheet, then wait out the rate limit.
+
+    Args:
+        df_dict: Sheet name to frame, from :func:`build_tables`.
+        league_name: Display name; must match the spreadsheet name exactly.
+        primary_own: Owner kept alongside free agents on the ``FA_*`` tabs.
+    """
+    print(f"========= Now Writing Data For {league_name} ========")
+    write_to_google(df_dict=df_dict, league_name=league_name,
+                    primary_owner=primary_own)
+    print(f"========= Successful Save For {league_name} ========")
+
+    # Google Sheets rate-limits aggressively on consecutive writes. This plus the
+    # 5s per sheet is ~9 min of sleeping across all nine leagues -- the dominant
+    # cost of a Sheets run now that ingest is a store read. See
+    # docs/plans/14-thin-google-sheets.md.
+    sleep_secs = 20
+    print(f"Now Sleeping For {sleep_secs} Seconds")
+    time.sleep(sleep_secs)
 
 
 if __name__ == "__main__":

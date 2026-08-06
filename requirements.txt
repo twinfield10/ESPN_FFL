@@ -32,12 +32,23 @@ lxml==5.3.1
 selenium==4.20.0          # Pinnacle only; needs a local Chrome + chromedriver
 
 # --- Google Sheets output -----------------------------------------------
+# Only populateGoogleSheet.py needs these; omit them if you are running the app
+# alone. Sheets is kept alongside the app deliberately -- it is a published
+# artifact, readable from a phone away from home with the laptop shut, which a
+# locally-served app cannot be. See docs/plans/14-thin-google-sheets.md.
 gspread==6.1.2
 gspread-dataframe==4.0.0
-oauth2client==4.1.3       # deprecated upstream; google-auth is the successor
+# End-of-life upstream; google-auth is the successor. Migrating is step 2.3 of
+# plan 14 and is worth doing before the season, not during it.
+oauth2client==4.1.3
 
 # --- Config -------------------------------------------------------------
 PyYAML==6.0.1
+
+# --- Local app ----------------------------------------------------------
+# `streamlit run app/main.py`. Reads Data/Store only -- it never imports an ESPN
+# client, which is what makes the render path fast and offline-safe.
+streamlit==1.61.1
 
 # --- Optional -----------------------------------------------------------
 boto3==1.35.88            # S3 persistence in Scripts/aws_utils.py (dormant)

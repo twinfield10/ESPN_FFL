@@ -281,3 +281,93 @@ def test_loaders_require_a_season_or_an_explicit_path():
         pu.clean_bol()
     with pytest.raises(ValueError, match="season"):
         pu.clean_pinny()
+
+
+# --- absent weekly sources -----------------------------------------------
+#
+# Weekly Pinnacle and BetOnline props do not exist until the season starts, so
+# every August `clean_lineups` hit an unguarded read_parquet and died. That is
+# exactly the state the local app launches in -- see
+# docs/plans/07-frontend-foundation.md.
+
+#: A season far enough out that no scrape will ever have written a file for it.
+UNSCRAPED_SEASON = 2999
+
+
+@pytest.mark.parametrize("loader,label", [(pu.clean_pinny, "Pinnacle"),
+                                          (pu.clean_bol, "BetOnline")])
+def test_absent_season_file_degrades_instead_of_raising(loader, label):
+    with pytest.warns(pu.MissingProjectionSourceWarning, match=label):
+        out = loader(season=UNSCRAPED_SEASON)
+    assert out.empty
+    assert list(out.columns) == pu.SOURCE_JOIN_KEYS
+
+
+@pytest.mark.parametrize("loader", [pu.clean_pinny, pu.clean_bol])
+def test_absent_frame_merges_onto_an_int_week_column(loader):
+    """The empty frame's dtypes are set explicitly because pandas validates merge
+    key dtypes even when one side is empty -- object vs int64 would raise."""
+    with pytest.warns(pu.MissingProjectionSourceWarning):
+        absent = loader(season=UNSCRAPED_SEASON)
+    left = pd.DataFrame({"week": [1], "player_name": ["A"], "MEAN_rushingYards": [10.0]})
+    merged = left.merge(absent, on=pu.SOURCE_JOIN_KEYS, how="left")
+    assert len(merged) == 1
+
+
+@pytest.mark.parametrize("loader,kwarg", [(pu.clean_pinny, "pinny_path"),
+                                         (pu.clean_bol, "bol_path")])
+def test_an_explicit_missing_path_still_raises(loader, kwarg, tmp_path):
+    """A named file that is not there is a typo, not an absent season. Silently
+    returning empty would hide it."""
+    with pytest.raises(FileNotFoundError):
+        loader(**{kwarg: tmp_path / "nope.parquet"})
+
+
+def test_absent_source_becomes_fully_imputed_and_drops_out_of_the_blend():
+    """The measured pre-season path, in miniature.
+
+    With no Pinnacle file, `impute_columns` creates PINNY_ from MEAN_ and flags
+    every cell, then `compute_weighted_stats` renormalises over what is real. The
+    result is the ESPN/FP blend at full strength rather than a book-weighted
+    number backed by no book.
+    """
+    df = pd.DataFrame({
+        **_identity_cols(),
+        "ESPN_rushingYards": [100.0],
+        "FP_rushingYards": [50.0],
+        "MEAN_rushingYards": [75.0],
+    })
+    with pytest.warns(pu.MissingProjectionSourceWarning):
+        absent = pu.clean_pinny(season=UNSCRAPED_SEASON)
+
+    merged = df.merge(absent, on=pu.SOURCE_JOIN_KEYS, how="left")
+    merged = pu.impute_columns(merged, target_prefix="PINNY_", source_prefix="MEAN_")
+    assert merged["PINNY_rushingYards"].iloc[0] == pytest.approx(75.0)
+    assert bool(merged["PINNY_rushingYards_is_imputed"].iloc[0])
+
+    out = pu.compute_weighted_stats(
+        merged, stats_list=["rushingYards"],
+        weights_dict={"default": {"ESPN": 0.2, "FP": 0.3, "PINNY": 0.5}},
+    )
+    # ESPN and FP renormalised over 0.5 total weight: (100*0.2 + 50*0.3) / 0.5
+    assert out["TRUE_rushingYards"].iloc[0] == pytest.approx(70.0)
+
+
+def test_get_match_details_tolerates_a_source_with_no_data(capsys):
+    """It indexes check_col2 to count misses, which KeyErrored on an empty
+    source frame and took the whole blend down with it."""
+    df1 = pd.DataFrame({
+        **_identity_cols(),
+        "MEAN_rushingYards": [10.0],
+    })
+    pu.get_match_details(df1=df1, df2=pd.DataFrame(columns=pu.SOURCE_JOIN_KEYS),
+                         keys=pu.SOURCE_JOIN_KEYS, check_col2="PINNY_receivingYards",
+                         tbl_lab="Pinnacle Sportsbook Table", min_wk=1)
+    assert "no data for this season" in capsys.readouterr().out
+
+
+def test_weekly_sources_present_reports_each_file():
+    present = pu.weekly_sources_present(UNSCRAPED_SEASON)
+    assert present == {"fantasypros": False, "pinnacle": False, "betonline": False}
+    assert set(pu.weekly_sources_present(2025)) == {
+        "fantasypros", "pinnacle", "betonline"}
