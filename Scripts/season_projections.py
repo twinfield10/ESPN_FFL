@@ -41,6 +41,7 @@ from Scripts.projection_utils import (
     compute_weighted_stats,
     impute_columns,
     print_coverage_report,
+    proj_to_score,
 )
 from Scripts.scoring import get_scoring_table
 
@@ -275,19 +276,32 @@ def _pivot_props(df: pd.DataFrame, prefix: str) -> pd.DataFrame:
     return wide
 
 
-def espn_season_projections(league) -> pd.DataFrame:
-    """Season-long ESPN projections for every rostered player and free agent.
+def espn_season_projections(league, market: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+    """Season-long ESPN projections for the league's player universe.
 
     Yardage is converted from ESPN's per-game season-row representation to a
     season total. See the module docstring.
 
     Args:
         league: A live ESPN ``League``.
+        market: A :func:`Scripts.draft.adp.fetch_draft_market` frame to use as the
+            universe. Strongly preferred for a draft board: it reaches ~1,000
+            players in one 0.4s request, where the fallback below reaches ~329 at
+            4.8s per ``free_agents`` call. When omitted, the roster-plus-free-agents
+            walk is used, which is what the weekly path has always done.
 
     Returns:
-        pd.DataFrame: ``name_key``, ``player_name``, ``primaryPosition``,
-        ``pro_team``, ``ESPN_projected_total``, ``games`` and ``ESPN_<stat>``.
+        pd.DataFrame: ``player_id``, ``name_key``, ``player_name``,
+        ``primaryPosition``, ``pro_team``, ``team_owner``, ``games``,
+        ``ESPN_projected_total`` and ``ESPN_<stat>`` columns.
+
+        ``player_id`` is the point of interest -- it lets the board join to the
+        market exactly, instead of through the ~140-entry name-rename maps the
+        book sources still need.
     """
+    if market is not None:
+        return _projections_from_market(league, market)
+
     seen, rows = set(), []
 
     def add(player, owner):
@@ -299,6 +313,7 @@ def espn_season_projections(league) -> pd.DataFrame:
         games = float(breakdown.get(GAMES_PLAYED_KEY) or DEFAULT_GAMES) or DEFAULT_GAMES
 
         row = {
+            "player_id": int(player.playerId),
             "name_key": normalise_name(player.name),
             "player_name": player.name,
             "primaryPosition": player.position,
@@ -329,6 +344,121 @@ def espn_season_projections(league) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _disambiguate_name_keys(base: pd.DataFrame) -> pd.DataFrame:
+    """Add a ``join_key`` that only the primary holder of a shared name matches on.
+
+    Two different NFL players really do share a name, and a wide IDP player pool
+    surfaces it: GOP Degenerates' 2,503-player universe has **11 colliding names**,
+    including Lamar Jackson the Ravens quarterback (ADP 40) alongside Lamar Jackson
+    a cornerback (ADP 170), and Justin Jefferson the Vikings receiver alongside
+    Justin Jefferson a Browns linebacker.
+
+    The book sources join on ``name_key``, and they carry one row per name. Left
+    alone, a left merge attaches the receiver's projected receiving line to the
+    linebacker as well -- inflating him into the league's top-projected IDP on
+    somebody else's numbers.
+
+    So the collision is resolved in favour of the player the book almost certainly
+    means: the one ESPN projects highest. The others keep a sentinel ``join_key``
+    that matches nothing, which drops them onto the "absent source" path that plan
+    03 already handles correctly -- imputed from the ESPN/FP mean and renormalised
+    out of the blend.
+
+    Args:
+        base: The ESPN universe, with ``name_key`` and ``ESPN_projected_total``.
+
+    Returns:
+        pd.DataFrame: ``base`` with a ``join_key`` column added.
+    """
+    base = base.copy()
+    if "name_key" not in base.columns:
+        base["join_key"] = None
+        return base
+
+    counts = base["name_key"].value_counts()
+    shared = set(counts[counts > 1].index) - {None}
+    base["join_key"] = base["name_key"]
+    if not shared:
+        return base
+
+    rank_column = ("ESPN_projected_total" if "ESPN_projected_total" in base.columns
+                   else None)
+    ambiguous = base["name_key"].isin(shared)
+    if rank_column:
+        # Highest ESPN projection within each colliding name keeps the real key.
+        primary = base[ambiguous].groupby("name_key")[rank_column].idxmax()
+        losers = base.index[ambiguous].difference(pd.Index(primary))
+    else:
+        losers = base.index[ambiguous][1:]
+
+    base.loc[losers, "join_key"] = [f"__ambiguous_{i}__" for i in losers]
+    print(f"  {len(shared)} shared name(s) across {int(ambiguous.sum())} players; "
+          f"book projections kept for the highest-projected of each, withheld from "
+          f"{len(losers)} other(s) rather than misattributed.")
+    return base
+
+
+def _report_join_misses(base: pd.DataFrame, source: pd.DataFrame, label: str,
+                        top: int = 12) -> None:
+    """Name the players a source has that failed to join, highest-projected first.
+
+    The book sources join on ``name_key`` -- string equality patched by ~140
+    hardcoded renames -- so a suffix change silently drops a player. On a draft
+    board that is worse than a visible gap, because the number still looks
+    complete. This prints the misses that would matter most.
+
+    Args:
+        base: The ESPN universe.
+        source: One book/projection source with a ``name_key`` column.
+        label: Source name, for the message.
+        top: How many missed players to name.
+    """
+    if base.empty or source.empty:
+        return
+    key = "join_key" if "join_key" in base.columns else "name_key"
+    missing = base[~base[key].isin(source["name_key"])]
+    if missing.empty:
+        return
+
+    rank_col = "ESPN_projected_total" if "ESPN_projected_total" in missing.columns else None
+    if rank_col:
+        missing = missing.sort_values(rank_col, ascending=False)
+    names = missing["player_name"].head(top).tolist()
+    print(f"    {len(missing)} not in {label}; highest projected: "
+          f"{', '.join(names)}{' ...' if len(missing) > top else ''}")
+
+
+def _projections_from_market(league, market: pd.DataFrame) -> pd.DataFrame:
+    """Reshape a market frame into what the blend downstream expects.
+
+    The market pull already carries identity, ``games`` and the ``ESPN_<stat>``
+    columns -- it is built from the same ``projected_breakdown`` through the same
+    per-game conversion. All that is left is attaching the owner and dropping the
+    market-only columns, which belong to the board rather than to the blend.
+
+    Args:
+        league: A live ESPN ``League``, for the team-id to owner map.
+        market: A :func:`Scripts.draft.adp.fetch_draft_market` frame.
+
+    Returns:
+        pd.DataFrame: The same shape :func:`espn_season_projections` returns.
+    """
+    owners = {
+        int(team.team_id): getattr(team, "owner", "Unknown")
+        for team in getattr(league, "teams", []) or []
+    }
+
+    keep = ["player_id", "name_key", "player_name", "primaryPosition", "pro_team",
+            "games"]
+    keep += [c for c in market.columns if c.startswith("ESPN_")]
+
+    out = market[[c for c in keep if c in market.columns]].copy()
+    out["team_owner"] = market.get(
+        "on_team_id", pd.Series(0, index=market.index)
+    ).map(lambda tid: owners.get(int(tid or 0), "Free Agent"))
+    return out.reset_index(drop=True)
+
+
 def load_fantasypros_season(season: int) -> pd.DataFrame:
     """FantasyPros season-long projections, prefixed ``FP_``.
 
@@ -338,7 +468,8 @@ def load_fantasypros_season(season: int) -> pd.DataFrame:
     Returns:
         pd.DataFrame: ``name_key`` plus ``FP_<stat>`` columns. Empty if absent.
     """
-    path = season_dir("FantasyPros", season, "FantasyPros_Projections_Season.parquet")
+    path = season_dir("FantasyPros", season,
+                      "FantasyPros_Projections_Season.parquet", create=False)
     if not path.exists():
         print(f"  FantasyPros season file missing ({path.name}); "
               f"run `python -m Scripts.scrape_FP --what season`.")
@@ -361,7 +492,8 @@ def load_betonline_season(season: int) -> pd.DataFrame:
     Returns:
         pd.DataFrame: ``name_key`` plus ``BOL_<stat>`` columns. Empty if absent.
     """
-    path = season_dir("BetOnline", season, "BetOnline_SeasonProps_All.csv")
+    path = season_dir("BetOnline", season, "BetOnline_SeasonProps_All.csv",
+                      create=False)
     if not path.exists():
         print(f"  BetOnline season file missing ({path.name}); "
               f"run `Rscript R/GetSeasonProps.R {season}`.")
@@ -385,7 +517,8 @@ def load_pinnacle_season(season: int) -> pd.DataFrame:
     Returns:
         pd.DataFrame: ``name_key`` plus ``PINNY_<stat>`` columns. Empty if absent.
     """
-    path = season_dir("Pinnacle", season, "Pinnacle_SeasonProps.parquet")
+    path = season_dir("Pinnacle", season, "Pinnacle_SeasonProps.parquet",
+                      create=False)
     if not path.exists():
         print(f"  Pinnacle season file missing ({path.name}); "
               f"run `python -m Scripts.scrape_pinnacle_season`.")
@@ -397,14 +530,18 @@ def load_pinnacle_season(season: int) -> pd.DataFrame:
 
 
 def build_season_projections(league, season: Optional[int] = None,
-                             weights: Optional[Dict] = None) -> pd.DataFrame:
+                             weights: Optional[Dict] = None,
+                             market: Optional[pd.DataFrame] = None) -> pd.DataFrame:
     """Blend every source's season-long projection and score it for this league.
 
     Args:
-        league: A live ESPN ``League`` -- supplies the player universe and the
-            scoring rules.
+        league: A live ESPN ``League`` -- supplies the scoring rules and, without
+            ``market``, the player universe.
         season: Projection season. Defaults to ``league.year``.
         weights: Blend weights. Defaults to :data:`Scripts.projection_utils.WEIGHTS`.
+        market: A :func:`Scripts.draft.adp.fetch_draft_market` frame to use as the
+            universe -- ~1,000 players in one request instead of ~329 across
+            twelve. Pass it when building a draft board.
 
     Returns:
         pd.DataFrame: One row per player with ``ESPN_``/``FP_``/``PINNY_``/``BOL_``
@@ -415,8 +552,10 @@ def build_season_projections(league, season: Optional[int] = None,
     weights = WEIGHTS if weights is None else weights
 
     print(f"\n===== Season projections: {league.name} {season} =====")
-    base = espn_season_projections(league)
+    base = espn_season_projections(league, market=market)
     print(f"  ESPN: {len(base)} players")
+
+    base = _disambiguate_name_keys(base)
 
     for loader, label in (
         (load_fantasypros_season, "FantasyPros"),
@@ -426,9 +565,15 @@ def build_season_projections(league, season: Optional[int] = None,
         source = loader(season)
         if source.empty or "name_key" not in source:
             continue
-        matched = base["name_key"].isin(source["name_key"]).sum()
+        matched = base["join_key"].isin(source["name_key"]).sum()
         print(f"  {label}: {len(source)} players, {matched} matched to this league")
-        base = base.merge(source, on="name_key", how="left")
+        _report_join_misses(base, source, label)
+        base = base.merge(source, left_on="join_key", right_on="name_key",
+                          how="left", suffixes=("", f"_{label}"))
+        base = base.drop(columns=[c for c in base.columns
+                                  if c == f"name_key_{label}"], errors="ignore")
+
+    base = base.drop(columns=["join_key"], errors="ignore")
 
     # Same imputation chain as clean_lineups, so provenance and renormalisation
     # behave identically -- book columns fall back to the ESPN/FP mean.
@@ -456,36 +601,22 @@ def build_season_projections(league, season: Optional[int] = None,
 
     # Score every source's line, so they can be compared, not just the blend.
     #
-    # LIMITATION: this applies the scoring table as-is. ``proj_to_score`` additionally
-    # patches per-slot values for the IDP league, because espn_api collapses ESPN's
-    # per-lineup-slot scoring to one number. That patch is hardcoded and, as of
-    # 2026-08-03, matches neither season's real settings (docs/plans/11). Rather than
-    # copy a known-wrong workaround, IDP point totals here are left computed from the
-    # unpatched table and flagged below. Offensive scoring is unaffected.
-    for prefix in ("ESPN", "FP", "MEAN", "PINNY", "BOL", "TRUE"):
-        points = pd.Series(0.0, index=final.index)
-        for row in scoring.itertuples():
-            col = f"{prefix}_{row.colName}"
-            if isinstance(row.colName, str) and col in final.columns:
-                points = points + pd.to_numeric(final[col], errors="coerce").fillna(0.0) * row.points
-        final[f"{prefix}_Points"] = points
+    # Through proj_to_score rather than a local loop over one scoring table, so
+    # that ESPN's per-lineup-slot scoring is honoured: a D/ST unit is priced from
+    # the slot-16 override and everything else -- offence, kicker, and every
+    # individual defender -- from the rule's base value.
+    #
+    # This used to be a local loop with a comment explaining that it could not do
+    # that. The comment predated plan 11, which gave the registry a `slot`
+    # dimension and made proj_to_score read it. Left as it was, GOP Degenerates'
+    # draft board priced defensiveSoloTackles at the D/ST override of 0.0 for
+    # individual defenders too -- so linebackers, whose points are almost entirely
+    # tackles, projected near zero and LB replacement level came out at LB1.
+    final = proj_to_score(proj_df=final, s_league=league)
 
     final = final.sort_values("TRUE_Points", ascending=False).reset_index(drop=True)
     final["TRUE_PosRank"] = final.groupby("primaryPosition")["TRUE_Points"].rank(
         ascending=False, method="min")
-
-    # Only leagues with individual-defensive-player slots are exposed to the
-    # per-slot scoring bug: they are the ones whose commissioners zero a stat out
-    # for the D/ST slot, and a 0.0 override is what espn_api misreads as the base
-    # value. Leagues with D/ST only are unaffected in practice (plan 11).
-    slots = set((getattr(league, "roster_settings", {}) or {}).get("roster_slots", {}))
-    if slots & {"DP", "DL", "DE", "LB", "CB", "S", "DT", "DB"}:
-        affected = final["primaryPosition"].isin(
-            ["DL", "DE", "LB", "NT", "CB", "S", "DT", "DB", "OLB", "D/ST"])
-        print(f"  WARNING: this league has IDP slots, so {int(affected.sum())} "
-              f"defensive rows (IDP and D/ST) are scored from a table that "
-              f"espn_api collapses across lineup slots. Their point totals are "
-              f"not trustworthy until docs/plans/11 lands. Offence is unaffected.")
 
     return final
 
@@ -494,7 +625,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     """Command-line entry point."""
     import argparse
 
-    from Scripts.config_utils import build_lg_vars
+    from Scripts.config_utils import resolve_league
     from Scripts.fetch_utils import fetch_league
 
     p = argparse.ArgumentParser(
@@ -508,12 +639,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = p.parse_args(argv)
 
     season = get_season() if args.season is None else args.season
-    lg_vars = build_lg_vars()
-    by_key = {c["key"]: c for c in lg_vars.values()}
-    cfg = lg_vars.get(args.league) or by_key.get(args.league)
-    if cfg is None:
-        raise SystemExit(f"Unknown league {args.league!r}. "
-                         f"Configured: {sorted(lg_vars)}")
+    try:
+        cfg = resolve_league(args.league)
+    except ValueError as e:
+        raise SystemExit(str(e)) from e
 
     league = fetch_league(league_id=cfg["ID"], year=season,
                           swid=cfg["SWID"], espn_s2=cfg["ESPN_S2"])

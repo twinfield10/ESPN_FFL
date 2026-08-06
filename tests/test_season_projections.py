@@ -237,3 +237,39 @@ def test_every_betonline_prop_maps_to_a_stat():
         "unrecognised BetOnline wordings: "
         f"{sorted(unmapped['stat_text'].map(sp._normalise_stat_text).unique())}"
     )
+
+
+# --- shared names --------------------------------------------------------
+#
+# Two different NFL players really do share a name, and a wide IDP player pool
+# surfaces it. GOP Degenerates' 2,503-player universe has 16: Lamar Jackson the
+# Ravens quarterback alongside Lamar Jackson a cornerback, Justin Jefferson the
+# Vikings receiver alongside Justin Jefferson a Browns linebacker. The book sources
+# carry one row per name and join on it, so left alone the receiver's projected
+# receiving line was attached to the linebacker too -- inflating him into the
+# league's top-projected IDP on somebody else's numbers.
+
+def test_shared_names_keep_the_book_join_for_the_highest_projected_only():
+    base = pd.DataFrame({
+        "player_id": [1, 2, 3],
+        "name_key": ["justinjefferson", "justinjefferson", "someoneelse"],
+        "player_name": ["Justin Jefferson", "Justin Jefferson", "Someone Else"],
+        "primaryPosition": ["WR", "LB", "RB"],
+        "ESPN_projected_total": [280.0, 90.0, 200.0],
+    })
+    out = sp._disambiguate_name_keys(base)
+
+    # The receiver keeps the real key; the linebacker gets a sentinel that matches
+    # nothing, dropping him onto the absent-source path plan 03 already handles.
+    assert out.loc[0, "join_key"] == "justinjefferson"
+    assert out.loc[1, "join_key"] != "justinjefferson"
+    assert out.loc[2, "join_key"] == "someoneelse"
+
+
+def test_unshared_names_are_untouched():
+    base = pd.DataFrame({
+        "name_key": ["a", "b"], "player_name": ["A", "B"],
+        "ESPN_projected_total": [1.0, 2.0],
+    })
+    out = sp._disambiguate_name_keys(base)
+    assert out["join_key"].tolist() == ["a", "b"]

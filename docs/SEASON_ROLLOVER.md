@@ -86,7 +86,29 @@ name-based joins each year. The hardcoded maps in `Scripts/projection_utils.py`
 and `Scripts/scrape_pinnacle.py` need curating. `get_match_details()` prints
 unmatched players during a run — use it to find what needs adding.
 
-### 6. Dry-run one league
+### 6. Refresh the player id crosswalk
+
+```bash
+Rscript R/GetPlayerIDs.R
+```
+
+Writes `Data/NFL/player_ids.parquet` — the `gsis_id`/`espn_id`/`fantasypros_id`
+table that joins nflverse data to ESPN's. Cheap, and worth re-running through the
+off-season as rookies are assigned ids. `python -m Scripts.crosswalk` prints
+coverage against every built board; expect ~99% of individual players, with team
+D/ST units never matching.
+
+### 7. Build the draft boards
+
+```bash
+python -m Scripts.refresh --all --what board
+```
+
+~16s for nine leagues. Re-run it in the days before each draft — ADP moves, and the
+board is a snapshot of the market at build time, which the app's freshness badge
+reports. See [plan 15](plans/15-draft-board.md).
+
+### 8. Dry-run one league
 
 ```bash
 python -c "
@@ -103,23 +125,47 @@ Rscript R/GetNFL.R                  # refresh schedule (scores drive current wee
 python -m Scripts.scrape_FP         # FantasyPros
 python -m Scripts.scrape_pinnacle   # Pinnacle (launches Chrome via Selenium)
 python -m Scripts.scrape_BOL        # BetOnline  -- SEE WARNING
-python populateGoogleSheet.py       # blend + publish all leagues
+python -m Scripts.refresh --all     # build the store, once
+python populateGoogleSheet.py       # render the store to Sheets
 ```
 
 Run from the repo root. Scrapers use `-m` because modules import as
 `Scripts.<name>`.
+
+`Scripts.refresh` is **required before** Sheets and comes **after** the projection
+scrapers. Both outputs read the same store, so they cannot disagree — but that
+means the order is no longer optional: refresh before the scrapers and you bake
+last week's lines in; skip refresh and Sheets has nothing to publish.
+
+Then read it:
+
+```bash
+streamlit run app/main.py
+```
+
+The sidebar shows the build time and turns red past an hour. A league that fails
+to refresh keeps its previous store, so check the badge rather than assuming the
+run succeeded — `refresh` also exits non-zero and names the failures.
 
 > **BetOnline is currently broken.** `scrape_BOL.py` fails with
 > `BetOnlineAccessError` — their API now requires a signed security header.
 > Skip it; the pipeline still runs on ESPN + FantasyPros + Pinnacle. See
 > `docs/STATE_OF_THE_REPO.md`.
 
-`populateGoogleSheet.py` sleeps 20s between leagues for Sheets rate limits, so a
-full run takes several minutes. To publish a subset:
+`populateGoogleSheet.py` **reads the store**, so `Scripts.refresh` must have run
+first. A league with no store is skipped with the command that would build it,
+rather than aborting the run.
+
+It sleeps 5s per sheet and 20s between leagues for Sheets rate limits — ~9.3
+minutes of sleeping, which is now essentially the whole runtime. Cutting unused
+tabs is the cheapest fix; see [plan 14](plans/14-thin-google-sheets.md).
+
+To publish a subset:
 
 ```python
 import populateGoogleSheet as p
-p.run(['Knights_FFL', 'GOP_Degenerates'])   # or p.run(p.tommy)
+p.run(['Knights_FFL', 'GOP_Degenerates'])        # or p.run(p.tommy)
+p.run(p.john + p.will + p.cooleen + p.fields)    # everyone but you (~7 min)
 ```
 
 Cohorts defined in the script: `all`, `tommy`, `john`, `will`, `cooleen`,
@@ -153,3 +199,8 @@ Several 2025 model changes are now undiscoverable without reading diffs.
 | Scraper writes into last season's directory | `Data/NFL_Schedules.csv` is stale — regenerate for the new season. |
 | Projections missing for a player | Name-join miss. Check `get_match_details()` output and add to the rename map. |
 | `ValueError: covers multiple seasons` | The schedule CSV has more than one season; regenerate it for a single year. |
+| App says "No store yet" | Nothing in `Data/Store`. Run `python -m Scripts.refresh --all`. |
+| A league is missing from the app's picker | Only leagues with a complete store are selectable; the sidebar lists the rest. Its last refresh failed, or it was never refreshed. |
+| Freshness badge says stale | The store is over an hour old. Refresh from the sidebar or the CLI. It also reads stale when `built_at` is unparseable, which is deliberate — an unreadable build time is not evidence of freshness. |
+| `MissingProjectionSourceWarning` during a refresh | That source has no weekly props file for the season. Expected pre-season and whenever a scraper is broken; the blend imputes those columns from the ESPN/FP mean and renormalises them out. The sidebar shows it. |
+| Sidebar coverage shows a source at 0% | Same cause as above, measured rather than inferred. It is the number to watch when re-tuning blend weights. |
