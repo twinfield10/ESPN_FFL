@@ -254,6 +254,20 @@ Fixed this cycle:
   slate is now filled, never filtered. Same lesson as the `0.0` one below: **a player
   who never appeared is a zero, not an absent observation.**
 
+  **Games played is reported as a distribution, not a number.**
+  `Scripts/usage/availability.py` fits a Beta-Binomial — chosen by measurement, not
+  taste: the variance of the games share is 5.6x to 8.1x what a Binomial permits over
+  3,942 player-seasons. Mean, variance, PMF and exact quantiles are all closed form,
+  so no simulation is involved. The board carries `usg_games_sd`, `usg_games_low` and
+  `usg_games_high`; fitted concentration is 2.1-3.2 by position, i.e. heavy
+  overdispersion.
+
+  Held-out calibration over 4,211 player-seasons: realised coverage 87.5% against the
+  model's own claim of 89.4%. Against the *nominal* 80% that looks badly over-wide,
+  and is not — an integer p10/p90 on an 18-value support always excludes less than
+  asked, so the claim is what it must be judged against. Judging it against 80% would
+  have condemned a calibrated distribution for a property of the support.
+
   A scheduling fact worth knowing for the draft: **nflreadr will not serve 2026
   injuries, snap counts or depth charts at all** while `most_recent_season()` is
   2025, though it does serve the 2026 roster and updates it daily. So a pre-season

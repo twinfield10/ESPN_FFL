@@ -572,7 +572,11 @@ def load_usage_season(season: int) -> pd.DataFrame:
     # `compute_weighted_stats` and `proj_to_score` scan. `usg_arm` is a string, and
     # a string in that namespace is a trap waiting for the first caller that
     # assumes every `USG_` column is numeric.
-    context = {"expected_games": "usg_expected_games", "usg_arm": "usg_arm"}
+    context = {"expected_games": "usg_expected_games",
+               "games_sd": "usg_games_sd",
+               "games_low": "usg_games_low",
+               "games_high": "usg_games_high",
+               "usg_arm": "usg_arm"}
     out = df[[c for c in ["player_id", "name_key"] if c in df.columns]
              + [c for c in df.columns if c.startswith("USG_")]].copy()
     for source_col, target_col in context.items():

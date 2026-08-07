@@ -63,7 +63,8 @@ HISTORY_START = 2016
 #: collapsing into one number, and a drafter wants the volume terms next to the
 #: projection. These are diagnostics, not stats -- they carry no ``USG_`` prefix, so
 #: ``proj_to_score`` will not try to price them.
-CONTEXT_COLUMNS = ("expected_games", "usg_arm", "position",
+CONTEXT_COLUMNS = ("expected_games", "games_sd", "games_low", "games_high",
+                   "usg_arm", "position",
                    "pred_targets_pg", "pred_carries_pg", "pred_pass_attempts_pg")
 
 
@@ -181,6 +182,11 @@ def build(season: int, refit: bool = False,
     print(f"  features: {features.height} players")
 
     predicted = model.predict(features, abstain_positions=abstain_positions)
+
+    # The second moment on games played. Point estimates are the weakest thing this
+    # model reports (R-squared 0.19), and a board that shows 13.6 games without
+    # showing that the p10 is 7 invites reading it as a forecast.
+    predicted = model.games_interval(predicted)
 
     stat_columns = [f"{sn.USAGE_PREFIX}{stat}" for stat in sn.STAT_TERMS
                     if f"{sn.USAGE_PREFIX}{stat}" in predicted.columns]

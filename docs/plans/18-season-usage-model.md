@@ -444,6 +444,87 @@ is known, and again defensively in `_fit_rookie_games` from the rows' own maximu
 distinction is the same one this repo keeps paying for: **a player who never appeared
 is a zero, not an absent observation.**
 
+### Games played is a distribution, not a number — 2026-08-07
+
+`Scripts/usage/availability.py`. The point estimate is the weakest thing this model
+reports — R² 0.19, and prior games predict next season at r = +0.343 among players
+who managed 8+ — so reporting it alone invites it being read as a forecast. The board
+now carries `usg_games_sd`, `usg_games_low` and `usg_games_high` beside
+`usg_expected_games`.
+
+**Beta-Binomial, and the family is chosen by measurement rather than taste.** Games
+is a count out of a known slate, so the natural first guess is Binomial, and the data
+rejects that decisively — over 3,942 player-seasons the variance of the games share
+is **5.6× to 8.1×** what a Binomial permits:
+
+| Pos | mean share | observed Var | Binomial Var | ratio |
+|---|---|---|---|---|
+| QB | 0.546 | 0.1203 | 0.0149 | 8.1× |
+| RB | 0.634 | 0.0918 | 0.0140 | 6.5× |
+| WR | 0.669 | 0.0876 | 0.0134 | 6.6× |
+| TE | 0.624 | 0.0786 | 0.0141 | 5.6× |
+
+Beta-Binomial is the Binomial with its success probability given a Beta prior, which
+is the structure here: each player has his own durability, drawn from a positional
+distribution, never observed directly. Everything is **closed form** — mean, variance,
+PMF and exact quantiles over the 18-value support. No simulation.
+
+**Parameterised by mean and concentration, fitted in that order.** The mean stays the
+existing regression, which is measured and works; this adds only the second moment, by
+method of moments on the residuals. A joint likelihood would let the dispersion pull
+the mean around and silently move every number in this document. Fitted κ:
+
+| | QB | RB | TE | WR |
+|---|---|---|---|---|
+| κ | 2.24 | 2.14 | 3.17 | 2.13 |
+
+Small κ means heavy overdispersion — far closer to "some players are durable and some
+are not" than to "every player is a coin flip each week".
+
+The shape matches what the data actually does. For a fully available receiver
+(μ = 0.80, 17-game slate): mean **13.6**, median **15**, p10 **7**, p75 and p90 both
+**17**. Compare the empirical distribution for players who managed 16+ the prior year
+— mean 13.4, median 15, mode 16. The left skew is the whole point, and a normal
+approximation would put the mass symmetrically and miss the tail a drafter cares
+about.
+
+#### Calibration, and the thing that would have looked like a failure
+
+Walk-forward 2020–2025, 4,211 held-out player-seasons:
+
+```
+realised coverage 87.5%   below 6.9%   above 5.6%
+the model's own claim for these cut points is 89.4%
+```
+
+Against a nominal 80% that reads as badly over-wide. It is not. `games_low` is the
+smallest integer whose cumulative probability reaches 0.10, and with eighteen
+attainable values each step carries several percent of mass, so **an integer p10/p90
+always excludes less than asked**. The model knows this: it claims 89.4% for the cut
+points it picked, and reality delivered 87.5%. That is a well-calibrated
+distribution, marginally overconfident, and judging it against 80% would have
+condemned it for a property of the support rather than a defect of the fit.
+
+`report_games_interval` prints both numbers for that reason.
+
+#### What it says about the players the model fades
+
+The disagreement list from §How the board uses it now has an interval on it, and the
+interval is the answer to "is this a 20% bust risk or a 5% one":
+
+| | expected games | sd | p10 | p90 |
+|---|---|---|---|---|
+| Malik Nabers | 9.3 | 5.1 | 2 | 16 |
+| Garrett Wilson | 10.3 | 5.0 | 3 | 17 |
+| Omarion Hampton | 10.9 | 4.9 | 3 | 17 |
+| DJ Moore | 12.3 | 4.6 | 5 | 17 |
+| Puka Nacua | 13.6 | 4.1 | 7 | 17 |
+
+The honest reading is that these bands overlap heavily. Nabers' p90 is 16 and Nacua's
+p10 is 7 — the availability head separates them in expectation and barely at all in
+outcome, which is exactly what R² 0.19 means and why a fade on availability grounds
+should be held loosely.
+
 ### The fitted expected-games head, and what it says
 
 Coefficients are in **share of the slate** as of v1.1.0; the last column converts a

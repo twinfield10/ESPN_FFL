@@ -32,7 +32,7 @@ in the league.
 """
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -40,6 +40,7 @@ import numpy as np
 import polars as pl
 
 from Scripts.paths import DATA_DIR
+from Scripts.usage import availability as av
 from Scripts.usage import context as ctx
 from Scripts.usage import features as ft
 
@@ -331,6 +332,9 @@ class SeasonUsageModel:
     rookie_volume: Dict[Tuple[str, str], VolumeFit] = field(default_factory=dict)
     rookie_games: Dict[str, Dict[str, float]] = field(default_factory=dict)
     rookie_efficiency: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    #: Beta-Binomial concentration for games played, per position. Absent for a
+    #: position whose residuals are not overdispersed or too few to fit.
+    games_dispersion: Dict[str, float] = field(default_factory=dict)
     train_seasons: Tuple[int, ...] = ()
     version: str = MODEL_VERSION
     fitted_at: Optional[str] = None
@@ -487,6 +491,91 @@ class SeasonUsageModel:
         # player really can appear in all 18.
         return (expression.clip(lower_bound=0.0, upper_bound=1.0) * slate).clip(
             lower_bound=0.0, upper_bound=18.0)
+
+    def dispersion_for(self, positions: Sequence[str]) -> np.ndarray:
+        """Per-row concentration, falling back where a position has no fit.
+
+        Args:
+            positions: One position per row.
+
+        Returns:
+            np.ndarray: Concentration per row.
+        """
+        return np.array([self.games_dispersion.get(p, av.DEFAULT_KAPPA)
+                         for p in positions], dtype=float)
+
+    def games_interval(self, frame: pl.DataFrame,
+                       target_slate: float = DEFAULT_TARGET_SLATE,
+                       lower: float = 0.1,
+                       upper: float = 0.9) -> pl.DataFrame:
+        """Attach the predictive distribution of games played around the mean.
+
+        The point estimate is the weakest thing this model reports -- R-squared 0.19,
+        and prior games predict next season at r = +0.343 among players who managed
+        8+. Reporting it alone invites it being read as a forecast. This adds the
+        second moment and an interval, computed in closed form from the
+        Beta-Binomial (:mod:`Scripts.usage.availability`) rather than by simulation.
+
+        The distribution is strongly left-skewed -- most players are fine and a few
+        miss most of the year -- so the interval is deliberately asymmetric around
+        the mean, and a normal approximation would be wrong in exactly the tail a
+        drafter cares about.
+
+        Args:
+            frame: Output of :meth:`predict`, carrying ``expected_games`` and
+                ``position``.
+            target_slate: Games the projected season offers.
+            lower: Lower quantile.
+            upper: Upper quantile.
+
+        Returns:
+            pl.DataFrame: ``frame`` plus ``games_sd``, ``games_low``, ``games_high``
+            and ``games_implied_coverage``. Null wherever ``expected_games`` is.
+        """
+        slate = float(target_slate) if target_slate else DEFAULT_TARGET_SLATE
+        n = int(round(slate))
+        expected = frame["expected_games"].cast(pl.Float64).to_numpy()
+        kappa = self.dispersion_for(frame["position"].to_list())
+
+        known = np.isfinite(expected)
+        mu = np.where(known, expected / slate, 0.5)
+
+        sd = np.full(expected.shape, np.nan)
+        low = np.full(expected.shape, np.nan)
+        high = np.full(expected.shape, np.nan)
+        implied = np.full(expected.shape, np.nan)
+
+        # Grouped by concentration so the vectorised PMF runs once per distinct
+        # value rather than once per player -- there are at most four.
+        for value in np.unique(kappa):
+            rows = known & (kappa == value)
+            if not rows.any():
+                continue
+            _, variance = av.moments(slate, mu[rows], float(value))
+            sd[rows] = np.sqrt(variance)
+
+            cdf = np.cumsum(av.pmf(n, mu[rows], float(value)), axis=1)
+            lo = (cdf < lower).sum(axis=1)
+            hi = (cdf < upper).sum(axis=1)
+            low[rows] = lo
+            high[rows] = hi
+
+            # What the model actually claims for the integers it picked, which is
+            # more than `upper - lower`: a discrete support cannot be cut at exactly
+            # 10% and 90%, so the realised band is always wider than nominal. Carried
+            # so the backtest can judge coverage against the claim rather than
+            # against a target the family cannot express.
+            index = np.arange(lo.size)
+            below = np.where(lo > 0, cdf[index, np.maximum(lo - 1, 0)], 0.0)
+            above = 1.0 - cdf[index, hi]
+            implied[rows] = 1.0 - below - above
+
+        return frame.with_columns(
+            pl.Series("games_sd", sd),
+            pl.Series("games_low", low),
+            pl.Series("games_high", high),
+            pl.Series("games_implied_coverage", implied),
+        )
 
     @staticmethod
     def _veteran_terms(frame: pl.DataFrame, target: str, lag1: str,
@@ -756,6 +845,7 @@ class SeasonUsageModel:
             "rookie_volume_fits": [asdict(fit)
                                    for fit in self.rookie_volume.values()],
             "rookie_efficiency": self.rookie_efficiency,
+            "games_dispersion": self.games_dispersion,
         }
 
     def save(self, path=None):
@@ -822,6 +912,7 @@ class SeasonUsageModel:
             rookie_volume=fits("rookie_volume_fits"),
             rookie_games=payload.get("rookie_games_by_bin", {}),
             rookie_efficiency=payload.get("rookie_efficiency", {}),
+            games_dispersion=payload.get("games_dispersion", {}),
             train_seasons=tuple(payload.get("train_seasons", ())),
             version=payload.get("version", MODEL_VERSION),
             fitted_at=payload.get("fitted_at"),
@@ -1303,7 +1394,7 @@ def fit(train: pl.DataFrame, train_seasons: Sequence[int],
         means = {k: float(v) for k, v in
                  zip(by_position["position"], by_position["mean_games"])}
 
-    return SeasonUsageModel(
+    fitted = SeasonUsageModel(
         volume=volume,
         games=games,
         games_by_position=means,
@@ -1313,3 +1404,59 @@ def fit(train: pl.DataFrame, train_seasons: Sequence[int],
         train_seasons=tuple(sorted(train_seasons)),
         fitted_at=fitted_at,
     )
+
+    # The second moment, fitted after the first and given it. See
+    # `Scripts.usage.availability` for why moments rather than a joint likelihood:
+    # the mean is what plan 18 measured, and a joint fit would let the dispersion
+    # move it.
+    return replace(fitted, games_dispersion=_fit_dispersion(fitted, train, positions))
+
+
+def _fit_dispersion(model: SeasonUsageModel, train: pl.DataFrame,
+                    positions: Sequence[str]) -> Dict[str, float]:
+    """Beta-Binomial concentration per position, from the fitted mean's residuals.
+
+    Args:
+        model: The model whose games head supplies the mean.
+        train: Training rows carrying ``y_games`` and ``y_games_available``.
+        positions: Positions to fit.
+
+    Returns:
+        dict: Position to concentration. Positions that are not overdispersed, or
+        have too few rows, are absent rather than defaulted -- the caller falls back
+        explicitly so a missing fit cannot be mistaken for a measured one.
+    """
+    required = ("y_games", "y_games_available", f"{ft.LAG1_PREFIX}availability")
+    if any(c not in train.columns for c in required):
+        return {}
+
+    rows = train.filter(
+        pl.col("y_games").is_not_null()
+        & (pl.col("y_games_available").cast(pl.Float64) > 0)
+        & pl.col(f"{ft.LAG1_PREFIX}availability").is_not_null()
+    )
+    if rows.is_empty():
+        return {}
+
+    # Predicted at each row's own slate, so a 16-game season is not compared against
+    # a 17-game expectation -- the same bias the share normalisation removed.
+    slate = rows.select(
+        pl.col("y_games_available").cast(pl.Float64).max()).item()
+    predicted = rows.with_columns(
+        model.expected_games(rows, target_slate=slate).alias("_mu_games"))
+
+    out: Dict[str, float] = {}
+    for position in positions:
+        block = predicted.filter(
+            (pl.col("position") == position) & pl.col("_mu_games").is_not_null())
+        if block.height < av.MIN_DISPERSION_ROWS:
+            continue
+        available = block["y_games_available"].cast(pl.Float64).to_numpy()
+        kappa = av.fit_dispersion(
+            block["y_games"].cast(pl.Float64).to_numpy(),
+            available,
+            block["_mu_games"].to_numpy() / available,
+        )
+        if kappa is not None:
+            out[position] = float(kappa)
+    return out

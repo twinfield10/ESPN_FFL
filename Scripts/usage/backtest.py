@@ -203,6 +203,7 @@ def run_season(test_season: int, history_start: int = HISTORY_START,
     # that lost -- `ABSTAIN_POSITIONS` exists because of the quarterback row in this
     # table, and honouring the default here would erase the evidence for it.
     predicted = model.predict(test, abstain_positions=(), target_slate=slate)
+    predicted = model.games_interval(predicted, target_slate=slate)
 
     weights = scoring_weights(test_season, league_key)
 
@@ -353,7 +354,59 @@ def report(frames: Sequence[pl.DataFrame], positions=ft.MODELLED_POSITIONS) -> s
             lines.append(f"  {arm:<10}{rows.height:>6}")
 
     lines.append("")
+    lines.append(report_games_interval(pooled))
+
+    lines.append("")
     lines.append(report_rookie_arm(pooled, positions))
+    return "\n".join(lines)
+
+
+def report_games_interval(pooled: pl.DataFrame) -> str:
+    """Whether the games-played interval covers what it claims to.
+
+    The only check that decides whether a predictive interval is worth printing. It
+    reports realised coverage against the model's **own** implied coverage rather
+    than against the nominal 80%, because on a discrete support those are not the
+    same thing: ``games_low`` is the smallest integer whose cumulative probability
+    reaches 0.10, and with eighteen attainable values each step carries several
+    percent of mass, so the chosen cut points always exclude less than asked. Judging
+    the model against 80% would report a well-calibrated distribution as badly
+    over-wide.
+
+    Args:
+        pooled: Walk-forward rows carrying ``y_games``, ``games_low``, ``games_high``
+            and ``games_implied_coverage``.
+
+    Returns:
+        str: A printable block, or a note when the columns are absent.
+    """
+    needed = ("y_games", "games_low", "games_high")
+    if any(c not in pooled.columns for c in needed):
+        return "=== games interval ===\n  not computed"
+
+    rows = pooled.filter(
+        pl.col("y_games").is_not_null() & pl.col("games_low").is_not_null())
+    if rows.is_empty():
+        return "=== games interval ===\n  no rows"
+
+    inside = rows.filter((pl.col("y_games") >= pl.col("games_low"))
+                         & (pl.col("y_games") <= pl.col("games_high")))
+    below = rows.filter(pl.col("y_games") < pl.col("games_low"))
+    above = rows.filter(pl.col("y_games") > pl.col("games_high"))
+
+    n = rows.height
+    lines = ["=== games played: predictive interval (Beta-Binomial, closed form) ==="]
+    lines.append(f"  n={n}   realised coverage {100 * inside.height / n:.1f}%"
+                 f"   below {100 * below.height / n:.1f}%"
+                 f"   above {100 * above.height / n:.1f}%")
+    if "games_implied_coverage" in rows.columns:
+        implied = rows["games_implied_coverage"].mean()
+        if implied is not None:
+            lines.append(f"  the model's own claim for these cut points is "
+                         f"{100 * implied:.1f}% -- that, not the nominal 80%, is "
+                         f"what it should be judged against")
+    lines.append("  (a discrete support cannot hit 10% exactly, so an integer "
+                 "p10/p90 always excludes less than asked)")
     return "\n".join(lines)
 
 
