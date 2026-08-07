@@ -793,7 +793,70 @@ to 14.2%, which is arguably more honest given how correlated plan 03 measured th
 market sources to be. Not changed here; it is a separate decision and a visible board
 column.
 
-#### It withdraws for players ESPN lists as out
+#### It is adjusted by ESPN's estimated return date
+
+**The model cannot see a current injury and the other sources can.** nflreadr refuses
+2026 injuries outright, so `expected_games` is built from prior-season availability,
+snap share and age — statistics about a player who was healthy last August. ESPN knows
+today. Left alone the model overrode it in the worst direction: across the 22 players
+ESPN listed OUT or on IR, adding `USG` at a third **lifted** the blend by a mean of
+**+15.7 points**, while lowering active draftable players by 2.7. ESPN and FantasyPros
+both projected Ricky Pearsall at literally **0.0** — they know he is on IR for the
+season — and the model pulled the blend to **72.4**.
+
+The first fix was a status-based abstention, and it was too blunt. **ESPN's *site* API
+carries an estimated return date**, which the fantasy API does not:
+
+```
+"details": {"type": "Knee", "location": "Knee", "detail": "ACL",
+            "returnDate": "2026-10-11"}
+```
+
+`Scripts/scrape_espn_injuries.py` pulls it — **152 of 152 non-active records carry
+one**, against a free-text `seasonOutlook` present for only 9 of 22 in the fantasy
+API. Against that, a status-only rule was wrong for **9 of 22 players**:
+
+| player | ADP | fantasy status | return date |
+|---|---|---|---|
+| Alec Pierce | 96 | OUT | 2026-08-13 |
+| Zach Charbonnet | 149 | OUT | **2026-09-09** — the day before week 1 |
+| Luke Musgrave, Chris Bell, Jaylin Noel, +4 | ~170 | OUT | mid-August |
+
+Withdrawing the model for them discarded its opinion on draftable players who will be
+fine. `_apply_injury_adjustment` now scales the line by `games_available / 17`, so
+"misses the first five weeks" is finally expressible. Withdrawals fell 22 → 13, of
+which 8 are the fallback below.
+
+**Only the usage model is scaled, and that is deliberate.** ESPN and FantasyPros
+already price a known absence — they had Pearsall at 0.0 — so discounting the whole
+blend would count the same injury twice. Scaling the one source that is blind to the
+current season makes it injury-aware and leaves the others to speak for themselves.
+
+**Two shapes of return date, and conflating them breaks the arithmetic.** A real
+estimate is near-term — the 2026-08-07 pull carries 09-13, 09-14, 09-28, 10-11 and
+12-06. Season-ending IR uses a **sentinel** past the end of the schedule, 22 records at
+`2027-02-15`. Read literally that means "returns in week 23" and the games calculation
+goes negative; `SEASON_ENDING_AFTER` separates them.
+
+Week 1's date is read from `Data/NFL/schedules.parquet` rather than assumed, because
+the opener moves by several days a year and a hardcoded date would mis-count every
+player's missed weeks.
+
+Where the report has no record — 6 of 22, George Kittle and Brandon Aiyuk among them —
+`INJURY_ABSTAIN_STATUSES` falls back to the fantasy status. `QUESTIONABLE` is excluded
+throughout: pre-season it is week-to-week noise on 64 players.
+
+**On access.** `www.espn.com/robots.txt` does not disallow `/nfl/injuries` for general
+agents, though it blocks ten named AI crawlers site-wide, `anthropic-ai` among them.
+The API host publishes no robots.txt — a 403 on the file itself, which RFC 9309 classes
+as "unavailable" and permits. This is a different situation from Pro-Football-Reference
+and BetOnline's weekly endpoint, both of which sit behind active anti-bot controls and
+are deliberately left alone.
+
+The site API carries **no athlete id**, only a display name, so this joins on the same
+`normalise_name` key the book sources use, with the same shared-name caveat.
+
+##### Superseded: the status-only abstention
 
 **The model cannot see a current injury and the other sources can**, which is a
 one-directional failure worth naming. nflreadr refuses 2026 injuries outright, so

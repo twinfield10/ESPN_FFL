@@ -42,7 +42,28 @@ arm is the clear win** — draft capital plus depth-chart position orders rookie
 ρ ≈ 0.64 where a projection carrying no such information manages ~0, on 1,497
 player-seasons the model previously said nothing about.
 
-**The usage model withdraws for players ESPN lists OUT or on IR.** It cannot see a
+**The usage model is adjusted by ESPN's estimated return date.**
+`Scripts/scrape_espn_injuries.py` pulls `site.api.espn.com`'s injury report, which
+carries a `returnDate` the fantasy API does not -- 152 of 152 non-active records have
+one, against a free-text outlook present for only 9 of 22 there. The model is scaled by
+`games_available / 17`, so "misses the first five weeks" is expressible; a
+season-ending sentinel (2027-02-15) withdraws it outright, and a player the report does
+not know falls back to the fantasy status.
+
+Only the model is scaled. ESPN and FantasyPros already price a known absence, so
+discounting the whole blend would count the same injury twice.
+
+It replaced a status-only abstention that was wrong for 9 of 22 players -- Alec Pierce
+(ADP 96) returns 13 August, Zach Charbonnet (ADP 149) on 9 September, the day before
+week 1. Withdrawals fell 22 to 13.
+
+On access: `www.espn.com/robots.txt` does not disallow `/nfl/injuries` for general
+agents, though it blocks ten named AI crawlers site-wide including `anthropic-ai`. The
+API host publishes no robots.txt (403 on the file), which RFC 9309 classes as
+"unavailable" and permits. Unlike Pro-Football-Reference and BetOnline's weekly
+endpoint, there is no anti-bot control here to circumvent.
+
+**Superseded -- the status-only rule.** It cannot see a
 current injury and the other sources can -- nflreadr refuses 2026 injuries, so
 `expected_games` is built from prior-season statistics about a player who was healthy
 last August. Left alone the model inflated exactly the players it knew nothing about:

@@ -28,11 +28,13 @@ Names are matched on a normalised key rather than raw strings: BetOnline is
 uppercase, and contains real misspellings (``Dalton Kinciad``).
 """
 
+import datetime
 import re
 import unicodedata
 from typing import Dict, List, Optional
 
 import pandas as pd
+import polars as pl
 
 from Scripts.config_utils import get_season
 from Scripts.paths import season_dir
@@ -648,41 +650,175 @@ def _merge_usage(base: pd.DataFrame, source: pd.DataFrame,
     return base.merge(source, on="player_id", how="left")
 
 
-def _abstain_on_injury(base: pd.DataFrame) -> pd.DataFrame:
-    """Withdraw the usage model for players ESPN lists as out.
+#: ESPN *fantasy* statuses on which the usage model declines, when nothing better is
+#: known.
+#:
+#: The fallback, not the rule. :func:`_apply_injury_adjustment` prefers ESPN's site
+#: API, which carries an estimated return date; this handles the players it has no
+#: record for -- 6 of 22 on the 2026-08-07 pull, George Kittle and Brandon Aiyuk among
+#: them.
+#:
+#: **The model cannot see a current injury and the other sources can.** nflreadr
+#: refuses 2026 injuries outright, so ``expected_games`` is built from prior-season
+#: availability, snap share and age -- statistics about a player who was healthy last
+#: August. Left alone the model overrode ESPN and FantasyPros in the worst direction:
+#: across 22 players listed OUT or on IR it **lifted** the blend by a mean of +15.7
+#: points, while lowering active draftable players by 2.7. ESPN and FantasyPros both
+#: projected Ricky Pearsall at 0.0 -- they know he is on IR for the season -- and the
+#: model pulled the blend to 72.4.
+#:
+#: ``QUESTIONABLE`` is excluded: pre-season it is week-to-week noise on 64 players.
+INJURY_ABSTAIN_STATUSES = ("OUT", "INJURY_RESERVE")
 
-    See :data:`INJURY_ABSTAIN_STATUSES` for the measurement. The stat lines are
-    nulled *and* flagged imputed, which is what makes
-    :func:`compute_weighted_stats` drop the weight and renormalise rather than
-    blending a null as a zero.
+#: Games in a full season, for converting a return date into a share of the slate.
+FULL_SLATE = 17.0
+
+
+def load_espn_injuries(season: int) -> pd.DataFrame:
+    """ESPN's injury report with estimated return dates, if it has been pulled.
+
+    Args:
+        season: Season year.
+
+    Returns:
+        pd.DataFrame: ``name_key``, ``status``, ``return_date``. Empty when absent --
+        a missing pull degrades to the status-only fallback rather than failing.
+    """
+    from Scripts.scrape_espn_injuries import injuries_path
+
+    path = injuries_path(season)
+    if not path.exists():
+        print(f"  ESPN injuries not pulled for {season}; falling back to fantasy "
+              f"status alone. Run `python -m Scripts.scrape_espn_injuries`.")
+        return pd.DataFrame(columns=["name_key", "status", "return_date"])
+    frame = pd.read_parquet(path)
+    return frame.dropna(subset=["name_key"]).drop_duplicates("name_key")
+
+
+def games_available(return_date, week_one, slate: float = FULL_SLATE) -> float:
+    """Games a player can still play, given when he is expected back.
+
+    Args:
+        return_date: Estimated return, or None.
+        week_one: Date of the season's first game.
+        slate: Games in a full season.
+
+    Returns:
+        float: Games available, ``slate`` when he is back before week 1 and 0.0 when
+        the date is a season-ending sentinel.
+    """
+    from Scripts.scrape_espn_injuries import SEASON_ENDING_AFTER
+
+    if return_date is None or pd.isna(return_date):
+        return slate
+    if hasattr(return_date, "date"):
+        return_date = return_date.date()
+    if return_date > SEASON_ENDING_AFTER:
+        return 0.0
+    missed = (return_date - week_one).days / 7.0
+    return float(min(max(slate - missed, 0.0), slate))
+
+
+def _week_one(season: int):
+    """First gameday of the season, from the committed schedule.
+
+    Read rather than assumed: the opener moves by several days year to year, and a
+    hardcoded date would silently mis-count the weeks a player misses.
+
+    Args:
+        season: Season year.
+
+    Returns:
+        date | None: The earliest week-1 gameday, or None when unavailable.
+    """
+    from Scripts.draft.handcuff import load_schedules
+
+    try:
+        schedules = load_schedules()
+    except FileNotFoundError:
+        return None
+    week_one = schedules.filter((pl.col("season") == season)
+                                & (pl.col("week") == 1))
+    if week_one.is_empty() or "gameday" not in week_one.columns:
+        return None
+    earliest = week_one["gameday"].min()
+    if earliest is None:
+        return None
+    return (datetime.date.fromisoformat(str(earliest))
+            if not hasattr(earliest, "year") else earliest)
+
+
+def _apply_injury_adjustment(base: pd.DataFrame, season: int) -> pd.DataFrame:
+    """Scale the usage model's line by the games a current injury leaves.
+
+    **Only the usage model is scaled, and that is the point.** ESPN and FantasyPros
+    already price a known absence -- they had Ricky Pearsall at 0.0 -- so discounting
+    the whole blend would count the same injury twice. What the model lacks is any
+    sight of the current season: nflreadr refuses 2026 injuries, so its
+    ``expected_games`` describes a player who was healthy last August. Scaling its
+    line by ``games_available / 17`` makes that one source injury-aware and leaves the
+    others to speak for themselves.
+
+    The graded form matters. A status-only rule cannot tell "back next week" from "out
+    until November", and on the 2026-08-07 pull it was wrong for **9 of 22** players
+    -- Alec Pierce (ADP 96) returns 13 August, Zach Charbonnet (ADP 149) on 9
+    September, the day before week 1. Withdrawing the model for them threw away its
+    opinion on draftable players who will be fine.
+
+    Where ESPN's site API has no record, the fantasy status falls back to a straight
+    abstention -- see :data:`INJURY_ABSTAIN_STATUSES`.
 
     Args:
         base: The merged frame, after the usage source has been joined.
+        season: Season being projected.
 
     Returns:
-        pd.DataFrame: ``base`` with ``USG_`` withdrawn on the affected rows.
+        pd.DataFrame: ``base`` with ``USG_`` scaled, or withdrawn where the player is
+        out for the year or unknown to the report.
     """
-    if "injury_status" not in base.columns:
-        return base
-
-    out = base["injury_status"].isin(INJURY_ABSTAIN_STATUSES)
-    if not out.any():
-        return base
-
     columns = [c for c in base.columns
                if c.startswith("USG_") and not c.endswith(IMPUTED_SUFFIX)]
+    if not columns:
+        return base
+
+    week_one = _week_one(season)
+    report = load_espn_injuries(season) if week_one else pd.DataFrame()
+
+    share = pd.Series(1.0, index=base.index)
+    if week_one is not None and not report.empty and "join_key" in base.columns:
+        dates = base["join_key"].map(
+            report.set_index("name_key")["return_date"].to_dict())
+        known = dates.notna()
+        share[known] = dates[known].map(
+            lambda d: games_available(d, week_one)) / FULL_SLATE
+    else:
+        known = pd.Series(False, index=base.index)
+
+    # Players the report says nothing about keep the old status-only rule.
+    if "injury_status" in base.columns:
+        unknown_and_out = (~known) & base["injury_status"].isin(
+            INJURY_ABSTAIN_STATUSES)
+        share[unknown_and_out] = 0.0
+    else:
+        unknown_and_out = pd.Series(False, index=base.index)
+
+    scaled = share < 1.0
+    withdrawn = share <= 0.0
     for column in columns:
-        base.loc[out, column] = float("nan")
+        base.loc[scaled, column] = base.loc[scaled, column] * share[scaled]
+        base.loc[withdrawn, column] = float("nan")
         flag = f"{column}{IMPUTED_SUFFIX}"
         if flag in base.columns:
-            base.loc[out, flag] = True
-    print(f"  Usage: withdrawn for {int(out.sum())} player(s) ESPN lists "
-          f"{'/'.join(INJURY_ABSTAIN_STATUSES)} -- the model cannot see a current "
-          f"injury and the other sources can.")
+            base.loc[withdrawn, flag] = True
+
+    if scaled.any():
+        print(f"  Usage: injury-adjusted {int(scaled.sum())} player(s) "
+              f"({int(withdrawn.sum())} withdrawn outright, "
+              f"{int(unknown_and_out.sum())} of those on fantasy status alone).")
     return base
 
 
-#: The sources that hold an independent opinion, for the floor/ceiling spread.
+#: The sources that hold an independent opinion, for the floor/ceiling spread.#: The sources that hold an independent opinion, for the floor/ceiling spread.
 #:
 #: ``MEAN`` is excluded because it is not an opinion -- it is the ESPN/FantasyPros
 #: average, and including it would pull the spread toward the middle of two sources
@@ -715,29 +851,7 @@ def _abstain_on_injury(base: pd.DataFrame) -> pd.DataFrame:
 #: contaminate the spread.
 OPINION_PREFIXES = ("ESPN", "FP", "PINNY", "BOL")
 
-#: ESPN injury statuses on which the usage model must decline to project.
-#:
-#: **The model cannot see a current injury and the other sources can.** nflreadr
-#: refuses 2026 injuries outright, so ``expected_games`` is built entirely from
-#: prior-season availability, snap share and age -- statistics about a player who was
-#: healthy last August. ESPN knows today that Ricky Pearsall is on injured reserve for
-#: the season and that Zach Charbonnet tore an ACL in January, and ESPN's and
-#: FantasyPros' projections reflect it.
-#:
-#: Left alone, the model overrides them in the worst possible direction. Measured on
-#: the 2026 board: across the 22 players ESPN lists OUT or on IR, adding ``USG`` at a
-#: third **lifted** the blend by a mean of **+15.7 points**, while for active
-#: draftable players it lowered it by 2.7. Pearsall is the clearest case -- ESPN and
-#: FantasyPros both project him at literally **0.0**, and the model pulled the blend
-#: to **72.4**. Charbonnet went 133 to 164.
-#:
-#: So the model abstains here, which is plan 18's decision 4 applied to a fact rather
-#: than a position: it says nothing where it knows nothing, the weight is dropped and
-#: the sources that *do* know carry the player. ``QUESTIONABLE`` is deliberately not
-#: in this set -- pre-season it is week-to-week noise on 64 players, and abstaining on
-#: it would discard the model for a large slice of the pool on a signal that says
-#: little about the season.
-INJURY_ABSTAIN_STATUSES = ("OUT", "INJURY_RESERVE")
+
 
 #: Sources that can supply a player's projection at all, for coverage counting.
 #:
@@ -885,7 +999,7 @@ def build_season_projections(league, season: Optional[int] = None,
     if not usage.empty and "player_id" in base.columns:
         base = _merge_usage(base, usage)
 
-    base = _abstain_on_injury(base)
+    base = _apply_injury_adjustment(base, season)
 
     base = base.drop(columns=["join_key"], errors="ignore")
 
