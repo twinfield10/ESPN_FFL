@@ -20,6 +20,7 @@ from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
+import polars as pl
 
 from Scripts.nfl_utils import load_schedule
 from Scripts.paths import NFL_SCHEDULE_CSV
@@ -517,6 +518,20 @@ def build_board(
     # plan 11's machinery, which the season path had not been using. Before that,
     # GOP Degenerates' linebackers were priced with the D/ST override of 0.0 for
     # tackles and projected near zero.
+
+    # Backfield rank and handcuff value. The one part of the game-script narrative
+    # that survived measurement: a strong team's number-two back gets ~19 more
+    # carries than a weak team's while RB1 stays flat, so the handcuff is worth
+    # more and nothing else on the board says so. Small -- see
+    # `Scripts.draft.handcuff` for the R-squared it ships alongside itself.
+    if season is not None:
+        try:
+            from Scripts.draft.handcuff import attach_handcuff
+            board = attach_handcuff(
+                pl.from_pandas(board), season, points_column=points_column
+            ).to_pandas()
+        except (FileNotFoundError, ImportError) as e:
+            _warn(f"no handcuff columns on this board ({e}).")
 
     # Sorted by VOR, not by value: value is NaN for everyone the market has not
     # priced, which in 2026 is 84% of the pool. Plan 09 offers sort-by-value as an

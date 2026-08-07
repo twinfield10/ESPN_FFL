@@ -356,6 +356,36 @@ Worth recording separately: **every 2026 game already has a spread**, all 272 of
 in `Data/NFL_Schedules.csv`. Team strength for the season being drafted needs no
 win-totals scrape.
 
+#### The one part that shipped: handcuff value on the board
+
+`Scripts/draft/handcuff.py`. Since the RB2 effect is real and invisible in a
+projection, it is surfaced on the board rather than fed to the model. Every board now
+carries `team_strength`, `backfield_rank`, `handcuff_carries`, `handcuff_premium` and
+`handcuff_r2`.
+
+Backfield rank comes from **the board's own projection**, not from a depth chart, so
+the back a given league projects second is the back that league would be handcuffing —
+and it stays consistent with everything else on the page across all nine leagues.
+
+The relationship is fitted at build time over 315 team-seasons rather than hardcoded:
+`RB2 carries = 94.5 + 1.65 × strength`. `Data/NFL/schedules.parquet` (2016–2026, 41 KB,
+from `nflverse/nfldata`) makes that reproducible.
+
+**`handcuff_r2` ships on every row on purpose.** It is 0.030, against a residual
+standard deviation of 36 carries, so the premium spans roughly ±13 carries — about 55
+rushing yards. A reader who sees "+10 carries" without that number will price it as a
+projection. It is a tiebreaker between two similar backups, not a reason to move
+anyone up a round.
+
+2026's extremes: Jordan James (SF, +6.2 strength) at **+10.0 carries**, against Tyler
+Allgeier (ARI, −11.0) at **−18.3**.
+
+Two things the column had to be stopped from doing, both pinned by tests: attaching
+itself to starters or non-backs, and inventing a thirty-third backfield out of free
+agents — ESPN gives an unrostered player a `pro_team` of the literal string `"None"`,
+which otherwise gets its own RB1 and RB2 and a handcuff to a team that does not
+exist.
+
 ### Deferred, with reasons
 - **`load_ftn_charting`** (motion, play action, RPO, backfield count) is the richest
   scheme data and starts only in 2022. Four seasons is thin for a walk-forward that
