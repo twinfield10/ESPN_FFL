@@ -35,7 +35,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import polars as pl
 
@@ -62,13 +62,39 @@ USER_AGENT = ("ESPN-FFL-research/1.0 (personal fantasy football projections; "
 #: articles. Minnesota reported "no page" on one run and returned 62,488 characters on
 #: the next. One request for all of them removes the failure mode instead of retrying
 #: around it, and is kinder to Wikipedia besides.
-TITLES_PER_REQUEST = 40
+#: Smaller than MediaWiki's 50-title limit on purpose. A request for 40 season
+#: articles pulls several hundred kilobytes -- some are 60,000 characters -- and
+#: fourteen of those back to back earned an HTTP 429 that no amount of retrying
+#: within the run recovered from. Twenty titles at :data:`REQUEST_INTERVAL` apart
+#: gets seventeen seasons in under a minute without being throttled.
+TITLES_PER_REQUEST = 20
 
 #: Retries for the batched request, with the delay doubling each time.
 MAX_RETRIES = 4
 
-#: Seconds before the first request, and the base for backoff.
-REQUEST_INTERVAL = 0.5
+#: Seconds between batched requests. Generous because the whole crawl is 28 requests
+#: once, and being throttled costs the run rather than a second.
+REQUEST_INTERVAL = 2.0
+
+#: First backoff after a 429. Wikipedia's limit resets on a scale of seconds, not
+#: milliseconds, so doubling from the polite interval is too slow to help.
+RATE_LIMIT_BACKOFF = 10.0
+
+#: Franchises whose article name changed while their nflverse abbreviation did not,
+#: as ``{abbr: [(first_season, last_season, name), ...]}``.
+#:
+#: Only Washington needs this. nflverse uses era-appropriate codes everywhere else --
+#: OAK through 2019 then LV, SD through 2016 then LAC, STL through 2015 then LA -- and
+#: ``load_teams(current = FALSE)`` maps each of those to the right historical name.
+#: Washington keeps ``WAS`` across all three of its names, so ``load_teams`` returns
+#: "Washington Commanders" for 2010 and the article does not exist.
+TEAM_NAME_ERAS: Dict[str, List[Tuple[int, int, str]]] = {
+    "WAS": [
+        (0, 2019, "Washington Redskins"),
+        (2020, 2021, "Washington Football Team"),
+        (2022, 9999, "Washington Commanders"),
+    ],
+}
 
 #: Infobox fields to read, mapped to output column names.
 INFOBOX_FIELDS: Dict[str, str] = {
@@ -128,13 +154,19 @@ def _clean_value(value: str) -> Optional[str]:
     Returns:
         str | None: The name, or None when nothing survives.
     """
+    # Split on the line break *before* stripping tags, because stripping first
+    # removes the separator and welds the names together. That is how a season with a
+    # mid-year change produced "John FoxJack Del Rio" and "Chuck Pagano  Bruce
+    # Arians" as single coach names -- caught by cross-checking against nflverse,
+    # where those seasons have two coaches on record.
+    value = re.split(r"<br\s*/?>", value, maxsplit=1)[0]
     value = re.sub(r"<[^>]+>", "", value)
     value = re.sub(r"\{\{[^{}]*\}\}", "", value)
     # A template fragment left by extraction terminating inside one.
     value = value.split("{{")[0]
-    # An interim appointment often reads "Name (interim)", and a shared job lists two
-    # names. Keep the first, which is who held it going into the season.
-    value = re.split(r"\s*(?:<br\s*/?>|,|\band\b|\()", value)[0]
+    # An interim appointment reads "Name (interim)", and a shared job lists two names.
+    # Keep the first, which is who held it going into the season.
+    value = re.split(r"\s*(?:,|\band\b|\()", value)[0]
     value = value.strip().strip("|}").strip()
     return value or None
 
@@ -213,10 +245,14 @@ def fetch_many(titles: List[str], verbose: bool = True
                 break
             except (urllib.error.HTTPError, urllib.error.URLError,
                     json.JSONDecodeError, TimeoutError) as error:
+                throttled = (isinstance(error, urllib.error.HTTPError)
+                             and error.code == 429)
                 if verbose:
                     print(f"  request failed ({error}); "
                           f"retry {attempt + 1}/{MAX_RETRIES}")
-                delay *= 2
+                # A 429 needs a real pause, not the polite interval doubled.
+                delay = (max(delay * 2, RATE_LIMIT_BACKOFF) if throttled
+                         else delay * 2)
         if payload is None or "query" not in payload:
             continue
 
@@ -242,13 +278,27 @@ def fetch_many(titles: List[str], verbose: bool = True
     return out
 
 
+def team_name(abbr: str, season: int, lookup: Dict[str, str]) -> Optional[str]:
+    """The franchise's name in a given season.
+
+    Args:
+        abbr: nflverse team abbreviation.
+        season: Season year.
+        lookup: ``team_abbr`` to ``team_name`` from ``team_names.parquet``.
+
+    Returns:
+        str | None: The era-appropriate name, or None when the abbreviation is
+        unknown.
+    """
+    for first, last, name in TEAM_NAME_ERAS.get(abbr, []):
+        if first <= season <= last:
+            return name
+    return lookup.get(abbr)
+
+
 def team_titles(season: int, names: pl.DataFrame,
                 teams: List[str]) -> Dict[str, str]:
-    """Wikipedia article title per team abbreviation.
-
-    Only ever used for the *current* season, so current team names are correct --
-    the Washington and Oakland renamings that break a historical mapping do not
-    arise.
+    """Wikipedia article title per team abbreviation, for one season.
 
     Args:
         season: Season year.
@@ -261,7 +311,7 @@ def team_titles(season: int, names: pl.DataFrame,
     lookup = dict(zip(names["team_abbr"], names["team_name"]))
     out = {}
     for abbr in teams:
-        name = lookup.get(abbr)
+        name = team_name(abbr, season, lookup)
         if name:
             out[abbr] = f"{season}_{name.replace(' ', '_')}_season"
     return out
@@ -367,7 +417,69 @@ def from_wikipedia(season: int, titles: Dict[str, str],
     )
 
 
+def crawl_coordinators(seasons: Sequence[int], names: pl.DataFrame,
+                       teams_by_season: Dict[int, List[str]],
+                       verbose: bool = True) -> pl.DataFrame:
+    """Coordinators for many seasons, in as few requests as possible.
+
+    Separate from :func:`from_wikipedia` because the two answer different questions.
+    That one replaces a whole season's staff, which is right for the unplayed season
+    where nflverse is stale. This one *supplements* seasons whose head coach is already
+    a matter of record, and nflverse has no coordinator data at all.
+
+    Args:
+        seasons: Season years to crawl.
+        names: ``team_names.parquet``.
+        teams_by_season: Abbreviations to cover per season.
+        verbose: Print per-season coverage.
+
+    Returns:
+        pl.DataFrame: ``season``, ``team``, ``offensive_coordinator``,
+        ``defensive_coordinator`` and ``wikipedia_coach`` -- the head coach as the
+        article states it, kept for cross-checking rather than for use.
+    """
+    titles: Dict[str, Tuple[int, str]] = {}
+    for season in sorted(seasons):
+        for abbr, title in team_titles(
+                season, names, teams_by_season.get(season, [])).items():
+            titles[title] = (season, abbr)
+
+    fetched = fetch_many(sorted(titles), verbose=verbose)
+
+    rows = []
+    for title, (season, abbr) in sorted(titles.items()):
+        wikitext = fetched.get(title)
+        if not wikitext:
+            continue
+        parsed = parse_infobox(wikitext)
+        rows.append({
+            "season": season, "team": abbr,
+            "offensive_coordinator": parsed["offensive_coordinator"],
+            "defensive_coordinator": parsed["defensive_coordinator"],
+            "wikipedia_coach": parsed["head_coach"],
+        })
+
+    if not rows:
+        return pl.DataFrame(schema={
+            "season": pl.Int32, "team": pl.String,
+            "offensive_coordinator": pl.String,
+            "defensive_coordinator": pl.String, "wikipedia_coach": pl.String})
+
+    out = pl.DataFrame(rows).with_columns(pl.col("season").cast(pl.Int32))
+    if verbose:
+        coverage = (out.group_by("season")
+                    .agg(pl.len().alias("teams"),
+                         pl.col("offensive_coordinator").is_not_null().sum()
+                         .alias("with_oc"))
+                    .sort("season"))
+        for row in coverage.iter_rows(named=True):
+            print(f"  {row['season']}  {row['teams']:>2} articles, "
+                  f"{row['with_oc']:>2} with an offensive coordinator")
+    return out
+
+
 def build(current_season: Optional[int] = None, offline: bool = False,
+          coordinator_history: bool = True,
           verbose: bool = True) -> pl.DataFrame:
     """Assemble the committed coaching table.
 
@@ -376,6 +488,9 @@ def build(current_season: Optional[int] = None, offline: bool = False,
             ``config.yaml``'s season.
         offline: Skip Wikipedia entirely and use nflverse for every season,
             accepting that the current season may be stale.
+        coordinator_history: Crawl coordinators for every season, not just the
+            current one. nflverse has none at any season, and a coordinator prior
+            needs history to be worth anything.
         verbose: Print progress.
 
     Returns:
@@ -416,7 +531,43 @@ def build(current_season: Optional[int] = None, offline: bool = False,
         (pl.col("season") != season)
         | ~pl.col("team").is_in(live["team"].to_list() or [""])
     )
-    return pl.concat([kept, live], how="diagonal").sort(["season", "team"])
+    staff = pl.concat([kept, live], how="diagonal").sort(["season", "team"])
+
+    if not coordinator_history:
+        return staff
+
+    # Coordinators for the played seasons, joined onto rows whose head coach is
+    # already authoritative. The current season already has them from `live`.
+    history = sorted(set(staff["season"].unique().to_list()) - {season})
+    if not history:
+        return staff
+    teams_by_season = {
+        int(s): sorted(staff.filter(pl.col("season") == s)["team"].unique().to_list())
+        for s in history
+    }
+    if verbose:
+        print(f"\nWikipedia coordinators, {min(history)}-{max(history)}:")
+    crawled = crawl_coordinators(history, names, teams_by_season, verbose)
+
+    if crawled.is_empty():
+        return staff
+    return (
+        staff.join(crawled.select("season", "team", "offensive_coordinator",
+                                  "defensive_coordinator", "wikipedia_coach"),
+                   on=["season", "team"], how="left", suffix="_crawled")
+        .with_columns(
+            pl.coalesce("offensive_coordinator",
+                        "offensive_coordinator_crawled")
+            .alias("offensive_coordinator"),
+            pl.coalesce("defensive_coordinator",
+                        "defensive_coordinator_crawled")
+            .alias("defensive_coordinator"),
+        )
+        .drop([c for c in ("offensive_coordinator_crawled",
+                           "defensive_coordinator_crawled") if True],
+              strict=False)
+        .sort(["season", "team"])
+    )
 
 
 def summarise(staff: pl.DataFrame) -> str:
@@ -449,10 +600,13 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help="the unplayed season to read from Wikipedia")
     parser.add_argument("--offline", action="store_true",
                         help="nflverse only; the current season may be stale")
+    parser.add_argument("--no-coordinator-history", action="store_true",
+                        help="crawl only the current season's coordinators")
     parser.add_argument("--out", help="destination parquet")
     args = parser.parse_args(argv)
 
-    staff = build(current_season=args.season, offline=args.offline)
+    staff = build(current_season=args.season, offline=args.offline,
+                  coordinator_history=not args.no_coordinator_history)
     path = COACHING_STAFF_PARQUET if args.out is None else args.out
     COACHING_STAFF_PARQUET.parent.mkdir(parents=True, exist_ok=True)
     staff.write_parquet(path)

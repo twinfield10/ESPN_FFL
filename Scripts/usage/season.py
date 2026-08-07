@@ -121,16 +121,58 @@ GAMES_REGRESSORS: Tuple[str, ...] = ("p1_games", "p1_weeks_on_reserve",
 #: rookie gets, and the intercept plus ``log_pick`` times the log of the pick is what
 #: a drafted one gets. Undrafted is not "pick 300" -- it is a different population,
 #: and 2 of 3 rookies are in it.
-ROOKIE_REGRESSORS: Tuple[str, ...] = ("log_pick", "undrafted", "is_first_string",
-                                      "coach_volume")
+ROOKIE_REGRESSORS: Tuple[str, ...] = ("log_pick", "undrafted", "is_first_string")
 
-#: The coach-prior column that informs each volume target -- the pool the position is
+#: Which of ``Scripts.usage.scheme``'s three priors an arm would use if one did.
+#:
+#: **None of them does, and that is measured.** All three were tried on the rookie
+#: arm's walk-forward, against a version carrying only the depth-chart feature. Mean
+#: within-position Spearman across QB/RB/WR/TE:
+#:
+#:     depth chart only                0.6403
+#:     + offensive-coordinator prior   0.6367
+#:     + offensive-lead prior          0.6366
+#:     + head-coach prior              0.6353
+#:     (draft capital alone            0.6132)
+#:
+#: So **the whole of the rookie arm's improvement is the depth chart**, and every
+#: coach prior is a small net loss on top of it -- worst at tight end, where the
+#: head-coach prior costs 0.026. An earlier commit credited the gain to the depth
+#: chart and the coach prior together; separating them showed only the first earns it.
+#:
+#: The priors stay built and joined, because they cost nothing to carry, they are worth
+#: showing on a board next to a projection, and plan 19's weekly head has not been
+#: measured against them yet. They are simply not regressors.
+SITUATIONAL_PREFIX = "coach_"
+
+#: Rejected on measurement, in both arms. Kept named so the negative result is not
+#: rediscovered -- see SITUATIONAL_PREFIX for the rookie numbers and
+#: VETERAN_SITUATIONAL_REJECTED for the veteran ones.
+COACH_PRIOR_REJECTED: Tuple[str, ...] = ("coach_volume",)
+
+#: The prior column that informs each volume target -- the pool the position is
 #: competing for under this coaching staff. See ``Scripts.usage.scheme``.
-COACH_VOLUME_FOR: Dict[str, str] = {
-    "targets_pg": "coach_team_wr_targets_pg",
-    "carries_pg": "coach_team_rb_carries_pg",
-    "pass_attempts_pg": "coach_team_pass_attempts_pg",
+VOLUME_PRIOR_METRIC: Dict[str, str] = {
+    "targets_pg": "team_wr_targets_pg",
+    "carries_pg": "team_rb_carries_pg",
+    "pass_attempts_pg": "team_pass_attempts_pg",
 }
+
+
+def coach_volume_column(target: str, prefix: Optional[str] = None) -> str:
+    """The prior column for a volume target, under the selected prior.
+
+    Args:
+        target: A :data:`VOLUME_TARGETS` entry.
+        prefix: Override :data:`SITUATIONAL_PREFIX`.
+
+    Returns:
+        str: The column name, or "" when the target has no prior metric.
+    """
+    metric = VOLUME_PRIOR_METRIC.get(target, "")
+    if not metric:
+        return ""
+    return f"{prefix or SITUATIONAL_PREFIX}{metric}"
 
 #: Minimum rows before a volume regression is trusted.
 MIN_FIT_ROWS = 40
@@ -260,7 +302,7 @@ class SeasonUsageModel:
                 if "draft_number" in frame.columns
                 else pl.lit(None, dtype=pl.Float64))
         drafted = pick.is_not_null() & (pick > 0)
-        coach_column = COACH_VOLUME_FOR.get(target or "", "")
+        coach_column = coach_volume_column(target) if target else ""
         return {
             "log_pick": pl.when(drafted).then(pick.log()).otherwise(0.0),
             "undrafted": pl.when(drafted).then(0.0).otherwise(1.0),
@@ -384,7 +426,7 @@ class SeasonUsageModel:
             return (pl.col(name).cast(pl.Float64).fill_null(0.0)
                     if name in frame.columns else pl.lit(0.0))
 
-        coach_column = COACH_VOLUME_FOR.get(target, "")
+        coach_column = coach_volume_column(target)
         return {
             "p1_volume": column(lag1),
             "p2_volume": column(lag2),

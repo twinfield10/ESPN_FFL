@@ -1,5 +1,5 @@
 {
-  "fitted_at": "2026-08-07T13:35:54-04:00",
+  "fitted_at": "2026-08-07T13:50:08-04:00",
   "games_by_position": {
     "QB": 9.072649572649572,
     "RB": 10.405010438413361,
@@ -116,80 +116,74 @@
   "rookie_volume_fits": [
     {
       "coefficients": {
-        "coach_volume": -0.03884131942186192,
-        "is_first_string": 1.500385901646108,
-        "log_pick": -0.39272691238338553,
-        "undrafted": -3.1223271720823407
+        "is_first_string": 1.5022914528598723,
+        "log_pick": -0.3921445888594809,
+        "undrafted": -3.117244784016222
       },
-      "intercept": 4.238719738356756,
+      "intercept": 3.379671652541995,
       "n": 177,
       "position": "QB",
-      "r2": 0.45574905187399106,
+      "r2": 0.4554837735032967,
       "target": "carries_pg"
     },
     {
       "coefficients": {
-        "coach_volume": -1.0203447516269954,
-        "is_first_string": 15.642228248810618,
-        "log_pick": -2.350574454951731,
-        "undrafted": -17.412024603991643
+        "is_first_string": 15.513084681670566,
+        "log_pick": -2.3672301966278915,
+        "undrafted": -17.603943894213522
       },
-      "intercept": 54.509632502310176,
+      "intercept": 19.09424733817932,
       "n": 177,
       "position": "QB",
-      "r2": 0.6413577217704242,
+      "r2": 0.6338547299976435,
       "target": "pass_attempts_pg"
     },
     {
       "coefficients": {
-        "coach_volume": 0.028950201567119797,
-        "is_first_string": 0.8079760068185915,
-        "log_pick": -1.0899046977433213,
-        "undrafted": -6.214453903024602
+        "is_first_string": 0.811628481012094,
+        "log_pick": -1.087430257465023,
+        "undrafted": -6.196679723495468
       },
-      "intercept": 5.8756937929211155,
+      "intercept": 6.43860492653736,
       "n": 451,
       "position": "RB",
-      "r2": 0.5057207576892717,
+      "r2": 0.504879910765315,
       "target": "targets_pg"
     },
     {
       "coefficients": {
-        "coach_volume": -0.17707126595715006,
-        "is_first_string": 3.0949178040511374,
-        "log_pick": -3.378460793188775,
-        "undrafted": -20.096960596881107
+        "is_first_string": 3.0974165085672682,
+        "log_pick": -3.3575393265332254,
+        "undrafted": -19.996883471574492
       },
-      "intercept": 24.861726310530887,
+      "intercept": 20.87754234865768,
       "n": 451,
       "position": "RB",
-      "r2": 0.5170281216145367,
+      "r2": 0.5156694286199228,
       "target": "carries_pg"
     },
     {
       "coefficients": {
-        "coach_volume": 0.013240712720669597,
-        "is_first_string": 1.2078662684137846,
-        "log_pick": -1.3738350197342244,
-        "undrafted": -8.437688193755546
+        "is_first_string": 1.2083239212882242,
+        "log_pick": -1.3732345496321847,
+        "undrafted": -8.432407500643288
       },
-      "intercept": 8.4511792884098,
+      "intercept": 8.710507128323485,
       "n": 798,
       "position": "WR",
-      "r2": 0.5964519569426799,
+      "r2": 0.5963849885246209,
       "target": "targets_pg"
     },
     {
       "coefficients": {
-        "coach_volume": -0.017524304111856414,
-        "is_first_string": 1.3901192457270288,
-        "log_pick": -1.281104528371718,
-        "undrafted": -7.800467108783069
+        "is_first_string": 1.3866472051737726,
+        "log_pick": -1.277539779967269,
+        "undrafted": -7.784849155160322
       },
-      "intercept": 8.332624592333085,
+      "intercept": 7.967436145516645,
       "n": 349,
       "position": "TE",
-      "r2": 0.6441070217388752,
+      "r2": 0.643914825411237,
       "target": "targets_pg"
     }
   ],

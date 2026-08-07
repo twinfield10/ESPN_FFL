@@ -220,3 +220,55 @@ def test_the_built_table_has_no_near_duplicate_coach_names():
     close = [(a, b) for i, a in enumerate(names) for b in names[i + 1:]
              if difflib.SequenceMatcher(None, a, b).ratio() > 0.9]
     assert close == []
+
+
+def test_two_coaches_separated_by_a_line_break_keep_the_first():
+    """Stripping HTML before splitting on <br> removes the separator and welds the
+    names together: a mid-season change produced "John FoxJack Del Rio" as a single
+    coach's name. Caught by cross-checking against nflverse, which has two coaches on
+    record for that season.
+    """
+    assert co.parse_infobox(
+        "| coach = [[John Fox]]<br />[[Jack Del Rio]]")["head_coach"] == "John Fox"
+    assert co.parse_infobox(
+        "| coach = [[Chuck Pagano]]<br>[[Bruce Arians]]")["head_coach"] \
+        == "Chuck Pagano"
+
+
+def test_a_franchise_rename_gets_the_era_appropriate_article():
+    """nflverse keeps WAS across all three Washington names, so load_teams returns
+    "Washington Commanders" for 2010 and that article does not exist."""
+    lookup = {"WAS": "Washington Commanders", "LV": "Las Vegas Raiders"}
+    assert co.team_name("WAS", 2010, lookup) == "Washington Redskins"
+    assert co.team_name("WAS", 2020, lookup) == "Washington Football Team"
+    assert co.team_name("WAS", 2024, lookup) == "Washington Commanders"
+
+
+def test_a_franchise_whose_abbreviation_changed_needs_no_era_map():
+    """nflverse already uses OAK through 2019 and LV after, so load_teams resolves
+    each to the right name on its own."""
+    lookup = {"OAK": "Oakland Raiders", "LV": "Las Vegas Raiders"}
+    assert co.team_name("OAK", 2015, lookup) == "Oakland Raiders"
+    assert co.team_name("LV", 2024, lookup) == "Las Vegas Raiders"
+    assert "OAK" not in co.TEAM_NAME_ERAS
+
+
+def test_coordinator_history_supplements_rather_than_replaces(sources, monkeypatch):
+    """A played season's head coach is a matter of record; only its coordinators are
+    missing, and nflverse has none at any season."""
+    def fake_fetch(titles, verbose=True):
+        return {
+            "2026_Aaa_Ants_season": "| coach = [[Real AAA]]",
+            "2026_Bbb_Bees_season": "| coach = [[Real BBB]]",
+            "2025_Aaa_Ants_season": ("| coach = [[Wrong AAA]]\n"
+                                     "| off_coach = [[Historic OC]]"),
+            "2025_Bbb_Bees_season": "| coach = [[Wrong BBB]]",
+        }
+    monkeypatch.setattr(co, "fetch_many", fake_fetch)
+    out = co.build(current_season=2026, coordinator_history=True, verbose=False)
+    past = out.filter((pl.col("season") == 2025) & (pl.col("team") == "AAA")) \
+        .row(0, named=True)
+    # nflverse's head coach survives; the coordinator is added.
+    assert past["head_coach"] == "Old AAA"
+    assert past["offensive_coordinator"] == "Historic OC"
+    assert past["source"] == "nflverse"

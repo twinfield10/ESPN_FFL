@@ -213,12 +213,70 @@ A third bug was in my own code: deduplicating the snapshot on `gsis_id` before
 filtering to fantasy positions dropped backs and receivers who are also listed as kick
 returners, because `KR` sorts before `RB`.
 
-### Deferred, with reasons
+### Step 5 — the coordinator crawl. Done, and it did not earn a place in the model
 
-- **Wikipedia coordinator crawl.** Worth doing, but it is a ten-minute rate-limited
-  crawl with patchy coverage, and step 2 gets most of the signal without it. Do it
-  when the head-coach features have been measured, so its marginal value can be
-  measured rather than assumed.
+Crawled all 17 seasons: 544 team-seasons, 32 articles found every year, one batched
+request per 20 titles. **Coverage is 49%** — 266 of 544 team-seasons carry an
+`off_coach`, consistently 11 to 18 of 32 a year.
+
+**It does fill the gap it was done for.** Of the six 2026 first-year head coaches,
+four have offensive-coordinator history:
+
+| Team | Head coach | OC history |
+|---|---|---|
+| ARI | Mike LaFleur | Rams 2023, 2024, 2025 |
+| CLE | Todd Monken | Baltimore 2023, 2024, 2025 |
+| LV | Klint Kubiak | New Orleans 2024, Seattle 2025 |
+| BUF | Joe Brady | Buffalo 2024 |
+| BAL | Jesse Minter | none — he is a *defensive* coordinator |
+| MIA | Jeff Hafley | none — likewise |
+
+The two misses are both defensive coaches, so having no OC record is correct rather
+than a coverage failure.
+
+**And coordinators separate more sharply than head coaches.** Over the 3+-season
+population, mean RB target share spans 0.112–0.251 for coordinators with a standard
+deviation of 0.0388, against 0.132–0.263 and 0.0300 for head coaches, on an
+all-team-season deviation of 0.0427. The coordinator is closer to the thing that moves
+usage — as you would expect, and it is nice to see it measured.
+
+**None of which improved the model.** All three priors were tried on the rookie arm
+against a version carrying only the depth-chart feature. Mean within-position Spearman
+across QB/RB/WR/TE:
+
+| Rookie arm | mean ρ |
+|---|---|
+| **depth chart only** | **0.6403** |
+| + offensive-coordinator prior | 0.6367 |
+| + offensive-lead prior (coordinator else head coach) | 0.6366 |
+| + head-coach prior | 0.6353 |
+| *draft capital alone, for reference* | *0.6132* |
+
+**So the whole of the rookie arm's improvement is the depth chart**, and every coach
+prior is a small net loss on top of it — worst at tight end, where the head-coach
+prior costs 0.026. This corrects §Step 4 above, which credited the gain to the depth
+chart and the coach prior together; separating them showed only the first earns it.
+Recorded as `COACH_PRIOR_REJECTED` in `Scripts/usage/season.py`.
+
+Why it fails is worth stating, because it is not that the coach signal is absent —
+§The measurement shows it plainly. It is that **the depth chart already contains it.**
+ESPN's editors set a depth chart knowing the scheme; a back listed first on a
+run-heavy team is exactly the player the coach prior would have flagged. The prior is
+redundant with a more direct measurement of the same thing.
+
+The coordinator data stays built and committed regardless: it costs nothing to carry,
+it is worth showing on a board beside a projection, and [plan 19](19-weekly-usage-model.md)
+has not been measured against it.
+
+**Two free by-products of the crawl.** Wikipedia's head coach agrees with nflverse's
+on **98.0%** of played team-seasons (502 of 512), and after one parsing fix *every*
+remaining disagreement is a season with `coach_changed_midseason` — nflverse reports
+the replacement, the article names the starter. Two correct answers to different
+questions, and a cheap validation of the whole table. The parsing fix was itself found
+this way: stripping HTML before splitting on `<br>` removes the separator and welds
+two names into one, which is how "John FoxJack Del Rio" became a head coach.
+
+### Deferred, with reasons
 - **`load_ftn_charting`** (motion, play action, RPO, backfield count) is the richest
   scheme data and starts only in 2022. Four seasons is thin for a walk-forward that
   trains from 2016. Revisit once it has more history.

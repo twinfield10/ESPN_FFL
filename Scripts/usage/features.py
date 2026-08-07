@@ -511,13 +511,16 @@ def leakage_columns(frame: pl.DataFrame, target_season: int) -> List[str]:
         "prior_team", "team_changed", "is_rookie",
         # Current-season facts a drafter can read off a roster or a depth chart.
         "depth_rank", "is_first_string", "depth_position_group", "depth_team",
-        "head_coach", "prior_head_coach", "coach_seasons", "coach_is_new",
-        "staff_continuity",
+        "head_coach", "prior_head_coach", "coach_is_new", "staff_continuity",
+        # The keys each prior is joined on, which come off the current roster.
+        *sc.PRIOR_KEYS.values(),
     }
     # Coach and team priors are computed from prior seasons only -- the boundary is
     # enforced in Scripts.usage.scheme and tested there -- so they are allowed by
-    # prefix rather than being listed one by one.
-    prior_prefixes = (sc.COACH_PREFIX, sc.TEAM_PREFIX)
+    # prefix rather than listed one by one. Derived from PRIOR_KEYS so adding a fourth
+    # prior does not silently trip this check, which is what adding the coordinator
+    # and offensive-lead priors did.
+    prior_prefixes = tuple(sc.PRIOR_KEYS) + (sc.TEAM_PREFIX,)
     return sorted(
         column for column in frame.columns
         if column not in allowed

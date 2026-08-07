@@ -72,8 +72,29 @@ POSITION_METRICS: Dict[str, List[str]] = {
 #: to be stable -- the 48 coaches with 3+ seasons are the ones whose means separate.
 COACH_SHRINKAGE = 3.0
 
-#: Prefix for a coach-prior column.
+#: Prefix for a head-coach-prior column.
 COACH_PREFIX = "coach_"
+
+#: Prefix for an offensive-coordinator-prior column.
+OC_PREFIX = "oc_"
+
+#: Prefix for the offensive-lead prior -- the coordinator where one is recorded,
+#: the head coach otherwise.
+#:
+#: This is the closest thing to a play-caller that free data supports, and it is a
+#: proxy rather than the fact: nobody publishes who calls plays. It exists because
+#: measured separation on RB target share is *stronger* for coordinators than for head
+#: coaches -- coordinator means span 0.112-0.251 with a standard deviation of 0.0388
+#: against the head coaches' 0.0300, on an all-team-season deviation of 0.0427 -- so
+#: the coordinator is closer to the thing that moves usage, when he is recorded at all.
+LEAD_PREFIX = "lead_"
+
+#: The column each prior is keyed on.
+PRIOR_KEYS: Dict[str, str] = {
+    COACH_PREFIX: "head_coach",
+    OC_PREFIX: "offensive_coordinator",
+    LEAD_PREFIX: "offensive_lead",
+}
 
 #: Prefix for a team's own trailing-profile column.
 TEAM_PREFIX = "team_prior_"
@@ -212,8 +233,29 @@ def league_means(profile: pl.DataFrame,
             if value is not None}
 
 
+def with_offensive_lead(staff: pl.DataFrame) -> pl.DataFrame:
+    """Add ``offensive_lead``: the coordinator where recorded, else the head coach.
+
+    Wikipedia has an offensive coordinator for 49% of team-seasons -- 266 of 544,
+    consistently 11 to 18 of 32 a year -- so a coordinator-only prior would abstain on
+    half the league. Falling back to the head coach keeps coverage complete while
+    using the sharper key where it exists.
+
+    Args:
+        staff: :func:`load_staff` output.
+
+    Returns:
+        pl.DataFrame: ``staff`` plus ``offensive_lead``.
+    """
+    if "offensive_coordinator" not in staff.columns:
+        return staff.with_columns(pl.col("head_coach").alias("offensive_lead"))
+    return staff.with_columns(
+        pl.coalesce("offensive_coordinator", "head_coach").alias("offensive_lead"))
+
+
 def coach_prior(profile: pl.DataFrame, staff: pl.DataFrame, target_season: int,
-                shrinkage: float = COACH_SHRINKAGE) -> pl.DataFrame:
+                shrinkage: float = COACH_SHRINKAGE,
+                prefix: str = COACH_PREFIX) -> pl.DataFrame:
     """Each coach's expected profile, from his seasons before ``target_season``.
 
     ``(n * coach_mean + k * league_mean) / (n + k)`` in seasons observed, the same
@@ -229,37 +271,39 @@ def coach_prior(profile: pl.DataFrame, staff: pl.DataFrame, target_season: int,
         staff: :func:`load_staff` output.
         target_season: The season being predicted.
         shrinkage: Prior seasons at which coach and league weigh equally.
+        prefix: Which prior to build -- a :data:`PRIOR_KEYS` key.
 
     Returns:
-        pl.DataFrame: ``head_coach``, ``coach_seasons`` and one
-        ``coach_<metric>`` column per :data:`PROFILE_METRICS`.
+        pl.DataFrame: The key column, ``<prefix>seasons`` and one
+        ``<prefix><metric>`` column per :data:`PROFILE_METRICS`.
     """
+    key = PRIOR_KEYS[prefix]
+    seasons_column = f"{prefix}seasons"
     history = profile.filter(pl.col("season") < target_season)
     means = league_means(history)
-    if history.is_empty() or not means:
-        return pl.DataFrame(schema={"head_coach": pl.String,
-                                    "coach_seasons": pl.Int32})
+    if history.is_empty() or not means or key not in staff.columns:
+        return pl.DataFrame(schema={key: pl.String, seasons_column: pl.Int32})
 
     joined = history.join(
-        staff.select("season", "team", "head_coach"),
-        on=["season", "team"], how="inner").filter(pl.col("head_coach").is_not_null())
+        staff.select("season", "team", key),
+        on=["season", "team"], how="inner").filter(pl.col(key).is_not_null())
 
     metrics = [m for m in PROFILE_METRICS if m in joined.columns]
-    aggregated = (joined.group_by("head_coach")
-                  .agg(pl.len().cast(pl.Int32).alias("coach_seasons"),
+    aggregated = (joined.group_by(key)
+                  .agg(pl.len().cast(pl.Int32).alias(seasons_column),
                        *[pl.col(m).mean().alias(m) for m in metrics]))
 
     shrunk = [
-        ((pl.col("coach_seasons").cast(pl.Float64) * pl.col(metric).fill_null(
+        ((pl.col(seasons_column).cast(pl.Float64) * pl.col(metric).fill_null(
             means.get(metric, 0.0)) + shrinkage * means.get(metric, 0.0))
-         / (pl.col("coach_seasons").cast(pl.Float64) + shrinkage))
-        .alias(f"{COACH_PREFIX}{metric}")
+         / (pl.col(seasons_column).cast(pl.Float64) + shrinkage))
+        .alias(f"{prefix}{metric}")
         for metric in metrics if metric in means
     ]
     return (aggregated.with_columns(shrunk)
-            .select(["head_coach", "coach_seasons"]
-                    + [f"{COACH_PREFIX}{m}" for m in metrics if m in means])
-            .sort("head_coach"))
+            .select([key, seasons_column]
+                    + [f"{prefix}{m}" for m in metrics if m in means])
+            .sort(key))
 
 
 def team_prior(profile: pl.DataFrame, target_season: int,
@@ -313,12 +357,26 @@ def attach(features: pl.DataFrame, profile: pl.DataFrame, staff: pl.DataFrame,
     previous = staff.filter(pl.col("season") == target_season - 1) \
         .select("team", pl.col("head_coach").alias("prior_head_coach"))
 
-    priors = coach_prior(profile, staff, target_season, shrinkage)
+    staff = with_offensive_lead(staff)
+    current = staff.filter(pl.col("season") == target_season) \
+        .select(["team", "head_coach"]
+                + [c for c in ("offensive_coordinator", "offensive_lead")
+                   if c in staff.columns])
+
     out = (features
            .join(current, on="team", how="left")
            .join(previous, on="team", how="left")
-           .join(priors, on="head_coach", how="left")
            .join(team_prior(profile, target_season), on="team", how="left"))
+
+    # All three priors are joined. Which one the model uses is a measured choice, not
+    # a structural one -- see `SITUATIONAL_PREFIX` in Scripts.usage.season.
+    for prefix, key in PRIOR_KEYS.items():
+        if key not in out.columns:
+            continue
+        priors = coach_prior(profile, staff, target_season, shrinkage, prefix)
+        if priors.is_empty() or key not in priors.columns:
+            continue
+        out = out.join(priors, on=key, how="left")
 
     # A first-year head coach has no row in `priors` at all, so the join leaves his
     # players null. Six of 32 teams were in that position for 2026 -- a fifth of the
@@ -327,14 +385,16 @@ def attach(features: pl.DataFrame, profile: pl.DataFrame, staff: pl.DataFrame,
     # number is a stand-in.
     means = league_means(profile.filter(pl.col("season") < target_season))
     filled = [
-        pl.col(f"{COACH_PREFIX}{metric}").fill_null(value)
+        pl.col(f"{prefix}{metric}").fill_null(value)
+        for prefix in PRIOR_KEYS
         for metric, value in means.items()
-        if f"{COACH_PREFIX}{metric}" in out.columns
+        if f"{prefix}{metric}" in out.columns
     ]
     out = out.with_columns(filled) if filled else out
 
     return out.with_columns(
-        pl.col("coach_seasons").fill_null(0).alias("coach_seasons"),
+        *[pl.col(f"{prefix}seasons").fill_null(0).alias(f"{prefix}seasons")
+          for prefix in PRIOR_KEYS if f"{prefix}seasons" in out.columns],
         (pl.col("coach_seasons").fill_null(0) == 0).alias("coach_is_new"),
         # Named for what it measures. The head coach staying is not the play-caller
         # staying, and no free source resolves the difference -- see the module
