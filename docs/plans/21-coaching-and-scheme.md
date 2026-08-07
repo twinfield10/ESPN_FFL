@@ -282,6 +282,80 @@ questions, and a cheap validation of the whole table. The parsing fix was itself
 this way: stripping HTML before splitting on `<br>` removes the separator and welds
 two names into one, which is how "John FoxJack Del Rio" became a head coach.
 
+### Game script and team strength — measured 2026-08-07, and it goes the same way as the coach prior
+
+The narrative: good teams lead, run to bleed clock, and feed the backfield; bad teams
+trail and throw. Tested against 5,198 team-games 2016–2025, joined to Vegas lines from
+`nflverse/nfldata`.
+
+**The narrative is true, and large — after the fact.**
+
+| realised margin | pass rate | rush attempts |
+|---|---|---|
+| lost by 14+ | 0.632 | 20.7 |
+| lost 4–14 | 0.615 | 23.0 |
+| within 3 | 0.563 | 26.8 |
+| won 4–14 | 0.503 | 30.6 |
+| won by 14+ | 0.477 | 32.9 |
+
+A **12-carry swing** between blowout loss and blowout win; `corr(pass rate, realised
+margin)` = **−0.494**.
+
+**The forecastable slice is much smaller.** Against the *pregame* spread the same
+correlation is **−0.117**, because game outcomes are mostly not knowable in advance.
+By spread bucket, team rush attempts run 24.6 (underdog 7+) to 28.9 (favourite 7+) —
+a 4.3-attempt spread, versus the 12 available with hindsight.
+
+**At season level it aggregates into something real.** `corr(season rush attempts,
+mean pregame spread)` = **+0.332**, monotone across quintiles: 411.7 rush attempts for
+the weakest teams against 465.0 for the strongest, a 53-carry difference.
+
+**And the RB2 hypothesis is right.** The extra volume on a good team goes to the
+backup, not the starter:
+
+| team strength | RB1 carries | RB2 carries | RB2 share |
+|---|---|---|---|
+| weak | 203.9 | 84.0 | 0.244 |
+| average | 213.5 | 96.6 | 0.264 |
+| strong | 213.2 | **103.0** | **0.280** |
+
+RB1 is flat at ~213; RB2 gains **+19 carries**. A strong team's handcuff is worth
+materially more than a weak team's, which is a real draft-board fact.
+
+**It still does not belong in the season head.** The gate is the same one the coach
+prior failed — does it add anything over prior-season volume?
+
+| predicting next-season RB carries (n=622) | R² |
+|---|---|
+| prior carries/game + games | **0.5012** |
+| + next-season team strength | 0.5012 |
+| + change in team strength | 0.5021 |
+| + both | 0.5027 |
+
+**+0.0015.** Two reasons, and the second is the interesting one:
+
+1. Team strength is **61.6% persistent** year over year, so next season's strength is
+   largely already encoded in last season's volume.
+2. **The signal survives at team level and dies at player level.** Predicting a
+   *team's* rush attempts, adding strength moves R² from 0.2012 to **0.2649** — a 32%
+   relative gain, clearly real. Predicting a *player's* carries it vanishes, because
+   player-level variance is dominated by role — who starts, who is hurt, who was
+   drafted over — and a ±30-carry team effect is noise against a 0-to-300 role range.
+
+That second point suggests the one structure where it might pay, untested: **predict
+team volume with strength, then allocate by depth chart**, rather than predicting
+player volume directly from player history. That is a different architecture, not a
+feature, and it should be measured before being believed.
+
+**Where it should go instead is [plan 19](19-weekly-usage-model.md).** Weekly, the
+spread for that specific game is known, the 4.3-attempt swing applies to one game
+rather than being averaged away, and there is no prior-season volume already carrying
+it. The user's instinct that it matters more week to week is what the numbers say.
+
+Worth recording separately: **every 2026 game already has a spread**, all 272 of them,
+in `Data/NFL_Schedules.csv`. Team strength for the season being drafted needs no
+win-totals scrape.
+
 ### Deferred, with reasons
 - **`load_ftn_charting`** (motion, play action, RPO, backfield count) is the richest
   scheme data and starts only in 2022. Four seasons is thin for a walk-forward that

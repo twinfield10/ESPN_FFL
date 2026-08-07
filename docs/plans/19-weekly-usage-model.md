@@ -243,3 +243,25 @@ numbers here.
 - **`E[stat] = P(active) × E[stat|active]` understates variance.** The product of
   two estimates is not a distribution. Floor/ceiling for lineup decisions needs
   the simulation path, not this point estimate.
+
+## Game script is waiting here, measured 2026-08-07
+
+[Plan 21](21-coaching-and-scheme.md#game-script-and-team-strength--measured-2026-08-07-and-it-goes-the-same-way-as-the-coach-prior)
+tested the good-teams-run / bad-teams-throw narrative and rejected it **for the season
+head**, at +0.0015 R-squared over prior-season volume. The reasons it failed there are
+all reasons it should work here:
+
+- The effect is real and large: rush attempts run **20.7 to 32.9** between a blowout
+  loss and a blowout win, `corr(pass rate, realised margin)` = −0.494.
+- Season-level, most of it is already inside prior-season volume, because team
+  strength is 61.6% persistent. **Weekly there is no such carrier** — last season's
+  volume says nothing about whether this week is a 10-point favourite.
+- The predictable slice is a 4.3-attempt swing between a 7+ underdog and a 7+
+  favourite. Averaged over a season that is noise; applied to one game it is a real
+  shift in a start/sit decision.
+- Team strength improves *team* rush-attempt prediction by +0.064 R-squared (0.201 to
+  0.265) and *player* prediction by nothing, because role variance swamps it. A weekly
+  model already conditions on role, so the team-level signal has somewhere to land.
+
+The lines are free: `nflverse/nfldata` carries `spread_line` and `total_line` per game
+back to 1999, and `Data/NFL_Schedules.csv` already holds all 272 of 2026's.
