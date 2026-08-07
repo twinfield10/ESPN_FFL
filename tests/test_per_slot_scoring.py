@@ -343,3 +343,71 @@ def test_true_points_comes_from_the_blend_not_a_hardcoded_average(monkeypatch):
     lb = out[out["primaryPosition"] == "LB"].iloc[0]
     # TRUE_defensiveSacks * base rate, not an average of ESPN and BOL.
     assert lb["TRUE_Points"] == 2.0 * 5.0
+
+
+# --- sparse sources: a missing stat is 0, an absent source is NaN --------
+
+def test_a_stat_the_source_did_not_project_scores_zero_not_nan(monkeypatch):
+    """The season path is sparse, and summing straight through collapsed it.
+
+    A running back has no ``ESPN_passingYards``, and passing yards is a scored
+    rule in all nine leagues, so one NaN cell made ``ESPN_Points`` NaN -- which is
+    why every per-source point column on every stored draft board was NaN for
+    every row, 1,026 of 1,026.
+    """
+    import Scripts.projection_utils as pu
+
+    def fake(league=None, **kw):
+        return pd.DataFrame([
+            {"id": 1, "abbr": "PY", "label": "Pass Yds", "points": 0.04,
+             "source_id": 1, "colName": "passingYards"},
+            {"id": 2, "abbr": "RY", "label": "Rush Yds", "points": 0.1,
+             "source_id": 2, "colName": "rushingYards"},
+        ])
+
+    monkeypatch.setattr(pu, "get_scoring_table", fake)
+    frame = pd.DataFrame({
+        "primaryPosition": ["RB"],
+        "ESPN_passingYards": [float("nan")],
+        "ESPN_rushingYards": [1000.0],
+    })
+    out = pu.proj_to_score(frame, s_league=None, col_pfix_list=["ESPN"])
+    assert out["ESPN_Points"].iloc[0] == pytest.approx(100.0)
+
+
+def test_a_source_with_no_line_at_all_stays_nan(monkeypatch):
+    """NaN, not 0.0 -- a book with no line is not a book projecting zero.
+
+    Guards the failure mode plan 03 documents: an absent source reading as
+    agreement rather than absence.
+    """
+    import Scripts.projection_utils as pu
+
+    def fake(league=None, **kw):
+        return pd.DataFrame([{"id": 1, "abbr": "RY", "label": "Rush Yds",
+                              "points": 0.1, "source_id": 1,
+                              "colName": "rushingYards"}])
+
+    monkeypatch.setattr(pu, "get_scoring_table", fake)
+    frame = pd.DataFrame({
+        "primaryPosition": ["RB", "RB"],
+        "ESPN_rushingYards": [500.0, float("nan")],
+    })
+    out = pu.proj_to_score(frame, s_league=None, col_pfix_list=["ESPN"])
+    assert out["ESPN_Points"].iloc[0] == pytest.approx(50.0)
+    assert pd.isna(out["ESPN_Points"].iloc[1])
+
+
+def test_a_dense_frame_scores_exactly_as_before(monkeypatch):
+    """The weekly path is dense, so the fix must be a no-op there.
+
+    Verified beyond this unit test: recomputing every prefix over all nine
+    leagues' stored 2025 ``lineups.parquet`` gives identical totals before and
+    after, max absolute difference 0.0.
+    """
+    import Scripts.projection_utils as pu
+    _stub_tables(monkeypatch, dst_points=1.0, base_points=5.0)
+    out = pu.proj_to_score(_proj_frame(), s_league=None, col_pfix_list=["ESPN"])
+    assert out.set_index("primaryPosition")["ESPN_Points"].to_dict() == {
+        "WR": 0.0, "LB": 10.0, "D/ST": 3.0,
+    }

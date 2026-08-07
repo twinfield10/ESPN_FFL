@@ -1,8 +1,34 @@
 # 09 — Local frontend: draft views
 
-**Priority:** High (seasonal) · **Effort:** Large · **Status:** Not started
+**Priority:** High (seasonal) · **Effort:** Large · **Status:** **Board done
+2026-08-07**; Live not started; History blocked on roadmap Phase 1
 **Depends on:** [07 (foundation)](07-frontend-foundation.md), and the draft
 phases in [`../STATE_OF_THE_REPO.md`](../STATE_OF_THE_REPO.md#roadmap--draft-strategy)
+
+## Status
+
+**Page 1 of 3 is built** — `app/pages/draft_board.py` over `app/draft_view.py`,
+registered in `app/main.py`. It renders for all nine leagues with no exception, and
+Josh Allen comes out VOR rank **9** in the 10-team superflex against **21** in
+14-team Knights, which is the league-awareness this plan exists for.
+
+Building it turned up three defects in the artifact underneath, all now fixed —
+see the postscript. The short version: **every per-source point column on every
+stored board was NaN for every row**, and `projection_missing` was False for all
+1,026 including the 503 players projected a literal 0.0.
+
+What is still open:
+
+- **Live Draft** (§2) — not started. It is the one page that talks to ESPN in the
+  render path, and the plan's own build order puts it last because it is the most
+  likely to slip.
+- **Draft History** (§3) — blocked. It reads a `draft.parquet` that roadmap Phase 1
+  has not backfilled; `Scripts.store.ARTIFACTS` reserves the key and nothing writes
+  it yet.
+- **Floor/ceiling is half-built.** Source disagreement is in; prior-season variance
+  is not, because it needs per-week 2025 actuals joined per player out of
+  `Data/Store/2025/*/lineups.parquet` — a different data path from anything the
+  board builder touches today.
 
 ## Goal
 
@@ -33,17 +59,40 @@ The pre-draft artifact. One table, heavily filterable:
 | Floor / ceiling | source disagreement + prior-season variance |
 | Injury flag | ESPN |
 
+All of these are on the page. Two carry caveats the page states rather than hides:
+
+- **`Value` is blank for 829 of 1,026** — 84% of the pool the market has not priced,
+  plus K and D/ST, where a season-total VOR does not describe a position you stream.
+- **`Floor`/`Ceil` are measured for 163 of 1,026.** They are the range across the
+  sources that *really* have a line, and a source imputed from the ESPN/FantasyPros
+  mean does not count. Mean width is 11% of the projection. Fewer than two real
+  sources means no spread rather than a spread of zero — otherwise the players
+  nobody has priced would report the *narrowest* range, which is backwards.
+
 Interactions that matter:
 
 - **Sort by value, not by rank.** The board's job is surfacing where your
-  projections disagree with the room.
+  projections disagree with the room. **Done** — it is the default sort, with VOR,
+  projected points, ADP and auction value as alternatives.
 - **Tier bands as the primary visual.** Tier breaks drive draft decisions far
-  more than one-spot rank differences. Colour by tier, and show where each tier
-  runs out.
+  more than one-spot rank differences. ~~Colour by tier~~, and show where each tier
+  runs out. **Done as a tier-runway chart** — available players per tier per
+  position, so "three left in tier 2" is legible at a glance. **Not coloured by
+  tier**, and that is deliberate: tier is an ordinal blue ramp, and eight tiers
+  cannot be stepped down one hue with separable lightness. Squeezing eight steps
+  into the range whose light end still clears the surface leaves adjacent lightness
+  differences of 0.047, which fails the palette validator and the eye alike. Tier
+  went on an axis and position kept the colour, which also means one colour means
+  one thing across both charts on the page.
 - Position filter, and a **roster-need** toggle that filters to slots you
-  haven't filled.
+  haven't filled. **Done.** Dedicated slots fill before flex ones, so a third
+  running back fills the flex rather than displacing a starter. Pre-draft it is a
+  no-op, since every slot is open — the toggle's help text says so.
 - **Scarcity curve** — projected points by position rank, which makes the
   positional cliff visible. This is the single most useful chart on the page.
+  **Done**, running to 1.6× replacement level with each position's replacement rank
+  drawn as a dashed rule. Past that every curve is flat near zero and the cliff —
+  the whole point — is squeezed into the left edge.
 
 **League-awareness is the differentiator.** Replacement level comes from each
 league's real starting slots, so the same player is legitimately ranked
@@ -51,6 +100,21 @@ differently across your nine leagues. The scan found real variety here — 6 to 
 teams, a superflex `OP` slot in Weenieless Wanderers, IDP `DP` in GOP
 Degenerates, no D/ST in 12 Dudes. A generic board from any website cannot do
 this, and it's the whole reason to build one.
+
+Confirmed on the built page. Josh Allen, one player across nine boards:
+
+| League | Teams | QB replacement | VOR | VOR rank |
+|---|---|---|---|---|
+| Weenieless Wanderers (superflex) | 10 | **QB20** | 102.2 | **9** |
+| GOP Degenerates | 16 | QB16 | 87.3 | 20 |
+| Knights FFL | 14 | QB14 | 78.7 | 21 |
+| Winfield Football | 6 | QB6 | 51.3 | 11 |
+
+The superflex `OP` slot pushes quarterback replacement to QB20 and Allen up twelve
+places against Knights. The 6-team league is the other direction and shows why
+team count alone does not explain it: replacement is QB6, so the gap to the next
+quarterback is small and his VOR is the lowest of the nine even though he ranks
+11th there.
 
 ## 2. Live Draft
 
@@ -129,11 +193,58 @@ slip; if it does, the board on a second monitor still works.
 
 ## Verification
 
-- Replacement ranks hand-check for a standard 12-team league (RB ≈ RB30 with
-  flex) and differ correctly for the superflex and IDP leagues.
-- The same player ranks differently across leagues, for the right reason.
-- Board renders for all nine leagues, including the one with no D/ST.
+- ~~Replacement ranks hand-check for a standard 12-team league (RB ≈ RB30 with
+  flex) and differ correctly for the superflex and IDP leagues.~~ **Done.** The
+  three 12-team leagues come out **RB31**/WR29 with the flex. The superflex is
+  QB20; the IDP league is LB15 with CB1, and the 6-team league RB17.
+- ~~The same player ranks differently across leagues, for the right reason.~~
+  **Done** — the Josh Allen table in §1.
+- ~~Board renders for all nine leagues, including the one with no D/ST.~~ **Done**,
+  driven headless through `streamlit.testing.v1.AppTest`, nine of nine with no
+  exception. 12 Dudes one Cup's replacement list correctly has no D/ST entry, and
+  its 32 team defences are flagged unstartable and hidden by default.
+- Screenshotted in both themes and the rendered stroke colours read back out of the
+  DOM: `#2a78d6/#eb6834/#1baf7a/#eda100` light, `#3987e5/#d95926/#199e70/#c98500`
+  dark. Both palettes pass the colour-blind-separation and lightness-band checks;
+  the light one's sub-3:1 slots are relieved by the direct labels and the table.
 - Live page dry-run against a replayed 2025 draft keeps its available-player set
-  in sync throughout.
+  in sync throughout. — **open, with Live**
 - Kill the network mid-poll: stale banner appears, board still renders, manual
-  mark-drafted still works.
+  mark-drafted still works. — **open, with Live**
+
+## Postscript: three defects in the artifact, found by building the page
+
+None of these were visible from the board builder's own output. Each surfaced from
+asking the page a question the summary line never had to answer.
+
+**1. Every per-source point column was NaN, on every board, for every row.**
+`_apply_scoring` summed a prefix's scored stat columns straight through, so one NaN
+cell made the total NaN. The weekly path never noticed because `clean_lineups`
+imputes and 0-fills before scoring; the season path is sparse — a running back has
+no `ESPN_passingYards`, and passing yards is a scored rule in all nine leagues. So
+`ESPN_Points`, `FP_Points`, `PINNY_Points` and `BOL_Points` were NaN 1,026 of 1,026
+in every league, and `season_projections.main` had been printing three empty columns.
+A missing stat now scores 0 while a source with no scored cell at all stays NaN,
+which is the distinction plan 03 cares about: a book with no line is not a book
+projecting zero. Verified behaviour-preserving on the weekly path by recomputing
+every prefix over all nine leagues' stored 2025 `lineups.parquet` — max absolute
+difference **0.0**.
+
+**2. `projection_missing` never fired.** It was `board[points_column].isna()`, and
+the blend 0-fills, so it was False for all 1,026 rows in every league — including
+**503 players whose projection is a literal 0.0**, two of whom the market has even
+priced. It now means "no source produced a scored line", which only became
+computable once (1) was fixed. `board_summary` had the same blind spot and had been
+reporting "1026 projected"; it now says 523.
+
+**3. A structural zero counted as a source opinion.** First cut of the floor/ceiling
+spread let FantasyPros count as real for Cameron Dicker on the strength of twelve
+non-imputed `0.0` cells — a kicker has no passing yards, and nobody imputed that or
+asserted it. His floor and ceiling came back exactly equal to ESPN's total: a spread
+of zero, reported as measured agreement. Zeros no longer count, and kickers dropped
+out of the spread population entirely, which is the honest answer for a position no
+source prices.
+
+The pattern in all three is the same one this repo keeps meeting: **a 0.0 that means
+"nothing here" is indistinguishable from a 0.0 that means "zero", and every summary
+count built on `notna()` reads the first as the second.**

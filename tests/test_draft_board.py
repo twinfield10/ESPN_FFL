@@ -342,3 +342,97 @@ def test_board_requires_a_player_id_to_join_on(pool):
     with pytest.raises(KeyError, match="player_id"):
         bd.build_board(league, pool.drop(columns=["player_id"]), _market_for(pool),
                        crosswalk_warn_below=None)
+
+
+# --- bye weeks -----------------------------------------------------------
+
+def _schedule(season=2026, weeks=18, teams=("AAA", "BBB", "LA", "WAS")):
+    """A schedule where every team plays every week except one."""
+    import polars as pl
+    rows = []
+    for week in range(1, weeks + 1):
+        for i in range(0, len(teams), 2):
+            home, away = teams[i], teams[i + 1]
+            # AAA/BBB sit out week 5, LA/WAS week 9.
+            if week == (5 if i == 0 else 9):
+                continue
+            rows.append({"season": season, "week": week,
+                         "home_team": home, "away_team": away})
+    return pl.DataFrame(rows)
+
+
+def test_bye_is_derived_as_the_week_a_team_does_not_appear(monkeypatch):
+    monkeypatch.setattr(bd, "load_schedule", lambda: _schedule())
+    byes = bd.bye_weeks(2026)
+    assert byes["AAA"] == 5 and byes["BBB"] == 5
+    assert byes["LA"] == 9 and byes["WAS"] == 9
+
+
+def test_espn_spellings_are_aliased_onto_the_schedules(monkeypatch):
+    """ESPN says LAR and WSH; the schedule says LA and WAS."""
+    monkeypatch.setattr(bd, "load_schedule", lambda: _schedule())
+    byes = bd.bye_weeks(2026)
+    assert byes["LAR"] == byes["LA"]
+    assert byes["WSH"] == byes["WAS"]
+
+
+def test_a_schedule_for_another_season_yields_no_byes(monkeypatch):
+    """Better an absent bye than another season's, on a draft board."""
+    monkeypatch.setattr(bd, "load_schedule", lambda: _schedule(season=2025))
+    with pytest.warns(bd.DraftBoardWarning, match="not 2026"):
+        assert bd.bye_weeks(2026) == {}
+
+
+def test_a_partial_schedule_yields_no_bye_for_that_team(monkeypatch):
+    """Two missing weeks is an incomplete pull, not two byes."""
+    import polars as pl
+    sched = _schedule().filter(~((pl.col("home_team") == "AAA") &
+                                (pl.col("week") == 12)))
+    monkeypatch.setattr(bd, "load_schedule", lambda: sched)
+    byes = bd.bye_weeks(2026)
+    assert "AAA" not in byes and "BBB" not in byes
+
+
+def test_board_carries_a_bye_week_column(pool, monkeypatch):
+    monkeypatch.setattr(bd, "load_schedule", lambda: _schedule())
+    league = _League(12, {"QB": 1, "RB": 2, "WR": 2, "TE": 1})
+    projections = pool.copy()
+    projections["pro_team"] = ["AAA"] * len(projections)
+    board = bd.build_board(league, projections, _market_for(pool),
+                           crosswalk_warn_below=None, season=2026)
+    assert (board["bye_week"] == 5).all()
+
+
+def test_a_board_without_pro_team_still_builds(pool, monkeypatch):
+    """The bye join is a nicety; a board is still a board without it."""
+    monkeypatch.setattr(bd, "load_schedule", lambda: _schedule())
+    league = _League(12, {"QB": 1, "RB": 2, "WR": 2, "TE": 1})
+    board = bd.build_board(league, pool, _market_for(pool),
+                           crosswalk_warn_below=None, season=2026)
+    assert board["bye_week"].isna().all()
+
+
+# --- projection_missing --------------------------------------------------
+
+def test_projection_missing_catches_a_zero_projection(pool):
+    """It used to be `TRUE_Points.isna()`, which the 0-filling blend never trips.
+
+    Measured on the live 2026 boards: False for all 1,026 rows in every league,
+    including 504 players projected a literal 0.0, two of them priced by the
+    market.
+    """
+    league = _League(12, {"QB": 1, "RB": 2, "WR": 2, "TE": 1})
+    projections = pool.copy()
+    # A player no source has a line for: the blend 0-fills, so TRUE_Points is
+    # 0.0 rather than null, and every source's scored total is NaN.
+    projections.loc[0, "TRUE_Points"] = 0.0
+    for prefix in bd.OPINION_PREFIXES:
+        projections[f"{prefix}_Points"] = 50.0
+        projections.loc[0, f"{prefix}_Points"] = float("nan")
+
+    board = bd.build_board(league, projections, _market_for(pool),
+                           crosswalk_warn_below=None)
+    flagged = board.loc[board["player_id"] == pool.loc[0, "player_id"],
+                        "projection_missing"]
+    assert bool(flagged.iloc[0])
+    assert int(board["projection_missing"].sum()) == 1

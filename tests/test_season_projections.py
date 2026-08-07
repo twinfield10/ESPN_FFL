@@ -273,3 +273,86 @@ def test_unshared_names_are_untouched():
     })
     out = sp._disambiguate_name_keys(base)
     assert out["join_key"].tolist() == ["a", "b"]
+
+
+# --- floor / ceiling from source disagreement ----------------------------
+
+def _spread_frame(**overrides):
+    """Two sources with real lines, one imputed, one absent."""
+    frame = pd.DataFrame({
+        "ESPN_rushingYards": [1000.0],
+        "FP_rushingYards": [1200.0],
+        "PINNY_rushingYards": [1100.0],
+        "BOL_rushingYards": [float("nan")],
+        "FP_rushingYards_is_imputed": [False],
+        "PINNY_rushingYards_is_imputed": [True],
+        "BOL_rushingYards_is_imputed": [True],
+        "ESPN_Points": [100.0],
+        "FP_Points": [120.0],
+        "PINNY_Points": [110.0],
+        "BOL_Points": [float("nan")],
+    })
+    for column, value in overrides.items():
+        frame[column] = value
+    return frame
+
+
+def test_spread_ignores_a_source_whose_line_is_imputed():
+    """Pinnacle's 110 is the ESPN/FP mean wearing a book's name, not an opinion.
+
+    Counting it would report a *narrower* range for the players nobody has
+    priced, which is backwards -- an unpriced player is the uncertain one.
+    """
+    out = sp.attach_source_spread(_spread_frame(), ["rushingYards"])
+    assert out["sources_real"].iloc[0] == 2          # ESPN and FantasyPros
+    assert out["floor"].iloc[0] == pytest.approx(100.0)
+    assert out["ceiling"].iloc[0] == pytest.approx(120.0)
+
+
+def test_one_real_source_is_not_a_confidence_interval():
+    frame = _spread_frame(FP_rushingYards_is_imputed=[True])
+    out = sp.attach_source_spread(frame, ["rushingYards"])
+    assert out["sources_real"].iloc[0] == 1
+    assert pd.isna(out["floor"].iloc[0])
+    assert pd.isna(out["ceiling"].iloc[0])
+
+
+def test_an_unscored_stat_cannot_widen_the_spread():
+    """Only the scoring table's columns count -- an unscored stat is free."""
+    frame = _spread_frame()
+    frame["BOL_someUnscoredStat"] = 999.0
+    out = sp.attach_source_spread(frame, ["rushingYards"])
+    assert out["sources_real"].iloc[0] == 2
+
+
+def test_the_blend_is_bracketed_by_the_spread():
+    frame = _spread_frame()
+    frame["TRUE_Points"] = [110.0]
+    out = sp.attach_source_spread(frame, ["rushingYards"])
+    row = out.iloc[0]
+    assert row["floor"] <= row["TRUE_Points"] <= row["ceiling"]
+
+
+def test_mean_is_not_treated_as_an_opinion():
+    """MEAN_ is the ESPN/FP average, so it cannot disagree with them."""
+    assert "MEAN" not in sp.OPINION_PREFIXES
+    assert "TRUE" not in sp.OPINION_PREFIXES
+
+
+def test_a_structural_zero_is_not_an_opinion():
+    """A kicker's `FP_passingYards` is 0.0 and unflagged: nobody imputed it and
+    nobody asserted it. Counting it made FantasyPros a real source for Cameron
+    Dicker on twelve zeros, and reported floor == ceiling as measured agreement.
+    """
+    frame = pd.DataFrame({
+        "ESPN_madeExtraPoints": [40.0],
+        "FP_madeExtraPoints": [float("nan")],
+        "FP_passingYards": [0.0],
+        "ESPN_passingYards": [float("nan")],
+        "FP_passingYards_is_imputed": [False],
+        "ESPN_Points": [160.0],
+        "FP_Points": [160.0],
+    })
+    out = sp.attach_source_spread(frame, ["madeExtraPoints", "passingYards"])
+    assert out["sources_real"].iloc[0] == 1     # ESPN only
+    assert pd.isna(out["floor"].iloc[0])

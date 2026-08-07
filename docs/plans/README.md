@@ -36,11 +36,20 @@ foundation blocks the other two and they have different dependencies.
 |---|---|---|---|---|
 | 07 | [Frontend foundation & data store](07-frontend-foundation.md) | ~~High~~ **Done** | M | — |
 | 08 | [Week-to-week views](08-frontend-weekly-views.md) | High | M | ~~07~~ — unblocked |
-| 09 | [Draft views](09-frontend-draft-views.md) | **High (seasonal)** | L | ~~07~~ + ~~15~~ — unblocked |
+| 09 | [Draft views](09-frontend-draft-views.md) | **Board done** · Live High (seasonal) | L | ~~07~~ + ~~15~~ — unblocked |
 
 Plan 07 is **done**. The store exists at `Data/Store/<season>/<league_key>/`,
 `python -m Scripts.refresh` builds it, and `streamlit run app/main.py` reads it.
 Both view plans are unblocked.
+
+**Plan 09's draft board page landed 2026-08-07** — `app/pages/draft_board.py` over
+`app/draft_view.py`: scarcity curve, tier runway, value-on-the-board, and the full
+filterable table sorted by value rather than rank. Renders for all nine leagues.
+Its two remaining pages are **Live Draft** (not started, the one page that polls
+ESPN in the render path) and **Draft History** (blocked on roadmap Phase 1's
+backfill). Building it found three defects in `board.parquet` itself, all fixed —
+including **every per-source point column being NaN on every board** — see the
+plan's postscript.
 
 The measured gap that justified it: ~8s per league to rebuild pre-season, rising
 toward 22.9s with a full season of box scores, against 11ms to read the frame
@@ -66,10 +75,13 @@ published leagues belong to other owners.
 ## Suggested order
 
 **Before the draft:** ~~01~~ → ~~10~~ → ~~11~~ → ~~05 (espn-api only)~~ →
-~~02~~ → ~~07~~ → ~~15~~ → **09**. All the numbers the draft board is built on are
-done, and the board itself now exists at
-`Data/Store/<season>/<league>/board.parquet`. **09 is next** — the UI over it, and
-the last draft-critical piece.
+~~02~~ → ~~07~~ → ~~15~~ → ~~**09 board**~~ → **09 Live**. All the numbers the
+draft board is built on are done, the board itself exists at
+`Data/Store/<season>/<league>/board.parquet`, and **the page over it is built** —
+so there is a usable draft-day artifact today. What is left before the draft is
+[09's Live page](09-frontend-draft-views.md#2-live-draft), which is upside rather
+than a blocker: the board on a second monitor works without it, which is the
+plan's own build-order argument.
 
 Note on 11, now done: it turned out to matter beyond GOP. The per-slot fix
 also stopped offensive players in *every* league being credited for imputed

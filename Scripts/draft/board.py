@@ -21,6 +21,13 @@ from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 
+from Scripts.nfl_utils import load_schedule
+from Scripts.paths import NFL_SCHEDULE_CSV
+from Scripts.season_projections import OPINION_PREFIXES
+
+#: ESPN's team abbreviations that differ from the schedule's, ESPN spelling first.
+ESPN_TEAM_ALIASES: Dict[str, str] = {"LAR": "LA", "WSH": "WAS"}
+
 #: Flex slots and the positions that may fill them. ESPN's ``OP`` is "offensive
 #: player" -- a superflex that accepts a quarterback, which is what makes
 #: Weenieless Wanderers value QBs completely differently from every other league.
@@ -261,6 +268,57 @@ def adp_plateau(adp: pd.Series, min_share: float = ADP_PLATEAU_MIN_SHARE) -> Opt
     return value - 1.0
 
 
+def bye_weeks(season: int) -> Dict[str, int]:
+    """Each team's bye week, from the NFL schedule.
+
+    A bye is an absence, so it is derived rather than read: the week in the
+    season's range where a team appears in neither the home nor the away column.
+
+    ESPN and nflverse disagree on two abbreviations -- ESPN says ``LAR`` and
+    ``WSH`` where the schedule says ``LA`` and ``WAS`` -- so both spellings are
+    returned and the caller can map either.
+
+    Args:
+        season: Season year. The schedule CSV holds one season at a time, and a
+            mismatch returns ``{}`` rather than another season's byes.
+
+    Returns:
+        dict: ``{team_abbr: bye_week}``. Empty when the schedule is missing, is
+        for a different season, or is mid-release with no clean single bye.
+    """
+    try:
+        schedule = load_schedule()
+    except FileNotFoundError as e:
+        _warn(f"no NFL schedule, so the board carries no bye weeks ({e}).")
+        return {}
+
+    seasons = schedule["season"].unique().to_list()
+    if seasons != [season]:
+        _warn(f"{NFL_SCHEDULE_CSV.name} covers {seasons}, not {season}, so the "
+              f"board carries no bye weeks. Re-run `Rscript R/GetNFL.R {season}`.")
+        return {}
+
+    all_weeks = set(schedule["week"].unique().to_list())
+    played = {}
+    for column in ("home_team", "away_team"):
+        for team, weeks in schedule.group_by(column).agg("week").iter_rows():
+            played.setdefault(team, set()).update(weeks)
+
+    byes = {}
+    for team, weeks in played.items():
+        missing = sorted(all_weeks - weeks)
+        # Exactly one missing week is a bye. Anything else means the schedule is
+        # partial, and guessing would put a wrong bye on a draft board.
+        if len(missing) == 1:
+            byes[team] = missing[0]
+
+    # ESPN's spellings, so a caller can map straight off pro_team.
+    for espn_abbr, schedule_abbr in ESPN_TEAM_ALIASES.items():
+        if schedule_abbr in byes:
+            byes[espn_abbr] = byes[schedule_abbr]
+    return byes
+
+
 def assign_tiers(points: pd.Series) -> pd.Series:
     """Cluster one position's projected points into tiers.
 
@@ -308,6 +366,7 @@ def build_board(
     market: pd.DataFrame,
     points_column: str = "TRUE_Points",
     crosswalk_warn_below: Optional[float] = 60.0,
+    season: Optional[int] = None,
 ) -> pd.DataFrame:
     """Assemble one league's draft board.
 
@@ -321,13 +380,15 @@ def build_board(
         crosswalk_warn_below: Warn when fewer than this percentage of players
             resolve to a play-by-play id. None disables the check -- appropriate
             when the frame's ids are synthetic.
+        season: Season year, for the bye-week join. Defaults to ``league.year``;
+            without either, ``bye_week`` is NaN.
 
     Returns:
         pd.DataFrame: One row per player, sorted by ``vor`` descending, with
         ``vor``, ``vor_rank``, ``pos_rank``, ``tier``, ``adp``, ``adp_rank``,
-        ``value``, ``adp_is_priced``, ``replacement_rank`` and the market columns.
-        ``value`` is NaN wherever the market has not priced the player -- see
-        :func:`adp_plateau`.
+        ``value``, ``adp_is_priced``, ``replacement_rank``, ``bye_week`` and the
+        market columns. ``value`` is NaN wherever the market has not priced the
+        player -- see :func:`adp_plateau`.
 
     Raises:
         KeyError: If ``projections`` lacks ``player_id`` or ``points_column``.
@@ -340,6 +401,8 @@ def build_board(
                 f"build_season_projections(market=...)."
             )
 
+    if season is None:
+        season = getattr(league, "year", None)
     teams = len(getattr(league, "teams", []) or [])
     slots = starting_slots(league)
     replacement = replacement_ranks(slots, teams, projections, points_column)
@@ -413,7 +476,31 @@ def build_board(
         _warn(f"no player-id crosswalk, so the board carries no play-by-play join "
               f"key ({e}). Generate it with `Rscript R/GetPlayerIDs.R`.")
 
-    board["projection_missing"] = board[points_column].isna()
+    # "No source produced a scored line", not "the blend is null". The blend
+    # 0-fills, so the old `board[points_column].isna()` was False for all 1,026
+    # rows in every league -- including the 503 whose projection is a literal 0.0,
+    # two of which the market has even priced. The signal only became computable
+    # once `_apply_scoring` stopped collapsing a sparse source to NaN.
+    #
+    # Distinct from `sources_real`, which counts sources with a *non-imputed*
+    # line: a player whose only line is imputed from the ESPN/FP mean does have a
+    # projection, it is just derived.
+    opinion_points = [f"{prefix}_Points" for prefix in OPINION_PREFIXES
+                      if f"{prefix}_Points" in board.columns]
+    board["projection_missing"] = (
+        board[opinion_points].isna().all(axis=1) if opinion_points
+        else board[points_column].isna()
+    ) | board[points_column].isna()
+
+    # A bye week is draft-relevant: two starters sharing one is a real cost, and
+    # nothing else on the board carries it. Attached here rather than in the app so
+    # a page render stays a parquet read.
+    byes = bye_weeks(season) if season is not None else {}
+    board["bye_week"] = (
+        board["pro_team"].map(byes)
+        if byes and "pro_team" in board.columns
+        else pd.Series(np.nan, index=board.index)
+    )
 
     # A position with no starting slot is undraftable here -- 32 team defences on
     # 12 Dudes one Cup's board, which has no D/ST slot. They are kept rather than
@@ -483,7 +570,12 @@ def board_summary(board: pd.DataFrame, points_column: str = "TRUE_Points") -> st
     """
     if board.empty:
         return "0 players"
-    with_projection = int(board[points_column].notna().sum())
+    # notna() would say 1026 of 1026 in every league, because the blend 0-fills.
+    # See `projection_missing` in build_board.
+    if "projection_missing" in board.columns:
+        with_projection = int((~board["projection_missing"]).sum())
+    else:
+        with_projection = int(board[points_column].notna().sum())
     priced = int(board["adp_is_priced"].sum()) if "adp_is_priced" in board else 0
     replacement = (
         board.dropna(subset=["replacement_rank"])

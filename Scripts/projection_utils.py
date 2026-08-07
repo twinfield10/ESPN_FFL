@@ -703,6 +703,25 @@ DST_POSITIONS = ['D/ST']
 def _apply_scoring(df, s_df, col_pfix_list):
     """Sum each prefix's stat columns into a ``<prefix>_Points`` column.
 
+    **A stat the source did not project scores 0, but a source that projected
+    nothing at all scores NaN.** The distinction matters and the first version of
+    this function did not make it: it summed straight through, so a single NaN
+    cell made the whole total NaN. The weekly path never noticed because
+    ``clean_lineups`` imputes and 0-fills every source before scoring. The season
+    path is sparse -- a running back has no ``ESPN_passingYards`` -- and passing
+    yards is a scored rule in all nine leagues, so **every per-source
+    ``*_Points`` column on every stored draft board was NaN for every row**,
+    1026 of 1026. Only ``TRUE_Points`` survived, because the blend is dense.
+
+    The NaN for a wholly absent source is deliberate rather than 0.0: this repo's
+    recurring failure mode is an absent source reading as agreement (see
+    ``docs/plans/03-projection-source-coverage.md``), and a book with no line is
+    not a book projecting zero points.
+
+    A NaN ``points`` value still poisons the total, which is intended -- an
+    unrecognised scoring rule should be loud, not silently worth nothing. See
+    ``docs/plans/01-scoring-coverage.md``.
+
     Args:
         df: Projection frame. Modified in place.
         s_df: Scoring table with ``colName`` and ``points``.
@@ -715,11 +734,15 @@ def _apply_scoring(df, s_df, col_pfix_list):
         # Accumulate into one Series and assign once, rather than += onto the
         # frame per rule, which fragments a 350-column block.
         total = pd.Series(0.0, index=df.index)
+        scored_any = pd.Series(False, index=df.index)
         for _, score_row in s_df.iterrows():
             col_name = f"{col_pfix}_{score_row['colName']}"
-            if col_name in df.columns:
-                total = total + df[col_name] * score_row['points']
-        df[f'{col_pfix}_Points'] = total
+            if col_name not in df.columns:
+                continue
+            values = df[col_name]
+            total = total + values.fillna(0) * score_row['points']
+            scored_any = scored_any | values.notna()
+        df[f'{col_pfix}_Points'] = total.where(scored_any)
     return df
 
 

@@ -529,6 +529,91 @@ def load_pinnacle_season(season: int) -> pd.DataFrame:
     return _pivot_props(df, "PINNY")
 
 
+#: The sources that hold an independent opinion, for the floor/ceiling spread.
+#:
+#: ``MEAN`` is excluded because it is not an opinion -- it is the ESPN/FantasyPros
+#: average, and including it would pull the spread toward the middle of two sources
+#: already in the set. ``TRUE`` is excluded because it is the blend being bracketed.
+OPINION_PREFIXES = ("ESPN", "FP", "PINNY", "BOL")
+
+
+def attach_source_spread(df: pd.DataFrame, stats: List[str],
+                         prefixes: tuple = OPINION_PREFIXES) -> pd.DataFrame:
+    """Bracket the blend with the range of the sources that really have a line.
+
+    Plan 09 asks the draft board for a floor and a ceiling. The honest version of
+    that is how far the sources disagree -- but only the sources that *have* an
+    opinion. The blend imputes a missing book from the ESPN/FantasyPros mean, so
+    taking a naive min/max across four columns would report a **narrow** range for
+    exactly the players nobody has priced, which is backwards: an unpriced player
+    is the uncertain one. This is the same trap
+    ``docs/plans/03-projection-source-coverage.md`` documents for the weights.
+
+    So a source counts for a player only when it contributed at least one real,
+    non-imputed cell to a scored stat. Fewer than two such sources means there is
+    no disagreement to measure and ``floor``/``ceiling`` are NaN rather than equal
+    to the projection -- a single source is not a confidence interval.
+
+    Prior-season variance, the other half of plan 09's floor/ceiling, is **not**
+    included: it needs per-week 2025 actuals joined per player, which is a
+    different data path (``Data/Store/2025/*/lineups.parquet``) and is recorded as
+    outstanding in the plan.
+
+    Args:
+        df: Frame carrying ``<prefix>_<stat>`` columns, their ``_is_imputed``
+            flags, and the ``<prefix>_Points`` columns ``proj_to_score`` writes.
+        stats: Scored stat names -- the scoring table's ``colName`` values. Only
+            these matter, because an unscored stat cannot move a point total.
+        prefixes: Sources to compare.
+
+    Returns:
+        pd.DataFrame: ``df`` with ``sources_real``, ``floor`` and ``ceiling``.
+    """
+    real_points = {}
+    for prefix in prefixes:
+        points_col = f"{prefix}_Points"
+        if points_col not in df.columns:
+            continue
+
+        # A scored cell this source really supplied. ESPN carries no imputation
+        # flags -- it is the source everything else is imputed *from*.
+        #
+        # A zero does not count. The frame is dense with structural zeros -- a
+        # kicker's ``FP_passingYards`` is 0.0 and unflagged, because nobody imputed
+        # it and nobody asserted it either. Counting those made FantasyPros a
+        # "real" source for Cameron Dicker on the strength of twelve zeros, and his
+        # floor and ceiling came back exactly equal to ESPN's total: a spread of
+        # zero reported as measured agreement. That is the same mistake this
+        # function exists to avoid, one level down.
+        contributed = pd.Series(False, index=df.index)
+        for stat in stats:
+            stat_col = f"{prefix}_{stat}"
+            if stat_col not in df.columns:
+                continue
+            has_value = df[stat_col].notna() & (df[stat_col] != 0)
+            imputed_col = f"{stat_col}_is_imputed"
+            if imputed_col in df.columns:
+                has_value &= ~df[imputed_col].fillna(False).astype(bool)
+            contributed |= has_value
+
+        real_points[prefix] = df[points_col].where(contributed)
+
+    if not real_points:
+        df["sources_real"] = 0
+        df["floor"] = float("nan")
+        df["ceiling"] = float("nan")
+        return df
+
+    opinions = pd.DataFrame(real_points, index=df.index)
+    counts = opinions.notna().sum(axis=1)
+    comparable = counts >= 2
+
+    df["sources_real"] = counts
+    df["floor"] = opinions.min(axis=1).where(comparable)
+    df["ceiling"] = opinions.max(axis=1).where(comparable)
+    return df
+
+
 def build_season_projections(league, season: Optional[int] = None,
                              weights: Optional[Dict] = None,
                              market: Optional[pd.DataFrame] = None) -> pd.DataFrame:
@@ -613,6 +698,9 @@ def build_season_projections(league, season: Optional[int] = None,
     # individual defenders too -- so linebackers, whose points are almost entirely
     # tackles, projected near zero and LB replacement level came out at LB1.
     final = proj_to_score(proj_df=final, s_league=league)
+
+    # Floor/ceiling from how much the sources that really have a line disagree.
+    final = attach_source_spread(final, stats)
 
     final = final.sort_values("TRUE_Points", ascending=False).reset_index(drop=True)
     final["TRUE_PosRank"] = final.groupby("primaryPosition")["TRUE_Points"].rank(

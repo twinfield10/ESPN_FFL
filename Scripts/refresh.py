@@ -125,7 +125,7 @@ def refresh_league(
 
         projections = build_season_projections(_league(), season=season,
                                                market=market)
-        board = build_board(_league(), projections, market)
+        board = build_board(_league(), projections, market, season=season)
         timings["board"] = time.time() - start
         _log(f"  board       {board_summary(board)}")
         _log(f"  board       {board.shape[0]:>6} rows x {board.shape[1]:>4} cols "

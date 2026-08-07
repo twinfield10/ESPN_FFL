@@ -1,8 +1,9 @@
 # State of the Repo
 
-**Last updated:** 2026-08-06, preparing for the 2026 season. Plans 07 (local data
+**Last updated:** 2026-08-07, preparing for the 2026 season. Plans 07 (local data
 store + app), 14 (Sheets reads the store) and 15 (draft boards) landed on the 5th;
-plan 16's data layer and its go/no-go gates on the 6th.
+plan 16's data layer and its go/no-go gates on the 6th; plan 09's draft board page
+on the 7th.
 
 A standing assessment of what works, what is broken, and what to do next. Update
 it as things change — particularly the *Known issues* table, which is the part
@@ -23,11 +24,13 @@ and now a local data store with a Streamlit app reading it.
 Two things were true at the start of this cycle, and one of them is now fixed:
 
 1. ~~**Nothing was set up for 2026.**~~ Addressed — see *2026 readiness* below.
-2. ~~**There is no draft capability.**~~ Partly addressed. The only draft file was
-   dead code copied from another project; it is deleted, and `Scripts/draft/`
-   now builds a league-aware board (roadmap Phase 3,
-   [plan 15](plans/15-draft-board.md)). What remains is the **UI** over it
-   ([plan 09](plans/09-frontend-draft-views.md)) and draft history (Phase 1).
+2. ~~**There is no draft capability.**~~ Largely addressed. The only draft file was
+   dead code copied from another project; it is deleted, `Scripts/draft/`
+   builds a league-aware board (roadmap Phase 3,
+   [plan 15](plans/15-draft-board.md)), and **the draft board page is now built on
+   top of it** ([plan 09](plans/09-frontend-draft-views.md)). There is a usable
+   draft-day artifact today. What remains is the **live draft page** and **draft
+   history** (Phase 1's backfill).
 
 One new problem surfaced during the rollover: **BetOnline's weekly props API now
 blocks the scraper.** That removes one of four projection sources. Details
@@ -141,6 +144,32 @@ Fixed this cycle:
   That reorders the work: availability features first
   ([plan 16](plans/16-usage-data-layer.md#step-0--the-gates-measured-2026-08-06)).
 
+- **The draft board has a page, and building it fixed three things underneath it.**
+  `app/pages/draft_board.py` reads `board.parquet` and nothing else: the scarcity
+  curve out to 1.6× replacement level with each position's replacement rank drawn
+  in, a tier-runway chart answering "how many are left in tier 2", value-on-the-board,
+  and the full table sorted by **value rather than rank**. Renders for all nine
+  leagues, verified headless. Josh Allen is VOR rank **9** in the 10-team superflex
+  against **21** in 14-team Knights, because the `OP` slot pushes quarterback
+  replacement to QB20 ([plan 09](plans/09-frontend-draft-views.md)).
+
+  The three defects it surfaced, none of them visible from the builder's own output:
+  **(1)** `_apply_scoring` propagated NaN, so `ESPN_Points`/`FP_Points`/
+  `PINNY_Points`/`BOL_Points` were NaN **1,026 of 1,026 rows on every board in every
+  league** — a running back has no `ESPN_passingYards` and passing yards is a scored
+  rule everywhere. The weekly path was unaffected because it 0-fills first, proved by
+  recomputing every prefix over all nine 2025 `lineups.parquet` at max difference
+  0.0. **(2)** `projection_missing` was `TRUE_Points.isna()`, which the 0-filling
+  blend never trips: False for all 1,026 including 503 players projected a literal
+  0.0, and `board_summary` had been claiming "1026 projected" where the honest number
+  is 523. **(3)** A structural zero counted as a source opinion, so FantasyPros
+  registered as a real source for a kicker on twelve non-imputed `0.0` cells and
+  reported floor == ceiling as measured agreement.
+
+  All three are the same underlying thing, and it is worth naming: **a `0.0` that
+  means "nothing here" is indistinguishable from one that means "zero", and any
+  count built on `notna()` reads the first as the second.**
+
 **Credentials have never been committed** — verified across all of history.
 `config.yaml` and `gs4creds.json` are gitignored and remain plaintext on disk,
 which is acceptable for a single-user repo but is the obvious hardening target.
@@ -196,7 +225,7 @@ is meant to be used this way: every `<year>_<Team>_season` article carries
 
 | Issue | Location |
 |---|---|
-| Test coverage is thin in the places that matter most. `tests/` covers paths, config, season/week derivation, the scoring registry, per-slot scoring, the blend primitives, the store and the usage layer's leakage guarantee (303 tests, no network), including a guard that the notebook never re-defines the shared projection functions. Nothing covers the scrapers, the Sheets renderer, `analytic_utils`, `luck_index`, or `simulation_utils`. | `tests/` |
+| Test coverage is thin in the places that matter most. `tests/` covers paths, config, season/week derivation, the scoring registry, per-slot scoring, the blend primitives, the store, the usage layer's leakage guarantee and the draft board page's derivations (346 tests, no network), including a guard that the notebook never re-defines the shared projection functions. Nothing covers the scrapers, the Sheets renderer, `analytic_utils`, `luck_index`, or `simulation_utils`. | `tests/` |
 | No retry/backoff on any HTTP call. Four bare `except:` blocks remain — `populateGoogleSheet.py`'s is gone. A global `warnings.filterwarnings("ignore")` in `fetch_utils.py:16` silences every warning process-wide; `Scripts.scoring` and `Scripts.projection_utils` each force their own filter past it, which is a workaround rather than a fix. → [plan 06](plans/06-performance.md) | repo-wide |
 | `build_league_frame` calls `fetch_league`, then `get_ply_stats_by_matchup` calls it again — ~1s of duplicated ESPN round-trip per league, ~12% of a pre-season refresh. Fixing it means changing that function's signature from ids to a `League`. → [plan 06](plans/06-performance.md) | `equivalence.py`, `scrape_player_stats.py:463` |
 | `oauth2client==4.1.3` is end-of-life upstream and is only needed for Sheets auth. A Google auth change would mean migrating to `google-auth` mid-season, so it is worth doing before the season. → [plan 14](plans/14-thin-google-sheets.md) step 2.3 | `populateGoogleSheet.py`, `requirements.txt` |

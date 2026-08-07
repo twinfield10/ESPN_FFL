@@ -27,9 +27,11 @@ st.set_page_config(
 #: the league/season/week selection is identical wherever you are.
 PAGES = [
     st.Page("pages/overview.py", title="Store overview", icon="📦", default=True),
+    st.Page("pages/draft_board.py", title="Draft board", icon="📋"),
     # Plan 08: My Matchup, League Slate, Free Agents, Player Explorer,
     #          Projection Accuracy, Playoff Odds, Standings, History
-    # Plan 09: Draft Board, Live Draft, Draft History
+    # Plan 09: Live Draft (needs the ESPN draft endpoint in the render path),
+    #          Draft History (needs roadmap Phase 1's backfill)
 ]
 
 st.navigation(PAGES).run()
