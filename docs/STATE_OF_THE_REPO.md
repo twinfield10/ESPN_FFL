@@ -313,6 +313,31 @@ Fixed this cycle:
   beats naive 0.637 to 0.625, and the games interval calibrates at 90.0% against its
   own claim of 89.9%.
 
+  **The depth chart joined the veteran volume arm, and every backtest metric now
+  beats the naive draft heuristic** -- which was not true of any earlier version. This
+  came out of testing a team-then-allocate architecture, which *failed*: predicting
+  team volume then allocating by role scored R-squared 0.5488 against the direct
+  model's 0.5633. The two oracle rows are what mattered. Knowing every team's rushing
+  volume perfectly buys +0.006 R-squared; knowing every player's *share* perfectly
+  buys +0.42. The bottleneck was never team volume, and share is what a depth chart
+  describes.
+
+  A comment in the code had claimed the depth chart was measured out of the veteran
+  arm. It was not -- the experiment it described varied only the coach prior, and the
+  depth chart was swept into the sentence. Tested properly it moves RB carries from
+  R-squared 0.5584 to 0.6066, and QB pass attempts from 0.353 to 0.455.
+
+  Spearman against the naive heuristic went QB -0.0115 to **+0.0132**, RB +0.0196 to
+  **+0.0623**, WR +0.0126 to **+0.0531**, TE +0.0300 to **+0.0658**; receiving yardage
+  MAE -6.3% to -12.3%, rushing -2.9% to -9.0%, and passing yardage from +1.8% (worse
+  than naive) to **-8.2%**.
+
+  **The quarterback abstention is lifted** as a result. QB was declined because the
+  model measured worse there; the deficit closed as the model improved (-0.0155 ->
+  -0.0153 -> -0.0119 -> -0.0115) and the depth chart flipped it positive. Coverage goes
+  73.2% to **83.7%**, and the only draftable gaps left are positions the model has
+  never modelled: 17 D/ST, 14 K and four skill players.
+
   A scheduling fact worth knowing for the draft: **nflreadr will not serve 2026
   injuries, snap counts or depth charts at all** while `most_recent_season()` is
   2025, though it does serve the 2026 roster and updates it daily. So a pre-season

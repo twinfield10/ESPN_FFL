@@ -559,15 +559,17 @@ def test_a_loaded_model_predicts_identically(tmp_path):
 
 # --- the declined position -----------------------------------------------
 
-def test_quarterback_is_declined_by_default():
-    """Measured, not assumed: the model makes QB ordering worse than the naive
-    heuristic (-0.0155 Spearman) and the three passing stats are the only ones whose
-    MAE regressed."""
-    assert "QB" in sn.ABSTAIN_POSITIONS
+def test_no_position_is_declined_any_more():
+    """Quarterback was, on measurement -- the model made QB ordering worse than the
+    naive heuristic by 0.0155 Spearman. The deficit closed as the model improved and
+    the depth chart closed it decisively (+0.0132), so the tuple is empty.
+
+    The mechanism is kept, not deleted: it is how a position gets declined on
+    evidence, and the next arm that measures worse should use it."""
+    assert sn.ABSTAIN_POSITIONS == ()
     out = trained_model().predict(feature_rows([
         {"position": "QB", "p1_pass_attempts_pg": 30.0}]))
-    assert out["usg_arm"][0] == "abstain"
-    assert out["USG_passingYards"][0] is None
+    assert out["usg_arm"][0] != "abstain"
 
 
 def test_a_declined_position_can_still_be_measured():
@@ -580,7 +582,10 @@ def test_a_declined_position_can_still_be_measured():
 
 
 def test_declining_a_position_leaves_the_others_alone():
-    out = trained_model().predict(feature_rows([{"position": "QB"}, {"position": "WR"}]))
+    """The mechanism still works when asked, which is what keeps it usable."""
+    out = trained_model().predict(
+        feature_rows([{"position": "QB"}, {"position": "WR"}]),
+        abstain_positions=("QB",))
     assert out["usg_arm"].to_list() == ["abstain", "veteran"]
     assert out["USG_receivingYards"][0] is None
     assert out["USG_receivingYards"][1] is not None

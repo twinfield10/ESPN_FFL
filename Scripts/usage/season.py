@@ -92,10 +92,13 @@ VOLUME_TARGETS: Tuple[str, ...] = ("targets_pg", "carries_pg", "pass_attempts_pg
 #: buys nothing over this population and this horizon.
 VOLUME_REGRESSORS: Tuple[str, ...] = (
     "p1_volume", "p2_volume", "p1_games", "team_changed", "age",
+    "depth_rank", "is_first_string",
 )
 
-#: The coach prior and depth chart are **not** here, and that is a measured decision
-#: rather than an omission.
+#: The **coach prior** is not here, and that is a measured decision rather than an
+#: omission. The **depth chart is**, as of 2026-08-07, and an earlier revision of this
+#: note wrongly said otherwise -- it claimed both had been measured out when only the
+#: coach prior had been tested. See :data:`VETERAN_SITUATIONAL_REJECTED`.
 #:
 #: Adding ``coach_volume`` and ``staff_continuity`` to the veteran arm was tried on
 #: the full walk-forward and did nothing: within-position Spearman moved by at most
@@ -109,7 +112,24 @@ VOLUME_REGRESSORS: Tuple[str, ...] = (
 #: 0.618 to 0.645 at RB -- because a rookie has no prior volume for them to be
 #: redundant with. Plan 21's criterion is that a feature keeps its place only if it
 #: moves the numbers, so they live in :data:`ROOKIE_REGRESSORS` alone.
+#:
+#: **The depth chart is a different story and was never actually tested here.** The
+#: prose above used to say "the coach prior and depth chart", but the experiment it
+#: describes varied only the two names in this tuple. Measured properly on RB carries,
+#: train 2020-2023 and test 2024-2025: prior carries + games + age gives R-squared
+#: 0.5584, and adding ``depth_rank`` and ``is_first_string`` gives **0.6066**. On the
+#: share of a team's carries -- which the team-then-allocate experiment identified as
+#: the real bottleneck -- it moves 0.5193 to **0.5803**. It is in
+#: :data:`VOLUME_REGRESSORS` now.
 VETERAN_SITUATIONAL_REJECTED: Tuple[str, ...] = ("coach_volume", "staff_continuity")
+
+#: Depth rank used where the chart lists nobody, and the reason it is not zero.
+#:
+#: ``depth_rank`` is ordinal and *ascending* -- 1 is the starter -- so the zero that
+#: :func:`_veteran_terms`'s ``column`` helper fills with would rank an unlisted player
+#: ahead of every listed one. The chart's own catch-all bucket is 3 (589 of 909 rows
+#: on the 2026 pull), which is what "not named as a starter or a backup" means.
+DEFAULT_DEPTH_RANK: float = 3.0
 
 #: Regressors for the expected-games head.
 #:
@@ -321,26 +341,32 @@ HOLDOUT_SEASONS: int = 2
 #: and are not interchangeable with them, which is what the bump is for.
 MODEL_VERSION = "1.1.0"
 
-#: Positions the model declines to project, whatever features it has for them.
+#: Positions the season head declines to project, whatever features it has for them.
 #:
-#: Quarterback, on the walk-forward's own evidence. It is the one position where the
-#: model makes within-position ordering **worse** than the naive draft heuristic
-#: (-0.0155 Spearman), and the three passing stats are the only ones whose MAE
-#: regressed -- ``passingYards`` +2.9%, ``passingTouchdowns`` +0.9%. The arm is thin
-#: by construction: 119 rostered quarterbacks and ``pass_attempts_pg`` at R-squared
-#: 0.35.
+#: **Empty as of 2026-08-07.** It held ``"QB"`` because the walk-forward measured the
+#: model as making quarterback ordering *worse* than the naive draft heuristic. That
+#: deficit closed as the model improved, and the depth chart closed it decisively:
 #:
-#: This is plan 18's decision 4 -- abstain where it cannot speak -- applied to a
-#: position rather than to a player. An abstaining source is handled correctly by the
-#: blend: its weight is dropped and the remainder renormalised, so a quarterback is
-#: priced by the four sources that *can* speak rather than by a fifth that measurably
-#: hurts. Emitting a line anyway and letting the weight sort it out would be asserting
-#: the opposite of what was measured.
+#: ===============================  =========
+#: original                          -0.0155
+#: share-of-slate games head         -0.0153
+#: + snap share                      -0.0119
+#: + age                             -0.0115
+#: + depth chart on veterans         **+0.0132**
+#: ===============================  =========
 #:
-#: Pass ``abstain_positions=()`` to :meth:`SeasonUsageModel.predict` to measure it --
-#: :mod:`Scripts.usage.backtest` does exactly that, so the table that justifies this
-#: constant stays reproducible.
-ABSTAIN_POSITIONS: Tuple[str, ...] = ("QB",)
+#: Not one metric turning over, either: QB top-12 hit rate goes 0.607 to 0.631 against
+#: the baseline's 0.619, and all three passing MAEs flip from losing to the naive
+#: heuristic to beating it by 7-17%. The reason is obvious in hindsight -- being the
+#: listed starter is enormously predictive of pass attempts, and prior-season volume
+#: alone cannot see a backup who has won the job.
+#:
+#: Kept as a mechanism rather than deleted: it is how a position gets declined on
+#: evidence, and the next arm that measures worse should use it.
+#:
+#: :mod:`Scripts.usage.backtest` passes ``()`` explicitly, so its table keeps measuring
+#: every arm including any that shipped code declines.
+ABSTAIN_POSITIONS: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -738,6 +764,9 @@ class SeasonUsageModel:
             # team-change flag is, and filling one would put every unknown player at
             # the far end of the decline curve.
             "age": age_expr(frame),
+            # Same trap in the other direction -- rank 0 would be better than rank 1.
+            "depth_rank": depth_rank_expr(frame),
+            "is_first_string": column("is_first_string"),
             "coach_volume": column(coach_column) if coach_column else pl.lit(0.0),
             "staff_continuity": column("staff_continuity"),
         }
@@ -1086,6 +1115,25 @@ def age_expr(frame: pl.DataFrame) -> pl.Expr:
     return (age.fill_null(age.median().over("position"))
             .fill_null(age.median())
             .fill_null(DEFAULT_AGE))
+
+
+
+def depth_rank_expr(frame: pl.DataFrame) -> pl.Expr:
+    """Depth-chart rank, with the catch-all bucket where the chart says nothing.
+
+    The rank is ascending and ordinal: 1 is the starter. So the zero that a generic
+    missing-column fill would use ranks an unlisted player *ahead* of every listed
+    one, which is the opposite of what a missing entry means.
+
+    Args:
+        frame: Feature frame.
+
+    Returns:
+        pl.Expr: Depth rank, never null.
+    """
+    if "depth_rank" not in frame.columns:
+        return pl.repeat(DEFAULT_DEPTH_RANK, pl.len(), dtype=pl.Float64)
+    return pl.col("depth_rank").cast(pl.Float64).fill_null(DEFAULT_DEPTH_RANK)
 
 
 def _fit_volume(frame: pl.DataFrame, position: str, target: str) -> Optional[VolumeFit]:

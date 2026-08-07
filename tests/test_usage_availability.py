@@ -217,11 +217,12 @@ def test_a_position_without_a_fitted_dispersion_falls_back():
 
 
 def test_abstained_rows_get_no_interval():
-    """The model declines quarterbacks, and a declined player has no expected games
-    to build an interval around. A number here would be invented."""
+    """A declined player has no projection to build an interval around, so a number
+    here would be invented. No position is declined by default any more, so the
+    abstention is requested explicitly."""
     model = model_with_dispersion()
     frame = feature_rows([{"position": "QB", "p1_pass_attempts_pg": 30.0}])
-    out = model.games_interval(model.predict(frame))
+    out = model.games_interval(model.predict(frame, abstain_positions=("QB",)))
     assert out["expected_games"][0] is not None  # the mean still computes
     assert out["usg_arm"][0] == "abstain"
 

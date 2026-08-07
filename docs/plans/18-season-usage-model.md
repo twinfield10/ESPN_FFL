@@ -722,6 +722,96 @@ therefore contributes nothing — the intended "this arm does not use age" behav
 Zero was not an option: unlike a team-change flag, a zero age is not neutral, it puts
 every unknown player at the far end of the decline curve.
 
+### Team-then-allocate: tested, rejected, and it pointed at the real bottleneck — 2026-08-07
+
+Plan 21's game-script measurement left one structural idea open. Team strength
+improves a *team's* rush-attempt prediction by +0.064 R² and a *player's* by +0.0015,
+which suggested predicting team volume first and allocating it by role, so the signal
+would have somewhere to land.
+
+**It does not work**, on RB carries, train 2020–2023 and test 2024–2025:
+
+| | R² | MAE |
+|---|---|---|
+| **direct** — player carries from player history | **0.5633** | 48.3 |
+| team-then-allocate | 0.5488 | 49.3 |
+| *oracle* team carries × predicted share | 0.5695 | 48.4 |
+| predicted team carries × *oracle* share | **0.9793** | **7.7** |
+
+The two oracle rows are the finding. **Knowing every team's rushing volume perfectly
+buys +0.006 R². Knowing every player's share perfectly buys +0.42.** The bottleneck
+was never team volume — team volume is nearly a constant against the variation in
+share. On the test seasons the two halves predict at R² 0.164 (team carries) and 0.548
+(share), and it is the second number that governs.
+
+So the answer is not a better team model. It is a better *share* model — and share is
+exactly what a depth chart describes.
+
+### The depth chart joins the veteran arm — and a wrong claim gets corrected
+
+`VOLUME_REGRESSORS` now carries `depth_rank` and `is_first_string`.
+
+**This contradicts a comment that had been in the code since plan 21.** It read "The
+coach prior and depth chart are **not** here, and that is a measured decision rather
+than an omission" — but the experiment it went on to describe varied only
+`coach_volume` and `staff_continuity`, and the constant recording the result is
+literally `VETERAN_SITUATIONAL_REJECTED = ("coach_volume", "staff_continuity")`. The
+depth chart was swept into the sentence and never tested on veterans.
+
+Tested properly, train 2020–2023 and test 2024–2025 on RB carries:
+
+| | share of team carries | carries |
+|---|---|---|
+| prior + age (+ moved) | 0.5193 | 0.5584 |
+| **+ depth_rank and is_first_string** | **0.5803** | **0.6066** |
+
+In the fitted heads R² rises everywhere: RB carries 0.605 → **0.644**, TE targets
+0.622 → **0.662**, WR targets 0.650 → **0.676**, and **QB pass attempts 0.353 →
+0.455**. Read `depth_rank` and `is_first_string` as a pair rather than individually —
+they are strongly collinear, the same caution the volume lags already carry.
+
+**Every backtest metric now beats the naive draft heuristic.** That was not true of any
+earlier version:
+
+| | before | after |
+|---|---|---|
+| QB Spearman delta | −0.0115 | **+0.0132** |
+| RB Spearman delta | +0.0196 | **+0.0623** |
+| WR Spearman delta | +0.0126 | **+0.0531** |
+| TE Spearman delta | +0.0300 | **+0.0658** |
+| receivingYards MAE | −6.3% | **−12.3%** |
+| rushingYards MAE | −2.9% | **−9.0%** |
+| passingYards MAE | **+1.8%** (worse) | **−8.2%** |
+| passingInterceptions MAE | −11.9% | **−17.0%** |
+| top-N hit rate | RB/TE only | **all four positions** |
+
+### The quarterback abstention is lifted
+
+`ABSTAIN_POSITIONS` is now empty. QB was declined because the model measured worse
+than the naive heuristic there; the deficit closed as the model improved, and the
+depth chart closed it decisively:
+
+| | QB Spearman delta |
+|---|---|
+| original | −0.0155 |
+| share-of-slate games head | −0.0153 |
+| + snap share | −0.0119 |
+| + age | −0.0115 |
+| **+ depth chart on veterans** | **+0.0132** |
+
+Not one metric turning over: QB top-12 hit rate goes 0.607 → **0.631** against the
+baseline's 0.619, and all three passing MAEs flip from losing to the naive heuristic to
+beating it by 7–17%. In hindsight the mechanism is obvious — being the listed starter
+is enormously predictive of pass attempts, and prior-season volume alone cannot see a
+backup who has won the job.
+
+Coverage goes **73.2% → 83.7%** of rostered players. On a draft board the only
+remaining gaps are the positions the model has never modelled: 17 D/ST, 14 K, and four
+skill players.
+
+The constant is kept rather than deleted. It is how a position gets declined on
+evidence, and the next arm that measures worse should use it.
+
 ### The fitted expected-games head, and what it says
 
 Coefficients are in **share of the slate** as of v1.1.0; the last column converts a
