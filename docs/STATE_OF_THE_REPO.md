@@ -2,8 +2,9 @@
 
 **Last updated:** 2026-08-07, preparing for the 2026 season. Plans 07 (local data
 store + app), 14 (Sheets reads the store) and 15 (draft boards) landed on the 5th;
-plan 16's data layer and its go/no-go gates on the 6th; plan 09's draft board page
-and plan 18's season usage model on the 7th.
+plan 16's data layer and its go/no-go gates on the 6th; plan 09's draft board page,
+plan 16's availability and feature layers, plan 18's season usage model with its
+rookie arm, and plan 21's depth-chart and coaching context on the 7th.
 
 A standing assessment of what works, what is broken, and what to do next. Update
 it as things change — particularly the *Known issues* table, which is the part
@@ -21,20 +22,32 @@ genuinely reusable bones: a league-aware scoring engine, a four-source
 projection blend, a Monte Carlo season simulator, a polished Sheets renderer,
 and now a local data store with a Streamlit app reading it.
 
-Two things were true at the start of this cycle, and one of them is now fixed:
+Both things that were true at the start of this cycle are now addressed:
 
-1. ~~**Nothing was set up for 2026.**~~ Addressed — see *2026 readiness* below.
-2. ~~**There is no draft capability.**~~ Largely addressed. The only draft file was
-   dead code copied from another project; it is deleted, `Scripts/draft/`
-   builds a league-aware board (roadmap Phase 3,
-   [plan 15](plans/15-draft-board.md)), and **the draft board page is now built on
-   top of it** ([plan 09](plans/09-frontend-draft-views.md)). There is a usable
-   draft-day artifact today. What remains is the **live draft page** and **draft
-   history** (Phase 1's backfill).
+1. ~~**Nothing was set up for 2026.**~~ See *2026 readiness* below.
+2. ~~**There is no draft capability.**~~ The only draft file was dead code copied
+   from another project. It is deleted; `Scripts/draft/` builds a league-aware board
+   ([plan 15](plans/15-draft-board.md)), `app/pages/draft_board.py` renders it
+   ([plan 09](plans/09-frontend-draft-views.md)), and there is a **usable draft-day
+   artifact today**. What remains is the live draft page and draft history.
 
-One new problem surfaced during the rollover: **BetOnline's weekly props API now
-blocks the scraper.** That removes one of four projection sources. Details
-below — it needs a decision.
+**There is also a projection model now, and it is honest about its limits.**
+`Scripts/usage/` holds a season head that predicts 80.4% of rostered players from
+observed usage rather than from other people's projections. Against the naive draft
+heuristic it improves ordering at RB/WR/TE and cuts MAE 10–13% on the noisy rate
+stats; it does not improve yardage and is slightly worse at quarterback. Its **rookie
+arm is the clear win** — draft capital plus depth-chart position orders rookies at
+ρ ≈ 0.64 where a projection carrying no such information manages ~0, on 1,497
+player-seasons the model previously said nothing about.
+
+**Nothing is in `WEIGHTS`.** The comparison that would justify it — the four-source
+blend with and without `USG_` — cannot be run on any past season, because no
+historical pre-season blend survives. The 2026 board is the first chance, and that
+means after the season is played.
+
+One problem from the rollover is still open: **BetOnline's weekly props API blocks
+the scraper**, removing one of four projection sources. Details below — it needs a
+decision.
 
 ---
 
@@ -214,11 +227,21 @@ which is acceptable for a single-user repo but is the obvious hardening target.
 
 ### Still to do before the season
 
-- [ ] Run `Rscript R/GetNFL.R 2026` to generate the 2026 schedule. **Everything
-      keys off this** — until it exists, the scrapers still report season 2025.
+- [x] ~~Run `Rscript R/GetNFL.R 2026` to generate the 2026 schedule.~~ Done
+      2026-08-03. Needs **one more run after week 1** for
+      `Data/NFL/2026/NFL_Stats.csv` and a refreshed `NFL_Tackles_By_Position.csv`,
+      which need play-by-play that does not exist yet.
 - [ ] Decide what to do about BetOnline weekly props (below).
 - [ ] Re-run the full weekly pipeline end-to-end once against 2026 and confirm
       the Sheets render.
+- [ ] Surface `USG_` on the draft board **without** blending it — the model is
+      measured but locked out of `TRUE_Points` until G2, and a column beside the
+      blend asserts nothing. → [plan 18](plans/18-season-usage-model.md)
+- [ ] Abstain for QB in the season head; the walk-forward says the model makes
+      quarterback ordering worse.
+
+The ordered list of everything outstanding lives in
+**[`plans/README.md` §What is left](plans/README.md#what-is-left)**.
 
 ---
 
@@ -263,7 +286,7 @@ is meant to be used this way: every `<year>_<Team>_season` article carries
 
 | Issue | Location |
 |---|---|
-| Test coverage is thin in the places that matter most. `tests/` covers paths, config, season/week derivation, the scoring registry, per-slot scoring, the blend primitives, the store, the usage layer's leakage guarantee and the draft board page's derivations, and the usage layer's season head (422 tests, no network), including a guard that the notebook never re-defines the shared projection functions. Nothing covers the scrapers, the Sheets renderer, `analytic_utils`, `luck_index`, or `simulation_utils`. | `tests/` |
+| Test coverage is thin in the places that matter most. `tests/` covers paths, config, season/week derivation, the scoring registry, per-slot scoring, the blend primitives, the store, the usage layer's leakage guarantee, the draft board page's derivations, the season usage head with both its arms, the coaching table's Wikipedia parsing and the team-profile as-of boundary (463 tests, no network), including a guard that the notebook never re-defines the shared projection functions. Nothing covers the scrapers, the Sheets renderer, `analytic_utils`, `luck_index`, or `simulation_utils`. | `tests/` |
 | No retry/backoff on any HTTP call. Four bare `except:` blocks remain — `populateGoogleSheet.py`'s is gone. A global `warnings.filterwarnings("ignore")` in `fetch_utils.py:16` silences every warning process-wide; `Scripts.scoring` and `Scripts.projection_utils` each force their own filter past it, which is a workaround rather than a fix. → [plan 06](plans/06-performance.md) | repo-wide |
 | `build_league_frame` calls `fetch_league`, then `get_ply_stats_by_matchup` calls it again — ~1s of duplicated ESPN round-trip per league, ~12% of a pre-season refresh. Fixing it means changing that function's signature from ids to a `League`. → [plan 06](plans/06-performance.md) | `equivalence.py`, `scrape_player_stats.py:463` |
 | `oauth2client==4.1.3` is end-of-life upstream and is only needed for Sheets auth. A Google auth change would mean migrating to `google-auth` mid-season, so it is worth doing before the season. → [plan 14](plans/14-thin-google-sheets.md) step 2.3 | `populateGoogleSheet.py`, `requirements.txt` |

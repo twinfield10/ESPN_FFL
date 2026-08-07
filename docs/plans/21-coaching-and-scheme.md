@@ -1,11 +1,17 @@
 # 21 — Depth charts, scheme, and the play-caller problem
 
 **Priority:** High (feeds [18](18-season-usage-model.md) before the draft) ·
-**Effort:** M · **Status:** **Steps 1–4 done 2026-08-07.** `R/GetCoaches.R` +
-`Scripts/coaches.py` build the committed coaching table; `Scripts/usage/scheme.py`
-builds team profiles and coach priors; depth-chart features are in the feature layer.
-Measured: the situational features **help the rookie arm substantially and do nothing
-for the veteran arm**, so they ship in the rookie arm only. §Results.
+**Effort:** M · **Status:** **Done 2026-08-07**, all five steps. `R/GetCoaches.R` +
+`Scripts/coaches.py` build the committed coaching table including a 17-season
+coordinator crawl; `Scripts/usage/scheme.py` builds team profiles and three coach
+priors; depth-chart features are in the feature layer.
+
+**The verdict is narrower than the plan expected.** The **depth chart** earns its place
+in the rookie arm and delivers the whole of that arm's improvement. Every coach prior —
+head coach, coordinator, or coordinator-else-head-coach — was **measured out of both
+arms**, because the depth chart already carries their signal. §Step 5 has the numbers.
+The coaching table stays built: it is cheap, it is worth showing on a board, and
+[plan 19](19-weekly-usage-model.md) has not been measured against it.
 **Feeds:** [18](18-season-usage-model.md) (rookie and veteran volume) ·
 [19](19-weekly-usage-model.md) · [09](09-frontend-draft-views.md)
 

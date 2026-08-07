@@ -1,9 +1,6 @@
 # 16 — nflverse usage data: extraction, features, and the go/no-go gates
 
-**Priority:** High (quality) · **Effort:** M–L · **Status:** Steps 1–2 done —
-crosswalk, extraction, and [§Step 0](#step-0--the-gates-measured-2026-08-06)'s
-gates measured. **G0 passed, G1 and G2 failed on the crude baseline**, and the
-failure says availability is the first feature to build. Nothing is in `WEIGHTS`.
+**Priority:** High (quality) · **Effort:** M–L · **Status:** **Done 2026-08-07.** Steps 1–4 complete: the crosswalk, the step-0 gates, the availability extraction layer, and the feature layer. G0 passed; G1 failed on the crude baseline and its failure reordered the work; G2 belongs to [18](18-season-usage-model.md) and needs a played season. Nothing is in `WEIGHTS`.
 **Depends on:** nothing — the data is reachable today
 **Feeds:** [18 (season model)](18-season-usage-model.md) ·
 [19 (weekly model)](19-weekly-usage-model.md) ·
