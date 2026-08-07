@@ -56,3 +56,8 @@ Data/NFL/*/injuries.parquet
 Data/NFL/*/snap_counts.parquet
 Data/NFL/*/depth_charts.parquet
 Data/NFL/*/context_meta.json
+# Coach-per-game and team names, rebuilt by `Rscript R/GetCoaches.R`. The *derived*
+# Data/NFL/coaching_staff.parquet is committed -- it merges in Wikipedia data that
+# cannot be regenerated identically once an article is edited.
+Data/NFL/coaches_by_game.parquet
+Data/NFL/team_names.parquet
