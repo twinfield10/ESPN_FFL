@@ -320,3 +320,53 @@ def test_rescaling_cannot_divide_by_no_games():
                           "USG_receivingYards": [1000.0]})
     out = pj.to_full_slate(frame, ["USG_receivingYards"], slate=17.0)
     assert out["USG_receivingYards"][0] is None
+
+
+# --- current injuries -----------------------------------------------------
+
+def injury_frame(statuses):
+    frame = blend_frame(500.0, False)
+    frame = pd.concat([frame] * len(statuses), ignore_index=True)
+    frame["injury_status"] = list(statuses)
+    return frame
+
+
+def test_the_model_withdraws_for_players_espn_lists_out():
+    """It cannot see a current injury and the other sources can.
+
+    nflreadr refuses 2026 injuries outright, so `expected_games` is built from
+    prior-season availability -- statistics about a player who was healthy last
+    August. ESPN knows today that Ricky Pearsall is on IR for the season.
+
+    Left alone the model overrode that in the worst direction: across the 22 players
+    ESPN listed OUT or IR on the 2026 board, adding USG lifted the blend by a mean of
+    +15.7 points while lowering active draftable players by 2.7. ESPN and FantasyPros
+    both projected Pearsall at 0.0 and the model pulled the blend to 72.4.
+    """
+    out = sp._abstain_on_injury(injury_frame(["OUT", "INJURY_RESERVE", "ACTIVE"]))
+    values = out[f"USG_{STAT}"].tolist()
+    assert pd.isna(values[0]) and pd.isna(values[1])
+    assert values[2] == 500.0
+
+
+def test_the_withdrawal_is_flagged_not_merely_nulled():
+    """A null without its flag enters the blend as a confident zero -- the trap this
+    whole source is threaded to avoid. Flagged, the weight is dropped instead."""
+    out = sp._abstain_on_injury(injury_frame(["OUT"]))
+    assert bool(out[f"USG_{STAT}{pu.IMPUTED_SUFFIX}"].iloc[0]) is True
+    blended = pu.compute_weighted_stats(out, [STAT], weights(1.0))
+    assert blended[f"TRUE_{STAT}"][0] == pytest.approx(110.0)
+
+
+def test_questionable_is_not_withdrawn_on():
+    """Pre-season it is week-to-week noise on 64 players, and abstaining would
+    discard the model across a large slice of the pool on a signal that says little
+    about the season."""
+    assert "QUESTIONABLE" not in sp.INJURY_ABSTAIN_STATUSES
+    out = sp._abstain_on_injury(injury_frame(["QUESTIONABLE"]))
+    assert out[f"USG_{STAT}"].iloc[0] == 500.0
+
+
+def test_a_frame_without_injury_status_is_untouched():
+    frame = blend_frame(500.0, False)
+    assert sp._abstain_on_injury(frame)[f"USG_{STAT}"].iloc[0] == 500.0

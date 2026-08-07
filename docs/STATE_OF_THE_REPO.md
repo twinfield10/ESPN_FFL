@@ -42,6 +42,21 @@ arm is the clear win** — draft capital plus depth-chart position orders rookie
 ρ ≈ 0.64 where a projection carrying no such information manages ~0, on 1,497
 player-seasons the model previously said nothing about.
 
+**The usage model withdraws for players ESPN lists OUT or on IR.** It cannot see a
+current injury and the other sources can -- nflreadr refuses 2026 injuries, so
+`expected_games` is built from prior-season statistics about a player who was healthy
+last August. Left alone the model inflated exactly the players it knew nothing about:
+across the 22 players ESPN listed OUT or IR, adding it lifted the blend by a mean of
+**+15.7 points** while lowering active draftable players by 2.7. ESPN and FantasyPros
+both projected Ricky Pearsall at 0.0 -- they know he is on IR for the season -- and the
+model pulled the blend to 72.4. It now abstains, flagged, so the weight is dropped and
+the sources that know carry the player.
+
+ESPN gives no structured return date. Probed live: `injuryStatus`, `injured`,
+`lastNewsDate` and a free-text `seasonOutlook` present for only 9 of 22 injured
+players. The prose often carries a timeline in words, but parsing it would be a
+fragile answer to a question ESPN's own projection already encodes.
+
 **`USG` blends on an if-healthy basis.** The model predicts an expected value
 (per-game production x ~13.6 expected games); ESPN and FantasyPros project a healthy
 17-game season. Blending them mixed two quantities, and unevenly -- the usage model

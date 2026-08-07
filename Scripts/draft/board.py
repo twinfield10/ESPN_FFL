@@ -409,9 +409,13 @@ def build_board(
     replacement = replacement_ranks(slots, teams, projections, points_column)
 
     # player_id join: exact, unlike the name_key joins the book sources still need.
+    # `injury_status` is excluded because the projections frame already carries it --
+    # `build_season_projections` needs it to withdraw the usage model for players
+    # ESPN lists as out. Merging it from both sides would suffix them into
+    # `injury_status_x`/`_y` and silently break every consumer.
     market_cols = [c for c in market.columns if not c.startswith("ESPN_")
                    and c not in ("name_key", "player_name", "primaryPosition",
-                                 "pro_team", "games")]
+                                 "pro_team", "games", "injury_status")]
     board = projections.merge(market[market_cols], on="player_id", how="left")
 
     board["pos_rank"] = board.groupby("primaryPosition")[points_column].rank(

@@ -793,6 +793,45 @@ to 14.2%, which is arguably more honest given how correlated plan 03 measured th
 market sources to be. Not changed here; it is a separate decision and a visible board
 column.
 
+#### It withdraws for players ESPN lists as out
+
+**The model cannot see a current injury and the other sources can**, which is a
+one-directional failure worth naming. nflreadr refuses 2026 injuries outright, so
+`expected_games` is built from prior-season availability, snap share and age —
+statistics about a player who was healthy last August. ESPN knows *today* that Ricky
+Pearsall is on injured reserve for the season and that Zach Charbonnet tore an ACL in
+January, and both ESPN's and FantasyPros' projections reflect it.
+
+Left alone the model overrode them in the worst possible direction. Measured on the
+2026 board, mean effect of adding `USG` at a third:
+
+| | n | mean effect on the blend |
+|---|---|---|
+| ESPN lists OUT / INJURY_RESERVE | 22 | **+15.7 points** |
+| active, draftable | 169 | −2.7 points |
+
+It inflated precisely the players it knew nothing about. Pearsall is the clearest
+case: ESPN and FantasyPros both projected him at literally **0.0**, and the model
+pulled the blend to **72.4**. Charbonnet went 133 → 164 with a torn ACL.
+
+`INJURY_ABSTAIN_STATUSES` withdraws the source for those players — nulled *and*
+flagged, so `compute_weighted_stats` drops the weight and renormalises rather than
+blending a null as a zero. This is plan 18's decision 4 applied to a fact rather than
+a position: say nothing where you know nothing, and let the sources that do know carry
+the player. Pearsall is back to 0.0.
+
+`QUESTIONABLE` is deliberately excluded. Pre-season it is week-to-week noise on 64
+players, and abstaining on it would discard the model across a large slice of the pool
+on a signal that says little about the season.
+
+**What ESPN does and does not give.** Probed live on 2026-08-07 via
+`view=kona_player_info`. The player object carries `injuryStatus` (ACTIVE /
+QUESTIONABLE / DOUBTFUL / OUT / INJURY_RESERVE), `injured`, `lastNewsDate` and a
+free-text `seasonOutlook`. **There is no structured estimated return date**, and the
+prose is present for only 9 of 22 injured players. It does often contain a timeline in
+words — *"Kittle could miss a few games"*, *"out for the 2026 season"* — but parsing it
+would be a fragile answer to a question ESPN's own projection already encodes.
+
 #### The change exposed a real bug in coverage counting
 
 `projection_missing` and `sources_real` were computed from `OPINION_PREFIXES`, which

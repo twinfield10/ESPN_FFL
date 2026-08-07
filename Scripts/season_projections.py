@@ -450,7 +450,7 @@ def _projections_from_market(league, market: pd.DataFrame) -> pd.DataFrame:
     }
 
     keep = ["player_id", "name_key", "player_name", "primaryPosition", "pro_team",
-            "games"]
+            "games", "injury_status"]
     keep += [c for c in market.columns if c.startswith("ESPN_")]
 
     out = market[[c for c in keep if c in market.columns]].copy()
@@ -648,6 +648,40 @@ def _merge_usage(base: pd.DataFrame, source: pd.DataFrame,
     return base.merge(source, on="player_id", how="left")
 
 
+def _abstain_on_injury(base: pd.DataFrame) -> pd.DataFrame:
+    """Withdraw the usage model for players ESPN lists as out.
+
+    See :data:`INJURY_ABSTAIN_STATUSES` for the measurement. The stat lines are
+    nulled *and* flagged imputed, which is what makes
+    :func:`compute_weighted_stats` drop the weight and renormalise rather than
+    blending a null as a zero.
+
+    Args:
+        base: The merged frame, after the usage source has been joined.
+
+    Returns:
+        pd.DataFrame: ``base`` with ``USG_`` withdrawn on the affected rows.
+    """
+    if "injury_status" not in base.columns:
+        return base
+
+    out = base["injury_status"].isin(INJURY_ABSTAIN_STATUSES)
+    if not out.any():
+        return base
+
+    columns = [c for c in base.columns
+               if c.startswith("USG_") and not c.endswith(IMPUTED_SUFFIX)]
+    for column in columns:
+        base.loc[out, column] = float("nan")
+        flag = f"{column}{IMPUTED_SUFFIX}"
+        if flag in base.columns:
+            base.loc[out, flag] = True
+    print(f"  Usage: withdrawn for {int(out.sum())} player(s) ESPN lists "
+          f"{'/'.join(INJURY_ABSTAIN_STATUSES)} -- the model cannot see a current "
+          f"injury and the other sources can.")
+    return base
+
+
 #: The sources that hold an independent opinion, for the floor/ceiling spread.
 #:
 #: ``MEAN`` is excluded because it is not an opinion -- it is the ESPN/FantasyPros
@@ -680,6 +714,30 @@ def _merge_usage(base: pd.DataFrame, source: pd.DataFrame,
 #: model's dissent is carried by ``USG_PosRankDelta``, which is scale-free and cannot
 #: contaminate the spread.
 OPINION_PREFIXES = ("ESPN", "FP", "PINNY", "BOL")
+
+#: ESPN injury statuses on which the usage model must decline to project.
+#:
+#: **The model cannot see a current injury and the other sources can.** nflreadr
+#: refuses 2026 injuries outright, so ``expected_games`` is built entirely from
+#: prior-season availability, snap share and age -- statistics about a player who was
+#: healthy last August. ESPN knows today that Ricky Pearsall is on injured reserve for
+#: the season and that Zach Charbonnet tore an ACL in January, and ESPN's and
+#: FantasyPros' projections reflect it.
+#:
+#: Left alone, the model overrides them in the worst possible direction. Measured on
+#: the 2026 board: across the 22 players ESPN lists OUT or on IR, adding ``USG`` at a
+#: third **lifted** the blend by a mean of **+15.7 points**, while for active
+#: draftable players it lowered it by 2.7. Pearsall is the clearest case -- ESPN and
+#: FantasyPros both project him at literally **0.0**, and the model pulled the blend
+#: to **72.4**. Charbonnet went 133 to 164.
+#:
+#: So the model abstains here, which is plan 18's decision 4 applied to a fact rather
+#: than a position: it says nothing where it knows nothing, the weight is dropped and
+#: the sources that *do* know carry the player. ``QUESTIONABLE`` is deliberately not
+#: in this set -- pre-season it is week-to-week noise on 64 players, and abstaining on
+#: it would discard the model for a large slice of the pool on a signal that says
+#: little about the season.
+INJURY_ABSTAIN_STATUSES = ("OUT", "INJURY_RESERVE")
 
 #: Sources that can supply a player's projection at all, for coverage counting.
 #:
@@ -826,6 +884,8 @@ def build_season_projections(league, season: Optional[int] = None,
     usage = load_usage_season(season)
     if not usage.empty and "player_id" in base.columns:
         base = _merge_usage(base, usage)
+
+    base = _abstain_on_injury(base)
 
     base = base.drop(columns=["join_key"], errors="ignore")
 
