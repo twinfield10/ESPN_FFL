@@ -405,3 +405,167 @@ def season_availability(seasons: Sequence[int],
         )
         .sort(["gsis_id", "season"])
     )
+
+
+# --- depth charts --------------------------------------------------------
+
+#: Depth ranks are clipped to this, because the two upstream schemas do not share a
+#: scale. 2016-2024 carry ``depth_team``, which is only ever 1, 2 or 3; 2025 onward
+#: carry ``pos_rank``, which runs to 15. A feature built on the fine scale fits nine
+#: seasons of the coarse one and then means something different in the season it has
+#: to predict -- the schema trap ``context_meta.json`` records the shape for. Clipping
+#: to the coarse scale loses granularity and is the only version that transfers.
+MAX_DEPTH_RANK = 3
+
+#: A depth chart is a pre-season feature, so it is read from the last snapshot before
+#: the season starts rather than the most recent one. September 1 is comfortably
+#: after the final pre-season update and before any regular-season game.
+PRESEASON_CUTOFF = (9, 1)
+
+#: Fantasy-relevant slots in the new schema's ``pos_abb``. Alignment-specific
+#: receiver codes do not appear for these positions -- 2026 lists 397 players under a
+#: single ``WR`` ranked 1 to 15 -- so no mapping is needed.
+DEPTH_POSITIONS = ("QB", "RB", "WR", "TE")
+
+#: Players a team actually starts at each position, used to reconcile the two
+#: schemas' *semantics* -- which differ as much as their scales do.
+#:
+#: Measured on the pre-season snapshots: 2024 lists an average of **3.0 rank-1
+#: receivers** per team against 0.97 quarterbacks, because the old feed marks every
+#: starter in a three-receiver set as first string. 2025 onward is a strict ordering,
+#: exactly 1.0 rank-1 player at every position. So "rank 1" means "a starter" in the
+#: old schema and "the single best" in the new one, and a model trained on the former
+#: and applied to the latter demotes every WR2 and WR3 in the league.
+#:
+#: The new schema is therefore shifted onto the old one's meaning: ranks up to the
+#: starter count collapse to 1, so rank 1 is a starter in both, rank 2 is the first
+#: man off the bench, and rank 3 is everyone else.
+STARTERS_BY_POSITION: Dict[str, int] = {"QB": 1, "RB": 1, "WR": 3, "TE": 1}
+
+
+def load_depth_charts(seasons: Sequence[int]) -> pl.DataFrame:
+    """Depth charts normalised across the two upstream schemas.
+
+    Args:
+        seasons: Season years to read.
+
+    Returns:
+        pl.DataFrame: ``season``, ``team``, ``gsis_id``, ``position``,
+        ``depth_rank`` (clipped to :data:`MAX_DEPTH_RANK`) and ``as_of`` -- a week
+        number for the old schema, a timestamp for the new one.
+
+    Raises:
+        FileNotFoundError: When a season has not been pulled.
+    """
+    frames = []
+    for season in sorted(seasons):
+        frame = pl.read_parquet(_require(season, "depth_charts"))
+        if "pos_rank" in frame.columns:
+            # Shift the strict ordering onto the old schema's "is he a starter"
+            # meaning -- see STARTERS_BY_POSITION.
+            starters = pl.col("pos_abb").replace_strict(
+                STARTERS_BY_POSITION, default=1, return_dtype=pl.Int32)
+            normalised = frame.select(
+                pl.col("season").cast(pl.Int32),
+                pl.col("team").alias("team"),
+                "gsis_id",
+                pl.col("pos_abb").alias("position"),
+                (pl.col("pos_rank").cast(pl.Int32) - starters + 1)
+                .clip(lower_bound=1).alias("raw_rank"),
+                pl.col("dt").cast(pl.String).alias("as_of"),
+            )
+        else:
+            normalised = frame.select(
+                pl.col("season").cast(pl.Int32),
+                pl.col("club_code").alias("team"),
+                "gsis_id",
+                pl.col("position").alias("position"),
+                pl.col("depth_team").cast(pl.String).str.strip_chars()
+                .cast(pl.Int32, strict=False).alias("raw_rank"),
+                pl.col("week").cast(pl.String).str.zfill(2).alias("as_of"),
+            )
+        frames.append(normalised)
+
+    out = pl.concat(frames, how="vertical")
+    return out.filter(pl.col("gsis_id").is_not_null()
+                      & pl.col("raw_rank").is_not_null()).with_columns(
+        pl.col("raw_rank").clip(upper_bound=MAX_DEPTH_RANK).alias("depth_rank")
+    ).sort(["season", "as_of", "team", "position", "depth_rank"])
+
+
+def preseason_snapshot(depth: pl.DataFrame, season: int) -> pl.DataFrame:
+    """The depth chart as it stood going into a season.
+
+    Args:
+        depth: :func:`load_depth_charts` output.
+        season: Season year.
+
+    Returns:
+        pl.DataFrame: Every row of the latest pre-season snapshot. **Not** deduplicated
+        by player: a back is often also listed as a kick returner, and collapsing to
+        one row per ``gsis_id`` here dropped him from the position that matters --
+        ``KR`` sorts before ``RB``. Callers filter to the positions they want first.
+    """
+    scoped = depth.filter(pl.col("season") == season)
+    if scoped.is_empty():
+        return scoped
+
+    month, day = PRESEASON_CUTOFF
+    cutoff = f"{season}-{month:02d}-{day:02d}"
+    # The old schema's as_of is a zero-padded week, so it sorts before any timestamp
+    # and the cutoff filter leaves it untouched -- week 1 is already the pre-season
+    # chart there.
+    before = scoped.filter((pl.col("as_of") < cutoff) | (pl.col("as_of") < "1000"))
+    if before.is_empty():
+        before = scoped
+    return before.filter(pl.col("as_of") == before["as_of"].max())
+
+
+def depth_features(seasons: Sequence[int],
+                   positions: Sequence[str] = DEPTH_POSITIONS) -> pl.DataFrame:
+    """Pre-season depth position per player-season.
+
+    The situational fact draft capital cannot supply: a third-round back behind an
+    entrenched starter is a different projection from the same pick as the presumptive
+    week-1 back.
+
+    Args:
+        seasons: Season years to cover.
+        positions: Positions to keep.
+
+    Returns:
+        pl.DataFrame: ``season``, ``gsis_id``, ``depth_rank``, ``is_first_string``,
+        ``depth_position_group`` (how many players the team lists at that position)
+        and ``depth_team``.
+
+    Raises:
+        FileNotFoundError: When a season has not been pulled.
+    """
+    depth = load_depth_charts(seasons)
+    frames = []
+    for season in sorted(seasons):
+        snapshot = preseason_snapshot(depth, season)
+        if snapshot.is_empty():
+            continue
+        # Filter to the positions wanted, *then* collapse a player listed at more
+        # than one of them to his best rank. Doing it the other way round is how
+        # returners lost their real position.
+        scoped = (snapshot.filter(pl.col("position").is_in(list(positions)))
+                  .sort(["gsis_id", "depth_rank"])
+                  .unique(subset=["gsis_id"], keep="first"))
+        group = (scoped.group_by(["team", "position"])
+                 .agg(pl.len().cast(pl.Int32).alias("depth_position_group")))
+        frames.append(
+            scoped.join(group, on=["team", "position"], how="left")
+            .select("season", "gsis_id", "depth_rank",
+                    (pl.col("depth_rank") == 1).alias("is_first_string"),
+                    "depth_position_group",
+                    pl.col("team").alias("depth_team"))
+        )
+    if not frames:
+        return pl.DataFrame(schema={"season": pl.Int32, "gsis_id": pl.String,
+                                    "depth_rank": pl.Int32,
+                                    "is_first_string": pl.Boolean,
+                                    "depth_position_group": pl.Int32,
+                                    "depth_team": pl.String})
+    return pl.concat(frames, how="vertical").sort(["season", "gsis_id"])

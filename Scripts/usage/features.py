@@ -33,6 +33,7 @@ from typing import Dict, List, Optional, Sequence
 import polars as pl
 
 from Scripts.usage import context as ctx
+from Scripts.usage import scheme as sc
 from Scripts.usage.nflverse import (
     ACTUAL_PREFIX,
     EXPECTED_PREFIX,
@@ -397,9 +398,48 @@ def roster_context(target_season: int, prior: pl.DataFrame) -> pl.DataFrame:
     return out.with_columns(exprs)
 
 
+def attach_context(features: pl.DataFrame, target_season: int,
+                   history: Sequence[int]) -> pl.DataFrame:
+    """Join the situational context: depth chart, coach prior, team prior.
+
+    All three are legitimately knowable before a draft. The depth chart is a
+    current-season fact published daily; the coach and team priors use only seasons
+    before ``target_season``. See ``docs/plans/21-coaching-and-scheme.md``.
+
+    Missing context is not fatal. The coaching table is committed but the depth-chart
+    pull is not, and a feature frame without them is still a feature frame -- the
+    model abstains on a null feature the same way it abstains on a null lag.
+
+    Args:
+        features: :func:`season_features` output so far, with ``team``.
+        target_season: Season being predicted.
+        history: Completed seasons the priors may use.
+
+    Returns:
+        pl.DataFrame: ``features`` plus the depth and prior columns it could resolve.
+    """
+    out = features
+
+    try:
+        depth = ctx.depth_features([target_season])
+        out = out.join(depth.drop("season"), on="gsis_id", how="left")
+    except FileNotFoundError:
+        pass
+
+    try:
+        staff = sc.load_staff()
+        profile = sc.team_profile(load_player_weeks(sorted(history)))
+        out = sc.attach(out, profile, staff, target_season)
+    except FileNotFoundError:
+        pass
+
+    return out
+
+
 def season_features(target_season: int, history: Sequence[int],
                     positions: Sequence[str] = MODELLED_POSITIONS,
-                    shrinkage: Optional[Dict[str, float]] = None) -> pl.DataFrame:
+                    shrinkage: Optional[Dict[str, float]] = None,
+                    include_context: bool = True) -> pl.DataFrame:
     """One row per rostered player, with lagged features and current context.
 
     The frame the season head fits and predicts on. Features carry
@@ -414,6 +454,10 @@ def season_features(target_season: int, history: Sequence[int],
             an error, not a filter.
         positions: Positions to keep. Defaults to :data:`MODELLED_POSITIONS`.
         shrinkage: Passed to :func:`attach_efficiency`.
+        include_context: Join the depth-chart and coaching context. False keeps the
+            frame to lagged production only, which is what the backtest compares
+            against. Named for the parameter it is rather than `context`, which
+            collides with the local holding the roster frame.
 
     Returns:
         pl.DataFrame: One row per ``gsis_id`` on the target season's roster at the
@@ -441,6 +485,8 @@ def season_features(target_season: int, history: Sequence[int],
                                 if c != "gsis_id"})
         out = out.join(lagged, on="gsis_id", how="left")
 
+    if include_context:
+        out = attach_context(out, target_season, history)
     return out.sort("gsis_id")
 
 
@@ -463,9 +509,17 @@ def leakage_columns(frame: pl.DataFrame, target_season: int) -> List[str]:
         "gsis_id", "season", "team", "position", "status", "full_name",
         "depth_chart_position", "years_exp", "draft_number", "entry_year",
         "prior_team", "team_changed", "is_rookie",
+        # Current-season facts a drafter can read off a roster or a depth chart.
+        "depth_rank", "is_first_string", "depth_position_group", "depth_team",
+        "head_coach", "prior_head_coach", "coach_seasons", "coach_is_new",
+        "staff_continuity",
     }
+    # Coach and team priors are computed from prior seasons only -- the boundary is
+    # enforced in Scripts.usage.scheme and tested there -- so they are allowed by
+    # prefix rather than being listed one by one.
+    prior_prefixes = (sc.COACH_PREFIX, sc.TEAM_PREFIX)
     return sorted(
         column for column in frame.columns
         if column not in allowed
-        and not column.startswith((LAG1_PREFIX, LAG2_PREFIX))
+        and not column.startswith((LAG1_PREFIX, LAG2_PREFIX) + prior_prefixes)
     )

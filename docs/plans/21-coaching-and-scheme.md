@@ -1,8 +1,11 @@
 # 21 — Depth charts, scheme, and the play-caller problem
 
 **Priority:** High (feeds [18](18-season-usage-model.md) before the draft) ·
-**Effort:** M · **Status:** Sourcing settled 2026-08-07; depth charts already pulled,
-the rest not built
+**Effort:** M · **Status:** **Steps 1–4 done 2026-08-07.** `R/GetCoaches.R` +
+`Scripts/coaches.py` build the committed coaching table; `Scripts/usage/scheme.py`
+builds team profiles and coach priors; depth-chart features are in the feature layer.
+Measured: the situational features **help the rookie arm substantially and do nothing
+for the veteran arm**, so they ship in the rookie arm only. §Results.
 **Feeds:** [18](18-season-usage-model.md) (rookie and veteran volume) ·
 [19](19-weekly-usage-model.md) · [09](09-frontend-draft-views.md)
 
@@ -161,10 +164,54 @@ arm currently cannot see it.
 
 ### Step 4 — feed plan 18 and measure
 
-Add to the rookie arm: depth-chart rank, and the coach prior for the rookie's
-position. Add to the veteran arm: the coach prior and a coach-change flag. Then
-re-run `python -m Scripts.usage.backtest` — it is the regression test, and the arm
-only keeps a feature that moves the numbers.
+**Done, and the answer was asymmetric.**
+
+**The rookie arm keeps them.** Adding `is_first_string` and the coach's positional
+volume prior, on the same walk-forward:
+
+| Pos | ρ before | ρ after | MAE before | MAE after |
+|---|---|---|---|---|
+| QB | 0.6024 | **0.6593** | 26.73 | **23.84** |
+| RB | 0.6175 | **0.6450** | 21.58 | **20.58** |
+| WR | 0.6141 | **0.6331** | 14.06 | **13.51** |
+| TE | 0.6186 | 0.6037 | 9.81 | **9.64** |
+
+MAE improves at all four positions and ordering at three. That is what a rookie
+projection was missing: draft capital says what a team invested, the depth chart and
+the coach prior say what he is walking into.
+
+**The veteran arm rejects them.** The same two features moved within-position Spearman
+by at most 0.0012 in either direction, traded −0.3% MAE on receiving for +0.2% on
+rushing and passing, and made **top-N hit rate worse at three of four positions** —
+QB 0.607 → 0.595, WR 0.671 → 0.663, TE 0.512 → 0.488. Reverted.
+
+The reason is the obvious one in hindsight: a veteran's own prior volume already
+encodes his situation, so the coach prior is redundant with it and only adds
+parameters. A rookie has no prior volume for it to be redundant with. Recorded as
+`VETERAN_SITUATIONAL_REJECTED` in `Scripts/usage/season.py` so the negative result is
+not re-discovered.
+
+## Results
+
+Two schema traps had to be fixed before any of this measured anything, and both would
+have degraded the 2026 prediction while looking fine in training.
+
+**The two depth-chart schemas do not share a rank scale.** 2016–2024 carry
+`depth_team`, which is only ever 1, 2 or 3; 2025 onward carry `pos_rank`, which runs
+to 15. Ranks are clipped to the coarse scale, which loses granularity and is the only
+version that transfers.
+
+**They do not share the *meaning* of rank 1 either, which is worse.** The old feed
+marks every starter in a three-receiver set as first string — measured, an average of
+**3.0 rank-1 receivers per team** in 2024 against 0.97 quarterbacks. The new feed is a
+strict ordering: exactly 1.0 at every position. A model trained on the former and
+applied to the latter demotes every WR2 and WR3 in the league. The new schema is
+shifted onto the old one's meaning via a per-position starter count, after which the
+two agree (QB 0.97/1.0, TE 1.16/1.0, WR 3.0/3.0).
+
+A third bug was in my own code: deduplicating the snapshot on `gsis_id` before
+filtering to fantasy positions dropped backs and receivers who are also listed as kick
+returners, because `KR` sorts before `RB`.
 
 ### Deferred, with reasons
 

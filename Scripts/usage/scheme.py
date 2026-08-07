@@ -313,12 +313,25 @@ def attach(features: pl.DataFrame, profile: pl.DataFrame, staff: pl.DataFrame,
     previous = staff.filter(pl.col("season") == target_season - 1) \
         .select("team", pl.col("head_coach").alias("prior_head_coach"))
 
+    priors = coach_prior(profile, staff, target_season, shrinkage)
     out = (features
            .join(current, on="team", how="left")
            .join(previous, on="team", how="left")
-           .join(coach_prior(profile, staff, target_season, shrinkage),
-                 on="head_coach", how="left")
+           .join(priors, on="head_coach", how="left")
            .join(team_prior(profile, target_season), on="team", how="left"))
+
+    # A first-year head coach has no row in `priors` at all, so the join leaves his
+    # players null. Six of 32 teams were in that position for 2026 -- a fifth of the
+    # league -- so filling with the league mean and flagging it is more useful than a
+    # column of nulls the model can only abstain on. `coach_is_new` is what says the
+    # number is a stand-in.
+    means = league_means(profile.filter(pl.col("season") < target_season))
+    filled = [
+        pl.col(f"{COACH_PREFIX}{metric}").fill_null(value)
+        for metric, value in means.items()
+        if f"{COACH_PREFIX}{metric}" in out.columns
+    ]
+    out = out.with_columns(filled) if filled else out
 
     return out.with_columns(
         pl.col("coach_seasons").fill_null(0).alias("coach_seasons"),

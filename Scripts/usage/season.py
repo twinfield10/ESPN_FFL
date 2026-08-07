@@ -67,6 +67,23 @@ VOLUME_REGRESSORS: Tuple[str, ...] = (
     "p1_volume", "p2_volume", "p1_games", "team_changed",
 )
 
+#: The coach prior and depth chart are **not** here, and that is a measured decision
+#: rather than an omission.
+#:
+#: Adding ``coach_volume`` and ``staff_continuity`` to the veteran arm was tried on
+#: the full walk-forward and did nothing: within-position Spearman moved by at most
+#: 0.0012 in either direction, per-stat MAE traded −0.3% on receiving for +0.2% on
+#: rushing and passing, and **top-N hit rate got worse at three of four positions**
+#: (QB 0.607 to 0.595, WR 0.671 to 0.663, TE 0.512 to 0.488). A veteran's own prior
+#: volume already encodes his situation; the coach prior adds parameters without
+#: information.
+#:
+#: The same features move the rookie arm substantially -- ρ from 0.602 to 0.659 at QB,
+#: 0.618 to 0.645 at RB -- because a rookie has no prior volume for them to be
+#: redundant with. Plan 21's criterion is that a feature keeps its place only if it
+#: moves the numbers, so they live in :data:`ROOKIE_REGRESSORS` alone.
+VETERAN_SITUATIONAL_REJECTED: Tuple[str, ...] = ("coach_volume", "staff_continuity")
+
 #: Regressors for the expected-games head.
 #:
 #: A fitted regression rather than shrinkage toward a positional constant, and the
@@ -104,7 +121,16 @@ GAMES_REGRESSORS: Tuple[str, ...] = ("p1_games", "p1_weeks_on_reserve",
 #: rookie gets, and the intercept plus ``log_pick`` times the log of the pick is what
 #: a drafted one gets. Undrafted is not "pick 300" -- it is a different population,
 #: and 2 of 3 rookies are in it.
-ROOKIE_REGRESSORS: Tuple[str, ...] = ("log_pick", "undrafted")
+ROOKIE_REGRESSORS: Tuple[str, ...] = ("log_pick", "undrafted", "is_first_string",
+                                      "coach_volume")
+
+#: The coach-prior column that informs each volume target -- the pool the position is
+#: competing for under this coaching staff. See ``Scripts.usage.scheme``.
+COACH_VOLUME_FOR: Dict[str, str] = {
+    "targets_pg": "coach_team_wr_targets_pg",
+    "carries_pg": "coach_team_rb_carries_pg",
+    "pass_attempts_pg": "coach_team_pass_attempts_pg",
+}
 
 #: Minimum rows before a volume regression is trusted.
 MIN_FIT_ROWS = 40
@@ -213,22 +239,33 @@ class SeasonUsageModel:
     # --- the rookie arm --------------------------------------------------
 
     @staticmethod
-    def _rookie_terms(frame: pl.DataFrame) -> Dict[str, pl.Expr]:
-        """The two draft-capital regressors, as expressions.
+    def _rookie_terms(frame: pl.DataFrame,
+                      target: Optional[str] = None) -> Dict[str, pl.Expr]:
+        """The rookie regressors, as expressions.
 
         Args:
-            frame: Any frame carrying ``draft_number``.
+            frame: Any frame carrying ``draft_number``, and ideally the situational
+                columns. A frame without them still works -- the terms go to zero,
+                which is the same as the arm not using them.
+            target: Volume target, to pick the matching coach-prior column.
 
         Returns:
             dict: Regressor name to expression.
         """
+        def column(name: str) -> pl.Expr:
+            return (pl.col(name).cast(pl.Float64).fill_null(0.0)
+                    if name in frame.columns else pl.lit(0.0))
+
         pick = (pl.col("draft_number").cast(pl.Float64)
                 if "draft_number" in frame.columns
                 else pl.lit(None, dtype=pl.Float64))
         drafted = pick.is_not_null() & (pick > 0)
+        coach_column = COACH_VOLUME_FOR.get(target or "", "")
         return {
             "log_pick": pl.when(drafted).then(pick.log()).otherwise(0.0),
             "undrafted": pl.when(drafted).then(0.0).otherwise(1.0),
+            "is_first_string": column("is_first_string"),
+            "coach_volume": column(coach_column) if coach_column else pl.lit(0.0),
         }
 
     def rookie_expected_games(self, frame: pl.DataFrame) -> pl.Expr:
@@ -259,8 +296,8 @@ class SeasonUsageModel:
                 per_position).otherwise(expression)
         return expression
 
-    def _rookie_linear(self, frame: pl.DataFrame,
-                       fits: Dict, key) -> pl.Expr:
+    def _rookie_linear(self, frame: pl.DataFrame, fits: Dict, key,
+                       target: Optional[str] = None) -> pl.Expr:
         """Evaluate a per-position rookie fit, keyed by ``key(position)``.
 
         Args:
@@ -271,7 +308,7 @@ class SeasonUsageModel:
         Returns:
             pl.Expr: The prediction, null for positions with no fit.
         """
-        terms = self._rookie_terms(frame)
+        terms = self._rookie_terms(frame, target)
         expression = pl.lit(None, dtype=pl.Float64)
         for position in {p for p in
                          (k[0] if isinstance(k, tuple) else k for k in fits)}:
@@ -325,6 +362,38 @@ class SeasonUsageModel:
         # what the feature counts when a season runs long.
         return expression.clip(lower_bound=0.0, upper_bound=18.0)
 
+    @staticmethod
+    def _veteran_terms(frame: pl.DataFrame, target: str, lag1: str,
+                       lag2: str) -> Dict[str, pl.Expr]:
+        """The veteran regressors, as expressions.
+
+        A frame without the situational columns still works: those terms go to zero,
+        which is the same as the arm not using them. That keeps the model usable
+        before ``Scripts.coaches`` has been run.
+
+        Args:
+            frame: Feature frame.
+            target: Volume target, to pick the matching coach-prior column.
+            lag1: Prior-season volume column.
+            lag2: Two-seasons-prior volume column.
+
+        Returns:
+            dict: Regressor name to expression.
+        """
+        def column(name: str) -> pl.Expr:
+            return (pl.col(name).cast(pl.Float64).fill_null(0.0)
+                    if name in frame.columns else pl.lit(0.0))
+
+        coach_column = COACH_VOLUME_FOR.get(target, "")
+        return {
+            "p1_volume": column(lag1),
+            "p2_volume": column(lag2),
+            "p1_games": column(f"{ft.LAG1_PREFIX}games"),
+            "team_changed": column("team_changed"),
+            "coach_volume": column(coach_column) if coach_column else pl.lit(0.0),
+            "staff_continuity": column("staff_continuity"),
+        }
+
     def predict_volume(self, frame: pl.DataFrame, target: str) -> pl.Expr:
         """One volume stat, predicted forward per position.
 
@@ -343,13 +412,7 @@ class SeasonUsageModel:
             if fitted_target != target:
                 continue
             terms = pl.lit(fit.intercept)
-            values = {
-                "p1_volume": pl.col(lag1).cast(pl.Float64).fill_null(0.0),
-                "p2_volume": pl.col(lag2).cast(pl.Float64).fill_null(0.0),
-                "p1_games": pl.col(f"{ft.LAG1_PREFIX}games").cast(pl.Float64)
-                .fill_null(0.0),
-                "team_changed": pl.col("team_changed").cast(pl.Float64).fill_null(0.0),
-            }
+            values = self._veteran_terms(frame, target, lag1, lag2)
             for name, coefficient in fit.coefficients.items():
                 if name in values:
                     terms = terms + values[name] * coefficient
@@ -405,7 +468,7 @@ class SeasonUsageModel:
         out = out.with_columns([
             pl.when(pl.col("usg_arm") == "rookie")
             .then(self._rookie_linear(
-                out, self.rookie_volume, lambda p, t=target: (p, t)))
+                out, self.rookie_volume, lambda p, t=target: (p, t), target=target))
             .otherwise(self.predict_volume(out, target))
             .alias(f"pred_{target}")
             for target in VOLUME_TARGETS
@@ -472,7 +535,8 @@ class SeasonUsageModel:
             "",
             "  volume",
             f"  {'position':<10}{'target':<18}{'n':>7}{'const':>9}"
-            f"{'p1':>8}{'p2':>8}{'p1_gms':>8}{'moved':>8}{'R2':>8}",
+            f"{'p1':>8}{'p2':>8}{'p1_gms':>8}{'moved':>8}{'coach':>8}"
+            f"{'staff':>8}{'R2':>8}",
         ]
         for (position, target), fit in sorted(self.volume.items()):
             c = fit.coefficients
@@ -480,7 +544,8 @@ class SeasonUsageModel:
                 f"  {position:<10}{target:<18}{fit.n:>7}{fit.intercept:>9.3f}"
                 f"{c.get('p1_volume', 0):>8.3f}{c.get('p2_volume', 0):>8.3f}"
                 f"{c.get('p1_games', 0):>8.3f}{c.get('team_changed', 0):>8.3f}"
-                f"{fit.r2:>8.4f}"
+                f"{c.get('coach_volume', 0):>8.3f}"
+                f"{c.get('staff_continuity', 0):>8.3f}{fit.r2:>8.4f}"
             )
 
         if self.rookie_volume or self.rookie_games:
@@ -582,12 +647,12 @@ def _fit_volume(frame: pl.DataFrame, position: str, target: str) -> Optional[Vol
         # structural zeros, perfectly predicted -- dominate the fit, flatter the
         # R-squared and pull the slope toward zero.
         & (pl.col(lag1).fill_null(0) > 0)
+    )
+    terms = SeasonUsageModel._veteran_terms(rows, target, lag1, lag2)
+    rows = rows.with_columns(
+        [expression.alias(name) for name, expression in terms.items()]
     ).select(
-        pl.col(lag1).cast(pl.Float64).fill_null(0.0).alias("p1_volume"),
-        pl.col(lag2).cast(pl.Float64).fill_null(0.0).alias("p2_volume"),
-        pl.col(f"{ft.LAG1_PREFIX}games").cast(pl.Float64).fill_null(0.0)
-        .alias("p1_games"),
-        pl.col("team_changed").cast(pl.Float64).fill_null(0.0).alias("team_changed"),
+        *[pl.col(name) for name in VOLUME_REGRESSORS],
         pl.col(outcome).cast(pl.Float64).alias("y"),
     ).drop_nulls()
 
@@ -721,16 +786,19 @@ def _fit_rookie_volume(frame: pl.DataFrame, position: str,
     outcome = f"y_{target}"
     if outcome not in frame.columns:
         return None
-    rows = _rookie_rows(frame, position).select(
-        pl.col("log_pick"), pl.col("undrafted"),
+    prepared = _rookie_rows(frame, position)
+    terms = SeasonUsageModel._rookie_terms(prepared, target)
+    rows = prepared.with_columns(
+        [expression.alias(name) for name, expression in terms.items()]
+    ).select(
+        *[pl.col(name) for name in ROOKIE_REGRESSORS],
         # A rookie who never appeared has no row in the outcome frame, and his
         # realised volume is zero rather than unknown.
         pl.col(outcome).cast(pl.Float64).fill_null(0.0).alias("y"),
     ).drop_nulls()
     if rows.height < MIN_ROOKIE_FIT_ROWS:
         return None
-    fit = _least_squares(rows, ROOKIE_REGRESSORS, position, target)
-    return fit
+    return _least_squares(rows, ROOKIE_REGRESSORS, position, target)
 
 
 def bin_label(first: Optional[Tuple[int, int]]) -> str:

@@ -374,7 +374,7 @@ def test_the_rookie_arm_fits_undrafted_players_too():
 def test_undrafted_is_not_modelled_as_a_late_pick():
     """It is a different population, not pick 300 -- so it gets its own indicator
     with log_pick held at zero."""
-    assert set(sn.ROOKIE_REGRESSORS) == {"log_pick", "undrafted"}
+    assert {"log_pick", "undrafted"} <= set(sn.ROOKIE_REGRESSORS)
     frame = pl.DataFrame({"draft_number": [None, 32]},
                          schema={"draft_number": pl.Int32})
     terms = sn.SeasonUsageModel._rookie_terms(frame)
