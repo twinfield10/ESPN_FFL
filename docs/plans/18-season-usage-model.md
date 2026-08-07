@@ -1,6 +1,9 @@
 # 18 — The season usage model (pre-season / draft head)
 
-**Priority:** High (seasonal) · **Effort:** M · **Status:** Not started
+**Priority:** High (seasonal) · **Effort:** M · **Status:** **In progress** — plan 16's
+extraction layer for availability is done (`R/GetContext.R`,
+`Scripts/usage/context.py`) and the expected-games head is measured (§below). Next:
+`Scripts/usage/features.py`, then `Scripts/usage/season.py` and the walk-forward.
 **Depends on:** [16](16-usage-data-layer.md) — Step 0 gates and the feature layer ·
 [15 (draft board)](15-draft-board.md) — done
 **Supersedes:** [17](17-draft-usage-model.md)
@@ -109,11 +112,59 @@ New relative to plan 17, and it comes straight out of plan 16's injury
 measurement. Season projections are per-game production × games, and games is
 not 17 for everyone. The availability head (shared with
 [plan 19](19-weekly-usage-model.md)) supplies a prior-season durability estimate;
-pre-season it has no current injury report to read, so it falls back to trailing
+pre-season it has no current injury report to read — **confirmed live 2026-08-07:
+nflreadr refuses `load_injuries(2026)` entirely** — so it falls back to trailing
 games-missed and roster status.
 
 Keep it visibly separate from production. "18 points per game × 14.2 games" is
 auditable; a single 256-point number is not.
+
+#### Measured 2026-08-07, and it is weaker than this plan assumed
+
+Predicting next season's games played, over 6,599 QB/RB/WR/TE player-season pairs
+from 2016–2025 (`Scripts.usage.context.season_availability`):
+
+| Predictor | r | MAE (games) |
+|---|---|---|
+| everyone plays a full slate | — | 10.284 |
+| everyone plays the pool mean (6.72) | — | 5.749 |
+| **this season's games played** | **+0.663** | **3.543** |
+
+That looks like a strong result and it is mostly an artefact of the population.
+Restricted to players who managed 8+ games — **the population a draft board
+actually ranks** — it collapses:
+
+| Predictor, 8+ games (n=3,216) | r | MAE (games) |
+|---|---|---|
+| everyone plays a full slate | — | 6.411 |
+| everyone plays the group mean (10.59) | — | 4.767 |
+| this season's games played | **+0.343** | **4.382** |
+
+**So the full-pool correlation of +0.663 is largely a role signal, not a durability
+signal** — it is separating deep reserves who played twice from starters who played
+sixteen times. Once you condition on being a rotation player, a player's own prior
+games-played beats simply assuming the group mean by 8% of MAE, on r = 0.343.
+
+Three consequences, and they are design decisions rather than caveats:
+
+1. **Shrink hard toward the role mean.** An expected-games head that trusts a
+   player's own prior season will be confidently wrong. The prior should be the
+   positional/role mean with the player's own history moving it a little.
+2. **Do not let expected games carry the model.** Its honest contribution is
+   trimming the tail — the player who missed nine games last year — not
+   differentiating the top of a position, where everyone's estimate is ~15.5.
+3. **`weeks_on_reserve` is worth carrying** (r = −0.462 to next-season games
+   played), because it separates "hurt" from "healthy and benched" in a way
+   appearance counts alone cannot. That is the caveat plan 16 recorded against its
+   own injury table, and roster status is the fix.
+
+Two arithmetic traps found building this, both silent: counting a team's *calendar*
+weeks as its games (rosters carry a bye-week row, so a player who never missed a
+game came out 106% available), and leaving the counters as the unsigned integers
+`len` returns (one subtraction that should have gone negative produced 4,294,967,295
+games missed, in a frame whose `describe()` looked ordinary). The denominator now
+comes from `player_weeks`' distinct (team, week), which reproduces the real
+exception: 16 games for exactly two teams in 2022, Buffalo and Cincinnati.
 
 ### Rookies
 

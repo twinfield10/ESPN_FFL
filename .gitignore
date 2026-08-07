@@ -48,3 +48,11 @@ Data/Store/
 Data/NFL/*/opportunity.parquet
 Data/NFL/*/player_weeks.parquet
 Data/NFL/*/usage_meta.json
+# Availability and role pulls, rebuilt by `Rscript R/GetContext.R`. Same argument.
+# depth_charts is the big one: ~35k rows a season through 2024 and 549k for 2025,
+# where upstream switched the feed to a timestamped snapshot log.
+Data/NFL/*/rosters_weekly.parquet
+Data/NFL/*/injuries.parquet
+Data/NFL/*/snap_counts.parquet
+Data/NFL/*/depth_charts.parquet
+Data/NFL/*/context_meta.json

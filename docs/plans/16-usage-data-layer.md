@@ -309,7 +309,7 @@ pre-season no-data path that exits 0 rather than stack-tracing.
 | Script | Writes | Status |
 |---|---|---|
 | `R/GetUsage.R` | `Data/NFL/<season>/{opportunity,player_weeks}.parquet` + `usage_meta.json` | **done.** `load_ff_opportunity` and `calculate_stats(s,"week","player")`. `routes.parquet` (participation×pbp) lands with step 4, which is the first thing that needs it |
-| `R/GetContext.R` | `Data/NFL/<season>/{injuries,snap_counts,depth_charts,rosters_weekly}.parquet` | availability and role — **now the priority**, see [§Step 0](#g1--accuracy-fail-and-the-reason-is-availability) |
+| `R/GetContext.R` | `Data/NFL/<season>/{rosters_weekly,injuries,snap_counts,depth_charts}.parquet` + `context_meta.json` | **done 2026-08-07.** 2016–2025 backfilled and 2026 pulled as far as upstream allows. Read by `Scripts/usage/context.py`, 18 tests. Three upstream surprises, below |
 | `Scripts/coaches.py` | `Data/NFL/coaching_staff.parquet` | Wikipedia MediaWiki API; Python because it is not an nflverse pull |
 
 Backfill 2016–2025 once — measured at **124s** for `GetUsage.R`, 3.5 MB a season —
@@ -320,6 +320,65 @@ refresh stays fast.
 is the answer to §Risks' upstream-dependency item: ffopportunity is `ffverse`
 release data, not nflverse core, so it can stop updating mid-season while every
 file still reads fine.
+
+#### Three things upstream does that this plan assumed it did not
+
+All verified live on 2026-08-07, and each one would have been a silent wrong answer
+rather than an error.
+
+**1. The availability data does not exist for the season you need it for.**
+`load_rosters_weekly(2026)` serves a week-1 snapshot updated that morning, but
+`load_injuries(2026)`, `load_snap_counts(2026)` and `load_depth_charts(2026)` all
+raise `seasons <= most_recent_season() is not TRUE` — because `most_recent_season()`
+is 2025 while `most_recent_season(roster = TRUE)` is 2026. So **before week 1 there
+is no injury report to read at all.** That does not make availability-first wrong —
+the history is what you fit on — but it does mean the availability *feature* cannot
+be a current injury designation for the pre-season head. It has to be trailing
+games played plus roster status, which is what [plan 18](18-season-usage-model.md)
+specified and what `context.season_availability` now builds. The weekly head reads
+the live report; the season head cannot.
+
+**2. `depth_charts` changed shape, for 2025 only.** 2016–2024 are week-keyed, 15
+columns, with `depth_position`; 2025 is a **timestamped snapshot log** — 12 columns,
+221 distinct `dt` values, some stamped March 2026, no `week` at all. A feature built
+on `depth_position` fits happily on nine seasons and then finds the column missing
+in the season it has to predict. `context_meta.json` records
+`depth_charts_shape` so the mismatch is refusable. For a season model the role
+signal to use is `rosters_weekly.depth_chart_position`, which is present and
+consistent in every season including 2026.
+
+**3. `snap_counts` has no `gsis_id`,** only `pfr_player_id`. The obvious hub is
+`rosters_weekly.pfr_id` and it is the wrong one: measured over all ten seasons on
+the QB/RB/WR/TE snap population, **this repo's own crosswalk resolves 98.7–99.5%
+every year while rosters manage 71.2% in 2016**, because rosters' `pfr_id` is 45.9%
+populated that season against 75.0% in 2025. Joining through rosters would have left
+snap share quietly unusable in exactly the early training seasons — degrading worst
+where the backtest needs it most. `player_ids.parquet` earns its keep a second time.
+
+#### The injury measurement replicates
+
+Re-run on the fresh pull, restricted to players with 3+ prior appearances that
+season (plan 16's original grid required a 3-game baseline):
+
+| Designation | n | % missed, here | % missed, §Measurements |
+|---|---|---|---|
+| Out | 5,993 | 99.98 | 100.0 |
+| Doubtful | 949 | 99.05 | 99.2 |
+| Questionable | 9,245 | 40.5 | 35.0 |
+| on the report, no designation | 18,606 | 17.8 | 23.0 |
+
+| Questionable, by practice | n | % missed, here | % missed, §Measurements |
+|---|---|---|---|
+| Did not participate | 1,575 | 61.8 | 57.2 |
+| Limited | 5,884 | 38.4 | 33.5 |
+| Full | 1,677 | 27.6 | 22.3 |
+
+Levels differ because the populations differ — the original walked a 65,640
+player-week grid, this walks report rows — and **the number that matters
+reproduces**: the practice-status spread inside Questionable is 34 points here
+against 35 there. Without the 3+ appearance restriction every rate is 6–10 points
+higher, which is itself worth knowing: an unfiltered report conflates "hurt" with
+"was never going to play", and a deep reserve listed Questionable counts as a miss.
 
 `coaching_staff.parquet` is **committed** — small, hand-auditable, and the
 upstream can change, the same argument that keeps `player_ids.parquet` in git.

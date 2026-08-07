@@ -100,10 +100,24 @@ against 2025 now, independent of 2026 lines.
 
 **Projection quality (the current focus):** ~~16 step 1 (crosswalk)~~ →
 ~~[16 Step 0](16-usage-data-layer.md#step-0--the-gates-measured-2026-08-06) (the
-gates)~~ → [**16 step 3, availability first**](16-usage-data-layer.md#what-this-decides) →
-[18](18-season-usage-model.md) (season, before the drafts) →
-[19](19-weekly-usage-model.md) (weekly, comes online ~week 3) →
+gates)~~ → ~~[16 step 3, availability first](16-usage-data-layer.md#extraction-layer)~~ →
+[**16 step 4 + 18**](18-season-usage-model.md) (features, then the season head,
+before the drafts) → [19](19-weekly-usage-model.md) (weekly, comes online ~week 3) →
 [20](20-consensus-sources.md) → [03](03-projection-source-coverage.md).
+
+**Step 3 is done, 2026-08-07.** `R/GetContext.R` + `Scripts/usage/context.py`
+backfill rosters, injuries, snap counts and depth charts for 2016–2025 and pull 2026
+as far as upstream allows. The scheduling fact it turned up matters for the draft:
+**injuries, snap counts and depth charts cannot be pulled for 2026 at all yet** —
+nflreadr refuses them while `most_recent_season()` is 2025 — while the 2026 roster
+snapshot is served and updated daily. So the pre-season head's availability input is
+trailing games played plus roster status, not a current designation.
+
+And that input is weaker than [plan 18](18-season-usage-model.md) assumed. Prior-season
+games played predicts next season at r = +0.663 over the whole pool but only
+**+0.343 among players who managed 8+ games**, which is the population a board ranks
+— the full-pool figure is mostly separating reserves from starters. Expected games
+should shrink hard toward the role mean rather than trusting a player's own history.
 
 **Step 0 is done, measured 2026-08-06.** It built a 5,257 player-week 2025
 evaluation set out of all nine league stores, fitted the crudest usage baseline on
