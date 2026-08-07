@@ -156,6 +156,57 @@ def attach_espn_id(frame: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def to_full_slate(frame: pl.DataFrame, columns: Sequence[str],
+                  slate: float = sn.DEFAULT_TARGET_SLATE) -> pl.DataFrame:
+    """Rescale the stat lines from expected games to a full healthy season.
+
+    **The model predicts an expected value and the blend needs an if-healthy line.
+    Those are different quantities, and mixing them is a measured error rather than a
+    stylistic one.**
+
+    :meth:`SeasonUsageModel.predict` multiplies per-game production by *expected*
+    games -- about 13.6 for a rostered starter -- because that is what predicts a
+    realised season, and it is what :mod:`Scripts.usage.backtest` scores. ESPN and
+    FantasyPros project a healthy 17-game slate and apply no availability discount at
+    all. Blending the two at equal weight therefore produced something that was
+    neither, and did so **unevenly across positions**: the usage model covers
+    QB/RB/WR/TE and not kickers or team defences, so on the 2026 board the skill
+    positions came out at 0.887-0.900 of their ESPN/FantasyPros level while K and
+    D/ST sat at exactly 1.000. Roughly 11% of cross-position distortion, in a blend
+    whose entire job is to be comparable across positions.
+
+    Rescaling here rather than in the model keeps both quantities available and each
+    where it belongs: the backtest keeps measuring the expected-value line against
+    realised outcomes, and the blend receives a line on the same footing as its
+    neighbours. The availability estimate is not lost -- it travels as
+    ``usg_expected_games`` with its own interval, which is where a per-player discount
+    should be applied if one is wanted, and applied to the *whole* blend rather than
+    to one third of it.
+
+    Args:
+        frame: Prediction frame carrying ``expected_games`` and the columns to scale.
+        columns: Stat and interval columns to rescale.
+        slate: Games a healthy season offers.
+
+    Returns:
+        pl.DataFrame: ``frame`` with those columns on a full-slate basis.
+    """
+    if "expected_games" not in frame.columns:
+        return frame
+
+    # Guarded: a zero or null expected-games would divide a projection by nothing.
+    # Those rows are abstentions and their stat lines are already null, so the ratio
+    # is only ever applied to rows that have something to scale.
+    ratio = (pl.lit(float(slate))
+             / pl.col("expected_games").cast(pl.Float64))
+    safe = pl.when(pl.col("expected_games").cast(pl.Float64) > 0).then(ratio) \
+             .otherwise(None)
+
+    return frame.with_columns(
+        [(pl.col(column).cast(pl.Float64) * safe).alias(column)
+         for column in columns if column in frame.columns])
+
+
 def build(season: int, refit: bool = False,
           history_start: int = HISTORY_START,
           abstain_positions: Optional[Sequence[str]] = None) -> pl.DataFrame:
@@ -199,6 +250,8 @@ def build(season: int, refit: bool = False,
     interval_columns = [f"{c}{suffix}" for c in stat_columns
                         for suffix in ("_sd", "_low", "_high")
                         if f"{c}{suffix}" in predicted.columns]
+
+    predicted = to_full_slate(predicted, stat_columns + interval_columns)
 
     # The provenance flags, and the reason this function exists. A null here means
     # the model declined -- no prior season, a declined position, or no opportunity

@@ -185,6 +185,15 @@ IMPUTED_SUFFIX = "_is_imputed"
 #: in is still an assertion rather than a measurement; it is now an assertion with a
 #: lot behind it, made deliberately rather than inherited.
 #:
+#: ``USG`` enters on an **if-healthy basis** -- :func:`Scripts.usage.project.to_full_slate`
+#: rescales the model's expected-value line to a full 17-game slate before it reaches
+#: the blend, so all three sources describe the same quantity. Without that the blend
+#: mixed an availability-discounted source with two undiscounted ones, and did so
+#: unevenly: the usage model covers QB/RB/WR/TE and not K or D/ST, so skill positions
+#: came out at 0.887-0.900 of their ESPN/FantasyPros level while kickers and defences
+#: sat at exactly 1.000. That is 11% of cross-position distortion in a blend whose job
+#: is to be comparable across positions. Rescaled, the same ratios are 0.974-1.012.
+#:
 #: **On Pinnacle and BetOnline going to zero.** Note this drops the better-covered of
 #: the two market sources: BetOnline's season endpoint works and resolves **273
 #: players with 13 stat columns including IDP tackles and sacks**, against

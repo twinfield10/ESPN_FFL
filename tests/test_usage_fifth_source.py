@@ -17,6 +17,7 @@ Synthetic frames throughout. No network, no parquet.
 
 import numpy as np
 import pandas as pd
+import polars as pl
 import pytest
 
 from Scripts import projection_utils as pu
@@ -293,3 +294,29 @@ def test_coverage_and_disagreement_use_different_source_lists():
     assert "USG" in sp.PROJECTION_PREFIXES
     assert "USG" not in sp.OPINION_PREFIXES
     assert set(sp.OPINION_PREFIXES) < set(sp.PROJECTION_PREFIXES)
+
+
+def test_the_blend_receives_an_if_healthy_line():
+    """The model predicts expected value; the blend needs the same quantity its other
+    sources carry. Mixing them distorted cross-position comparison by ~11%, because
+    the usage model covers QB/RB/WR/TE and not K or D/ST -- so skill positions took an
+    availability discount that kickers and defences did not."""
+    frame = pl.DataFrame({
+        "expected_games": [13.6, 17.0, None],
+        "USG_receivingYards": [1000.0, 1000.0, None],
+    })
+    out = pj.to_full_slate(frame, ["USG_receivingYards"], slate=17.0)
+    got = out["USG_receivingYards"].to_list()
+    assert got[0] == pytest.approx(1000.0 * 17.0 / 13.6)
+    assert got[1] == pytest.approx(1000.0)          # already a full slate
+    assert got[2] is None                            # an abstention stays absent
+
+
+def test_rescaling_cannot_divide_by_no_games():
+    """A zero expected-games would divide a projection by nothing. Those rows are
+    abstentions and carry a null line already, but the guard is cheaper than the
+    infinity it prevents."""
+    frame = pl.DataFrame({"expected_games": [0.0],
+                          "USG_receivingYards": [1000.0]})
+    out = pj.to_full_slate(frame, ["USG_receivingYards"], slate=17.0)
+    assert out["USG_receivingYards"][0] is None

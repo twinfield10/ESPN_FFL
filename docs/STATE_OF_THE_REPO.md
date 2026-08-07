@@ -42,6 +42,16 @@ arm is the clear win** — draft capital plus depth-chart position orders rookie
 ρ ≈ 0.64 where a projection carrying no such information manages ~0, on 1,497
 player-seasons the model previously said nothing about.
 
+**`USG` blends on an if-healthy basis.** The model predicts an expected value
+(per-game production x ~13.6 expected games); ESPN and FantasyPros project a healthy
+17-game season. Blending them mixed two quantities, and unevenly -- the usage model
+covers QB/RB/WR/TE and not K or D/ST, so skill positions came out at 0.887-0.900 of
+their ESPN/FantasyPros level while kickers and defences sat at exactly 1.000. That is
+11% of cross-position distortion, which VOR inherits directly. `to_full_slate`
+rescales before blending and the residual is now 1-3%. The model itself is unchanged
+and the backtest is untouched -- only the artifact the blend consumes is rescaled, and
+the availability estimate travels beside it as `usg_expected_games`.
+
 **The blend is an equal three-way split of ESPN, FantasyPros and the usage model as
 of 2026-08-07**, with Pinnacle and BetOnline at zero — an owner decision, recorded as
 one rather than inherited. G2 is still unanswered and still unanswerable on history;

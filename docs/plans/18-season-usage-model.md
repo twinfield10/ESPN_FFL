@@ -747,6 +747,52 @@ line.
 against FantasyPros' 60. Only the *weekly* endpoint returns 403, on a different host
 that never fed this path. Reinstating it is one number.
 
+#### It blends on an if-healthy basis, not on expected value
+
+`Scripts.usage.project.to_full_slate` rescales the stat lines to a full 17-game slate
+before they reach the blend. **The model still predicts expected value** — that is what
+predicts a realised season and what the backtest scores, and its numbers are unchanged
+by this. Only the artifact the blend consumes is rescaled.
+
+The reason is a measured cross-position distortion, and it is exactly the failure that
+kept `USG` out of the floor/ceiling spread, one layer up. `USG_Points` was an expected
+value (per-game production × ~13.6 games); ESPN and FantasyPros project a healthy
+17-game season with no availability discount at all. Blending them produced something
+that was neither — and because the model covers QB/RB/WR/TE and not kickers or team
+defences, it did so **unevenly**:
+
+| position | before rescale | after |
+|---|---|---|
+| D/ST | 1.000 | 1.000 |
+| K | 1.000 | 1.000 |
+| QB | 0.896 | **1.012** |
+| RB | 0.887 | **0.974** |
+| TE | 0.900 | **0.991** |
+| WR | 0.890 | **0.983** |
+
+(Ratio of blended points to an ESPN/FantasyPros-only blend, draftable players.)
+
+Roughly **11% of cross-position distortion** in a blend whose entire job is to be
+comparable across positions, and VOR inherits it directly — VOR is a difference, so a
+uniformly deflated position gets a uniformly deflated VOR while kickers keep theirs.
+After the rescale the residual is 1–3%, which is genuine disagreement rather than a
+units artifact, and quarterbacks come out slightly *above* consensus rather than 10%
+below.
+
+The availability estimate is not lost. It travels as `usg_expected_games` with its own
+Beta-Binomial interval, which is where a per-player discount belongs — and applied
+there it would discount the **whole** blend rather than one third of it, which is a
+better use of the one thing this model has that no other source does.
+
+**This also reopens the floor/ceiling question**, since the scale mismatch was the
+stated reason for the exclusion. Re-measured on the rescaled lines, `USG` is now the
+minimum for **30%** of draftable players and the maximum for **46%** — two-sided
+disagreement rather than the systematic lowness that made the interval read as "the
+model is bearish" (it was the minimum for 52% before). Median spread widens from 8.5%
+to 14.2%, which is arguably more honest given how correlated plan 03 measured the
+market sources to be. Not changed here; it is a separate decision and a visible board
+column.
+
 #### The change exposed a real bug in coverage counting
 
 `projection_missing` and `sources_real` were computed from `OPINION_PREFIXES`, which
