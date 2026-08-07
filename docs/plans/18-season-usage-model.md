@@ -662,6 +662,66 @@ hurt". Their real home is [plan 19](19-weekly-usage-model.md): the weekly head g
 the live report, where it is a primary signal rather than a marginal one. The pull is
 already on disk for 2016–2025 when that is built.
 
+### Age — added to both heads, 2026-08-07
+
+**No new data source.** `birth_date` and `years_exp` were in `rosters_weekly.parquet`
+for every season, already pulled, and nothing used them. Age is a *current-season*
+fact rather than a lag — a birth date does not move, so 2026's age is knowable in
+2026 — so it lands in `roster_context` beside `team_changed` and `is_rookie`.
+
+Measured against the season opener rather than by subtracting birth years: a January
+and a December birthday are most of a year apart, and the running-back decline is
+steep enough for that to matter.
+
+Measured over 8,763 player-season pairs before building anything:
+
+| predicting next season | prior volume + games | + age |
+|---|---|---|
+| WR targets | 0.5462 | **0.5645** |
+| RB carries | 0.5114 | **0.5211** |
+| TE targets | 0.5554 | **0.5603** |
+| games played (on top of snap share) | 0.1982 | **0.2100** |
+
+**Linear, not a curve.** Adding `age²` moved every one of those by less than 0.0003.
+The quadratic the football-analytics literature likes buys nothing over this
+population and this horizon, and a parameter that does nothing is a parameter that
+can overfit.
+
+In the fitted heads, R² rose on every volume arm — RB carries 0.585 → **0.605**, WR
+targets 0.628 → **0.650**, TE targets 0.606 → **0.622** — and the coefficients are
+face-valid: **RB carries −0.236 per year of age**, the classic cliff, with older
+quarterbacks running less (−0.073) and throwing more (+0.072). The availability gain
+is smaller than it measured in isolation (TE +0.004, WR +0.003, QB/RB ≈ 0), because
+snap share already absorbs part of it.
+
+Downstream:
+
+| | before | after |
+|---|---|---|
+| receivingYards MAE vs naive | −5.5% | **−6.3%** |
+| receivingReceptions MAE | −5.2% | **−6.2%** |
+| receivingTouchdowns MAE | −13.7% | **−14.0%** |
+| rushingYards MAE | −1.9% | **−2.9%** |
+| WR Spearman delta | +0.0097 | **+0.0126** |
+| TE Spearman delta | +0.0291 | **+0.0300** |
+| TE top-12 hit rate | 0.524 vs 0.512 | 0.524 vs 0.512 |
+
+RB Spearman slipped slightly (+0.0222 → +0.0196) while RB MAE and top-24 both
+improved, which is the usual ordering-versus-level trade and nets positive.
+
+**It did not close the quarterback gap.** QB Spearman has been converging as the
+model improved — **−0.0155 → −0.0153 (slate) → −0.0119 (snap share) → −0.0115
+(age)** — but it is still negative, so `ABSTAIN_POSITIONS` stays as it is. That was
+the stated reason for trying age second; the answer is no.
+
+One bug worth recording: `age_expr` first returned a null when the column was absent,
+and both fits `drop_nulls()` their regressor block, so a frame built before this
+feature existed would have produced an **empty volume fit** rather than simply not
+using age. It returns a constant now, which is collinear with the intercept and
+therefore contributes nothing — the intended "this arm does not use age" behaviour.
+Zero was not an option: unlike a team-change flag, a zero age is not neutral, it puts
+every unknown player at the far end of the decline curve.
+
 ### The fitted expected-games head, and what it says
 
 Coefficients are in **share of the slate** as of v1.1.0; the last column converts a

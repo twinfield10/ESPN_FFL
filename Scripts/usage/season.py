@@ -81,8 +81,17 @@ VOLUME_TARGETS: Tuple[str, ...] = ("targets_pg", "carries_pg", "pass_attempts_pg
 
 #: Regressors for a volume model. Lagged volume plus the two context flags a
 #: drafter can see pre-season.
+#: ``age`` is the player's age at the season opener, and it is the one regressor here
+#: that is a *current-season* fact rather than a lag -- a birth date does not move, so
+#: 2026's age is knowable in 2026.
+#:
+#: Measured over 8,763 player-season pairs, predicting next-season volume beyond prior
+#: volume and games: **WR targets 0.5462 -> 0.5645, RB carries 0.5114 -> 0.5211, TE
+#: targets 0.5554 -> 0.5603**. Linear, not a curve: adding ``age^2`` moved every one of
+#: those by less than 0.0003, so the quadratic the football-analytics literature likes
+#: buys nothing over this population and this horizon.
 VOLUME_REGRESSORS: Tuple[str, ...] = (
-    "p1_volume", "p2_volume", "p1_games", "team_changed",
+    "p1_volume", "p2_volume", "p1_games", "team_changed", "age",
 )
 
 #: The coach prior and depth chart are **not** here, and that is a measured decision
@@ -151,8 +160,12 @@ VETERAN_SITUATIONAL_REJECTED: Tuple[str, ...] = ("coach_volume", "staff_continui
 #: depth-chart move from inactive, and being inactive is most of what "games played"
 #: measures once a player is on a roster. Injury-report features were measured on top
 #: of it and added +0.003, so they are not here -- see plan 18 §Snap share.
+#: ``age`` earns a place here too, and separately: predicting next-season games,
+#: R-squared goes 0.1982 to **0.2100** on top of snap share. Mean games played falls
+#: 11.36 at 21-24 to 10.10 at 29-30, which is the durability signal prior games alone
+#: was never going to carry.
 GAMES_REGRESSORS: Tuple[str, ...] = ("p1_availability", "p1_weeks_on_reserve",
-                                     "p1_snap_share", "team_changed")
+                                     "p1_snap_share", "team_changed", "age")
 
 #: Games the season being projected offers, when the data cannot say.
 #:
@@ -284,6 +297,14 @@ ROOKIE_GAMES_BINS: Tuple[Optional[Tuple[int, int]], ...] = (
 #: summary: a number built on five opportunities invites being used as though it
 #: meant something.
 MIN_RATE_DENOMINATOR = 50.0
+
+#: Age used where none is known, in years.
+#:
+#: The pool mean, 26.2 rounded. Only reachable when the roster pull carries no birth
+#: date at all -- a per-player gap falls back to the position's median first. It is a
+#: constant rather than a null on purpose: the fits drop null regressor rows, so a
+#: null here would empty a whole fit instead of disabling one term.
+DEFAULT_AGE: float = 26.0
 
 #: Most recent training seasons held out to fit the predictive dispersions.
 #:
@@ -513,6 +534,7 @@ class SeasonUsageModel:
                 if f"{ft.LAG1_PREFIX}snap_share" in frame.columns
                 else pl.col(f"{ft.LAG1_PREFIX}availability").cast(pl.Float64)),
             "team_changed": pl.col("team_changed").cast(pl.Float64),
+            "age": age_expr(frame),
         }
         for position, fit in self.games.items():
             terms = pl.lit(fit.intercept)
@@ -712,6 +734,10 @@ class SeasonUsageModel:
             "p2_volume": column(lag2),
             "p1_games": column(f"{ft.LAG1_PREFIX}games"),
             "team_changed": column("team_changed"),
+            # Not `column()`: a zero age is not a neutral value the way a zero
+            # team-change flag is, and filling one would put every unknown player at
+            # the far end of the decline curve.
+            "age": age_expr(frame),
             "coach_volume": column(coach_column) if coach_column else pl.lit(0.0),
             "staff_continuity": column("staff_continuity"),
         }
@@ -1028,6 +1054,40 @@ class SeasonUsageModel:
         )
 
 
+
+def age_expr(frame: pl.DataFrame) -> pl.Expr:
+    """Age at the season opener, with a positional fallback.
+
+    A missing birth date is filled with the position's median age rather than
+    dropping the row. Coverage is 98.6% on the 2026 roster, but the 1.4% are not a
+    random sample -- they are the players nflverse knows least about, which skews
+    toward the fringe roster spots a draft board is least sure of anyway. Losing them
+    from the fit would be a quiet selection effect.
+
+    Args:
+        frame: Feature frame, with ``position``.
+
+    Returns:
+        pl.Expr: Age in years, never null where any age is known for the position.
+    """
+    if "age" not in frame.columns:
+        # A constant, never a null. The fits `drop_nulls()` their regressor block, so
+        # a null age would empty the entire volume fit rather than merely disable one
+        # term -- which is what a frame built before this feature existed, or by a
+        # caller that never pulled rosters, would produce. A constant is collinear
+        # with the intercept and therefore contributes nothing, which is the intended
+        # "this arm does not use age" behaviour.
+        # `pl.repeat` rather than `pl.lit`, so the expression is the frame's height in
+        # a bare `select` as well as in `with_columns`. A length-1 literal silently
+        # truncates a select to one row, which is the kind of thing that works
+        # everywhere it is currently called from and breaks the first time it is not.
+        return pl.repeat(DEFAULT_AGE, pl.len(), dtype=pl.Float64)
+    age = pl.col("age").cast(pl.Float64)
+    return (age.fill_null(age.median().over("position"))
+            .fill_null(age.median())
+            .fill_null(DEFAULT_AGE))
+
+
 def _fit_volume(frame: pl.DataFrame, position: str, target: str) -> Optional[VolumeFit]:
     """Least squares for one position's volume stat.
 
@@ -1150,6 +1210,7 @@ def _fit_games(frame: pl.DataFrame, position: str) -> Optional[VolumeFit]:
          if lag_snaps in frame.columns
          else pl.col(lag_availability).cast(pl.Float64)).alias("p1_snap_share"),
         pl.col("team_changed").cast(pl.Float64).fill_null(0.0).alias("team_changed"),
+        age_expr(frame).alias("age"),
         (pl.col("y_games").cast(pl.Float64)
          / pl.col("y_games_available").cast(pl.Float64)).alias("y"),
     ).drop_nulls()

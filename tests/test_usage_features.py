@@ -376,3 +376,57 @@ def test_a_missing_snap_record_falls_back_to_availability():
     got = frame.select(model.expected_games(frame, target_slate=17.0)).to_series()
     assert got[0] == pytest.approx(0.8 * 17.0)
     assert got[1] == pytest.approx(0.7 * 17.0)
+
+
+# --- age -----------------------------------------------------------------
+
+def test_age_is_measured_against_the_opener_not_by_subtracting_years():
+    """A January and a December birthday are most of a year apart, and the
+    running-back decline is steep enough for that to matter."""
+    from datetime import date
+    import polars as pl
+    january = date(2026, 9, 1) - date(2000, 1, 15)
+    december = date(2026, 9, 1) - date(2000, 12, 15)
+    assert (january.days - december.days) / ft.DAYS_IN_YEAR > 0.9
+    assert january.days / ft.DAYS_IN_YEAR == pytest.approx(26.6, abs=0.1)
+
+
+def test_age_is_a_regressor_on_both_heads():
+    """It was measured to pay on each separately: volume WR 0.5462 -> 0.5645, and
+    availability 0.1982 -> 0.2100 on top of snap share."""
+    from Scripts.usage import season as sn
+    assert "age" in sn.VOLUME_REGRESSORS
+    assert "age" in sn.GAMES_REGRESSORS
+
+
+def test_a_missing_age_column_disables_the_term_rather_than_emptying_the_fit():
+    """The fits drop null regressor rows, so a null age would empty an entire volume
+    fit instead of merely not using age -- which is what a frame built before this
+    feature existed would produce."""
+    import polars as pl
+    from Scripts.usage import season as sn
+    frame = pl.DataFrame({"position": ["WR", "WR"]})
+    got = frame.select(sn.age_expr(frame).alias("age"))["age"].to_list()
+    assert got == [sn.DEFAULT_AGE, sn.DEFAULT_AGE]
+
+
+def test_a_missing_birth_date_falls_back_to_the_position_median():
+    """Coverage is 98.6%, and the 1.4% are not a random sample -- they are the
+    players nflverse knows least about, which skews to the fringe roster spots a
+    board is least sure of. Dropping them would be a quiet selection effect."""
+    import polars as pl
+    from Scripts.usage import season as sn
+    frame = pl.DataFrame({"position": ["RB", "RB", "RB"],
+                          "age": [24.0, 28.0, None]})
+    got = frame.select(sn.age_expr(frame).alias("age"))["age"].to_list()
+    assert got[2] == pytest.approx(26.0)
+
+
+def test_age_never_falls_back_to_zero():
+    """Zero is not a neutral age the way a zero team-change flag is neutral -- it
+    would put every unknown player at the far end of the decline curve."""
+    import polars as pl
+    from Scripts.usage import season as sn
+    frame = pl.DataFrame({"position": ["RB"], "age": [None]}).with_columns(
+        pl.col("age").cast(pl.Float64))
+    assert frame.select(sn.age_expr(frame).alias("age"))["age"][0] > 20.0

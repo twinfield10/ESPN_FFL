@@ -28,6 +28,7 @@ predictable half and leaves you unable to tell which half a miss came from.
 Polars throughout, per ``CLAUDE.md``.
 """
 
+from datetime import date
 from typing import Dict, List, Optional, Sequence
 
 import polars as pl
@@ -41,6 +42,16 @@ from Scripts.usage.nflverse import (
     load_opportunity,
     player_weeks_path,
 )
+
+#: Month and day the regular season opens, for measuring age against.
+#:
+#: Approximate on purpose -- the opener moves by a few days a year and no feature is
+#: sensitive to that. What it is *not* is a bare year subtraction, which puts a
+#: January and a December birthday most of a year apart.
+SEASON_START = (9, 1)
+
+#: Days per year, leap-adjusted, for converting a day count to an age.
+DAYS_IN_YEAR = 365.25
 
 #: Per-game volume columns taken from ``player_weeks``, as ``<name>_pg``.
 #:
@@ -427,6 +438,7 @@ def roster_context(target_season: int, prior: pl.DataFrame) -> pl.DataFrame:
         *[pl.col(c) for c in ("depth_chart_position", "years_exp", "draft_number")
           if c in snapshot.columns],
         *([pl.col("entry_year")] if "entry_year" in snapshot.columns else []),
+        *([pl.col("birth_date")] if "birth_date" in snapshot.columns else []),
     ).join(last_team, on="gsis_id", how="left")
 
     exprs = [
@@ -440,7 +452,21 @@ def roster_context(target_season: int, prior: pl.DataFrame) -> pl.DataFrame:
     elif "years_exp" in out.columns:
         exprs.append((pl.col("years_exp").fill_null(0) == 0).alias("is_rookie"))
 
-    return out.with_columns(exprs)
+    # Age at the start of the season being projected.
+    #
+    # A current-season fact, like `team_changed` and unlike every lagged feature: a
+    # birth date does not move, so a player's 2026 age is knowable in 2026. Measured
+    # against the season opener rather than by subtracting years, because a January
+    # birthday and a December one are most of a year apart and the running-back
+    # decline is steep enough for that to matter.
+    if "birth_date" in out.columns:
+        opener = date(target_season, *SEASON_START)
+        exprs.append(
+            ((pl.lit(opener) - pl.col("birth_date")).dt.total_days() / DAYS_IN_YEAR)
+            .alias("age"))
+
+    out = out.with_columns(exprs)
+    return out.drop("birth_date", strict=False)
 
 
 def attach_context(features: pl.DataFrame, target_season: int,
