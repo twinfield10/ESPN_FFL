@@ -268,6 +268,29 @@ Fixed this cycle:
   asked, so the claim is what it must be judged against. Judging it against 80% would
   have condemned a calibrated distribution for a property of the support.
 
+  **The stat lines carry intervals too.** `Scripts/usage/predictive.py` fits a
+  Negative Binomial for counts and a Gamma for yardage, closed form throughout. The
+  natural design -- model games, volume and rate separately and multiply -- was
+  measured and rejected: games against per-game volume correlate **+0.48 to +0.63**,
+  so a product of independent factors understates the spread, and backing one
+  variance out of another produced negative numbers. Each stat's dispersion is fitted
+  end-to-end on held-out residuals instead.
+
+  Getting them to calibrate took four fixes, all found by measuring coverage: NaN is
+  not null in Polars (`is_not_null()` is True for NaN, which put coverage at 6%);
+  in-sample dispersion is too narrow; the coefficient of variation is **not
+  constant**, falling 1.90 to 0.48 across the projection range, so the variance
+  function needs two parameters; and a Gamma has no mass at zero while 10.5% of rows
+  realise exactly zero. Final coverage is 74.6-91.1% against a nominal 80%, except
+  `passingYards` at 60.8% -- which is the quarterback arm the model already abstains
+  on, so it never reaches a board.
+
+  One finding worth carrying: conditional on the opportunity count the bounded rates
+  are barely overdispersed (1.08-1.79x Binomial) against 5.6-8.1x for games and
+  13-99x for volume. **Nearly all the reducible uncertainty is how much work a player
+  gets, not what he does with it** -- an argument for spending effort on the depth
+  chart rather than on efficiency modelling.
+
   A scheduling fact worth knowing for the draft: **nflreadr will not serve 2026
   injuries, snap counts or depth charts at all** while `most_recent_season()` is
   2025, though it does serve the 2026 roster and updates it daily. So a pre-season

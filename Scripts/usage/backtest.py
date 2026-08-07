@@ -204,6 +204,7 @@ def run_season(test_season: int, history_start: int = HISTORY_START,
     # table, and honouring the default here would erase the evidence for it.
     predicted = model.predict(test, abstain_positions=(), target_slate=slate)
     predicted = model.games_interval(predicted, target_slate=slate)
+    predicted = model.stat_intervals(predicted)
 
     weights = scoring_weights(test_season, league_key)
 
@@ -357,7 +358,49 @@ def report(frames: Sequence[pl.DataFrame], positions=ft.MODELLED_POSITIONS) -> s
     lines.append(report_games_interval(pooled))
 
     lines.append("")
+    lines.append(report_stat_intervals(pooled))
+
+    lines.append("")
     lines.append(report_rookie_arm(pooled, positions))
+    return "\n".join(lines)
+
+
+def report_stat_intervals(pooled: pl.DataFrame) -> str:
+    """Coverage of each stat's predictive interval, against realised totals.
+
+    Args:
+        pooled: Walk-forward rows carrying ``USG_<stat>_low``/``_high`` and the
+            ``y_tot_`` outcomes.
+
+    Returns:
+        str: A printable block.
+    """
+    lines = ["=== stat lines: predictive interval coverage (nominal 80%) ===",
+             f"  {'stat':<24}{'n':>7}{'covered':>10}{'below':>9}{'above':>9}"]
+    any_row = False
+
+    for stat, outcome in sn.STAT_OUTCOMES.items():
+        low, high = f"{sn.USAGE_PREFIX}{stat}_low", f"{sn.USAGE_PREFIX}{stat}_high"
+        if any(c not in pooled.columns for c in (low, high, outcome)):
+            continue
+        rows = pooled.filter(pl.col(low).is_not_null()
+                             & pl.col(outcome).is_not_null())
+        if rows.is_empty():
+            continue
+        any_row = True
+        n = rows.height
+        inside = rows.filter((pl.col(outcome) >= pl.col(low))
+                             & (pl.col(outcome) <= pl.col(high))).height
+        below = rows.filter(pl.col(outcome) < pl.col(low)).height
+        above = rows.filter(pl.col(outcome) > pl.col(high)).height
+        lines.append(f"  {stat:<24}{n:>7}{100 * inside / n:>9.1f}%"
+                     f"{100 * below / n:>8.1f}%{100 * above / n:>8.1f}%")
+
+    if not any_row:
+        return "=== stat lines: predictive interval coverage ===\n  not computed"
+
+    lines.append("  counts read high for the same discreteness reason as games; the")
+    lines.append("  passing rows are the arm shipped code abstains on.")
     return "\n".join(lines)
 
 

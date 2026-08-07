@@ -525,6 +525,69 @@ p10 is 7 — the availability head separates them in expectation and barely at a
 outcome, which is exactly what R² 0.19 means and why a fade on availability grounds
 should be held loosely.
 
+### The stat lines get intervals too — 2026-08-07
+
+`Scripts/usage/predictive.py`. Every `USG_<stat>` now carries `_sd`, `_low` and
+`_high` on the board. Closed form throughout — Negative Binomial and Gamma quantiles
+are the regularised incomplete beta and gamma inverses.
+
+**The clean design does not work, and the measurement is the interesting part.** The
+obvious move is to model the three factors separately and multiply, since the model
+already decomposes into games × volume × rate and the product of *independent*
+variables has an exact CV identity. Independence fails:
+
+| pair | correlation |
+|---|---|
+| games vs per-game volume | **+0.48 to +0.63** |
+| total opportunities vs per-opportunity rate | +0.17 to +0.37 |
+
+The first is large and obvious in hindsight: a player who misses games also loses
+touches in the games he does play, because those are the same loss of role. Backing a
+per-game volume variance out of an opportunity variance gave **negative** numbers for
+quarterbacks — the arithmetic refusing the assumption. Each stat's dispersion is
+therefore fitted end-to-end on its own residuals, which absorbs every correlation
+without needing any of it named.
+
+**Three things had to be fixed before the intervals calibrated at all**, and each was
+found by measuring coverage rather than by inspection:
+
+| | symptom | cause | fix |
+|---|---|---|---|
+| 1 | coverage 6%, identical n for every stat | **NaN is not null in Polars** — `is_not_null()` is True for NaN, so declined rows survived every filter and then compared False against everything | `fill_nan(None)` |
+| 2 | yardage 49–57% | dispersion fitted in-sample | fit on a two-season holdout |
+| 3 | yardage still 55–67% | **CV is not constant** — it falls 1.90 → 0.48 across the projection range, and a moment fit weights by μ² so it lands on the top quartile | two-parameter `Var = φμ + μ²/k` |
+| 4 | lower tail leaking 20.5% | **a Gamma has no mass at zero** and 10.5% of rows realise exactly 0; 59% of sub-p10 rows produced under 5% of their projection | a fitted bust point mass, mean-preserving |
+
+Coverage after all four, walk-forward 2021–2025:
+
+| stat | n | covered | below | above |
+|---|---|---|---|---|
+| receivingYards | 2,379 | 76.3% | 9.5% | 14.2% |
+| receivingReceptions | 2,379 | 77.3% | 9.0% | 13.7% |
+| receivingTouchdowns | 2,379 | 91.1% | 0.6% | 8.3% |
+| rushingYards | 1,105 | 74.6% | 10.3% | 15.1% |
+| rushingTouchdowns | 1,104 | 89.9% | 0.8% | 9.3% |
+| passingYards | 367 | **60.8%** | 23.2% | 16.1% |
+| passingTouchdowns | 367 | 76.8% | 10.1% | 13.1% |
+| passingInterceptions | 367 | 75.5% | 8.7% | 15.8% |
+
+The touchdown rows read high for the same discreteness reason as games — an integer
+p10/p90 on a small count excludes less than asked. **`passingYards` at 60.8% is the
+one genuinely poor row**, and it is on the quarterback arm, which
+`ABSTAIN_POSITIONS` already declines, so it never reaches a board.
+
+#### What the dispersion says about where uncertainty lives
+
+Worth reading alongside the fitted values, because it points somewhere specific.
+Conditional on the opportunity count, the bounded rates are barely overdispersed at
+all — **1.08× to 1.79×** Binomial — against 5.6–8.1× for games and 13–99× for volume.
+
+Once you know how many targets a player gets, his touchdown rate is close to pure
+sampling noise. **Nearly all the reducible uncertainty in a season projection is how
+much work a player gets, not what he does with it** — the same conclusion plan 16's
+stickiness table reached from the other direction, and an argument for spending
+future effort on the depth chart rather than on efficiency modelling.
+
 ### The fitted expected-games head, and what it says
 
 Coefficients are in **share of the slate** as of v1.1.0; the last column converts a

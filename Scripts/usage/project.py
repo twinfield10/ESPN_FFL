@@ -188,8 +188,17 @@ def build(season: int, refit: bool = False,
     # showing that the p10 is 7 invites reading it as a forecast.
     predicted = model.games_interval(predicted)
 
+    # And an interval on each stat line itself.
+    predicted = model.stat_intervals(predicted)
+
     stat_columns = [f"{sn.USAGE_PREFIX}{stat}" for stat in sn.STAT_TERMS
                     if f"{sn.USAGE_PREFIX}{stat}" in predicted.columns]
+    # The interval columns travel with the stat lines but are not stat lines: they
+    # must not be scored by `proj_to_score` or blended, so they are carried through
+    # `CONTEXT_COLUMNS` rather than picked up by the `USG_` prefix scan.
+    interval_columns = [f"{c}{suffix}" for c in stat_columns
+                        for suffix in ("_sd", "_low", "_high")
+                        if f"{c}{suffix}" in predicted.columns]
 
     # The provenance flags, and the reason this function exists. A null here means
     # the model declined -- no prior season, a declined position, or no opportunity
@@ -222,6 +231,7 @@ def build(season: int, refit: bool = False,
     keep = (["player_id", "gsis_id", "name_key", "full_name"]
             + [c for c in CONTEXT_COLUMNS if c in frame.columns]
             + stat_columns
+            + interval_columns
             + [f"{c}_is_imputed" for c in stat_columns])
     out = frame.select([c for c in keep if c in frame.columns])
 

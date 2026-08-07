@@ -43,6 +43,7 @@ from Scripts.paths import DATA_DIR
 from Scripts.usage import availability as av
 from Scripts.usage import context as ctx
 from Scripts.usage import features as ft
+from Scripts.usage import predictive as pv
 
 #: Prefix the model's output carries into the blend, beside ``ESPN_``/``FP_``/
 #: ``PINNY_``/``BOL_``.
@@ -59,6 +60,20 @@ STAT_TERMS: Dict[str, Tuple[str, str]] = {
     "passingYards":         ("pass_attempts_pg", "yards_per_attempt"),
     "passingTouchdowns":    ("pass_attempts_pg", "pass_td_per_attempt"),
     "passingInterceptions": ("pass_attempts_pg", "int_per_attempt"),
+}
+
+#: ESPN stat -> the ``y_tot_`` column holding what really happened.
+#:
+#: Derived from :data:`STAT_TERMS` and ``EFFICIENCY_RATES`` rather than listed, so a
+#: new stat cannot be added to the model and silently left without an outcome to
+#: score its predictive interval against. Each stat's rate names a numerator, and
+#: that numerator *is* the outcome: ``yards_per_target = receiving_yards / targets``,
+#: so ``receivingYards`` is measured against ``y_tot_receiving_yards``.
+STAT_OUTCOMES: Dict[str, str] = {
+    stat: f"y_tot_{numerator}"
+    for stat, (_, rate) in STAT_TERMS.items()
+    for name, numerator, _ in ft.EFFICIENCY_RATES
+    if name == rate
 }
 
 #: Volume features the model predicts forward, each from its own regression.
@@ -263,6 +278,13 @@ ROOKIE_GAMES_BINS: Tuple[Optional[Tuple[int, int]], ...] = (
 #: meant something.
 MIN_RATE_DENOMINATOR = 50.0
 
+#: Most recent training seasons held out to fit the predictive dispersions.
+#:
+#: Two rather than one for row count: a single season leaves the thinner
+#: (position, stat) pairs below :data:`Scripts.usage.predictive.MIN_FIT_ROWS`, and a
+#: pair with no fit gets no interval at all.
+HOLDOUT_SEASONS: int = 2
+
 #: Model version, bumped when the structure changes rather than when it is refitted.
 #:
 #: 1.1.0 -- the two expected-games heads predict a share of the slate rather than a
@@ -335,6 +357,10 @@ class SeasonUsageModel:
     #: Beta-Binomial concentration for games played, per position. Absent for a
     #: position whose residuals are not overdispersed or too few to fit.
     games_dispersion: Dict[str, float] = field(default_factory=dict)
+    #: Mean-variance coefficients per ``"<position>|<stat>"``, as
+    #: ``{"phi": ..., "k": ...}`` for ``Var = phi * mu + mu^2 / k``. See
+    #: :mod:`Scripts.usage.predictive`.
+    stat_dispersion: Dict[str, Dict[str, float]] = field(default_factory=dict)
     train_seasons: Tuple[int, ...] = ()
     version: str = MODEL_VERSION
     fitted_at: Optional[str] = None
@@ -570,12 +596,81 @@ class SeasonUsageModel:
             above = 1.0 - cdf[index, hi]
             implied[rows] = 1.0 - below - above
 
+        # NaN -> null throughout; see the note in `stat_intervals`. A NaN here
+        # survives `is_not_null()` and then fails every comparison silently.
         return frame.with_columns(
-            pl.Series("games_sd", sd),
-            pl.Series("games_low", low),
-            pl.Series("games_high", high),
-            pl.Series("games_implied_coverage", implied),
+            pl.Series("games_sd", sd).fill_nan(None),
+            pl.Series("games_low", low).fill_nan(None),
+            pl.Series("games_high", high).fill_nan(None),
+            pl.Series("games_implied_coverage", implied).fill_nan(None),
         )
+
+    def stat_intervals(self, frame: pl.DataFrame,
+                       lower: float = 0.1,
+                       upper: float = 0.9) -> pl.DataFrame:
+        """Attach a predictive interval to each projected stat line.
+
+        Negative Binomial for counts, Gamma for yardage, with the dispersion fitted
+        per (position, stat) on the model's own residuals -- see
+        :mod:`Scripts.usage.predictive` for why the dispersion is fitted end-to-end
+        rather than composed from the games, volume and rate variances that the model
+        decomposes into. Both families have closed-form quantiles.
+
+        A stat with no fitted dispersion for its position gets no interval rather
+        than a pooled one. Partial coverage is visible; an invented number is not.
+
+        Args:
+            frame: Output of :meth:`predict`.
+            lower: Lower quantile.
+            upper: Upper quantile.
+
+        Returns:
+            pl.DataFrame: ``frame`` plus ``USG_<stat>_sd``, ``USG_<stat>_low`` and
+            ``USG_<stat>_high`` for every stat with a fitted dispersion.
+        """
+        positions = frame["position"].to_list()
+        columns = []
+
+        for stat in STAT_TERMS:
+            projected = f"{USAGE_PREFIX}{stat}"
+            if projected not in frame.columns or pv.family_for(stat) is None:
+                continue
+
+            mu = frame[projected].cast(pl.Float64).to_numpy()
+            fits = [self.stat_dispersion.get(pv.key(p, stat)) for p in positions]
+            has_fit = np.array([f is not None for f in fits])
+
+            sd = np.full(mu.shape, np.nan)
+            low = np.full(mu.shape, np.nan)
+            high = np.full(mu.shape, np.nan)
+
+            usable = np.isfinite(mu) & has_fit & (mu > 0)
+            # One call per position rather than per player, since the coefficients
+            # vary only by position.
+            for position in {p for p, keep in zip(positions, usable) if keep}:
+                rows = usable & np.array([p == position for p in positions])
+                if not rows.any():
+                    continue
+                coefficients = self.stat_dispersion[pv.key(position, stat)]
+                phi, k = coefficients["phi"], coefficients["k"]
+                bust = coefficients.get("bust", 0.0)
+                _, variance = pv.moments(stat, mu[rows], phi, k)
+                sd[rows] = np.sqrt(variance)
+                low[rows] = pv.quantile(stat, mu[rows], phi, k, lower, bust=bust)
+                high[rows] = pv.quantile(stat, mu[rows], phi, k, upper, bust=bust)
+
+            # NaN -> null, and the distinction is load-bearing. Polars treats them as
+            # different things and `is_not_null()` is True for a NaN, so a float NaN
+            # left in place reads downstream as a real value: it survives every
+            # null filter and then compares False against everything, which scored
+            # abstained players as outside their own interval and put measured
+            # coverage at 6%. The same "absent reads as present" failure this repo
+            # has now paid for three times, in its float-shaped disguise.
+            columns += [pl.Series(f"{projected}_sd", sd).fill_nan(None),
+                        pl.Series(f"{projected}_low", low).fill_nan(None),
+                        pl.Series(f"{projected}_high", high).fill_nan(None)]
+
+        return frame.with_columns(columns) if columns else frame
 
     @staticmethod
     def _veteran_terms(frame: pl.DataFrame, target: str, lag1: str,
@@ -846,6 +941,7 @@ class SeasonUsageModel:
                                    for fit in self.rookie_volume.values()],
             "rookie_efficiency": self.rookie_efficiency,
             "games_dispersion": self.games_dispersion,
+            "stat_dispersion": self.stat_dispersion,
         }
 
     def save(self, path=None):
@@ -913,6 +1009,7 @@ class SeasonUsageModel:
             rookie_games=payload.get("rookie_games_by_bin", {}),
             rookie_efficiency=payload.get("rookie_efficiency", {}),
             games_dispersion=payload.get("games_dispersion", {}),
+            stat_dispersion=payload.get("stat_dispersion", {}),
             train_seasons=tuple(payload.get("train_seasons", ())),
             version=payload.get("version", MODEL_VERSION),
             fitted_at=payload.get("fitted_at"),
@@ -1037,6 +1134,49 @@ def _fit_games(frame: pl.DataFrame, position: str) -> Optional[VolumeFit]:
     ).drop_nulls()
 
     return _least_squares(rows, GAMES_REGRESSORS, position, "games")
+
+
+def _fit_stat_dispersion(holdout: pl.DataFrame,
+                         positions: Sequence[str]) -> Dict[str, float]:
+    """Predictive dispersion per (position, stat), from held-out residuals.
+
+    Fitted on the finished stat line rather than composed from the variances of
+    games, volume and rate. Those three are strongly correlated -- games against
+    per-game volume runs +0.48 to +0.63 -- so a product of independent factors
+    understates the spread, and dividing one out of another produced negative
+    variances. Residuals of the finished line absorb all of it without needing any
+    of it named.
+
+    Args:
+        holdout: Rows from :func:`_holdout_residuals`, carrying both the projected
+            ``USG_<stat>`` and the realised ``y_tot_<column>``.
+        positions: Positions to fit.
+
+    Returns:
+        dict: :func:`Scripts.usage.predictive.key` to dispersion.
+    """
+    out: Dict[str, float] = {}
+
+    for stat, outcome in STAT_OUTCOMES.items():
+        projected = f"{USAGE_PREFIX}{stat}"
+        if any(c not in holdout.columns for c in (projected, outcome)):
+            continue
+        for position in positions:
+            block = holdout.filter(
+                (pl.col("position") == position)
+                & pl.col(projected).is_not_null()
+                & pl.col(outcome).is_not_null())
+            if block.height < pv.MIN_FIT_ROWS:
+                continue
+            fitted = pv.fit_variance(
+                block[outcome].cast(pl.Float64).to_numpy(),
+                block[projected].cast(pl.Float64).to_numpy(),
+                family=pv.family_for(stat))
+            if fitted is not None:
+                phi, k, bust = fitted
+                out[pv.key(position, stat)] = {
+                    "phi": float(phi), "k": float(k), "bust": float(bust)}
+    return out
 
 
 def _rookie_rows(frame: pl.DataFrame, position: str) -> pl.DataFrame:
@@ -1345,7 +1485,8 @@ def models_volume(train: pl.DataFrame, position: str, target: str,
 
 def fit(train: pl.DataFrame, train_seasons: Sequence[int],
         fitted_at: Optional[str] = None,
-        positions: Sequence[str] = ft.MODELLED_POSITIONS) -> SeasonUsageModel:
+        positions: Sequence[str] = ft.MODELLED_POSITIONS,
+        estimate_dispersion: bool = True) -> SeasonUsageModel:
     """Fit the volume regressions and the availability role means.
 
     Args:
@@ -1409,46 +1550,93 @@ def fit(train: pl.DataFrame, train_seasons: Sequence[int],
     # `Scripts.usage.availability` for why moments rather than a joint likelihood:
     # the mean is what plan 18 measured, and a joint fit would let the dispersion
     # move it.
-    return replace(fitted, games_dispersion=_fit_dispersion(fitted, train, positions))
+    if not estimate_dispersion:
+        return fitted
+
+    # Dispersion is fitted on **held-out** residuals, not on the rows the mean was
+    # fitted to. In-sample residuals are smaller by construction -- the volume
+    # regressions run R-squared 0.35-0.63, so the gap is large -- and a dispersion
+    # taken from them produces intervals that are far too narrow. Measured: yardage
+    # coverage came out at 49-57% against a nominal 80% before this holdout existed.
+    #
+    # The sub-model is fitted with `estimate_dispersion=False`, which is what stops
+    # this recursing.
+    holdout = _holdout_residuals(train, train_seasons, positions)
+    if holdout is None:
+        return fitted
+
+    return replace(
+        fitted,
+        games_dispersion=_fit_dispersion(holdout, positions),
+        stat_dispersion=_fit_stat_dispersion(holdout, positions),
+    )
 
 
-def _fit_dispersion(model: SeasonUsageModel, train: pl.DataFrame,
-                    positions: Sequence[str]) -> Dict[str, float]:
-    """Beta-Binomial concentration per position, from the fitted mean's residuals.
+def _holdout_residuals(train: pl.DataFrame, train_seasons: Sequence[int],
+                       positions: Sequence[str],
+                       seasons_held: int = HOLDOUT_SEASONS
+                       ) -> Optional[pl.DataFrame]:
+    """Predictions for the most recent training seasons, from a model blind to them.
 
     Args:
-        model: The model whose games head supplies the mean.
-        train: Training rows carrying ``y_games`` and ``y_games_available``.
+        train: The full training frame.
+        train_seasons: Seasons it covers.
+        positions: Positions to fit.
+        seasons_held: How many of the most recent seasons to hold out.
+
+    Returns:
+        pl.DataFrame | None: The held-out rows with predictions attached, or None
+        when there is not enough history to hold anything out -- in which case the
+        caller ships without intervals rather than with over-narrow ones.
+    """
+    seasons = sorted({int(s) for s in train_seasons})
+    if len(seasons) < seasons_held + 2:
+        return None
+
+    earlier, held = seasons[:-seasons_held], seasons[-seasons_held:]
+    inner = fit(train.filter(pl.col("season").is_in(earlier)), earlier,
+                positions=positions, estimate_dispersion=False)
+
+    rows = train.filter(pl.col("season").is_in(held))
+    if rows.is_empty():
+        return None
+
+    slate = rows.select(pl.col("y_games_available").cast(pl.Float64).max()).item()
+    predicted = inner.predict(rows, abstain_positions=(),
+                              target_slate=slate or DEFAULT_TARGET_SLATE)
+    return predicted.with_columns(
+        inner.expected_games(rows, target_slate=slate or DEFAULT_TARGET_SLATE)
+        .alias("_mu_games"))
+
+
+def _fit_dispersion(holdout: pl.DataFrame,
+                    positions: Sequence[str]) -> Dict[str, float]:
+    """Beta-Binomial concentration per position, from held-out residuals.
+
+    Args:
+        holdout: Rows from :func:`_holdout_residuals`, carrying ``y_games``,
+            ``y_games_available`` and ``_mu_games``.
         positions: Positions to fit.
 
     Returns:
-        dict: Position to concentration. Positions that are not overdispersed, or
-        have too few rows, are absent rather than defaulted -- the caller falls back
-        explicitly so a missing fit cannot be mistaken for a measured one.
+        dict: Position to concentration. Positions with too few rows are absent
+        rather than defaulted -- the caller falls back explicitly, so a missing fit
+        cannot be mistaken for a measured one.
     """
-    required = ("y_games", "y_games_available", f"{ft.LAG1_PREFIX}availability")
-    if any(c not in train.columns for c in required):
+    required = ("y_games", "y_games_available", "_mu_games")
+    if any(c not in holdout.columns for c in required):
         return {}
 
-    rows = train.filter(
+    rows = holdout.filter(
         pl.col("y_games").is_not_null()
         & (pl.col("y_games_available").cast(pl.Float64) > 0)
-        & pl.col(f"{ft.LAG1_PREFIX}availability").is_not_null()
-    )
+        & pl.col("_mu_games").is_not_null())
     if rows.is_empty():
         return {}
 
-    # Predicted at each row's own slate, so a 16-game season is not compared against
-    # a 17-game expectation -- the same bias the share normalisation removed.
-    slate = rows.select(
-        pl.col("y_games_available").cast(pl.Float64).max()).item()
-    predicted = rows.with_columns(
-        model.expected_games(rows, target_slate=slate).alias("_mu_games"))
-
     out: Dict[str, float] = {}
     for position in positions:
-        block = predicted.filter(
-            (pl.col("position") == position) & pl.col("_mu_games").is_not_null())
+        block = rows.filter(pl.col("position") == position)
         if block.height < av.MIN_DISPERSION_ROWS:
             continue
         available = block["y_games_available"].cast(pl.Float64).to_numpy()
