@@ -722,6 +722,51 @@ therefore contributes nothing — the intended "this arm does not use age" behav
 Zero was not an option: unlike a team-change flag, a zero age is not neutral, it puts
 every unknown player at the far end of the decline curve.
 
+### The weight comes off 0.0 — 2026-08-07
+
+`WEIGHTS` is now a single `default` entry: **ESPN, FantasyPros and `USG` at a third
+each, Pinnacle and BetOnline at zero.** An owner decision, and worth separating from
+the evidence.
+
+G2 is unchanged and still unanswerable: it needs the blend scored with and without the
+model against realised results, and no historical pre-season blend survives. What
+changed is everything around it — the model now beats the naive draft heuristic on
+every metric at every position, in **26 of 28** out-of-sample season-position cells,
+with the five folds never used for feature selection scoring as well as or better than
+the two that were. Weighting it in remains an assertion; it is now an assertion with a
+seven-fold walk-forward behind it, made deliberately rather than inherited as a
+default.
+
+The per-stat keys are gone with the old table. They held per-stat differences and
+there are none now; a row of identical dicts drifts out of sync rather than being a
+structure. `compute_weighted_stats` falls back to `default`, so re-adding one is a
+line.
+
+**This drops the better-covered market source.** BetOnline's *season* endpoint works —
+273 players, 13 stat columns, including the IDP tackles and sacks no other source has —
+against FantasyPros' 60. Only the *weekly* endpoint returns 403, on a different host
+that never fed this path. Reinstating it is one number.
+
+#### The change exposed a real bug in coverage counting
+
+`projection_missing` and `sources_real` were computed from `OPINION_PREFIXES`, which
+the floor/ceiling fix had deliberately narrowed to the four market sources. With `USG`
+weighted into `TRUE_Points` but absent from that list, a player **only** the usage
+model projects got a real blended score and `projection_missing = True` — the board
+would have hidden, as unprojected, exactly the players the model exists to
+differentiate. Measured: 523 counted as projected against the correct **699**.
+
+The two lists now exist separately, because they answer different questions:
+
+| | list | question |
+|---|---|---|
+| `OPINION_PREFIXES` | ESPN, FP, PINNY, BOL | do the forecasters disagree, and by how much? |
+| `PROJECTION_PREFIXES` | + USG | does this player have a projection at all? |
+
+The first needs sources measuring the same quantity, which is why `USG` — an expected
+value against four if-healthy projections — stays out. The second needs every source
+that moves the blend. Merging them is the bug.
+
 ### Team-then-allocate: tested, rejected, and it pointed at the real bottleneck — 2026-08-07
 
 Plan 21's game-script measurement left one structural idea open. Team strength

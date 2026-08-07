@@ -163,38 +163,48 @@ def change_col_prefix(df, old_pfix, new_pfix):
 #: where that projection came from another source rather than from Pinnacle.
 IMPUTED_SUFFIX = "_is_imputed"
 
-#: Blend weights per stat, with a ``default`` fallback. Hand-set, and applied only
-#: across the sources that have *real* data for a given row -- see
-#: :func:`compute_weighted_stats`. Lifted to module scope so the weights can be
-#: inspected and tested without running the whole pipeline.
-#:
-#: These have not yet been fitted against actuals; plan 03 step 3 covers that. Note
-#: they are only meaningful in proportion now, since renormalisation divides by
+#: Blend weights per stat, with a ``default`` fallback. Applied only across the
+#: sources that have *real* data for a given row -- see :func:`compute_weighted_stats`.
+#: Lifted to module scope so the weights can be inspected and tested without running
+#: the whole pipeline. Only meaningful in proportion, since renormalisation divides by
 #: whatever subset is real, so a set summing to 1.0 is conventional rather than
 #: required.
-#: ``USG`` -- the usage model, :mod:`Scripts.usage.season` -- is registered here at
-#: **0.0**, which means it is computed, scored and shown on the board but does not
-#: move ``TRUE_Points``.
 #:
-#: That is plan 18's own gate, not caution for its own sake. The comparison that
-#: would justify a non-zero weight is the blend with and without ``USG_``, scored
-#: against realised results, and it **cannot be run on any past season**:
-#: FantasyPros' URLs take no season parameter, so no historical pre-season blend
-#: survives to compare against. The 2026 board is the first chance to measure it,
-#: and that means after the season is played. Weighting it in now would assert the
-#: one thing the design says to test.
+#: **Set 2026-08-07 to an equal three-way split of ESPN, FantasyPros and the usage
+#: model, with Pinnacle and BetOnline at zero.** This is an owner decision, not a
+#: fitted result, and the two halves of it deserve separate notes.
 #:
-#: What the zero still buys: ``USG_Points`` is a real scored column on every board,
-#: the model's abstentions are visible, and the source is in the floor/ceiling
-#: spread. Turning it on is this number.
+#: **On ``USG`` moving off 0.0.** Plan 18 gated a non-zero weight on G2 -- the blend
+#: with and without the model, scored against realised results -- which cannot be run
+#: on any past season, because FantasyPros' URLs take no season parameter and no
+#: historical pre-season blend survives. That remains true and G2 remains unanswered.
+#: What changed is the evidence around it: the model now beats the naive draft
+#: heuristic on **every metric at every position**, out of sample, in 26 of 28
+#: season-position cells across a seven-fold walk-forward, and the folds never used for
+#: feature selection score as well as or better than the ones that were. Weighting it
+#: in is still an assertion rather than a measurement; it is now an assertion with a
+#: lot behind it, made deliberately rather than inherited.
 #:
-#: Plan 18: *"If G2 fails, do not wire it in at a token weight."*
+#: **On Pinnacle and BetOnline going to zero.** Note this drops the better-covered of
+#: the two market sources: BetOnline's season endpoint works and resolves **273
+#: players with 13 stat columns including IDP tackles and sacks**, against
+#: FantasyPros' 60 players. Only the *weekly* BetOnline endpoint is blocked, and that
+#: is a different host which never fed this path. Reinstating it is one number here.
+#:
+#: The previous hand-tuned table, for the record and for plan 03 step 3's re-tune:
+#:
+#:     passingYards        ESPN 0.1  FP 0.7  PINNY 0.1   BOL 0.1
+#:     passingTouchdowns   ESPN 0.1  FP 0.1  PINNY 0.4   BOL 0.4
+#:     rushingYards        ESPN 0.2  FP 0.3  PINNY 0.25  BOL 0.25
+#:     receivingYards      ESPN 0.2  FP 0.3  PINNY 0.25  BOL 0.25
+#:     default             ESPN 0.2  FP 0.3  PINNY 0.25  BOL 0.25
+#:
+#: The per-stat keys are gone with it. They existed to hold per-stat differences and
+#: there are none now; a row of identical dicts is a thing that drifts out of sync
+#: rather than a structure. :func:`compute_weighted_stats` reads ``default`` for any
+#: stat without its own entry, so re-adding one is a single line.
 WEIGHTS = {
-    'passingYards':      {'ESPN': 0.1, 'FP': 0.7,  'PINNY': 0.1,  'BOL': 0.1,  'USG': 0.0},
-    'passingTouchdowns': {'ESPN': 0.1, 'FP': 0.1,  'PINNY': 0.4,  'BOL': 0.4,  'USG': 0.0},
-    'rushingYards':      {'ESPN': 0.2, 'FP': 0.3,  'PINNY': 0.25, 'BOL': 0.25, 'USG': 0.0},
-    'receivingYards':    {'ESPN': 0.2, 'FP': 0.3,  'PINNY': 0.25, 'BOL': 0.25, 'USG': 0.0},
-    'default':           {'ESPN': 0.2, 'FP': 0.3,  'PINNY': 0.25, 'BOL': 0.25, 'USG': 0.0},
+    'default': {'ESPN': 1 / 3, 'FP': 1 / 3, 'PINNY': 0.0, 'BOL': 0.0, 'USG': 1 / 3},
 }
 
 
@@ -355,7 +365,8 @@ def print_coverage_report(df, weights_dict=None, key_stats=(
             try:
                 pct = by_stat.loc[(stat, s)]
                 w = (weights_dict or {}).get(stat, (weights_dict or {}).get("default", {})).get(s)
-                cells.append(f"{pct:>7.1f}% w{w}" if w is not None else f"{pct:>11.1f}%")
+                cells.append(f"{pct:>6.1f}% w{w:<4.2f}" if w is not None
+                             else f"{pct:>11.1f}%")
             except KeyError:
                 cells.append(f"{'-':>12}")
         print(f"  {stat:<24}" + "".join(f"{c:>12}" for c in cells))

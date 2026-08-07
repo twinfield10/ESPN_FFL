@@ -426,7 +426,7 @@ def test_projection_missing_catches_a_zero_projection(pool):
     # A player no source has a line for: the blend 0-fills, so TRUE_Points is
     # 0.0 rather than null, and every source's scored total is NaN.
     projections.loc[0, "TRUE_Points"] = 0.0
-    for prefix in bd.OPINION_PREFIXES:
+    for prefix in bd.PROJECTION_PREFIXES:
         projections[f"{prefix}_Points"] = 50.0
         projections.loc[0, f"{prefix}_Points"] = float("nan")
 

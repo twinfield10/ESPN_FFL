@@ -42,7 +42,17 @@ arm is the clear win** — draft capital plus depth-chart position orders rookie
 ρ ≈ 0.64 where a projection carrying no such information manages ~0, on 1,497
 player-seasons the model previously said nothing about.
 
-**It is now the blend's fifth source, at weight 0.0.** `python -m
+**The blend is an equal three-way split of ESPN, FantasyPros and the usage model as
+of 2026-08-07**, with Pinnacle and BetOnline at zero — an owner decision, recorded as
+one rather than inherited. G2 is still unanswered and still unanswerable on history;
+what changed is the evidence around it, with the model now beating the naive draft
+heuristic on every metric at every position in 26 of 28 out-of-sample season-position
+cells. Note the decision drops the better-covered market source: **BetOnline's season
+endpoint works and resolves 273 players with 13 stat columns including IDP tackles and
+sacks, against FantasyPros' 60.** Only the *weekly* BetOnline endpoint is blocked, on a
+different host that never fed this path.
+
+**It was previously the blend's fifth source at weight 0.0.** `python -m
 Scripts.usage.project` writes it, `Scripts/season_projections.py` loads it, and
 `USG_Points` / `USG_PosRank` / `USG_PosRankDelta` / `usg_expected_games` / `usg_arm`
 are on all nine boards. It contributes nothing to `TRUE_Points` and that was verified

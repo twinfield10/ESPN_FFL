@@ -24,7 +24,7 @@ import polars as pl
 
 from Scripts.nfl_utils import load_schedule
 from Scripts.paths import NFL_SCHEDULE_CSV
-from Scripts.season_projections import OPINION_PREFIXES
+from Scripts.season_projections import PROJECTION_PREFIXES
 
 #: ESPN's team abbreviations that differ from the schedule's, ESPN spelling first.
 ESPN_TEAM_ALIASES: Dict[str, str] = {"LAR": "LA", "WSH": "WAS"}
@@ -486,7 +486,7 @@ def build_board(
     # Distinct from `sources_real`, which counts sources with a *non-imputed*
     # line: a player whose only line is imputed from the ESPN/FP mean does have a
     # projection, it is just derived.
-    opinion_points = [f"{prefix}_Points" for prefix in OPINION_PREFIXES
+    opinion_points = [f"{prefix}_Points" for prefix in PROJECTION_PREFIXES
                       if f"{prefix}_Points" in board.columns]
     board["projection_missing"] = (
         board[opinion_points].isna().all(axis=1) if opinion_points

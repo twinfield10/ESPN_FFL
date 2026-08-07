@@ -49,12 +49,27 @@ def test_usg_is_registered_in_the_blend_weights():
         assert "USG" in entry, f"{stat} has no USG entry"
 
 
-def test_usg_ships_at_zero_weight():
-    """Plan 18 gates a non-zero weight on G2, which needs a played season: the
-    comparison is the blend with and without USG scored against realised results,
-    and no historical pre-season blend survives to stand in for it."""
-    for stat, entry in pu.WEIGHTS.items():
-        assert entry["USG"] == 0.0, f"{stat} weights USG at {entry['USG']}"
+def test_the_blend_is_an_equal_three_way_split():
+    """Set deliberately on 2026-08-07, replacing the hand-tuned four-source table.
+
+    ESPN, FantasyPros and the usage model at a third each; Pinnacle and BetOnline at
+    zero. G2 is still unanswered -- it needs the blend scored with and without the
+    model against realised results, and no historical pre-season blend survives -- so
+    this is an assertion rather than a measurement. It is an assertion with a
+    seven-fold walk-forward behind it, and it is recorded as a decision rather than
+    inherited as a default."""
+    entry = pu.WEIGHTS["default"]
+    assert entry["ESPN"] == entry["FP"] == entry["USG"] == pytest.approx(1 / 3)
+    assert entry["PINNY"] == 0.0
+    assert entry["BOL"] == 0.0
+
+
+def test_every_source_still_has_an_entry():
+    """A source dropped from the dict is invisible; a source at 0.0 is a decision.
+    BetOnline in particular resolves 273 players against FantasyPros' 60, so its zero
+    should stay legible rather than vanish."""
+    for source in ("ESPN", "FP", "PINNY", "BOL", "USG"):
+        assert source in pu.WEIGHTS["default"], source
 
 
 def test_usg_is_scored_like_every_other_source():
@@ -260,3 +275,21 @@ def test_a_model_missing_a_season_it_could_have_had_is_stale():
 
 def test_a_model_with_no_training_range_is_stale():
     assert pj.is_stale(sn.SeasonUsageModel(volume={}, train_seasons=()), 2026)
+
+
+def test_coverage_and_disagreement_use_different_source_lists():
+    """They answer different questions and merging them is a live bug.
+
+    The floor/ceiling spread needs sources measuring the *same quantity*, so it
+    excludes USG -- an expected value against four if-healthy projections. Coverage
+    needs every source that moves `TRUE_Points`, so it includes it. With USG weighted
+    into the blend but missing from the coverage list, a player only the usage model
+    projects gets a real TRUE_Points and `projection_missing = True`: the board would
+    hide, as unprojected, exactly the players the model exists to differentiate.
+
+    Measured on the 2026 board when this was wrong: 523 players counted as projected
+    against the correct 699.
+    """
+    assert "USG" in sp.PROJECTION_PREFIXES
+    assert "USG" not in sp.OPINION_PREFIXES
+    assert set(sp.OPINION_PREFIXES) < set(sp.PROJECTION_PREFIXES)

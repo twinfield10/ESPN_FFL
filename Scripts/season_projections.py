@@ -681,6 +681,23 @@ def _merge_usage(base: pd.DataFrame, source: pd.DataFrame,
 #: contaminate the spread.
 OPINION_PREFIXES = ("ESPN", "FP", "PINNY", "BOL")
 
+#: Sources that can supply a player's projection at all, for coverage counting.
+#:
+#: **Deliberately wider than :data:`OPINION_PREFIXES`, and the two must not be
+#: merged.** They answer different questions:
+#:
+#: - *Do the forecasters disagree, and by how much?* -- the floor/ceiling spread, which
+#:   needs sources measuring the same quantity, and therefore excludes ``USG``.
+#: - *Does this player have a projection at all?* -- ``projection_missing`` and
+#:   ``sources_real``, which must include every source that moves ``TRUE_Points``.
+#:
+#: Conflating them is a live bug, not a hypothetical: with ``USG`` weighted into the
+#: blend but absent from the coverage list, a player the usage model projects and
+#: nobody else does gets a real ``TRUE_Points`` and a ``projection_missing`` of True.
+#: The board would then hide, as unprojected, exactly the players the model exists to
+#: differentiate.
+PROJECTION_PREFIXES = ("ESPN", "FP", "PINNY", "BOL", "USG")
+
 
 def attach_source_spread(df: pd.DataFrame, stats: List[str],
                          prefixes: tuple = OPINION_PREFIXES) -> pd.DataFrame:
