@@ -60,6 +60,17 @@ real cells against ESPN's 13.1%, FantasyPros' 0.8%, Pinnacle's 0.1% and BetOnlin
 0.3%, and 51.9% on receiving yards against ESPN's 34.9%. Players with any real
 projection went 523 → 675.
 
+It is deliberately **not** in the floor/ceiling spread, having been briefly added
+there by mistake. G0's independence result made it look like what a disagreement
+interval was missing, but independence is about information content and that interval
+needs the sources to be answering the same question. `USG_Points` is an expected
+value where the other four project a healthy season, so it sat below all of them for
+51.7% of the players it covered and widened the median interval from 8.5% to 24.0%.
+Disagreement between forecasters and uncertainty within one forecast are different
+quantities; the spread holds the first, and the model's dissent is carried by
+`USG_PosRankDelta`, which being a rank cannot be contaminated by the level mismatch.
+→ [plan 18](plans/18-season-usage-model.md)
+
 One problem from the rollover is still open: **BetOnline's weekly props API blocks
 the scraper**, removing one of four projection sources. Details below — it needs a
 decision.

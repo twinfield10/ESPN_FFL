@@ -549,6 +549,43 @@ real case immediately: the persisted artifact had trained on **2017–2024**, be
 was written by a walk-forward whose last fold predicted 2025. A 2026 projection now
 refits through 2025 rather than quietly using a model a season out of date.
 
+### It does not belong in the floor/ceiling spread — a defect, found and removed
+
+Shipping it as an opinion source in `OPINION_PREFIXES` was wrong, and the reasoning
+is worth keeping because it was *nearly* right. G0 measured `USG` as the most
+independent source in the set (+0.832 residual correlation with ESPN against
+FantasyPros' +0.988), so it looked like exactly what a disagreement interval was
+missing. But independence is a claim about information content, and that interval
+needs a different property: **that the sources are answering the same question.**
+
+They are not — `USG_Points` is an expected value and the other four project a healthy
+season — so it did not disagree with them so much as measure something else. It sat
+below all four for **51.7% of the players it covered**, taking the median
+floor-to-ceiling width on the draftable pool from 8.5% to **24.0%**. Every affected
+player's floor was literally his `USG_Points`.
+
+Rescaling to a common if-healthy basis was measured too, and is better but still
+wrong:
+
+| spread source | median relative width | USG is the floor |
+|---|---|---|
+| four market sources | **8.5%** | — |
+| + USG as-is | 24.0% | 52% |
+| + USG rescaled to per-17-games | 13.6% | 47% |
+
+The residual is not a units problem. The model shrinks toward positional baselines
+while the other sources extrapolate, and draftable players are by definition the top
+of the pool, so it is genuinely lower for most of them. That is real disagreement,
+but it makes the interval asymmetric — it reads as "the model is bearish" rather than
+"here is the uncertainty".
+
+**Disagreement between forecasters and uncertainty within one forecast are different
+quantities, and one column can only hold one of them.** The spread holds the first.
+The second is a predictive interval, which this model can supply properly because it
+decomposes into volume × efficiency × games — see §Where the variance should come
+from. Meanwhile the model's dissent is carried by `USG_PosRankDelta`, which is a rank
+and therefore cannot be contaminated by the level mismatch at all.
+
 ### `USG_Points` is not on the same scale as `TRUE_Points`
 
 Worth stating plainly, because side-by-side columns invite the wrong reading.

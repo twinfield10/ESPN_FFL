@@ -650,12 +650,32 @@ def _merge_usage(base: pd.DataFrame, source: pd.DataFrame,
 #: average, and including it would pull the spread toward the middle of two sources
 #: already in the set. ``TRUE`` is excluded because it is the blend being bracketed.
 #:
-#: ``USG`` is included: plan 16's G0 measured it as the *most* independent source in
-#: the set, so a spread that ignored it would understate disagreement for exactly the
-#: players where the model dissents from the market. It contributes only where it
-#: really spoke -- :func:`attach_source_spread` counts a source through its
-#: ``_is_imputed`` flags, and this source's abstentions are flagged.
-OPINION_PREFIXES = ("ESPN", "FP", "PINNY", "BOL", "USG")
+#: **``USG`` is excluded, and it was briefly included by mistake.** The reasoning for
+#: adding it was that plan 16's G0 measured it as the most independent source in the
+#: set (+0.832 residual correlation with ESPN against FantasyPros' +0.988). That is a
+#: statement about *information content*, and this function needs a different
+#: property: that the sources are answering the same question. They are not.
+#: ``USG_Points`` is an expected value -- per-game production times ~13.5 expected
+#: games -- while ESPN and FantasyPros project a healthy 17-game season. So it does
+#: not disagree with them so much as measure something else, and it sat below all
+#: four for **51.7% of the players it covered**, taking the median floor-to-ceiling
+#: width on Winfield Football's draftable pool from 8.5% to 24.0%.
+#:
+#: Rescaling it to a common if-healthy basis (per-game x 17) was measured too, and is
+#: better but still wrong: the width lands at 13.6% and ``USG`` is still the minimum
+#: for 47% of draftable players. That residual is not a units problem, it is the
+#: model shrinking toward positional baselines while the other sources extrapolate,
+#: and draftable players are by definition the top of the pool. Real disagreement --
+#: but it makes the interval asymmetric, so it reads as "the model is bearish" rather
+#: than "here is the uncertainty".
+#:
+#: Those are two different quantities and this column should only ever hold one of
+#: them. Disagreement *between* forecasters belongs here; uncertainty *within* a
+#: forecast is a predictive interval, which the usage model can supply properly
+#: because it decomposes into volume x efficiency x games. Until that exists, the
+#: model's dissent is carried by ``USG_PosRankDelta``, which is scale-free and cannot
+#: contaminate the spread.
+OPINION_PREFIXES = ("ESPN", "FP", "PINNY", "BOL")
 
 
 def attach_source_spread(df: pd.DataFrame, stats: List[str],

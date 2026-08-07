@@ -63,11 +63,27 @@ def test_usg_is_scored_like_every_other_source():
     assert "USG" in default
 
 
-def test_usg_counts_as_an_independent_opinion():
-    """Plan 16's G0 measured it as the *most* independent source in the set --
-    residuals correlating +0.832 with ESPN's against FantasyPros' +0.988."""
-    assert "USG" in sp.OPINION_PREFIXES
+def test_usg_stays_out_of_the_floor_ceiling_spread():
+    """Independence is not the property this spread needs -- a shared question is.
+
+    G0 measured USG as the most independent source in the set, which is why it was
+    briefly added here, and that was the wrong test. `USG_Points` is an expected
+    value and the other four project a healthy season, so it sat below all of them
+    for 51.7% of the players it covered and widened the median interval from 8.5% to
+    24.0%. Disagreement between forecasters and uncertainty within one forecast are
+    different quantities; this column holds the first."""
+    assert "USG" not in sp.OPINION_PREFIXES
     assert "MEAN" not in sp.OPINION_PREFIXES
+    assert set(sp.OPINION_PREFIXES) == {"ESPN", "FP", "PINNY", "BOL"}
+
+
+def test_the_models_dissent_is_carried_scale_free():
+    """Removing USG from the spread must not lose its opinion -- the rank delta is
+    the vehicle, and being a rank it cannot be contaminated by the level mismatch."""
+    import inspect
+    body = inspect.getsource(sp.build_season_projections)
+    assert "USG_PosRank" in body
+    assert "USG_PosRankDelta" in body
 
 
 # --- the zero weight -----------------------------------------------------
