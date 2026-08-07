@@ -1,6 +1,9 @@
 # 16 — nflverse usage data: extraction, features, and the go/no-go gates
 
-**Priority:** High (quality) · **Effort:** M–L · **Status:** Step 1 (crosswalk) done · rest not started
+**Priority:** High (quality) · **Effort:** M–L · **Status:** Steps 1–2 done —
+crosswalk, extraction, and [§Step 0](#step-0--the-gates-measured-2026-08-06)'s
+gates measured. **G0 passed, G1 and G2 failed on the crude baseline**, and the
+failure says availability is the first feature to build. Nothing is in `WEIGHTS`.
 **Depends on:** nothing — the data is reachable today
 **Feeds:** [18 (season model)](18-season-usage-model.md) ·
 [19 (weekly model)](19-weekly-usage-model.md) ·
@@ -31,10 +34,17 @@ earned 107 yards of opportunity while returning 55". None of the four sources
 expose any of that, and it is the leading indicator of the thing they are all
 trying to guess.
 
-The bet is that a model built on usage produces errors **less correlated** with
+The bet was that a model built on usage produces errors **less correlated** with
 the other four than they are with each other. That is what makes a blend better
-rather than merely heavier — and it is measurable up front, so [§Step 0](#step-0--the-gates)
-makes it the gate rather than an afterthought.
+rather than merely heavier — and it is measurable up front, so
+[§Step 0](#step-0--the-gates-measured-2026-08-06) made it the gate rather than an
+afterthought.
+
+**The bet is now settled, and it won.** Two trailing terms and nothing else
+produce residuals correlated **+0.832** with ESPN's, against FantasyPros'
+**+0.988** — 0.565 versus 0.982 once the shared outcome is partialled out. What
+they do *not* yet produce is accuracy: the same crude model fails G1 at every
+weight, and the failure is almost entirely about not knowing who plays.
 
 ## What is reachable — verified 2026-08-06
 
@@ -93,11 +103,19 @@ below shows how much of it regresses.
    join partner identifying dropbacks, and as the source of team pass-rate-over-
    expected and red-zone usage.
 
-### Four traps, all found the hard way
+### Six traps, all found the hard way
 
-- **`load_ff_opportunity` returns `season` and `week` as character.** The join to
-  `calculate_stats` fails loudly on that, which is the good outcome, but cast on
-  read.
+- **`load_ff_opportunity` returns `season` as character** (`week` is numeric). The
+  join to `calculate_stats` fails loudly on that, which is the good outcome, but
+  cast on read.
+- **`load_ff_opportunity` carries ~420 rows a season with a null `player_id`** —
+  team-level opportunity that could not be attributed to anyone. They are the
+  *only* source of duplicated `(season, week, player_id)` keys, and a join that
+  keeps them fans out rows and double-counts usage silently. Dropped on read;
+  `R/GetUsage.R` refuses to write a frame whose key is not unique.
+- **It also carries weeks 19–22**, the playoffs, with no `season_type` column to
+  filter on. Filter `week <= 18`, the same shape as the `load_injuries` trap
+  below.
 - **`load_injuries`' `season_type` column is populated only for 2025.** Filtering
   `season_type == "REG"` silently drops 2016–2024 and leaves a plausible-looking
   table built from one season. It produced one wrong result while this plan was
@@ -288,14 +306,20 @@ R, matching the `GetNFL.R` / `GetPlayerIDs.R` conventions: repo-root path
 resolution, `stopifnot` validation *before* writing, season-scoped output, and a
 pre-season no-data path that exits 0 rather than stack-tracing.
 
-| Script | Writes | Notes |
+| Script | Writes | Status |
 |---|---|---|
-| `R/GetUsage.R` | `Data/NFL/<season>/{player_weeks,opportunity,routes}.parquet` | `calculate_stats(s,"week","player")`, `load_ff_opportunity`, and the participation×pbp route derivation |
-| `R/GetContext.R` | `Data/NFL/<season>/{injuries,snap_counts,depth_charts,rosters_weekly}.parquet` | availability and role |
+| `R/GetUsage.R` | `Data/NFL/<season>/{opportunity,player_weeks}.parquet` + `usage_meta.json` | **done.** `load_ff_opportunity` and `calculate_stats(s,"week","player")`. `routes.parquet` (participation×pbp) lands with step 4, which is the first thing that needs it |
+| `R/GetContext.R` | `Data/NFL/<season>/{injuries,snap_counts,depth_charts,rosters_weekly}.parquet` | availability and role — **now the priority**, see [§Step 0](#g1--accuracy-fail-and-the-reason-is-availability) |
 | `Scripts/coaches.py` | `Data/NFL/coaching_staff.parquet` | Wikipedia MediaWiki API; Python because it is not an nflverse pull |
 
-Backfill 2016–2025 once (~3 min), append weekly thereafter. Kept out of
-`GetNFL.R` so the weekly schedule refresh stays fast.
+Backfill 2016–2025 once — measured at **124s** for `GetUsage.R`, 3.5 MB a season —
+and append weekly thereafter. Kept out of `GetNFL.R` so the weekly schedule
+refresh stays fast.
+
+`usage_meta.json` records the **upstream release timestamp** with every pull, which
+is the answer to §Risks' upstream-dependency item: ffopportunity is `ffverse`
+release data, not nflverse core, so it can stop updating mid-season while every
+file still reads fine.
 
 `coaching_staff.parquet` is **committed** — small, hand-auditable, and the
 upstream can change, the same argument that keeps `player_ids.parquet` in git.
@@ -331,11 +355,19 @@ The week-*N* injury report is **not** leakage: it is published Wednesday to
 Friday, before Sunday's games. `date_modified` is the audit column if that ever
 needs proving.
 
-Two tests, both in `tests/test_usage_features.py`:
+Two tests, **now in `tests/test_usage_baseline.py`** and passing against the
+trailing-mean builders the step-0 baseline uses:
 
 - A feature frame for week *N* is unchanged when week *N*'s stat rows are altered.
 - A feature frame built at week *N* equals the same slice of a frame built at
   week *N+5*.
+
+Four more went in alongside them, each for a way the guarantee can be lost without
+either of the above noticing: history must not cross players, must not cross
+seasons, must count the window in *appearances* rather than calendar weeks so a bye
+shortens it instead of blanking it, and the as-of builder must reproduce the
+shifted builder exactly on the rows where both apply — otherwise the model is
+fitted on one definition of "trailing" and scored on another.
 
 ### It cannot help week 1, and should say so
 
@@ -347,6 +379,11 @@ There is no 2026 play-by-play, because no 2026 games have been played.
   than emitting noise, coming online around week 3–4. See
   [plan 19](19-weekly-usage-model.md).
 
+Measured on the step-0 baseline against the 2025 evaluation grid: **0% of
+player-weeks carry any `USG_` line in week 1** by construction, 65% from week 2,
+and 70–75% by the back half — the remainder being players with no prior appearance
+that season, which is the same abstention one week later.
+
 Abstaining already works: plan 07 made a wholly-absent source degrade correctly.
 `impute_columns` creates the columns from `MEAN_`, flags every cell, and
 `compute_weighted_stats` renormalises it out of `TRUE_*`. A `USG_` source
@@ -355,52 +392,271 @@ the app's coverage panel shows it at 0%.
 
 ---
 
-## Step 0 — the gates
+## Step 0 — the gates, measured 2026-08-06
 
-**Built first, roughly a day, and it decides everything downstream.** Do not
-build features before this returns a number.
+**Done.** `python -m Scripts.usage.gates --season 2025` regenerates every number
+below in **2.5s**, read-only and offline — which is the point of the extraction
+layer writing parquet: the measurement is cheap enough to re-run after every
+feature. Its two inputs:
 
-1. **Build the evaluation set.**
-   ```bash
-   python -m Scripts.refresh --all --season 2025
-   ```
-   One row per player-week carrying the actual outcome (`points`), all four
-   sources' stat lines, and the `*_is_imputed` provenance flags — so accuracy is
-   measured on cells where a source *really* had a line, rather than scoring ESPN
-   against its own imputed copy.
+```bash
+python -m Scripts.refresh --all --season 2025   # nine league stores, 216s
+Rscript R/GetUsage.R 2016 2025                  # ten seasons of usage, 124s
+```
 
-   Reachability confirmed 2026-08-06: ESPN still serves 2025 (Knights_FFL,
-   `current_week` 17, week-1 box scores carrying `points` **and**
-   `projected_points`), and all four sources' 2025 archives are on disk under
-   `Data/Projections/*/{Season,Landing}/2025/`. FantasyPros URLs take no season
-   parameter, so that archive cannot be re-scraped — it is the only copy.
+Same standard as the tables above: do not trust these, re-run them.
 
-2. **Fit the crudest usage baseline** — the two-term `t3_actual + t3_exp`
-   regression from §Measurements. Nothing clever. The point is to have residuals.
+### The evaluation set
 
-3. **Publish the pairwise residual-correlation matrix** across
-   ESPN / FP / PINNY / BOL / usage-baseline against 2025 actuals, on non-imputed
-   cells only. Write it into this document.
+All nine 2025 stores rebuilt without a failure, so the holdout is real: ESPN still
+serves 2025, and all four sources' 2025 archives are on disk under
+`Data/Projections/*/{Season,Landing}/2025/`.
 
-   This one artifact answers two separate questions: the model's independence
-   gate, *and* [plan 20](20-consensus-sources.md)'s consensus question — because
-   the marginal value of source *k+1* is roughly (1 − its correlation with the
-   rest).
+**5,257 player-weeks** pooled from the nine stores, **4,799 (91.3%) carrying a
+`gsis_id`**. Pooling is sound rather than assumed: the worst cross-league
+disagreement on any shared cell — actual outcome or ESPN's line for the same
+player-week — is **0.000000**. Every league scored all eight stats, so no league
+contributed a hole.
 
-### Go / no-go
+The pooled set is also a **cross-feed check on the outcome itself**. ESPN's box
+scores and nflverse's play-by-play are independent stat feeds, and they agree:
+mean |difference| per player-week is 0.000 for every touchdown, interception and
+reception count, 0.001 for rushing yards and 0.055 for passing and receiving
+yards, with a single 33-yard outlier. Nothing below rests on a disputed outcome.
 
-Stated as measured comparisons, not magic thresholds:
+Three populations, because "the model was wrong" and "the player was not on the
+field" are different failures:
 
-- **G0 — independence.** Usage residuals materially less correlated with ESPN's
-  than ESPN's are with FantasyPros'. If they are highly correlated with ESPN's,
-  this is re-deriving what ESPN already knows and the whole exercise is a
-  rounding error. **Stop, and record the number here** rather than quietly
-  shelving it.
-- **G1 — accuracy.** Adding `USG_` reduces blended per-stat MAE on the 2025
-  holdout. If it does not, do not ship it at a token weight — say so here.
-- **G2 — draft.** Within-position Spearman against realised season points
-  improves over `TRUE_` alone. This is the board's actual objective and it is not
-  the same test as G1.
+| Population | Rows | What it is |
+|---|---|---|
+| `all` | 5,257 | everything, byes and inactives included |
+| **`team`** | **5,051** | his team played — excludes byes, which are public information the crude baseline simply has not been given |
+| `played` | 2,926 | he took offensive snaps — also excludes inactives, the hard availability problem |
+
+Real (non-imputed) coverage on `team`, which is what every measurement filters on:
+
+| Stat | ESPN | FP | PINNY | BOL | USG |
+|---|---|---|---|---|---|
+| passingYards | 100 | 18.5 | 8.2 | 8.7 | 11.2 |
+| passingTouchdowns | 100 | 18.5 | 8.1 | 8.8 | 11.2 |
+| passingInterceptions | 100 | 18.5 | 2.7 | 8.6 | 11.2 |
+| rushingYards | 100 | 18.5 | 20.2 | 22.8 | 38.8 |
+| rushingTouchdowns | 100 | 18.5 | 8.0 | 69.3 | 37.4 |
+| receivingYards | 100 | 18.5 | 35.2 | 40.1 | 53.8 |
+| receivingTouchdowns | 100 | 18.5 | 8.0 | 69.3 | 52.3 |
+| receivingReceptions | 100 | 18.5 | 34.3 | 39.1 | 53.8 |
+
+### The baseline: two terms, and it abstains
+
+Fitted on **2016–2024** and used to predict 2025, so its residuals are out of
+sample against four genuinely ex-ante sources. Per stat,
+`actual ~ b0 + b1·t3_actual + b2·t3_expected`.
+
+| Stat | n | b0 | b_actual | b_expected | in-sample R² |
+|---|---|---|---|---|---|
+| passingYards | 5,497 | 37.97 | 0.343 | 0.457 | .4946 |
+| passingTouchdowns | 5,394 | 0.41 | 0.230 | 0.411 | .1902 |
+| passingInterceptions | 5,485 | 0.22 | −0.001 | 0.641 | .0606 |
+| rushingYards | 20,830 | 2.75 | 0.208 | 0.684 | .4606 |
+| rushingTouchdowns | 18,905 | 0.10 | 0.153 | 0.345 | .0803 |
+| receivingYards | 36,263 | 6.51 | 0.156 | 0.627 | .3005 |
+| receivingTouchdowns | 34,468 | 0.11 | 0.035 | 0.370 | .0361 |
+| receivingReceptions | 36,268 | 0.73 | 0.216 | 0.505 | .3073 |
+
+It leans on expected production over actual in every one of the eight, which is
+the §Measurements result reproduced at the stat level rather than in points.
+
+**Two implementation points cost real numbers before they were fixed**, and both
+are pinned by `tests/test_usage_baseline.py`:
+
+- **It must be asked about the player-weeks the other sources are asked about.**
+  Predicting only the weeks the usage data has a row for means predicting only
+  players who turned out to play, while ESPN and the books project everyone and
+  eat the error when a starter is inactive. The grid is now an input
+  (`as_of_features`), and a snapshot stamped week *N+1* cannot be reached by an
+  as-of match at week *N*.
+- **No trailing opportunity of a kind means no opinion.** Fitted on players who
+  had some, the model hands a receiver its passing-yards intercept — 38 yards for
+  every wide receiver — which is precisely the "quietly emits a positional
+  average" failure in §Risks. It abstains instead, and the blend renormalises the
+  weight away exactly as it does for pre-season Pinnacle.
+
+### G0 — independence: **pass**
+
+Pairwise residual correlation on non-imputed cells, `team` population. Pairwise
+rather than complete-case, because a complete-case matrix would live on the 2.7%
+of rows Pinnacle covers for interceptions.
+
+| pair | passYds | passTD | rushYds | recYds | recRec | mean | Σn, all 8 |
+|---|---|---|---|---|---|---|---|
+| ESPN/FP | +0.974 | +0.990 | +0.984 | +0.990 | +0.986 | **+0.988** | 7,488 |
+| ESPN/PINNY | +0.893 | +0.967 | +0.964 | +0.962 | +0.946 | +0.957 | 6,296 |
+| ESPN/BOL | +0.855 | +0.933 | +0.964 | +0.959 | +0.932 | +0.949 | 13,467 |
+| **ESPN/USG** | **+0.473** | +0.835 | +0.785 | +0.800 | +0.760 | **+0.832** | 13,632 |
+| FP/PINNY | +0.955 | +0.984 | +0.989 | +0.990 | +0.968 | +0.981 | 1,638 |
+| FP/BOL | +0.974 | +0.960 | +0.991 | +0.991 | +0.952 | +0.970 | 2,913 |
+| FP/USG | +0.902 | +0.960 | +0.943 | +0.946 | +0.934 | +0.951 | 2,593 |
+| PINNY/BOL | +0.981 | +0.979 | +0.995 | +0.997 | +0.976 | +0.986 | 6,207 |
+| PINNY/USG | +0.898 | +0.943 | +0.932 | +0.941 | +0.919 | +0.937 | 5,882 |
+| BOL/USG | +0.914 | +0.918 | +0.936 | +0.940 | +0.904 | +0.921 | 10,047 |
+
+The matrix, n-weighted across all eight stats, and the same with the actual
+outcome partialled out. **Every residual contains minus the outcome, and the
+outcome varies far more than any projection of it**, which is why all ten pairs
+sit above 0.83 in the left panel. The inflation is identical for every pair, so
+the comparison is sound — but the partial version is the readable one: conditional
+on what actually happened, do two sources still say the same thing?
+
+```
+   residual r                          partial on the outcome
+        ESPN     FP  PINNY    BOL  USG        ESPN     FP  PINNY    BOL  USG
+ESPN   1.000  0.988  0.957  0.949 0.832      1.000  0.982  0.818  0.840 0.565
+FP     0.988  1.000  0.981  0.970 0.951      0.982  1.000  0.890  0.904 0.789
+PINNY  0.957  0.981  1.000  0.986 0.937      0.818  0.890  1.000  0.915 0.699
+BOL    0.949  0.970  0.986  1.000 0.921      0.840  0.904  0.915  1.000 0.674
+USG    0.832  0.951  0.937  0.921 1.000      0.565  0.789  0.699  0.674 1.000
+```
+
+Marginal value as **1 − mean r with the other four** — the number
+[plan 20](20-consensus-sources.md) needs as much as this one does:
+
+| Source | residual | partial |
+|---|---|---|
+| ESPN | +0.068 | +0.199 |
+| FantasyPros | **+0.027** | **+0.109** |
+| Pinnacle | +0.035 | +0.169 |
+| BetOnline | +0.043 | +0.167 |
+| **usage baseline** | **+0.090** | **+0.318** |
+
+And the gate itself, across all three populations:
+
+| Population | rows | ESPN/USG | ESPN/FP | ESPN/USG partial | ESPN/FP partial |
+|---|---|---|---|---|---|
+| all | 5,257 | +0.803 | +0.988 | +0.512 | +0.982 |
+| team | 5,051 | +0.832 | +0.988 | +0.565 | +0.982 |
+| played | 2,926 | +0.924 | +0.988 | +0.748 | +0.979 |
+
+**Verdict: pass, and not marginally.** Usage residuals share far less with ESPN's
+than FantasyPros' do, on every population and both statistics. FantasyPros is the
+*least* independent thing in the blend — 0.027 of marginal value against the usage
+baseline's 0.090 — which is the plan-03 finding arriving from a second direction.
+
+**The honest caveat: a noisier forecast has less-correlated residuals
+mechanically.** Low correlation is necessary, not sufficient; G1 is what checks
+the other half, and it is where this stops being good news.
+
+### G1 — accuracy: **fail**, and the reason is availability
+
+Each source alone first, since a blend degrades when a member is much less
+accurate however independent it is. ESPN and USG share a population by
+construction (ESPN is never imputed), so that pair is the one clean comparison;
+the book columns are each on their own real cells, with `n` shown.
+
+MAE on the `team` population:
+
+| Stat | ESPN | n | FP | n | PINNY | n | BOL | n | **USG** | n |
+|---|---|---|---|---|---|---|---|---|---|---|
+| passingYards | 41.21 | 567 | 44.46 | 157 | 57.04 | 382 | 57.04 | 410 | **85.80** | 567 |
+| passingTouchdowns | 0.689 | 568 | 0.962 | 157 | 0.944 | 381 | 0.945 | 411 | **0.965** | 568 |
+| passingInterceptions | 0.494 | 568 | 0.645 | 157 | 0.709 | 104 | 0.673 | 404 | **0.640** | 568 |
+| rushingYards | 14.25 | 1,962 | 18.80 | 391 | 20.96 | 950 | 21.21 | 1,076 | **18.93** | 1,962 |
+| rushingTouchdowns | 0.292 | 1,889 | 0.440 | 384 | 0.540 | 383 | 0.379 | 1,638 | **0.335** | 1,889 |
+| receivingYards | 17.57 | 2,716 | 24.10 | 450 | 21.81 | 1,673 | 21.38 | 1,897 | **23.08** | 2,716 |
+| receivingTouchdowns | 0.292 | 2,644 | 0.471 | 447 | 0.224 | 379 | 0.336 | 2,355 | **0.322** | 2,644 |
+| receivingReceptions | 1.294 | 2,718 | 1.761 | 450 | 1.600 | 1,630 | 1.608 | 1,856 | **1.799** | 2,718 |
+
+The blend, four sources against five, through the production
+`compute_weighted_stats` — a fifth source is exactly the case §Risks flags as
+changing the renormalisation arithmetic, so it is the code under test. Percentage
+change is at the best weight tried:
+
+| Stat | n | MAE 4-src | w=0.05 | w=0.1 | w=0.2 | w=0.5 | best change |
+|---|---|---|---|---|---|---|---|
+| passingYards | 567 | 41.11 | 53.61 | 60.23 | 67.32 | 75.15 | **+30.4%** |
+| passingTouchdowns | 568 | 0.684 | 0.767 | 0.810 | 0.853 | 0.898 | +12.2% |
+| passingInterceptions | 568 | 0.495 | 0.522 | 0.540 | 0.564 | 0.594 | +5.5% |
+| rushingYards | 1,962 | 13.70 | 14.53 | 15.11 | 15.87 | 16.95 | +6.0% |
+| rushingTouchdowns | 1,889 | 0.306 | 0.312 | 0.315 | 0.320 | 0.326 | +1.7% |
+| receivingYards | 2,716 | 17.04 | 17.99 | 18.65 | 19.49 | 20.70 | +5.6% |
+| receivingTouchdowns | 2,644 | 0.300 | 0.304 | 0.306 | 0.310 | 0.314 | +1.3% |
+| receivingReceptions | 2,718 | 1.272 | 1.355 | 1.412 | 1.486 | 1.592 | +6.5% |
+
+Monotone in the weight for all eight, so the MAE-minimising weight is **0**. Note
+the effective share is larger than the nominal weight: renormalisation divides by
+the weight of the sources that are *real*, so on a row where only ESPN and the
+usage model have a line, a nominal 0.05 is a fifth of the blend.
+
+**Now the same on `played` rows, and the number collapses:**
+
+| Stat | n | MAE 4-src | w=0.05 | w=0.2 | w=0.5 | best change |
+|---|---|---|---|---|---|---|
+| passingYards | 456 | 49.24 | 50.87 | 53.82 | 56.40 | +3.3% |
+| passingTouchdowns | 456 | 0.833 | 0.849 | 0.867 | 0.879 | +2.0% |
+| passingInterceptions | 456 | 0.614 | 0.619 | 0.628 | 0.635 | +0.9% |
+| rushingYards | 1,661 | 15.99 | 16.05 | 16.26 | 16.53 | +0.35% |
+| rushingTouchdowns | 1,596 | 0.355 | 0.356 | 0.358 | 0.359 | +0.23% |
+| receivingYards | 2,298 | 19.60 | 19.65 | 19.78 | 20.02 | +0.23% |
+| receivingTouchdowns | 2,233 | 0.344 | 0.344 | 0.343 | 0.343 | **−0.16%** |
+| receivingReceptions | 2,300 | 1.457 | 1.460 | 1.473 | 1.496 | +0.21% |
+
+And standalone, on those rows — where the crude two-term model is already
+**level with the sportsbooks**:
+
+| Stat | ESPN | FP | PINNY | BOL | **USG** |
+|---|---|---|---|---|---|
+| passingYards | 51.25 | 44.46 | 56.15 | 54.38 | 62.36 |
+| passingTouchdowns | 0.858 | 0.962 | 0.943 | 0.936 | **0.917** |
+| rushingYards | 16.71 | 18.90 | 20.92 | 21.13 | **17.53** |
+| rushingTouchdowns | 0.345 | 0.443 | 0.541 | 0.382 | **0.362** |
+| receivingYards | 20.44 | 23.95 | 21.63 | 21.16 | 21.20 |
+| receivingTouchdowns | 0.344 | 0.471 | 0.224 | 0.341 | 0.344 |
+| receivingReceptions | 1.500 | 1.749 | 1.576 | 1.585 | 1.600 |
+
+**Verdict: fail — nothing ships at any weight.** But the failure decomposes
+cleanly. Two trailing terms and no other input are *neutral* on the field
+(−0.16% to +0.35%) and beat three of the four sources standalone on rushing yards,
+rushing touchdowns and passing touchdowns. Essentially the whole deficit is **not
+knowing who plays**: byes are excluded from both tables, so the move from +0.23% to
++5.6% on receiving yards is entirely the inactives. §Measurements already showed
+availability is the free,
+strongly predictive input nothing else in this pipeline models — Out is 100%
+deterministic, and a Questionable player's practice column splits 57% against 22%.
+That is now the *first* feature family to build, not the fourth.
+
+### G2 — draft: **fail** as measured
+
+Within-position Spearman against realised season points, averaged over the nine
+leagues, `USG` at 0.2. Players need 8+ weeks of rows before their season totals are
+ranked, and `n` sums the nine leagues' pools:
+
+| Pos | n | ρ 4-src | ρ 5-src | Δ |
+|---|---|---|---|---|
+| QB | 214 | 0.9273 | 0.8645 | −0.0628 |
+| RB | 457 | 0.9514 | 0.9317 | −0.0197 |
+| TE | 209 | 0.9185 | 0.9094 | −0.0091 |
+| WR | 560 | 0.9498 | 0.9357 | −0.0141 |
+
+Consistent with G1, and worst for QB where the passing-yard error is worst.
+
+**State the limitation plainly: this is a proxy, not the gate as written.** The
+real draft test ranks *pre-season* season-long projections, and 2025's cannot be
+reconstructed — FantasyPros' URLs take no season parameter and only BetOnline's
+season-long archive survives, so summing weekly projections is the only available
+season-level signal and it uses in-season information no drafter had. The
+pre-draft version of G2 belongs to [plan 18](18-season-usage-model.md) against the
+2026 board.
+
+### What this decides
+
+- **Build the feature layer.** G0 is unambiguous: this is not re-deriving what
+  ESPN knows. FantasyPros, at 0.027 marginal value, is the redundant source.
+- **Availability first**, not the four families in the order §Feature layer lists
+  them. It is where the entire G1 deficit lives, and the injury data is free.
+- **Nothing is wired into `WEIGHTS` yet.** `USG_` stays out of the blend until G1
+  passes on the `team` population with a real model, and re-running
+  `python -m Scripts.usage.gates` is the test for that.
+- **Plan 20 gets its answer for free.** The marginal-value column above is the
+  consensus-source ranking it was going to have to measure.
 
 ---
 
@@ -408,31 +664,47 @@ Stated as measured comparisons, not magic thresholds:
 
 1. ~~**`Scripts/crosswalk.py` + `R/GetPlayerIDs.R`**~~ — **done.** 98.5–99.0%
    coverage of individual players; boards carry `gsis_id`.
-2. **Step 0 above.** Gate before building.
-3. `R/GetUsage.R`, `R/GetContext.R`, `Scripts/coaches.py` — the extraction layer.
+2. ~~**Step 0 above.**~~ — **done 2026-08-06.** `R/GetUsage.R`,
+   `Scripts/usage/{nflverse,baseline,evalset,gates}.py`, 24 tests. G0 passed; G1
+   and G2 failed on the crude baseline, and the decomposition reordered step 3.
+3. **`R/GetContext.R` first**, not the whole extraction layer at once — availability
+   is where the entire G1 deficit sits. Then `Scripts/coaches.py`, and
+   `routes.parquet` in `GetUsage.R` when step 4 needs it.
 4. `Scripts/usage/features.py` — the four feature families, with the as-of-week
-   guarantee and its two tests.
-5. Hand off to [18](18-season-usage-model.md), then
+   guarantee. `as_of_features` and its six tests already exist to build on.
+5. **Re-run `python -m Scripts.usage.gates` after each family.** It is the
+   regression test for whether the added feature moved G1, and the gate is not
+   passed until it does.
+6. Hand off to [18](18-season-usage-model.md), then
    [19](19-weekly-usage-model.md).
-6. Then, and only then, [03](03-projection-source-coverage.md)'s weight re-tune
+7. Then, and only then, [03](03-projection-source-coverage.md)'s weight re-tune
    over the enlarged source set.
 
 ## Risks
 
 - **The largest part is not the model.** It is leakage-free feature construction
-  and an honest backtest.
-- **Correlated residuals** would make the whole thing marginal. Hence G0.
+  and an honest backtest. Confirmed by step 0: two of the three things that had to
+  be fixed before the gates meant anything were about *what the model is asked*
+  rather than what it computes.
+- ~~**Correlated residuals** would make the whole thing marginal.~~ Measured and
+  cleared — see G0. The live risk is the opposite one: **accuracy**, where the
+  crude baseline fails G1 outright.
 - **Positional coverage.** Rich for RB/WR/TE, thinner for QB (§Measurements: usage
   shares add 0.0001 there), absent for K and D/ST. The models emit nothing for
   positions they cannot serve — the absent-source path, not a positional default.
   A model that quietly emits a positional average has apparent full coverage and
   drags the blend toward the mean for exactly the players a board most needs to
-  differentiate. D/ST is [plan 13](13-dst-from-vegas-lines.md)'s job.
+  differentiate. D/ST is [plan 13](13-dst-from-vegas-lines.md)'s job. **This one
+  bit during step 0**: fitted on players with opportunity and applied to everyone,
+  the passing-yards intercept projected 38 yards for every wide receiver in the
+  league.
 - **A fifth source changes the renormalisation arithmetic** in
   `compute_weighted_stats`. It handles an arbitrary source set already, but the
   hand-tuned `WEIGHTS` sum to 1.0 across four names and will need re-deriving —
   [plan 03](03-projection-source-coverage.md)'s job, and why this feeds into it.
 - **Upstream dependency.** `load_ff_opportunity` is `ffverse/ffopportunity`
   release data, not nflverse core. If it stops updating mid-season the weekly
-  head loses its best feature. Record the release timestamp with each pull so a
-  stale file is visible rather than silently reused.
+  head loses its best feature. ~~Record the release timestamp with each pull~~ —
+  done: `Data/NFL/<season>/usage_meta.json` carries `nflverse_timestamp` and the
+  pull time, and `Scripts.usage.nflverse.load_meta` reads it. `gates.py` prints
+  both in its header, so a stale pull is visible on every run.

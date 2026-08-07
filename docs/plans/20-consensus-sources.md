@@ -1,8 +1,9 @@
 # 20 — Consensus: more free projection feeds, gated on measured independence
 
-**Priority:** Medium · **Effort:** M · **Status:** Not started
-**Depends on:** [16 Step 0](16-usage-data-layer.md#step-0--the-gates) — the
-residual-correlation matrix decides whether any of this is worth doing
+**Priority:** Medium · **Effort:** M · **Status:** Not started — and the
+independence evidence now argues **against** candidate 1
+**Depends on:** ~~[16 Step 0](16-usage-data-layer.md#step-0--the-gates-measured-2026-08-06)~~
+— **measured 2026-08-06**, see the table below
 **Feeds:** [03 (weight re-tune)](03-projection-source-coverage.md) ·
 [02 (BetOnline access)](02-betonline-access.md) — a replacement for the dead
 weekly feed
@@ -21,12 +22,30 @@ different names.
 
 The marginal value of source *k*+1 is roughly **(1 − its correlation with the
 rest)**. That is a number, not an argument, and
-[plan 16 Step 0](16-usage-data-layer.md#step-0--the-gates) produces it: a
-pairwise residual-correlation matrix over 2025 across every source, computed on
-non-imputed cells only.
+[plan 16 Step 0](16-usage-data-layer.md#step-0--the-gates-measured-2026-08-06) now
+**has** it — a pairwise residual-correlation matrix over 2025, on non-imputed
+cells only, measured 2026-08-06:
 
-**So this plan is gated.** Do not add six scrapers and then ask whether they
-helped.
+| Source | 1 − mean residual r with the rest | with the outcome partialled out |
+|---|---|---|
+| ESPN | +0.068 | +0.199 |
+| **FantasyPros** | **+0.027** | **+0.109** |
+| Pinnacle | +0.035 | +0.169 |
+| BetOnline | +0.043 | +0.167 |
+| usage baseline | +0.090 | +0.318 |
+
+**This is the argument above, confirmed and pointed at a specific source.**
+FantasyPros — itself an expert consensus — is the least independent thing in the
+blend, at a third of ESPN's marginal value. A sixth aggregator of the same kind is
+the *worst* available use of the effort, and `ffanalytics` wraps ten of them
+including FantasyPros itself. Meanwhile the sportsbooks, which have real money on
+the line, are the second and third most independent, and observed usage is by some
+distance the first.
+
+**So this plan is gated, and the gate has now half-fired.** Do not add six
+scrapers and then ask whether they helped. Candidate 1 below (`ffanalytics`) is
+the one this evidence argues *against*; candidate 2's value rests on the
+ID-join and coverage arguments rather than on independence.
 
 That said, two things make it worth speccing now rather than deferring:
 

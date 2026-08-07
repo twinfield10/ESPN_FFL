@@ -31,6 +31,28 @@ NFL_TACKLES_CSV = DATA_DIR / "NFL_Tackles_By_Position.csv"
 PLAYER_IDS_PARQUET = DATA_DIR / "NFL" / "player_ids.parquet"
 
 
+def nfl_season_dir(season: int, *parts: str, create: bool = False) -> Path:
+    """Season-scoped NFL reference data, written by the ``R/Get*.R`` scripts.
+
+    Holds ``NFL_Stats.csv`` from ``GetNFL.R`` and the nflverse usage pulls from
+    ``GetUsage.R``. Unlike :func:`season_dir` this does **not** create by
+    default: readers ask whether a season has been pulled, and a read that
+    created the directory would make an unpulled season look pulled.
+
+    Args:
+        season: Season year.
+        *parts: Additional components beneath the season directory.
+        create: Create the directory and its parents. Writers set this.
+
+    Returns:
+        Path: An absolute path.
+    """
+    p = DATA_DIR / "NFL" / str(season)
+    if create:
+        p.mkdir(parents=True, exist_ok=True)
+    return p.joinpath(*parts)
+
+
 def resolve(path: Union[str, Path]) -> Path:
     """Resolve ``path`` against the repo root unless it is already absolute.
 

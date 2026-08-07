@@ -184,13 +184,18 @@ alone. The question is never "is the usage model good" but "does adding it help"
 
 ## Ship criteria
 
-Inherited from [plan 16 §Go/no-go](16-usage-data-layer.md#go--no-go), plus this
-head's own:
+Inherited from
+[plan 16 §Step 0](16-usage-data-layer.md#step-0--the-gates-measured-2026-08-06),
+plus this head's own:
 
-- **G0** — usage residuals materially less correlated with ESPN's than ESPN's are
-  with FantasyPros'. Gated in plan 16, before any of this is built.
+- ~~**G0** — usage residuals materially less correlated with ESPN's than ESPN's are
+  with FantasyPros'.~~ **Passed 2026-08-06**, +0.832 against +0.988.
 - **G2** — within-position Spearman against realised season points improves over
-  `TRUE_` alone, on the walk-forward.
+  `TRUE_` alone, on the walk-forward. **This head owns the real test.** Plan 16's
+  step 0 could only run a proxy — summed weekly projections, which failed at −0.009
+  to −0.063 by position — because 2025's *pre-season* season-long projections cannot
+  be reconstructed: FantasyPros' URLs take no season parameter and only BetOnline's
+  season-long archive survives. The 2026 board is the first clean measurement.
 - **Rookie arm** — ships only if draft capital beats abstention on the same
   walk-forward.
 

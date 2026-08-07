@@ -189,10 +189,16 @@ reputation.
 
 ## Ship criteria
 
-- **G0** — usage residuals materially less correlated with ESPN's than ESPN's are
-  with FantasyPros'. Gated in [plan 16 Step 0](16-usage-data-layer.md#step-0--the-gates),
-  before any of this is built.
+- ~~**G0** — usage residuals materially less correlated with ESPN's than ESPN's are
+  with FantasyPros'.~~ **Passed 2026-08-06**: +0.832 against FantasyPros' +0.988,
+  and +0.565 against +0.982 with the outcome partialled out. See
+  [plan 16 Step 0](16-usage-data-layer.md#g0--independence-pass).
 - **G1** — adding `USG_` reduces blended per-stat MAE on the 2025 holdout.
+  **Currently failing**, and the decomposition is why this plan's availability
+  head moved to the front of the queue: on rows where the player took snaps the
+  crude baseline is already neutral (−0.16% to +0.35%), and essentially the whole
+  deficit is not knowing who plays. Re-run `python -m Scripts.usage.gates` to
+  re-measure.
 - **G3** — the availability head is calibrated: reliability curve within a stated
   tolerance of the diagonal on held-out seasons.
 

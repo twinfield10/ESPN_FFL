@@ -41,3 +41,10 @@ Data/Equivalence/
 # The local data store the app reads. Rebuilt by `python -m Scripts.refresh`,
 # and a lineups.parquet is ~235 x 469 per league-season.
 Data/Store/
+# nflverse usage pulls, rebuilt by `Rscript R/GetUsage.R` -- ~3.5 MB a season and
+# regenerable in seconds. Listed by filename rather than as Data/NFL/*/ because
+# Data/NFL/2025/NFL_Stats.csv is committed. Data/NFL/player_ids.parquet is
+# committed too, and is not season-scoped, so it is unaffected either way.
+Data/NFL/*/opportunity.parquet
+Data/NFL/*/player_weeks.parquet
+Data/NFL/*/usage_meta.json

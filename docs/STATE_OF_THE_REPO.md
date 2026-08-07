@@ -1,8 +1,8 @@
 # State of the Repo
 
-**Last updated:** 2026-08-05, preparing for the 2026 season. Plans 07 (local data
-store + app), 14 (Sheets reads the store) and 15 (draft boards) all landed this
-day.
+**Last updated:** 2026-08-06, preparing for the 2026 season. Plans 07 (local data
+store + app), 14 (Sheets reads the store) and 15 (draft boards) landed on the 5th;
+plan 16's data layer and its go/no-go gates on the 6th.
 
 A standing assessment of what works, what is broken, and what to do next. Update
 it as things change — particularly the *Known issues* table, which is the part
@@ -127,6 +127,20 @@ Fixed this cycle:
   and caught the same day, so no published Sheet was affected; the point is that
   nothing would have told you. No bare `except` blocks remain in that file.
 
+- **The usage-model gates are measured, and one of them failed.**
+  `Rscript R/GetUsage.R 2016 2025` pulls ten seasons of nflverse expected
+  production and observed usage; `python -m Scripts.usage.gates` builds a 5,257
+  player-week 2025 evaluation set out of all nine league stores, fits the crudest
+  possible usage model on 2016–2024, and prints the pairwise residual-correlation
+  matrix. **G0 passed decisively** — usage residuals correlate +0.832 with ESPN's
+  where FantasyPros' correlate +0.988, and FantasyPros turns out to be the *least*
+  independent source in the blend. **G1 failed**: adding it raises per-stat MAE at
+  every weight tried, so nothing is wired into `WEIGHTS`. The useful part is the
+  decomposition — on rows where the player actually took snaps the effect is
+  −0.16% to +0.35%, so essentially the whole deficit is **not knowing who plays**.
+  That reorders the work: availability features first
+  ([plan 16](plans/16-usage-data-layer.md#step-0--the-gates-measured-2026-08-06)).
+
 **Credentials have never been committed** — verified across all of history.
 `config.yaml` and `gs4creds.json` are gitignored and remain plaintext on disk,
 which is acceptable for a single-user repo but is the obvious hardening target.
@@ -182,7 +196,7 @@ is meant to be used this way: every `<year>_<Team>_season` article carries
 
 | Issue | Location |
 |---|---|
-| Test coverage is thin in the places that matter most. `tests/` covers paths, config, season/week derivation, the scoring registry, per-slot scoring, the blend primitives and the store (231 tests, no network), including a guard that the notebook never re-defines the shared projection functions. Nothing covers the scrapers, the Sheets renderer, `analytic_utils`, `luck_index`, or `simulation_utils`. | `tests/` |
+| Test coverage is thin in the places that matter most. `tests/` covers paths, config, season/week derivation, the scoring registry, per-slot scoring, the blend primitives, the store and the usage layer's leakage guarantee (303 tests, no network), including a guard that the notebook never re-defines the shared projection functions. Nothing covers the scrapers, the Sheets renderer, `analytic_utils`, `luck_index`, or `simulation_utils`. | `tests/` |
 | No retry/backoff on any HTTP call. Four bare `except:` blocks remain — `populateGoogleSheet.py`'s is gone. A global `warnings.filterwarnings("ignore")` in `fetch_utils.py:16` silences every warning process-wide; `Scripts.scoring` and `Scripts.projection_utils` each force their own filter past it, which is a workaround rather than a fix. → [plan 06](plans/06-performance.md) | repo-wide |
 | `build_league_frame` calls `fetch_league`, then `get_ply_stats_by_matchup` calls it again — ~1s of duplicated ESPN round-trip per league, ~12% of a pre-season refresh. Fixing it means changing that function's signature from ids to a `League`. → [plan 06](plans/06-performance.md) | `equivalence.py`, `scrape_player_stats.py:463` |
 | `oauth2client==4.1.3` is end-of-life upstream and is only needed for Sheets auth. A Google auth change would mean migrating to `google-auth` mid-season, so it is worth doing before the season. → [plan 14](plans/14-thin-google-sheets.md) step 2.3 | `populateGoogleSheet.py`, `requirements.txt` |
