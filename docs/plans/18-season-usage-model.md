@@ -1,9 +1,12 @@
 # 18 — The season usage model (pre-season / draft head)
 
-**Priority:** High (seasonal) · **Effort:** M · **Status:** **In progress** — plan 16's
-extraction layer for availability is done (`R/GetContext.R`,
-`Scripts/usage/context.py`) and the expected-games head is measured (§below). Next:
-`Scripts/usage/features.py`, then `Scripts/usage/season.py` and the walk-forward.
+**Priority:** High (seasonal) · **Effort:** M · **Status:** **Built and backtested
+2026-08-07**, not yet in `WEIGHTS`. `Scripts/usage/{features,season,backtest}.py`,
+45 tests. Walk-forward 2019–2025 beats the naive draft heuristic on ordering at
+RB/WR/TE and on top-N hit rate at all four positions; it does not improve yardage
+and slightly hurts QB ordering. §Backtest results has the numbers. **G2 as written
+still cannot be measured historically** — it needs the four-source blend, which
+does not exist for a past season — so the 2026 board is the gate.
 **Depends on:** [16](16-usage-data-layer.md) — Step 0 gates and the feature layer ·
 [15 (draft board)](15-draft-board.md) — done
 **Supersedes:** [17](17-draft-usage-model.md)
@@ -233,6 +236,106 @@ cheap thing it replaces:
 Report all of them for the blend **with and without** `USG_`, not for `USG_`
 alone. The question is never "is the usage model good" but "does adding it help".
 
+## Backtest results — measured 2026-08-07
+
+`python -m Scripts.usage.backtest`. Train on 2016…*S*−1, predict *S*, for *S* in
+2019…2025. Priced with Winfield Football's own scoring per season, which is the
+**only** league with a registry entry for every season — the others were recorded
+from 2023 or 2024, so picking one would have silently shortened the walk-forward.
+
+**Baseline 2 and 3 are not measurable.** ESPN's own past season projections and the
+four-source `TRUE_` blend cannot be reconstructed: FantasyPros' URLs take no season
+parameter and only BetOnline's season-long archive survives. So the comparison here
+is against **baseline 1, the naive draft heuristic** — last season's per-game
+production carried forward — which is what a drafter does by default and is the one
+that matters. The naive arm is given the *same* expected-games estimate as the model,
+so it cannot lose on availability rather than on production.
+
+**Within-position Spearman** against realised season points, pooled:
+
+| Pos | n | USG | naive | Δ |
+|---|---|---|---|---|
+| QB | 513 | 0.6877 | 0.7038 | **−0.0161** |
+| RB | 1,021 | 0.7121 | 0.6902 | **+0.0218** |
+| WR | 1,494 | 0.7526 | 0.7399 | **+0.0127** |
+| TE | 801 | 0.7259 | 0.6976 | **+0.0284** |
+
+**Per-stat MAE**, on rows the model speaks for:
+
+| Stat | n | USG | naive | Δ |
+|---|---|---|---|---|
+| receivingTouchdowns | 2,732 | 1.27 | 1.45 | **−12.4%** |
+| passingInterceptions | 1,301 | 1.19 | 1.35 | **−12.0%** |
+| rushingTouchdowns | 2,393 | 0.96 | 1.00 | −4.2% |
+| receivingYards | 2,732 | 141.30 | 146.61 | −3.6% |
+| receivingReceptions | 2,732 | 12.46 | 12.92 | −3.5% |
+| rushingYards | 2,393 | 89.26 | 89.00 | +0.3% |
+| passingTouchdowns | 1,301 | 2.15 | 2.13 | +0.7% |
+| passingYards | 1,301 | 302.03 | 297.92 | +1.4% |
+
+**Top-N hit rate**, computed per season and averaged:
+
+| Pos | N | USG | naive |
+|---|---|---|---|
+| QB | 12 | 0.607 | 0.595 |
+| RB | 24 | 0.619 | 0.595 |
+| WR | 36 | 0.683 | 0.627 |
+| TE | 12 | 0.512 | 0.452 |
+
+### Reading it honestly
+
+**The gains are where the shrinkage is, and that is exactly what plan 16 predicted.**
+Touchdown rates and interception rates improve 12%, because a player's own rate is
+mostly noise (year-over-year stickiness +0.234) and pulling it to the positional
+baseline is most of the available edge. Volume-driven yardage does *not* improve —
+prior-season volume carried forward is already close to the best cheap estimate, and
+the fitted regression matches rather than beats it.
+
+**Top-N improves at all four positions**, which is the metric closest to what a
+board is for, and by more than the Spearman moved: WR +0.056, TE +0.060.
+
+**QB ordering gets slightly worse.** The quarterback arm is the weakest — 119
+rostered quarterbacks, `pass_attempts_pg` R² 0.35, and the passing stats are the
+three where MAE regressed. A defensible v1.1 would abstain for QB.
+
+**Coverage is 57.8%** — 3,829 of 6,620 rostered player-seasons. The 42% it says
+nothing about are overwhelmingly players with no prior season, including all 1,497
+rookie rows. That is the designed behaviour, and the blend's absent-source path
+handles it.
+
+### The fitted expected-games head, and what it says
+
+| Pos | n | const | p1_games | reserve | team change | R² |
+|---|---|---|---|---|---|---|
+| QB | 468 | 3.269 | 0.643 | 0.235 | −2.272 | 0.437 |
+| RB | 958 | 4.087 | 0.555 | 0.198 | −1.150 | 0.191 |
+| TE | 731 | 4.593 | 0.534 | 0.151 | −0.649 | 0.224 |
+| WR | 1,333 | 4.828 | 0.535 | 0.161 | −1.691 | 0.189 |
+
+**The slope on prior games comes out at 0.53–0.64, not 1.0** — the model estimates
+about 45% shrinkage rather than having it asserted, which is the same conclusion the
+r = +0.663 / +0.343 split argued for. Changing team costs 0.6 to 2.3 games. R² of
+0.19 for a skill position is the honest ceiling on this: **availability is mostly not
+predictable**, and the head's job is trimming the tail rather than differentiating
+the top, where every estimate lands within a game of 14.
+
+Two things went wrong building this and both are worth recording:
+
+- **Shrinking toward a positional constant was wrong**, and wrong in a way that
+  looked fine. The mean games of every rostered player is QB 8.2 / RB 9.8 / TE 9.3 /
+  WR 10.2, dragged down by the majority who barely play, so a genuine starter was
+  projected for eleven games. Conditioning the mean on having been on a roster the
+  prior season, and then regressing rather than shrinking, fixes it.
+- **`availability` and `games` cannot both be regressors.** Availability *is*
+  games ÷ slate. Fitting both produced RB +1.056 on games against −10.160 on
+  availability, and QB +0.052 against +8.620 — offsetting coefficients that cannot
+  be read and would not transfer. `weeks_on_reserve` replaced it and is not
+  mechanically tied to appearances.
+
+Read the volume coefficients as pairs, not individually: `p1` and `p2` volume
+correlate strongly, so the split between them is partly arbitrary while the
+prediction is sound (WR targets: p1 0.709, p2 0.051, R² 0.628).
+
 ## Ship criteria
 
 Inherited from
@@ -247,8 +350,18 @@ plus this head's own:
   to −0.063 by position — because 2025's *pre-season* season-long projections cannot
   be reconstructed: FantasyPros' URLs take no season parameter and only BetOnline's
   season-long archive survives. The 2026 board is the first clean measurement.
+
+  **Still open, and now known to be unmeasurable on history.** §Backtest results
+  compares against the naive heuristic because there *is* no historical blend to
+  compare against — a permanent limitation of the data, not a gap in the work. G2
+  gets its answer from the 2026 board: build it with and without `USG_` in `WEIGHTS`
+  and score both against realised 2026. Until then `USG_` stays out.
 - **Rookie arm** — ships only if draft capital beats abstention on the same
-  walk-forward.
+  walk-forward. **Not attempted.** v1 abstains, which the backtest confirms is 1,497
+  of 6,620 rows saying nothing rather than guessing.
+- **A QB arm** — new, and the backtest is the reason. Quarterback ordering is
+  slightly *worse* with the model (−0.0161 Spearman) and the three passing stats are
+  the only ones whose MAE regressed. Abstaining for QB is the defensible v1.1.
 
 If G2 fails, **do not wire it in at a token weight.** Record the numbers in this
 document and stop. A source that does not improve ordering but does add a fifth
@@ -256,14 +369,23 @@ name to `WEIGHTS` makes the blend harder to reason about for nothing.
 
 ## Steps
 
-1. Plan 16 Step 0 and its feature layer. Blocking.
-2. `Scripts/usage/season.py` — prior-season aggregation, opportunity and
-   efficiency heads, expected games, `USG_<stat>` season line.
+1. ~~Plan 16 Step 0 and its feature layer.~~ **Done** — step 0 on 2026-08-06,
+   `R/GetContext.R` + `Scripts/usage/context.py` and
+   `Scripts/usage/features.py` on 2026-08-07.
+2. ~~`Scripts/usage/season.py` — prior-season aggregation, opportunity and
+   efficiency heads, expected games, `USG_<stat>` season line.~~ **Done.**
+   Coefficients persist to `Data/NFL/models/season_usage_<version>.json` with
+   version, fit timestamp and training range.
 3. Loader + `WEIGHTS` entry + `proj_to_score` prefix, following the
-   `load_pinnacle_season` pattern in `Scripts/season_projections.py`.
-4. Walk-forward backtest; write the table into this document.
+   `load_pinnacle_season` pattern in `Scripts/season_projections.py`. **Blocked on
+   G2** — deliberately. The model exists and is measured; wiring it into the blend
+   before the 2026 board answers G2 would be asserting the thing that is meant to be
+   tested.
+4. ~~Walk-forward backtest; write the table into this document.~~ **Done** —
+   `python -m Scripts.usage.backtest`, §Backtest results.
 5. Rookie arm, measured against abstention.
-6. Hand the enlarged source set to
+6. A QB arm, or abstention there — see §Ship criteria.
+7. Hand the enlarged source set to
    [plan 03](03-projection-source-coverage.md)'s weight re-tune.
 
 ## Risks

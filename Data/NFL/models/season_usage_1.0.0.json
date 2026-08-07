@@ -1,0 +1,202 @@
+{
+  "fitted_at": "2026-08-07T12:23:28-04:00",
+  "games_by_position": {
+    "QB": 9.072649572649572,
+    "RB": 10.405010438413361,
+    "TE": 10.339261285909712,
+    "WR": 11.057014253563391
+  },
+  "games_fits": [
+    {
+      "coefficients": {
+        "p1_games": 0.6426556666697167,
+        "p1_weeks_on_reserve": 0.23456091364712078,
+        "team_changed": -2.271957848807885
+      },
+      "intercept": 3.2693370734830784,
+      "n": 468,
+      "position": "QB",
+      "r2": 0.4374058103644116,
+      "target": "games"
+    },
+    {
+      "coefficients": {
+        "p1_games": 0.5545878027325207,
+        "p1_weeks_on_reserve": 0.19778084531999562,
+        "team_changed": -1.149519696725235
+      },
+      "intercept": 4.08675107471594,
+      "n": 958,
+      "position": "RB",
+      "r2": 0.19124794426048097,
+      "target": "games"
+    },
+    {
+      "coefficients": {
+        "p1_games": 0.535163215262046,
+        "p1_weeks_on_reserve": 0.1613528958436128,
+        "team_changed": -1.690826424786861
+      },
+      "intercept": 4.8278262281030715,
+      "n": 1333,
+      "position": "WR",
+      "r2": 0.1890108195984207,
+      "target": "games"
+    },
+    {
+      "coefficients": {
+        "p1_games": 0.5340646127098192,
+        "p1_weeks_on_reserve": 0.15134499160533008,
+        "team_changed": -0.6492954090759756
+      },
+      "intercept": 4.593038160329996,
+      "n": 731,
+      "position": "TE",
+      "r2": 0.22428711902748266,
+      "target": "games"
+    }
+  ],
+  "train_seasons": [
+    2017,
+    2018,
+    2019,
+    2020,
+    2021,
+    2022,
+    2023,
+    2024
+  ],
+  "version": "1.0.0",
+  "volume_fits": [
+    {
+      "coefficients": {
+        "p1_games": 0.019939475485789487,
+        "p1_volume": 1.1793195376931689,
+        "p2_volume": 0.049228087702782315,
+        "team_changed": -0.019247459604703088
+      },
+      "intercept": -0.34551360953875837,
+      "n": 72,
+      "position": "QB",
+      "r2": 0.5053580598827058,
+      "target": "targets_pg"
+    },
+    {
+      "coefficients": {
+        "p1_games": 0.009927341446594127,
+        "p1_volume": 0.5761647412824727,
+        "p2_volume": 0.12527553846238362,
+        "team_changed": -0.483784221992901
+      },
+      "intercept": 0.9441465607213495,
+      "n": 451,
+      "position": "QB",
+      "r2": 0.47444624053644613,
+      "target": "carries_pg"
+    },
+    {
+      "coefficients": {
+        "p1_games": 0.5341365663025194,
+        "p1_volume": 0.3330028720547668,
+        "p2_volume": 0.09044034725109831,
+        "team_changed": -2.8181846649353517
+      },
+      "intercept": 9.910825358611728,
+      "n": 455,
+      "position": "QB",
+      "r2": 0.34982201960860226,
+      "target": "pass_attempts_pg"
+    },
+    {
+      "coefficients": {
+        "p1_games": 0.03585163169662172,
+        "p1_volume": 0.6545483079433964,
+        "p2_volume": 0.033064866727629025,
+        "team_changed": -0.447238127911047
+      },
+      "intercept": 0.26345175237540314,
+      "n": 901,
+      "position": "RB",
+      "r2": 0.5435479502391509,
+      "target": "targets_pg"
+    },
+    {
+      "coefficients": {
+        "p1_games": 0.05266677222958014,
+        "p1_volume": 0.6979537274931393,
+        "p2_volume": 0.06247859956324891,
+        "team_changed": -1.107332047357177
+      },
+      "intercept": 1.014378810656683,
+      "n": 893,
+      "position": "RB",
+      "r2": 0.5844847624974083,
+      "target": "carries_pg"
+    },
+    {
+      "coefficients": {
+        "p1_games": 0.052130828896307047,
+        "p1_volume": 0.7085841289461,
+        "p2_volume": 0.051397436179405745,
+        "team_changed": -0.7302447219972314
+      },
+      "intercept": 0.4546081256245404,
+      "n": 1283,
+      "position": "WR",
+      "r2": 0.6282849824224739,
+      "target": "targets_pg"
+    },
+    {
+      "coefficients": {
+        "p1_games": 0.012741159214498825,
+        "p1_volume": 0.5515471836197312,
+        "p2_volume": 0.2626819164269273,
+        "team_changed": -0.08597087903314404
+      },
+      "intercept": -0.13122259533136246,
+      "n": 650,
+      "position": "WR",
+      "r2": 0.4069245785950343,
+      "target": "carries_pg"
+    },
+    {
+      "coefficients": {
+        "p1_games": 0.0012552974094285488,
+        "p1_volume": 0.00833006136822131,
+        "p2_volume": -0.002829778729877133,
+        "team_changed": -0.013906165206272005
+      },
+      "intercept": 0.017941357560910268,
+      "n": 111,
+      "position": "WR",
+      "r2": 0.025725904305676783,
+      "target": "pass_attempts_pg"
+    },
+    {
+      "coefficients": {
+        "p1_games": 0.04601696988707547,
+        "p1_volume": 0.6619905078891221,
+        "p2_volume": 0.08545924262899036,
+        "team_changed": -0.31642398921608633
+      },
+      "intercept": 0.2909149373188308,
+      "n": 712,
+      "position": "TE",
+      "r2": 0.6063936326658383,
+      "target": "targets_pg"
+    },
+    {
+      "coefficients": {
+        "p1_games": -0.001616713118962183,
+        "p1_volume": 0.45273506074072833,
+        "p2_volume": 0.41947824442520437,
+        "team_changed": 0.013350205170374899
+      },
+      "intercept": 0.019357244288844035,
+      "n": 94,
+      "position": "TE",
+      "r2": 0.9349983473737431,
+      "target": "carries_pg"
+    }
+  ]
+}

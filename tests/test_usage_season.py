@@ -1,0 +1,323 @@
+"""The season usage head: decomposition, abstention, and the backtest's metrics.
+
+Two classes of thing are pinned here. The model's own guarantees -- that it emits
+stat lines rather than points, that it says nothing where it knows nothing, that
+volume and efficiency stay separable -- and the *evaluation's* guarantees, which
+matter just as much: a backtest metric that is subtly wrong is worse than no metric,
+because it will be believed. Both bugs that shipped in the first draft of this were
+in the evaluation, not the model.
+
+Synthetic frames throughout. No network, no parquet.
+"""
+
+import numpy as np
+import polars as pl
+import pytest
+
+from Scripts.usage import backtest as bt
+from Scripts.usage import features as ft
+from Scripts.usage import season as sn
+
+
+def feature_rows(rows):
+    """A feature frame in the shape ``season_features`` returns.
+
+    Args:
+        rows: dicts of overrides, merged onto a plausible receiver's season.
+    """
+    default = {
+        "gsis_id": "a", "position": "WR", "team": "SEA", "team_changed": False,
+        "is_rookie": False, "season": 2026,
+        "p1_games": 16, "p1_weeks_on_reserve": 0, "p1_availability": 1.0,
+        "p1_targets_pg": 8.0, "p2_targets_pg": 7.0,
+        "p1_carries_pg": 0.0, "p2_carries_pg": 0.0,
+        "p1_pass_attempts_pg": 0.0, "p2_pass_attempts_pg": 0.0,
+        "p1_yards_per_target": 8.5, "p1_catch_rate": 0.65,
+        "p1_rec_td_per_target": 0.06, "p1_yards_per_carry": 4.2,
+        "p1_rush_td_per_carry": 0.02, "p1_yards_per_attempt": 7.0,
+        "p1_pass_td_per_attempt": 0.05, "p1_int_per_attempt": 0.02,
+    }
+    return pl.DataFrame([{**default, **row} for row in rows])
+
+
+def trained_model(**overrides):
+    """A hand-specified model, so predictions are checkable by arithmetic."""
+    volume = {
+        ("WR", "targets_pg"): sn.VolumeFit(
+            position="WR", target="targets_pg", intercept=0.0,
+            coefficients={"p1_volume": 1.0, "p2_volume": 0.0,
+                          "p1_games": 0.0, "team_changed": 0.0},
+            n=100, r2=0.5),
+    }
+    games = {
+        "WR": sn.VolumeFit(
+            position="WR", target="games", intercept=0.0,
+            coefficients={"p1_games": 1.0, "p1_weeks_on_reserve": 0.0,
+                          "team_changed": 0.0},
+            n=100, r2=0.2),
+    }
+    kwargs = {"volume": volume, "games": games,
+              "games_by_position": {"WR": 14.0, "QB": 15.0},
+              "train_seasons": (2024, 2025)}
+    kwargs.update(overrides)
+    return sn.SeasonUsageModel(**kwargs)
+
+
+# --- the decomposition ---------------------------------------------------
+
+def test_every_modelled_stat_is_a_volume_times_a_rate():
+    """The design: no stat is predicted in one step."""
+    for stat, (volume, rate) in sn.STAT_TERMS.items():
+        assert volume in ft.VOLUME_STATS.values() or volume.endswith("_pg")
+        assert rate in dict((n, d) for n, _, d in
+                            [(n, num, den) for n, num, den in ft.EFFICIENCY_RATES])
+
+
+def test_a_prediction_is_games_times_volume_times_rate():
+    frame = feature_rows([{"p1_games": 16, "p1_targets_pg": 8.0,
+                           "p1_yards_per_target": 8.5}])
+    out = trained_model().predict(frame)
+    assert out["expected_games"][0] == pytest.approx(16.0)
+    assert out["pred_targets_pg"][0] == pytest.approx(8.0)
+    assert out["USG_receivingYards"][0] == pytest.approx(16 * 8.0 * 8.5)
+
+
+def test_receptions_and_yards_share_one_volume_term():
+    """Both come off targets, which is what makes the two internally consistent."""
+    frame = feature_rows([{}])
+    out = trained_model().predict(frame)
+    ratio = out["USG_receivingReceptions"][0] / out["USG_receivingYards"][0]
+    assert ratio == pytest.approx(0.65 / 8.5)
+
+
+def test_it_emits_stat_lines_not_points():
+    """A points model could not serve nine leagues with different scoring."""
+    out = trained_model().predict(feature_rows([{}]))
+    assert any(c.startswith(sn.USAGE_PREFIX) for c in out.columns)
+    assert not any(c.endswith("_Points") for c in out.columns)
+
+
+# --- abstention ----------------------------------------------------------
+
+def test_a_player_with_no_prior_season_gets_nothing():
+    """Every rookie, which is plan 18's stated v1: the draft-capital arm ships only
+    if it beats abstention on the walk-forward."""
+    frame = feature_rows([{"p1_games": None, "is_rookie": True}])
+    out = trained_model().predict(frame)
+    for stat in sn.STAT_TERMS:
+        assert out[f"{sn.USAGE_PREFIX}{stat}"][0] is None
+
+
+def test_a_receiver_gets_no_passing_line():
+    """Step 0's baseline projected 38 passing yards for every wide receiver in the
+    league, off an intercept applied to players with no attempts."""
+    out = trained_model().predict(feature_rows([{"p1_pass_attempts_pg": 0.0}]))
+    assert out["USG_passingYards"][0] is None
+    assert out["USG_receivingYards"][0] is not None
+
+
+def test_a_position_with_no_fit_abstains_on_that_volume():
+    out = trained_model().predict(feature_rows([{"position": "QB"}]))
+    assert out["pred_targets_pg"][0] is None
+    assert out["USG_receivingYards"][0] is None
+
+
+def test_a_negative_prediction_is_clipped_not_emitted():
+    """The blend would price a negative stat line."""
+    model = trained_model(volume={
+        ("WR", "targets_pg"): sn.VolumeFit(
+            position="WR", target="targets_pg", intercept=-50.0,
+            coefficients={"p1_volume": 0.0, "p2_volume": 0.0,
+                          "p1_games": 0.0, "team_changed": 0.0},
+            n=100, r2=0.1)})
+    out = model.predict(feature_rows([{}]))
+    assert out["pred_targets_pg"][0] == pytest.approx(0.0)
+
+
+def test_kickers_and_defences_are_outside_the_modelled_positions():
+    assert "K" not in ft.MODELLED_POSITIONS
+    assert "D/ST" not in ft.MODELLED_POSITIONS
+
+
+# --- expected games ------------------------------------------------------
+
+def test_expected_games_cannot_exceed_the_slate():
+    model = trained_model(games={
+        "WR": sn.VolumeFit(position="WR", target="games", intercept=40.0,
+                           coefficients={"p1_games": 0.0,
+                                         "p1_weeks_on_reserve": 0.0,
+                                         "team_changed": 0.0},
+                           n=100, r2=0.1)})
+    out = model.predict(feature_rows([{}]))
+    assert out["expected_games"][0] == pytest.approx(18.0)
+
+
+def test_expected_games_cannot_be_negative():
+    model = trained_model(games={
+        "WR": sn.VolumeFit(position="WR", target="games", intercept=-5.0,
+                           coefficients={"p1_games": 0.0,
+                                         "p1_weeks_on_reserve": 0.0,
+                                         "team_changed": 0.0},
+                           n=100, r2=0.1)})
+    out = model.predict(feature_rows([{}]))
+    assert out["expected_games"][0] == pytest.approx(0.0)
+
+
+def test_a_position_with_no_games_fit_falls_back_to_its_mean():
+    out = trained_model().predict(feature_rows([{"position": "QB",
+                                                 "p1_pass_attempts_pg": 30.0}]))
+    assert out["expected_games"][0] == pytest.approx(15.0)
+
+
+def test_availability_is_not_a_games_regressor():
+    """It is games_played / games_available, so it is collinear with p1_games.
+    Fitting both gave RB +1.056 on games against -10.160 on availability -- offsetting
+    coefficients that cannot be read and will not transfer.
+    """
+    assert "p1_availability" not in sn.GAMES_REGRESSORS
+    assert "p1_games" in sn.GAMES_REGRESSORS
+    assert "p1_weeks_on_reserve" in sn.GAMES_REGRESSORS
+
+
+# --- fitting -------------------------------------------------------------
+
+def training_rows(n=200, seed=0):
+    """Rows where targets carry forward with noise, so a fit should find them.
+
+    ``p2`` is independent of ``p1`` here on purpose. In the real data they correlate
+    strongly, which makes the individual coefficients partly arbitrary while the
+    prediction stays sound -- the fitted WR target model reports p1 0.709 and p2
+    0.051, a pair that has to be read together. A fixture with ``p2 = 0.9 * p1``
+    reproduces that and cannot identify either slope, which is how this test first
+    "failed" at 0.44.
+    """
+    rng = np.random.default_rng(seed)
+    p1 = rng.uniform(1.0, 10.0, n)
+    return pl.DataFrame({
+        "gsis_id": [f"p{i}" for i in range(n)],
+        "position": ["WR"] * n,
+        "team_changed": [False] * n,
+        "p1_targets_pg": p1,
+        "p2_targets_pg": rng.uniform(1.0, 10.0, n),
+        "p1_carries_pg": np.zeros(n),
+        "p2_carries_pg": np.zeros(n),
+        "p1_pass_attempts_pg": np.zeros(n),
+        "p2_pass_attempts_pg": np.zeros(n),
+        "p1_games": rng.integers(4, 17, n),
+        "p1_weeks_on_reserve": np.zeros(n),
+        "y_targets_pg": 0.8 * p1 + 1.0 + rng.normal(0, 0.3, n),
+        "y_games": rng.integers(4, 17, n).astype(float),
+    })
+
+
+def test_a_volume_fit_recovers_a_known_slope():
+    fit = sn._fit_volume(training_rows(), "WR", "targets_pg")
+    assert fit is not None
+    assert fit.coefficients["p1_volume"] == pytest.approx(0.8, abs=0.15)
+    assert fit.r2 > 0.8
+
+
+def test_structural_zeros_are_excluded_from_the_fit():
+    """Every quarterback's target line is a perfectly predicted zero. Left in, they
+    dominate the fit, flatter the R-squared and pull the slope toward zero.
+    """
+    rows = training_rows(n=60)
+    zeros = rows.with_columns(
+        pl.lit(0.0).alias("p1_targets_pg"), pl.lit(0.0).alias("y_targets_pg"),
+        pl.Series("gsis_id", [f"z{i}" for i in range(rows.height)]))
+    fit = sn._fit_volume(pl.concat([rows, zeros]), "WR", "targets_pg")
+    assert fit.n == 60          # the zero rows were not fitted on
+    assert fit.coefficients["p1_volume"] == pytest.approx(0.8, abs=0.2)
+
+
+def test_too_few_rows_yields_no_fit_rather_than_a_bad_one():
+    assert sn._fit_volume(training_rows(n=5), "WR", "targets_pg") is None
+
+
+def test_a_fitted_model_records_its_training_range_and_version():
+    """`CLAUDE.md`: save models with metadata -- version, date, training range."""
+    model = sn.fit(training_rows(), [2023, 2024], fitted_at="2026-08-07T12:00:00")
+    payload = model.to_dict()
+    assert payload["train_seasons"] == [2023, 2024]
+    assert payload["version"] == sn.MODEL_VERSION
+    assert payload["fitted_at"] == "2026-08-07T12:00:00"
+    assert payload["volume_fits"]
+
+
+def test_a_model_round_trips_to_json(tmp_path):
+    model = sn.fit(training_rows(), [2024])
+    path = model.save(tmp_path / "m.json")
+    assert path.is_file()
+    import json
+    assert json.loads(path.read_text())["train_seasons"] == [2024]
+
+
+# --- the backtest's own correctness -------------------------------------
+
+def scored_rows(season, ids, predicted, actual):
+    return pl.DataFrame({
+        "test_season": [season] * len(ids),
+        "gsis_id": list(ids),
+        "position": ["QB"] * len(ids),
+        "usg_points": [float(p) for p in predicted],
+        "actual_points": [float(a) for a in actual],
+    })
+
+
+def test_top_n_is_computed_per_season_not_over_the_pool():
+    """Pooling first compares a 2019 quarterback against a 2024 one, so the number
+    moves with the scoring era rather than with the model. Constructed so pooling
+    and per-season disagree: each season is ranked perfectly, but season 2's points
+    are all below season 1's.
+    """
+    frame = pl.concat([
+        scored_rows(2019, ["a", "b"], [100, 90], [100, 90]),
+        scored_rows(2020, ["c", "d"], [10, 5], [10, 5]),
+    ])
+    # Per season, the top-1 is correct in both -> 1.0. Pooled, the top-1 of four is
+    # 'a' either way, which also scores 1.0 -- so use n=2 where they diverge.
+    per_season = bt.top_n_hit_rate(frame, "usg_points", "actual_points", 2)
+    assert per_season == pytest.approx(1.0)
+    # 'c' and 'd' can never enter a pooled top 2, so a pooled metric would be blind
+    # to how season 2 was ranked at all.
+    assert frame.filter(pl.col("test_season") == 2020).height == 2
+
+
+def test_top_n_skips_a_season_without_enough_players():
+    frame = scored_rows(2019, ["a"], [1], [1])
+    assert bt.top_n_hit_rate(frame, "usg_points", "actual_points", 12) is None
+
+
+def test_points_treats_an_absent_stat_as_zero_not_null():
+    """A receiver has no passing line, and his receiving points still have to add."""
+    frame = pl.DataFrame({"a": [10.0], "b": [None]}, schema={"a": pl.Float64,
+                                                            "b": pl.Float64})
+    out = frame.select(bt.points(frame, {"receivingYards": "a",
+                                         "passingYards": "b"},
+                                {"receivingYards": 0.1, "passingYards": 0.04}))
+    assert out.item() == pytest.approx(1.0)
+
+
+def test_spearman_declines_to_answer_on_too_few_rows():
+    frame = pl.DataFrame({"a": [1.0, 2.0], "b": [1.0, 2.0]})
+    assert bt.spearman(frame, "a", "b") is None
+
+
+def test_spearman_is_rank_based_not_level_based():
+    frame = pl.DataFrame({"a": [float(i) for i in range(20)],
+                          "b": [float(i) ** 3 for i in range(20)]})
+    assert bt.spearman(frame, "a", "b") == pytest.approx(1.0)
+
+
+def test_the_scoring_league_has_a_full_registry_history():
+    """Every other league was only recorded from 2023 or 2024, so picking one of
+    those would silently shorten the walk-forward."""
+    from Scripts.paths import DATA_DIR
+    path = DATA_DIR / "Scoring" / "scoring.csv"
+    if not path.is_file():
+        pytest.skip("no scoring registry on disk")
+    registry = pl.read_csv(path)
+    seasons = set(
+        registry.filter(pl.col("league_key") == bt.SCORING_LEAGUE)["season"]
+        .unique().to_list())
+    assert set(bt.DEFAULT_TEST_SEASONS) <= seasons

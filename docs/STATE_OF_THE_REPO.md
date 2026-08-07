@@ -3,7 +3,7 @@
 **Last updated:** 2026-08-07, preparing for the 2026 season. Plans 07 (local data
 store + app), 14 (Sheets reads the store) and 15 (draft boards) landed on the 5th;
 plan 16's data layer and its go/no-go gates on the 6th; plan 09's draft board page
-on the 7th.
+and plan 18's season usage model on the 7th.
 
 A standing assessment of what works, what is broken, and what to do next. Update
 it as things change — particularly the *Known issues* table, which is the part
@@ -170,6 +170,35 @@ Fixed this cycle:
   means "nothing here" is indistinguishable from one that means "zero", and any
   count built on `notna()` reads the first as the second.**
 
+- **There is a season usage model, and it is measured.**
+  `Rscript R/GetContext.R` pulls availability and role data (2016–2025 backfilled,
+  2026 as far as upstream allows); `Scripts/usage/features.py` builds season features
+  with an as-of guarantee; `Scripts/usage/season.py` fits volume × efficiency ×
+  expected games and emits `USG_<stat>` lines for `proj_to_score` to price nine ways;
+  `python -m Scripts.usage.backtest` runs a 2019–2025 walk-forward
+  ([plan 18](plans/18-season-usage-model.md)).
+
+  Against the naive draft heuristic it improves within-position ordering at RB
+  (+0.0218 Spearman), TE (+0.0284) and WR (+0.0127), improves top-N hit rate at all
+  four positions, and cuts MAE 12% on receiving touchdowns and interceptions — the
+  noisy rates where shrinking to a positional baseline is most of the edge. It does
+  **not** improve yardage, and it makes QB ordering slightly worse. It abstains on
+  42% of rostered players, all 1,497 rookie rows included.
+
+  **It is deliberately not in `WEIGHTS`.** The comparison that would justify wiring
+  it in — the four-source blend with and without it — cannot be run on any past
+  season, because FantasyPros' URLs take no season parameter and no historical
+  pre-season blend survives. The 2026 board is the first chance to answer it.
+
+  A scheduling fact worth knowing for the draft: **nflreadr will not serve 2026
+  injuries, snap counts or depth charts at all** while `most_recent_season()` is
+  2025, though it does serve the 2026 roster and updates it daily. So a pre-season
+  availability estimate has to come from trailing games played plus roster status,
+  and that estimate is weak by nature — prior-season games predict next season at
+  r = +0.663 over the whole pool but only +0.343 among players who managed 8+ games,
+  so most of the apparent signal is separating reserves from starters rather than
+  durable players from fragile ones.
+
 **Credentials have never been committed** — verified across all of history.
 `config.yaml` and `gs4creds.json` are gitignored and remain plaintext on disk,
 which is acceptable for a single-user repo but is the obvious hardening target.
@@ -225,7 +254,7 @@ is meant to be used this way: every `<year>_<Team>_season` article carries
 
 | Issue | Location |
 |---|---|
-| Test coverage is thin in the places that matter most. `tests/` covers paths, config, season/week derivation, the scoring registry, per-slot scoring, the blend primitives, the store, the usage layer's leakage guarantee and the draft board page's derivations (346 tests, no network), including a guard that the notebook never re-defines the shared projection functions. Nothing covers the scrapers, the Sheets renderer, `analytic_utils`, `luck_index`, or `simulation_utils`. | `tests/` |
+| Test coverage is thin in the places that matter most. `tests/` covers paths, config, season/week derivation, the scoring registry, per-slot scoring, the blend primitives, the store, the usage layer's leakage guarantee and the draft board page's derivations, and the usage layer's season head (409 tests, no network), including a guard that the notebook never re-defines the shared projection functions. Nothing covers the scrapers, the Sheets renderer, `analytic_utils`, `luck_index`, or `simulation_utils`. | `tests/` |
 | No retry/backoff on any HTTP call. Four bare `except:` blocks remain — `populateGoogleSheet.py`'s is gone. A global `warnings.filterwarnings("ignore")` in `fetch_utils.py:16` silences every warning process-wide; `Scripts.scoring` and `Scripts.projection_utils` each force their own filter past it, which is a workaround rather than a fix. → [plan 06](plans/06-performance.md) | repo-wide |
 | `build_league_frame` calls `fetch_league`, then `get_ply_stats_by_matchup` calls it again — ~1s of duplicated ESPN round-trip per league, ~12% of a pre-season refresh. Fixing it means changing that function's signature from ids to a `League`. → [plan 06](plans/06-performance.md) | `equivalence.py`, `scrape_player_stats.py:463` |
 | `oauth2client==4.1.3` is end-of-life upstream and is only needed for Sheets auth. A Google auth change would mean migrating to `google-auth` mid-season, so it is worth doing before the season. → [plan 14](plans/14-thin-google-sheets.md) step 2.3 | `populateGoogleSheet.py`, `requirements.txt` |
