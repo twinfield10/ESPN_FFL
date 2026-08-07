@@ -334,7 +334,52 @@ def prior_season_frame(target_season: int, history: Sequence[int],
         totals
         .join(expected_production(seasons), on=["season", "gsis_id"], how="left")
         .join(availability, on=["season", "gsis_id"], how="left")
+        .join(snap_share(seasons), on=["season", "gsis_id"], how="left")
         .sort(["gsis_id", "season"])
+    )
+
+
+def snap_share(seasons: Sequence[int]) -> pl.DataFrame:
+    """Mean offensive snap share per player-season.
+
+    **A role-security signal, and it earns its place on the availability head rather
+    than on the volume head.** Measured over 1,605 player-season pairs, predicting
+    next season's games played: prior games alone gives R-squared 0.203, and adding
+    prior snap share gives **0.230**. That is the largest single improvement
+    available to the model's weakest arm, which sits at R-squared ~0.19 and drives
+    every fade on the board.
+
+    It reads as role security rather than durability. A player taking 85% of snaps is
+    entrenched; one at 25% is one depth-chart move from inactive, and being inactive
+    is most of what "games played" measures once a player is on a roster.
+
+    **It is deliberately not used to normalise the volume rates**, which was tried
+    first and measured much worse -- see
+    ``docs/plans/18-season-usage-model.md`` §Snap share.
+
+    Args:
+        seasons: Season years to read.
+
+    Returns:
+        pl.DataFrame: ``season``, ``gsis_id``, ``snap_share`` and ``snap_games``.
+        Empty when the pull is missing, since snap counts are an in-season dataset
+        and a pre-season projection must still build without them.
+    """
+    empty = pl.DataFrame(schema={"season": pl.Int32, "gsis_id": pl.String,
+                                 "snap_share": pl.Float64,
+                                 "snap_games": pl.UInt32})
+    wanted = sorted(set(seasons))
+    if not wanted:
+        return empty
+    try:
+        snaps = ctx.load_snap_counts(wanted)
+    except FileNotFoundError:
+        return empty
+    return (
+        snaps.filter(pl.col("offense_snaps") > 0)
+        .group_by(["season", "gsis_id"])
+        .agg(pl.col("offense_pct").mean().alias("snap_share"),
+             pl.len().alias("snap_games"))
     )
 
 

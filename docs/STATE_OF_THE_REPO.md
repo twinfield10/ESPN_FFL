@@ -291,6 +291,28 @@ Fixed this cycle:
   gets, not what he does with it** -- an argument for spending effort on the depth
   chart rather than on efficiency modelling.
 
+  **Snap share is an availability regressor, and deliberately not a rate
+  denominator.** Both `snap_counts` and `injuries` were already on disk for 2016-2025,
+  unused. Prior-season snap share is the largest single gain available to the model's
+  weakest arm -- predicting next season's games, R-squared goes 0.203 to 0.230, and in
+  the fitted head RB 0.187 to 0.224, WR 0.188 to 0.215. It reads as role security: 85%
+  of snaps is entrenched, 25% is one depth-chart move from inactive.
+
+  Using it the other way -- to stop a player who left on the first drive from being
+  docked a full game -- was measured and **rejected**. The distortion is real (those
+  games average 1.86 targets against 5.21, and excluding them lifts affected players
+  +8.2%), but correcting it made prediction worse: R-squared 0.693 to 0.684 for the
+  narrow version, and 0.693 to 0.295 for the general one. A part-time player's low
+  per-appearance rate *is* his role, and the model already discounts injury once in
+  `expected_games`, so cleaning the rate applies it twice. Injury-report features add
+  +0.003 on top of snap share and are held for plan 19, where the live report is a
+  primary signal.
+
+  Downstream every backtest metric improved and one flipped: rushing yardage MAE went
+  from +0.4% (worse than the naive baseline) to -1.9% (better), RB top-24 hit rate now
+  beats naive 0.637 to 0.625, and the games interval calibrates at 90.0% against its
+  own claim of 89.9%.
+
   A scheduling fact worth knowing for the draft: **nflreadr will not serve 2026
   injuries, snap counts or depth charts at all** while `most_recent_season()` is
   2025, though it does serve the 2026 roster and updates it daily. So a pre-season

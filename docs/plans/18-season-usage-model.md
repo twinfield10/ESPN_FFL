@@ -588,6 +588,80 @@ much work a player gets, not what he does with it** — the same conclusion plan
 stickiness table reached from the other direction, and an argument for spending
 future effort on the depth chart rather than on efficiency modelling.
 
+### Snap share — added to availability, rejected as a rate denominator — 2026-08-07
+
+**No new data source.** `snap_counts.parquet` and `injuries.parquet` were already
+pulled by `R/GetContext.R` for 2016–2025 and sitting unused. The `pfr_id → gsis_id`
+join is 66% overall but **99.8% restricted to QB/RB/WR/TE** — the misses are offensive
+linemen. Injuries carry `gsis_id` natively at 100%.
+
+**The partial-game problem is real.** Games played counts an appearance, so a starter
+who leaves on the first drive is credited with a full game and his per-game rates are
+dragged down. Measured on 2024 starters (median snap share ≥ 50%): 4.1% of their games
+run below half their own normal snap share, and those games average **1.86 targets
+against 5.21** in normal ones. 38% of starters have at least one, and excluding them
+lifts their targets per game **+8.2%**.
+
+**Correcting it makes prediction worse, twice over.** Two versions were tried:
+
+| prior-season feature | R² predicting next-season targets/game | R² predicting next-season total |
+|---|---|---|
+| per appearance (what the model uses) | **0.693** | **0.608** |
+| per snap-weighted game, all games | 0.295 | 0.259 |
+| per appearance, injury-truncated games removed | 0.684 | 0.596 |
+
+The global normalisation fails because a part-time player's low per-appearance rate
+*is his role*, not a distortion of it — dividing it out inflates him three-fold and
+predicts a job he does not have.
+
+The narrow version — dropping only games anomalously low against the player's own norm
+— fails for a subtler reason worth keeping. **The model already discounts injury once,
+in `expected_games`.** Cleaning the rate applies it a second time. And truncation
+recurs: a player truncated last season is likelier to be truncated again, so the
+"contaminated" rate is the better forecast of a future that will also contain
+truncations. It is the same distinction as if-healthy versus expected-value, one level
+down.
+
+**Where snap share does pay is the availability head**, and it is the largest single
+gain available there. Over 1,605 player-season pairs predicting next season's games:
+
+| features | R² |
+|---|---|
+| prior games alone | 0.203 |
+| **+ prior snap share** | **0.230** |
+| + injury weeks-out | 0.208 |
+| + snap share + every injury feature | 0.233 |
+
+It reads as role *security* rather than durability: 85% of snaps is entrenched, 25% is
+one depth-chart move from inactive, and being inactive is most of what games played
+measures once a player is on a roster. Fitted into the real head, R² rises at every
+position — RB 0.187 → **0.224**, TE 0.218 → **0.247**, WR 0.188 → **0.215**, QB
+0.441 → **0.456** — and the availability coefficient falls as snap share absorbs part
+of it.
+
+Downstream, every metric improved and one flipped sign:
+
+| | before | after |
+|---|---|---|
+| receivingYards MAE vs naive | −4.1% | **−5.5%** |
+| receivingTouchdowns MAE | −13.0% | **−13.7%** |
+| **rushingYards MAE** | **+0.4%** (worse than naive) | **−1.9%** (better) |
+| rushingTouchdowns MAE | −4.7% | **−6.6%** |
+| passingInterceptions MAE | −10.6% | **−12.0%** |
+| RB top-24 hit rate | 0.619 vs 0.631 naive | **0.637 vs 0.625** |
+| QB Spearman delta | −0.0153 | −0.0119 |
+| games interval coverage | 87.5% (claim 89.4%) | **90.0% (claim 89.9%)** |
+
+Rushing yardage had never beaten the naive baseline before. The games interval is now
+calibrated almost exactly, with symmetric 5.0%/5.0% tails.
+
+**Injury reports are not used, and the measurement is why.** They add **+0.003** R² on
+top of snap share, and that is generous — the test's baseline did not include
+`p1_weeks_on_reserve`, which the model already carries and which overlaps with "was
+hurt". Their real home is [plan 19](19-weekly-usage-model.md): the weekly head gets
+the live report, where it is a primary signal rather than a marginal one. The pull is
+already on disk for 2016–2025 when that is built.
+
 ### The fitted expected-games head, and what it says
 
 Coefficients are in **share of the slate** as of v1.1.0; the last column converts a

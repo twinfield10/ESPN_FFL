@@ -144,8 +144,15 @@ VETERAN_SITUATIONAL_REJECTED: Tuple[str, ...] = ("coach_volume", "staff_continui
 #: unavailable, not an appearance rate, so it is not mechanically tied to the slate.
 #: It separates "hurt" from "healthy and benched" and correlates −0.462 with next
 #: season's games played.
+#: ``p1_snap_share`` is role security rather than durability, and it is the largest
+#: single gain available to this head: over 1,605 player-season pairs, predicting next
+#: season's games played, prior games alone gives R-squared 0.203 and adding snap
+#: share gives **0.230**. A player at 85% of snaps is entrenched; one at 25% is a
+#: depth-chart move from inactive, and being inactive is most of what "games played"
+#: measures once a player is on a roster. Injury-report features were measured on top
+#: of it and added +0.003, so they are not here -- see plan 18 §Snap share.
 GAMES_REGRESSORS: Tuple[str, ...] = ("p1_availability", "p1_weeks_on_reserve",
-                                     "team_changed")
+                                     "p1_snap_share", "team_changed")
 
 #: Games the season being projected offers, when the data cannot say.
 #:
@@ -500,6 +507,11 @@ class SeasonUsageModel:
             .cast(pl.Float64),
             "p1_weeks_on_reserve": pl.col(f"{ft.LAG1_PREFIX}weeks_on_reserve")
             .cast(pl.Float64),
+            "p1_snap_share": (
+                pl.col(f"{ft.LAG1_PREFIX}snap_share").cast(pl.Float64)
+                .fill_null(pl.col(f"{ft.LAG1_PREFIX}availability").cast(pl.Float64))
+                if f"{ft.LAG1_PREFIX}snap_share" in frame.columns
+                else pl.col(f"{ft.LAG1_PREFIX}availability").cast(pl.Float64)),
             "team_changed": pl.col("team_changed").cast(pl.Float64),
         }
         for position, fit in self.games.items():
@@ -1111,6 +1123,7 @@ def _fit_games(frame: pl.DataFrame, position: str) -> Optional[VolumeFit]:
     """
     lag_availability = f"{ft.LAG1_PREFIX}availability"
     lag_reserve = f"{ft.LAG1_PREFIX}weeks_on_reserve"
+    lag_snaps = f"{ft.LAG1_PREFIX}snap_share"
     if any(c not in frame.columns
            for c in (lag_availability, "y_games", "y_games_available")):
         return None
@@ -1128,6 +1141,14 @@ def _fit_games(frame: pl.DataFrame, position: str) -> Optional[VolumeFit]:
         (pl.col(lag_reserve).cast(pl.Float64).fill_null(0.0)
          if lag_reserve in frame.columns
          else pl.lit(0.0)).alias("p1_weeks_on_reserve"),
+        # Snap counts are an in-season pull and the early seasons resolve worse, so a
+        # null is filled with the row's own availability rather than dropped: a player
+        # with no snap record is not a player with no role, and dropping him would
+        # shrink the fit to the seasons the crosswalk happens to cover well.
+        (pl.col(lag_snaps).cast(pl.Float64)
+         .fill_null(pl.col(lag_availability).cast(pl.Float64))
+         if lag_snaps in frame.columns
+         else pl.col(lag_availability).cast(pl.Float64)).alias("p1_snap_share"),
         pl.col("team_changed").cast(pl.Float64).fill_null(0.0).alias("team_changed"),
         (pl.col("y_games").cast(pl.Float64)
          / pl.col("y_games_available").cast(pl.Float64)).alias("y"),

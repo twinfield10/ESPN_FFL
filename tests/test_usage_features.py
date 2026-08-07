@@ -323,3 +323,56 @@ def test_expected_production_is_per_game(nfl_root):
 def test_a_missing_pull_names_the_command_that_fixes_it(nfl_root):
     with pytest.raises(FileNotFoundError, match="Rscript R/GetUsage.R"):
         ft.load_player_weeks([2026])
+
+
+# --- snap share ----------------------------------------------------------
+
+def test_snap_share_is_a_games_regressor_not_a_volume_denominator():
+    """Where it measured, and where it did not.
+
+    Predicting next season's games played it is worth +0.027 R-squared on the
+    model's weakest arm. Used the other way -- to convert per-appearance rates into
+    per-full-game-equivalent rates -- it was measured much *worse*: R-squared fell
+    from 0.62 to 0.26 predicting next-season totals, because a part-time player's low
+    per-appearance rate is his role rather than a distortion of it, and dividing it
+    out removes the signal.
+    """
+    from Scripts.usage import season as sn
+    assert "p1_snap_share" in sn.GAMES_REGRESSORS
+    assert not any("snap" in r for r in sn.VOLUME_REGRESSORS)
+
+
+def test_snap_share_is_absent_rather_than_fatal():
+    """Snap counts are an in-season pull, so a pre-season build must survive without
+    them -- the same way the blend survives a missing sportsbook."""
+    empty = ft.snap_share([])
+    assert empty.height == 0
+    assert set(["season", "gsis_id", "snap_share"]).issubset(empty.columns)
+
+
+def test_a_missing_snap_record_falls_back_to_availability():
+    """A player with no snap record is not a player with no role. Dropping those rows
+    would shrink the fit to the seasons the pfr crosswalk happens to cover well --
+    measured at 66% overall, and only 99.8% once restricted to QB/RB/WR/TE."""
+    from Scripts.usage import season as sn
+    frame = pl.DataFrame({
+        "position": ["WR", "WR"],
+        "y_games": [10.0, 12.0],
+        "y_games_available": [17.0, 17.0],
+        f"{ft.LAG1_PREFIX}availability": [0.8, 0.9],
+        f"{ft.LAG1_PREFIX}weeks_on_reserve": [0.0, 0.0],
+        f"{ft.LAG1_PREFIX}snap_share": [None, 0.7],
+        "team_changed": [False, False],
+    })
+    model = sn.SeasonUsageModel(
+        volume={},
+        games={"WR": sn.VolumeFit(
+            position="WR", target="games", intercept=0.0,
+            coefficients={"p1_availability": 0.0, "p1_weeks_on_reserve": 0.0,
+                          "p1_snap_share": 1.0, "team_changed": 0.0},
+            n=100, r2=0.2)},
+        games_by_position={"WR": 14.0})
+    # The null row falls back to its own availability of 0.8 rather than to zero.
+    got = frame.select(model.expected_games(frame, target_slate=17.0)).to_series()
+    assert got[0] == pytest.approx(0.8 * 17.0)
+    assert got[1] == pytest.approx(0.7 * 17.0)
