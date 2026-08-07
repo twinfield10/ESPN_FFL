@@ -98,6 +98,33 @@ release_timestamp <- function(x) {
   if (is.null(ts)) NA_character_ else as.character(ts)
 }
 
+#' Read an nflverse release asset directly, bypassing nflreadr's season guard.
+#'
+#' `load_depth_charts(2026)` refuses with "seasons <= most_recent_season() is not
+#' TRUE" because `most_recent_season()` tracks the *game* season, which is 2025 until
+#' week 1. The refusal is about the guard, not the data: checked live 2026-08-07, the
+#' 2026 depth-chart asset holds **410,431 rows across 140 daily snapshots running to
+#' that morning**, and it already lists the rookies -- Jeremiyah Love is RB1 for
+#' Arizona ahead of Allgeier and Conner.
+#'
+#' That is the only pre-season depth chart there is, so it is worth reaching past the
+#' guard for. Only for depth charts: injuries and snap counts genuinely do not exist
+#' before games are played, and their assets return empty.
+#'
+#' @param dataset Release name, e.g. "depth_charts".
+#' @param season Season year.
+#' @return The frame, or NULL when the asset is absent or unreadable.
+load_release_asset <- function(dataset, season) {
+  url <- sprintf(
+    "https://github.com/nflverse/nflverse-data/releases/download/%s/%s_%d.parquet",
+    dataset, dataset, season)
+  out <- tryCatch(
+    suppressWarnings(nflreadr::load_from_url(url)),
+    error = function(e) NULL
+  )
+  if (is.null(out) || nrow(out) == 0) NULL else out
+}
+
 #' Load one nflreadr dataset, treating "not published yet" as expected.
 #'
 #' Each of the four has to be guarded separately: rosters is served for a season
@@ -253,6 +280,15 @@ for (season in SEASONS) {
   # is the role signal to use -- it is present and consistent in every season
   # including 2026.
   depth <- load_optional("depth_charts", nflreadr::load_depth_charts, season)
+  if (is.null(depth)) {
+    # The guard, not the data -- see load_release_asset.
+    depth <- load_release_asset("depth_charts", season)
+    if (!is.null(depth)) {
+      message(sprintf(
+        "  %-16s read past nflreadr's season guard from the release asset (%d rows)",
+        "depth_charts", nrow(depth)))
+    }
+  }
   depth_shape <- NULL
   if (!is.null(depth)) {
     stamps$depth_charts <- release_timestamp(depth)
