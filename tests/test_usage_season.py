@@ -498,3 +498,60 @@ def test_the_gate_removes_the_cross_position_fits_from_a_real_fit():
     assert gated == {("QB", "carries_pg"), ("QB", "pass_attempts_pg"),
                      ("RB", "targets_pg"), ("RB", "carries_pg"),
                      ("WR", "targets_pg"), ("TE", "targets_pg")}
+
+
+# --- persistence ---------------------------------------------------------
+
+def test_load_round_trips_save(tmp_path):
+    """Coefficients persisted but nothing read them back, so every caller wanting a
+    projection had to refit -- and the board and the backtest could silently end up
+    built from different coefficients."""
+    model = trained_model()
+    path = model.save(tmp_path / "m.json")
+    back = sn.SeasonUsageModel.load(path)
+
+    assert back.version == model.version
+    assert back.train_seasons == model.train_seasons
+    assert back.games_by_position == model.games_by_position
+    assert set(back.volume) == set(model.volume)
+    fit, original = back.volume[("WR", "targets_pg")], model.volume[("WR", "targets_pg")]
+    assert fit.intercept == original.intercept
+    assert fit.coefficients == original.coefficients
+
+
+def test_a_loaded_model_predicts_identically(tmp_path):
+    """The point of loading is to skip the refit, so it has to give the same answer."""
+    model = trained_model()
+    back = sn.SeasonUsageModel.load(model.save(tmp_path / "m.json"))
+    frame = feature_rows([{}])
+    assert (back.predict(frame)["USG_receivingYards"][0]
+            == pytest.approx(model.predict(frame)["USG_receivingYards"][0]))
+
+
+# --- the declined position -----------------------------------------------
+
+def test_quarterback_is_declined_by_default():
+    """Measured, not assumed: the model makes QB ordering worse than the naive
+    heuristic (-0.0155 Spearman) and the three passing stats are the only ones whose
+    MAE regressed."""
+    assert "QB" in sn.ABSTAIN_POSITIONS
+    out = trained_model().predict(feature_rows([
+        {"position": "QB", "p1_pass_attempts_pg": 30.0}]))
+    assert out["usg_arm"][0] == "abstain"
+    assert out["USG_passingYards"][0] is None
+
+
+def test_a_declined_position_can_still_be_measured():
+    """`ABSTAIN_POSITIONS` exists because of a row in the backtest's table. If the
+    backtest honoured it, the evidence for it would erase itself."""
+    out = trained_model().predict(
+        feature_rows([{"position": "QB", "p1_pass_attempts_pg": 30.0}]),
+        abstain_positions=())
+    assert out["usg_arm"][0] == "veteran"
+
+
+def test_declining_a_position_leaves_the_others_alone():
+    out = trained_model().predict(feature_rows([{"position": "QB"}, {"position": "WR"}]))
+    assert out["usg_arm"].to_list() == ["abstain", "veteran"]
+    assert out["USG_receivingYards"][0] is None
+    assert out["USG_receivingYards"][1] is not None

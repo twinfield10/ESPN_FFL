@@ -1,13 +1,16 @@
 # 18 — The season usage model (pre-season / draft head)
 
-**Priority:** High (seasonal) · **Effort:** M · **Status:** **Built and backtested
-2026-08-07**, not yet in `WEIGHTS`. `Scripts/usage/{features,season,backtest}.py`,
-58 tests. Walk-forward 2019–2025 beats the naive draft heuristic on ordering at
-RB/WR/TE; it does not improve yardage and slightly hurts QB ordering. **The rookie
-draft-capital arm passed its gate decisively** and now covers 80.4% of rostered
-players. §Backtest results and §Rookies have the numbers. **G2 as written still
-cannot be measured historically** — it needs the four-source blend, which does not
-exist for a past season — so the 2026 board is the gate.
+**Priority:** High (seasonal) · **Effort:** M · **Status:** **Built, backtested and
+wired in as the fifth source 2026-08-07**, at weight **0.0**.
+`Scripts/usage/{features,season,project,backtest}.py`, 84 tests. Walk-forward
+2019–2025 beats the naive draft heuristic on ordering at RB/WR/TE; it does not improve
+yardage, and **it now abstains for QB**, where it measured worse. **The rookie
+draft-capital arm passed its gate decisively.** `USG_` reaches all nine boards and is
+the best-covered source in the pre-season blend (23.1% real against ESPN's 13.1%);
+adding it does not move `TRUE_Points` by design, verified at max difference 0.0 over
+1,026 rows. §The fifth source, wired has the details. **G2 as written still cannot be
+measured historically** — it needs the four-source blend, which does not exist for a
+past season — so the 2026 board is the gate, and turning the weight on is one number.
 **Depends on:** [16](16-usage-data-layer.md) — Step 0 gates and the feature layer ·
 [15 (draft board)](15-draft-board.md) — done
 **Supersedes:** [17](17-draft-usage-model.md)
@@ -420,6 +423,101 @@ Read the volume coefficients as pairs, not individually: `p1` and `p2` volume
 correlate strongly, so the split between them is partly arbitrary while the
 prediction is sound (WR targets: p1 0.709, p2 0.051, R² 0.628).
 
+## The fifth source, wired — 2026-08-07
+
+Steps 3 and 6. `Scripts/usage/project.py` turns the model into an artifact the blend
+can consume, and `USG` is now a registered source everywhere the other four are.
+
+```
+python -m Scripts.usage.project --season 2026
+  -> Data/Projections/Usage/Season/2026/Usage_SeasonProjections.parquet
+python -m Scripts.refresh --all --what board
+  -> USG_<stat>, USG_Points, USG_PosRank, USG_PosRankDelta,
+     usg_expected_games, usg_arm  on all nine boards
+```
+
+**It ships at weight 0.0, and that is the whole point.** The source is built, joined,
+scored per league and shown on the board; it does not move `TRUE_Points`. Verified
+rather than argued: rebuilding Knights_FFL with and without the `USG` weight entry
+gives **all 45 `TRUE_` columns bit-identical over 1,026 rows, max difference 0.0**.
+G2 is now answerable by changing one number, which is what "wired but not weighted"
+was supposed to buy.
+
+**Coverage is the surprise, and it is the good kind.** The pre-season blend is far
+thinner than the weekly one, and the usage model is the best-covered source in it:
+
+| stat | ESPN | FP | PINNY | BOL | **USG** |
+|---|---|---|---|---|---|
+| receivingYards | 34.9% | 5.8% | 2.9% | 9.4% | **51.9%** |
+| receivingReceptions | 34.9% | 5.8% | 0.0% | 5.2% | **51.9%** |
+| rushingYards | 23.8% | 5.8% | 2.0% | 3.9% | **14.5%** |
+| passingYards | 6.3% | 5.8% | 2.2% | 2.4% | **0.0%** — declined |
+| **all stats (mean)** | 13.1% | 0.8% | 0.1% | 0.3% | **23.1%** |
+
+It matched 709 of Knights' 1,026 players, against FantasyPros' 60, Pinnacle's 74 and
+BetOnline's 156. Players with any real projection went **523 → 675**.
+
+### Three implementation decisions worth recording
+
+**It joins on an id.** The model keys on `gsis_id`; `Scripts/crosswalk.py` maps that
+to ESPN's `player_id`. Every other season source joins on a normalised name, which is
+why `_disambiguate_name_keys` exists — GOP Degenerates' pool holds 16 colliding names,
+including two Lamar Jacksons and two Justin Jeffersons, and a name join hands the
+receiver's line to the linebacker. `USG` is the first source to avoid that.
+
+It cannot avoid it for everyone: the crosswalk file carries **no 2026 rookies**, so 95
+predictions resolve to no ESPN id — and those are exactly the population the rookie
+arm exists to project. Dropping them to keep the join pure would discard the model's
+one clearly measured win, so the merge falls back to `join_key` where the id is
+missing, inheriting the collision protection already built. Measured on Knights: 769
+by id, 9 by name, the remaining 136 not in the ESPN universe at all.
+
+**Abstention is flagged, and `USG_` is deliberately outside the imputation chain.**
+`compute_weighted_stats` treats a source with no `_is_imputed` companion as real and
+fills its nulls with 0.0 — so an unflagged abstention enters the blend as a confident
+projection of zero. `test_an_unflagged_abstention_would_poison_the_blend` pins the
+difference: 110.0 flagged against 55.0 unflagged, on the same inputs. This is the
+`0.0`-means-two-things failure that already cost this repo a draft board.
+
+Nor is it imputed from `MEAN_` the way the books are. Filling the one source that is
+*not* somebody else's projection from the ESPN/FantasyPros average would turn it into
+a copy of two sources already in the blend — the double-counting plan 03 measured for
+Pinnacle.
+
+**The model gained a `load()`.** Coefficients persisted and nothing read them back,
+so every caller had to refit — and the board and the backtest could silently end up
+built from different coefficients. `load_or_fit` also checks freshness, which caught a
+real case immediately: the persisted artifact had trained on **2017–2024**, because it
+was written by a walk-forward whose last fold predicted 2025. A 2026 projection now
+refits through 2025 rather than quietly using a model a season out of date.
+
+### `USG_Points` is not on the same scale as `TRUE_Points`
+
+Worth stating plainly, because side-by-side columns invite the wrong reading.
+`USG_Points` is an **expected value** — per-game production × *expected games*, which
+for a rostered starter is about 13.5. ESPN and FantasyPros project a **healthy
+17-game season**. So `USG_Points` sits roughly 20% below `TRUE_Points` for nearly
+everyone, and that gap is an injury discount, not bearishness.
+
+Among the top 60 players a board actually ranks, `expected_games` is **13.2 ± 0.77** —
+near-constant, so the deflation is close to uniform and the *ordering* is what carries
+information. Hence `USG_PosRank` and `USG_PosRankDelta` on the board rather than a
+points comparison. Against the consensus ordering on Knights' draftable pool: Spearman
+**0.78 RB, 0.70 WR, 0.44 TE** — correlated, not redundant.
+
+**The two tails decompose cleanly, and a drafter should know which is which:**
+
+| | who | why |
+|---|---|---|
+| model **fades** | Nabers (9.2 expected games), Reed (9.2), Evans (9.0), G. Wilson (10.3), McLaurin (11.4), A.J. Brown (11.4) | almost entirely the **availability head** |
+| model **buys** | Tate, Tyson, Lemon, Concepcion (all 14.0 expected games) | almost entirely the **rookie arm** |
+
+The asymmetry matters. The rookie arm is the strong half (ρ ≈ 0.61 against ~0). The
+availability half is the weak one — prior-season games predict next season at r =
+**+0.343** among players who managed 8+ — so a fade is an injury-risk discount and not
+a verdict on the player. Reading it as the latter would be trusting the weaker arm
+because it happens to produce the more dramatic column.
+
 ## Ship criteria
 
 Inherited from
@@ -444,9 +542,15 @@ plus this head's own:
   walk-forward.~~ **Passed, decisively, 2026-08-07.** ρ ≈ 0.61 within position
   against ~0 for a projection with no draft information, and MAE roughly halved. See
   §Rookies. Coverage went 57.8% → 80.4%.
-- **A QB arm** — new, and the backtest is the reason. Quarterback ordering is
+- ~~**A QB arm** — new, and the backtest is the reason. Quarterback ordering is
   slightly *worse* with the model (−0.0161 Spearman) and the three passing stats are
-  the only ones whose MAE regressed. Abstaining for QB is the defensible v1.1.
+  the only ones whose MAE regressed. Abstaining for QB is the defensible v1.1.~~
+  **Resolved 2026-08-07: it abstains.** `season.ABSTAIN_POSITIONS = ("QB",)`, which
+  routes quarterbacks down the same absent-source path as a missing book — weight
+  dropped, remaining sources renormalised. Coverage falls 80.4% → 73.2% as a result,
+  which is the correct trade: the 7% given up is the 7% the model was measured to be
+  worse at. `Scripts.usage.backtest` passes `abstain_positions=()` so the evidence
+  for the decision does not erase itself.
 
 If G2 fails, **do not wire it in at a token weight.** Record the numbers in this
 document and stop. A source that does not improve ordering but does add a fifth
@@ -461,15 +565,17 @@ name to `WEIGHTS` makes the blend harder to reason about for nothing.
    efficiency heads, expected games, `USG_<stat>` season line.~~ **Done.**
    Coefficients persist to `Data/NFL/models/season_usage_<version>.json` with
    version, fit timestamp and training range.
-3. Loader + `WEIGHTS` entry + `proj_to_score` prefix, following the
-   `load_pinnacle_season` pattern in `Scripts/season_projections.py`. **Blocked on
-   G2** — deliberately. The model exists and is measured; wiring it into the blend
-   before the 2026 board answers G2 would be asserting the thing that is meant to be
-   tested.
+3. ~~Loader + `WEIGHTS` entry + `proj_to_score` prefix, following the
+   `load_pinnacle_season` pattern in `Scripts/season_projections.py`.~~ **Done
+   2026-08-07** — see §The fifth source, wired. The `WEIGHTS` entry ships at
+   **0.0**: the source is built, scored and shown, and does not move `TRUE_Points`
+   until G2 can answer for it.
 4. ~~Walk-forward backtest; write the table into this document.~~ **Done** —
    `python -m Scripts.usage.backtest`, §Backtest results.
 5. ~~Rookie arm, measured against abstention.~~ **Done** — it won; see §Rookies.
-6. A QB arm, or abstention there — see §Ship criteria.
+6. ~~A QB arm, or abstention there — see §Ship criteria.~~ **Abstention, done
+   2026-08-07.** `season.ABSTAIN_POSITIONS = ("QB",)`. The backtest passes
+   `abstain_positions=()` so the table that justifies it stays reproducible.
 7. Hand the enlarged source set to
    [plan 03](03-projection-source-coverage.md)'s weight re-tune.
 

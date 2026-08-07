@@ -37,6 +37,7 @@ import pandas as pd
 from Scripts.config_utils import get_season
 from Scripts.paths import season_dir
 from Scripts.projection_utils import (
+    IMPUTED_SUFFIX,
     WEIGHTS,
     compute_weighted_stats,
     impute_columns,
@@ -529,12 +530,132 @@ def load_pinnacle_season(season: int) -> pd.DataFrame:
     return _pivot_props(df, "PINNY")
 
 
+def load_usage_season(season: int) -> pd.DataFrame:
+    """The usage model's season projection, prefixed ``USG_``.
+
+    The fifth source, and the only one that is not somebody else's projection --
+    :mod:`Scripts.usage.season` fits it from observed usage, roster context and
+    draft capital. Plan 16 measured its independence: its residuals correlate
+    +0.832 with ESPN's, where FantasyPros' correlate +0.988.
+
+    Two differences from the other three loaders, both deliberate:
+
+    It returns ``player_id`` as well as ``name_key``, because it is the one source
+    that can be joined on an id (see :func:`_merge_usage`).
+
+    It returns the ``_is_imputed`` flags that :func:`Scripts.usage.project.build`
+    wrote. The other loaders have their flags applied afterwards by
+    :func:`impute_columns`, which fills a gap from the ESPN/FP mean. **This source
+    must not be filled that way.** A usage model that abstains and is then
+    backfilled from the mean of two other sources is not a fifth opinion, it is
+    ESPN wearing a fifth badge -- exactly the double-counting plan 03 documents for
+    Pinnacle. So its gaps stay null and stay flagged, and
+    :func:`compute_weighted_stats` drops its weight for those rows.
+
+    Args:
+        season: Season year.
+
+    Returns:
+        pd.DataFrame: ``player_id``, ``name_key``, ``USG_<stat>`` and
+        ``USG_<stat>_is_imputed``. Empty if the file is absent.
+    """
+    from Scripts.usage.project import projection_path
+
+    path = projection_path(season)
+    if not path.exists():
+        print(f"  Usage season file missing ({path.name}); "
+              f"run `python -m Scripts.usage.project --season {season}`.")
+        return pd.DataFrame(columns=["name_key"])
+
+    df = pd.read_parquet(path)
+    # Carried lowercase so they stay out of the `<SOURCE>_<stat>` namespace that
+    # `compute_weighted_stats` and `proj_to_score` scan. `usg_arm` is a string, and
+    # a string in that namespace is a trap waiting for the first caller that
+    # assumes every `USG_` column is numeric.
+    context = {"expected_games": "usg_expected_games", "usg_arm": "usg_arm"}
+    out = df[[c for c in ["player_id", "name_key"] if c in df.columns]
+             + [c for c in df.columns if c.startswith("USG_")]].copy()
+    for source_col, target_col in context.items():
+        if source_col in df.columns:
+            out[target_col] = df[source_col]
+    return out.dropna(subset=["name_key"])
+
+
+def _merge_usage(base: pd.DataFrame, source: pd.DataFrame,
+                 label: str = "Usage") -> pd.DataFrame:
+    """Attach the usage source, joining on ESPN id first and name only as fallback.
+
+    Every other season source joins on a normalised name, which is why
+    :func:`_disambiguate_name_keys` has to exist: a wide IDP pool holds two Lamar
+    Jacksons and two Justin Jeffersons, and a name join hands the receiver's line to
+    the linebacker. The usage model keys on ``gsis_id``, which
+    :mod:`Scripts.crosswalk` maps to ESPN's ``player_id``, so it can avoid that
+    entirely.
+
+    It cannot avoid it for everyone. The crosswalk file does not yet carry 2026
+    rookies -- measured at 95 unresolved, every one of them a rookie -- and those are
+    precisely the players the rookie arm exists to project, the model's one clearly
+    measured win (rho ~ 0.61 within position against ~0 for a projection with no
+    draft information). Dropping them to keep the join pure would discard the
+    benefit to protect against a collision that mostly is not there.
+
+    So: id join where the id resolved, ``join_key`` where it did not. The fallback
+    uses ``join_key`` rather than ``name_key``, which means it inherits the
+    collision protection already built -- the non-primary holder of a shared name
+    carries a sentinel that matches nothing.
+
+    Args:
+        base: The ESPN universe, carrying ``player_id`` and ``join_key``.
+        source: Output of :func:`load_usage_season`.
+        label: Name used in the printed report.
+
+    Returns:
+        pd.DataFrame: ``base`` with the ``USG_`` columns attached.
+    """
+    source = source.copy()
+    resolved = pd.to_numeric(source.get("player_id"), errors="coerce")
+
+    by_id = int(resolved.notna().sum())
+
+    # Fall back through `join_key`, so a shared name resolves to the same player the
+    # book sources resolve to -- or to nobody, which is the safe outcome.
+    if "join_key" in base.columns:
+        name_to_id = (base.dropna(subset=["join_key"])
+                      .drop_duplicates("join_key")
+                      .set_index("join_key")["player_id"])
+        fallback = source["name_key"].map(name_to_id)
+        resolved = resolved.fillna(fallback)
+
+    source["player_id"] = resolved
+    source = source.dropna(subset=["player_id"])
+    source["player_id"] = source["player_id"].astype("int64")
+    # Two gsis ids can map to one ESPN id (the crosswalk records 13 duplicated
+    # espn_id), and a name fallback can collide with an already-resolved row. Either
+    # way a duplicate would fan the base frame out on merge.
+    source = source.drop_duplicates("player_id", keep="first")
+
+    by_name = len(source) - by_id
+    matched = base["player_id"].isin(source["player_id"]).sum()
+    print(f"  {label}: {len(source)} players "
+          f"({by_id} by id, {max(by_name, 0)} by name), "
+          f"{matched} matched to this league")
+
+    source = source.drop(columns=["name_key"], errors="ignore")
+    return base.merge(source, on="player_id", how="left")
+
+
 #: The sources that hold an independent opinion, for the floor/ceiling spread.
 #:
 #: ``MEAN`` is excluded because it is not an opinion -- it is the ESPN/FantasyPros
 #: average, and including it would pull the spread toward the middle of two sources
 #: already in the set. ``TRUE`` is excluded because it is the blend being bracketed.
-OPINION_PREFIXES = ("ESPN", "FP", "PINNY", "BOL")
+#:
+#: ``USG`` is included: plan 16's G0 measured it as the *most* independent source in
+#: the set, so a spread that ignored it would understate disagreement for exactly the
+#: players where the model dissents from the market. It contributes only where it
+#: really spoke -- :func:`attach_source_spread` counts a source through its
+#: ``_is_imputed`` flags, and this source's abstentions are flagged.
+OPINION_PREFIXES = ("ESPN", "FP", "PINNY", "BOL", "USG")
 
 
 def attach_source_spread(df: pd.DataFrame, stats: List[str],
@@ -658,6 +779,13 @@ def build_season_projections(league, season: Optional[int] = None,
         base = base.drop(columns=[c for c in base.columns
                                   if c == f"name_key_{label}"], errors="ignore")
 
+    # The usage model joins on an ESPN id rather than a name, so it merges through
+    # its own path -- and while `join_key` still exists, which it uses as a fallback
+    # for the 2026 rookies the crosswalk does not yet carry.
+    usage = load_usage_season(season)
+    if not usage.empty and "player_id" in base.columns:
+        base = _merge_usage(base, usage)
+
     base = base.drop(columns=["join_key"], errors="ignore")
 
     # Same imputation chain as clean_lineups, so provenance and renormalisation
@@ -677,6 +805,21 @@ def build_season_projections(league, season: Optional[int] = None,
 
     base = impute_columns(base, target_prefix="PINNY_", source_prefix="MEAN_")
     base = impute_columns(base, target_prefix="BOL_", source_prefix="MEAN_")
+
+    # `USG_` is deliberately absent from that chain. Filling an abstention from
+    # `MEAN_` -- the ESPN/FantasyPros average -- would turn the one source that is
+    # not somebody else's projection into a copy of two that are, which is the
+    # double-counting plan 03 measured for Pinnacle. Its gaps arrive already
+    # flagged from `Scripts.usage.project`, so `compute_weighted_stats` drops its
+    # weight on those rows and renormalises the sources that did speak.
+    #
+    # Rows that never joined at all have no flag column value either; NaN reads as
+    # imputed, which is the same outcome and the reason that default exists.
+    for stat_col in [c for c in base.columns
+                     if c.startswith("USG_") and not c.endswith(IMPUTED_SUFFIX)]:
+        flag = f"{stat_col}{IMPUTED_SUFFIX}"
+        if flag in base.columns:
+            base[flag] = base[flag].fillna(True).astype(bool)
 
     scoring = get_scoring_table(league)
     stats = [c for c in scoring["colName"].dropna().unique()]
@@ -705,6 +848,32 @@ def build_season_projections(league, season: Optional[int] = None,
     final = final.sort_values("TRUE_Points", ascending=False).reset_index(drop=True)
     final["TRUE_PosRank"] = final.groupby("primaryPosition")["TRUE_Points"].rank(
         ascending=False, method="min")
+
+    # The usage model's own ordering, and its disagreement with the consensus.
+    #
+    # Ordering is the only thing worth comparing between these two columns, because
+    # they are not the same quantity. `USG_Points` is an expected value -- per-game
+    # production times *expected games*, which for a rostered starter is around 13.5
+    # -- while ESPN and FantasyPros project a healthy 17-game season. So `USG_Points`
+    # sits roughly 20% below `TRUE_Points` for almost everyone, and reading that gap
+    # as bearishness would be reading the injury discount as an opinion about talent.
+    #
+    # Rank removes the level. Measured on Knights_FFL's 2026 draftable pool, the two
+    # orderings agree at Spearman 0.78 (RB), 0.70 (WR) and 0.44 (TE), so the column
+    # carries real information rather than restating the blend.
+    #
+    # `USG_PosRankDelta` is positive where the model likes a player more than the
+    # consensus does. The two tails decompose cleanly and are worth knowing before
+    # trusting either: the fades are mostly the availability head discounting injury
+    # history (Nabers at 9.2 expected games, Garrett Wilson 10.3), and the buys are
+    # mostly rookies the four sources price thinly (Tate, Tyson, Lemon). Availability
+    # is the weaker of the two -- plan 18 measured prior-season games at r = +0.343
+    # among players who managed 8+, so a fade is an injury-risk discount and not a
+    # verdict on the player.
+    if "USG_Points" in final.columns:
+        final["USG_PosRank"] = final.groupby("primaryPosition")["USG_Points"].rank(
+            ascending=False, method="min")
+        final["USG_PosRankDelta"] = final["TRUE_PosRank"] - final["USG_PosRank"]
 
     return final
 

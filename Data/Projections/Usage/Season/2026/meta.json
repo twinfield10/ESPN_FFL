@@ -1,0 +1,10 @@
+{
+  "abstain_positions": [
+    "QB"
+  ],
+  "model_file": "season_usage_1.0.0.json",
+  "model_version": "1.0.0",
+  "projected": 669,
+  "rows": 914,
+  "season": 2026
+}

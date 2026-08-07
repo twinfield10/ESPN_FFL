@@ -187,7 +187,11 @@ def run_season(test_season: int, history_start: int = HISTORY_START,
                    fitted_at=datetime.now().astimezone().isoformat(timespec="seconds"))
 
     test = sn.training_frame([test_season], history_start)
-    predicted = model.predict(test)
+    # Every position, including the ones shipped code declines. The backtest is what
+    # decides whether an arm is worth having, so it has to keep measuring the arms
+    # that lost -- `ABSTAIN_POSITIONS` exists because of the quarterback row in this
+    # table, and honouring the default here would erase the evidence for it.
+    predicted = model.predict(test, abstain_positions=())
 
     weights = scoring_weights(test_season, league_key)
 

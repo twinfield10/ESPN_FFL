@@ -33,6 +33,7 @@ in the league.
 
 import json
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -233,6 +234,27 @@ MIN_RATE_DENOMINATOR = 50.0
 
 #: Model version, bumped when the structure changes rather than when it is refitted.
 MODEL_VERSION = "1.0.0"
+
+#: Positions the model declines to project, whatever features it has for them.
+#:
+#: Quarterback, on the walk-forward's own evidence. It is the one position where the
+#: model makes within-position ordering **worse** than the naive draft heuristic
+#: (-0.0155 Spearman), and the three passing stats are the only ones whose MAE
+#: regressed -- ``passingYards`` +2.9%, ``passingTouchdowns`` +0.9%. The arm is thin
+#: by construction: 119 rostered quarterbacks and ``pass_attempts_pg`` at R-squared
+#: 0.35.
+#:
+#: This is plan 18's decision 4 -- abstain where it cannot speak -- applied to a
+#: position rather than to a player. An abstaining source is handled correctly by the
+#: blend: its weight is dropped and the remainder renormalised, so a quarterback is
+#: priced by the four sources that *can* speak rather than by a fifth that measurably
+#: hurts. Emitting a line anyway and letting the weight sort it out would be asserting
+#: the opposite of what was measured.
+#:
+#: Pass ``abstain_positions=()`` to :meth:`SeasonUsageModel.predict` to measure it --
+#: :mod:`Scripts.usage.backtest` does exactly that, so the table that justifies this
+#: constant stays reproducible.
+ABSTAIN_POSITIONS: Tuple[str, ...] = ("QB",)
 
 
 @dataclass(frozen=True)
@@ -463,7 +485,8 @@ class SeasonUsageModel:
 
         return expression
 
-    def predict(self, frame: pl.DataFrame, rookies: bool = True) -> pl.DataFrame:
+    def predict(self, frame: pl.DataFrame, rookies: bool = True,
+                abstain_positions: Optional[Sequence[str]] = None) -> pl.DataFrame:
         """Attach ``USG_<stat>`` season totals, plus the terms behind them.
 
         The intermediate columns are returned on purpose. Plan 18 asks for
@@ -482,6 +505,10 @@ class SeasonUsageModel:
             rookies: Run the rookie arm. False abstains on rookies, which is the
                 comparison plan 18 asks for -- the arm ships only if it beats saying
                 nothing.
+            abstain_positions: Positions to decline entirely. Defaults to
+                :data:`ABSTAIN_POSITIONS`. Pass ``()`` to project every position,
+                which is what the backtest needs in order to keep measuring the
+                quarterback arm that default exists because of.
 
         Returns:
             pl.DataFrame: ``frame`` plus ``expected_games``, ``pred_<volume>`` per
@@ -489,6 +516,9 @@ class SeasonUsageModel:
             ``USG_<stat>`` per :data:`STAT_TERMS`. The ``USG_`` columns are null
             wherever the model abstains.
         """
+        if abstain_positions is None:
+            abstain_positions = ABSTAIN_POSITIONS
+
         is_rookie = (pl.col("is_rookie").fill_null(False)
                      if "is_rookie" in frame.columns else pl.lit(False))
         has_history = pl.col(f"{ft.LAG1_PREFIX}games").is_not_null()
@@ -497,13 +527,20 @@ class SeasonUsageModel:
         # a "rookie" with a prior season is a data problem, not a rookie.
         use_rookie = pl.lit(rookies) & is_rookie & ~has_history
 
+        declined = (pl.col("position").is_in(list(abstain_positions))
+                    if abstain_positions else pl.lit(False))
+
         out = frame.with_columns(
             pl.when(use_rookie)
             .then(self.rookie_expected_games(frame))
             .otherwise(self.expected_games(frame))
             .clip(lower_bound=0.0, upper_bound=18.0)
             .alias("expected_games"),
-            pl.when(use_rookie).then(pl.lit("rookie"))
+            # A declined position is an abstention like any other, so it reaches the
+            # blend down the path plan 07 already built for a wholly absent source
+            # rather than needing one of its own.
+            pl.when(declined).then(pl.lit("abstain"))
+            .when(use_rookie).then(pl.lit("rookie"))
             .when(has_history).then(pl.lit("veteran"))
             .otherwise(pl.lit("abstain")).alias("usg_arm"),
         )
@@ -662,6 +699,58 @@ class SeasonUsageModel:
             path = directory / f"season_usage_{self.version}.json"
         path.write_text(json.dumps(self.to_dict(), indent=2, sort_keys=True))
         return path
+
+    @classmethod
+    def default_path(cls, version: Optional[str] = None):
+        """Where :meth:`save` writes by default.
+
+        Args:
+            version: Model version. Defaults to :data:`MODEL_VERSION`.
+
+        Returns:
+            Path: ``Data/NFL/models/season_usage_<version>.json``.
+        """
+        return (DATA_DIR / "NFL" / "models"
+                / f"season_usage_{version or MODEL_VERSION}.json")
+
+    @classmethod
+    def load(cls, path=None) -> "SeasonUsageModel":
+        """Read back what :meth:`save` wrote.
+
+        The inverse of :meth:`to_dict`. Without this the coefficients persisted
+        but nothing could read them, so every caller wanting a projection had to
+        re-run :func:`fit` over the full training frame -- around a minute of work
+        to reproduce a file that already existed, and one more chance for the
+        board and the backtest to be built from different coefficients.
+
+        Args:
+            path: Source file. Defaults to :meth:`default_path`.
+
+        Returns:
+            SeasonUsageModel: The fitted model.
+
+        Raises:
+            FileNotFoundError: If ``path`` does not exist.
+        """
+        path = cls.default_path() if path is None else Path(path)
+        payload = json.loads(path.read_text())
+
+        def fits(key: str) -> Dict[Tuple[str, str], VolumeFit]:
+            return {(f["position"], f["target"]): VolumeFit(**f)
+                    for f in payload.get(key, [])}
+
+        return cls(
+            volume=fits("volume_fits"),
+            games={f["position"]: VolumeFit(**f)
+                   for f in payload.get("games_fits", [])},
+            games_by_position=payload.get("games_by_position", {}),
+            rookie_volume=fits("rookie_volume_fits"),
+            rookie_games=payload.get("rookie_games_by_bin", {}),
+            rookie_efficiency=payload.get("rookie_efficiency", {}),
+            train_seasons=tuple(payload.get("train_seasons", ())),
+            version=payload.get("version", MODEL_VERSION),
+            fitted_at=payload.get("fitted_at"),
+        )
 
 
 def _fit_volume(frame: pl.DataFrame, position: str, target: str) -> Optional[VolumeFit]:

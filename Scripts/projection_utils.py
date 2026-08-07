@@ -172,12 +172,29 @@ IMPUTED_SUFFIX = "_is_imputed"
 #: they are only meaningful in proportion now, since renormalisation divides by
 #: whatever subset is real, so a set summing to 1.0 is conventional rather than
 #: required.
+#: ``USG`` -- the usage model, :mod:`Scripts.usage.season` -- is registered here at
+#: **0.0**, which means it is computed, scored and shown on the board but does not
+#: move ``TRUE_Points``.
+#:
+#: That is plan 18's own gate, not caution for its own sake. The comparison that
+#: would justify a non-zero weight is the blend with and without ``USG_``, scored
+#: against realised results, and it **cannot be run on any past season**:
+#: FantasyPros' URLs take no season parameter, so no historical pre-season blend
+#: survives to compare against. The 2026 board is the first chance to measure it,
+#: and that means after the season is played. Weighting it in now would assert the
+#: one thing the design says to test.
+#:
+#: What the zero still buys: ``USG_Points`` is a real scored column on every board,
+#: the model's abstentions are visible, and the source is in the floor/ceiling
+#: spread. Turning it on is this number.
+#:
+#: Plan 18: *"If G2 fails, do not wire it in at a token weight."*
 WEIGHTS = {
-    'passingYards':      {'ESPN': 0.1, 'FP': 0.7,  'PINNY': 0.1,  'BOL': 0.1},
-    'passingTouchdowns': {'ESPN': 0.1, 'FP': 0.1,  'PINNY': 0.4,  'BOL': 0.4},
-    'rushingYards':      {'ESPN': 0.2, 'FP': 0.3,  'PINNY': 0.25, 'BOL': 0.25},
-    'receivingYards':    {'ESPN': 0.2, 'FP': 0.3,  'PINNY': 0.25, 'BOL': 0.25},
-    'default':           {'ESPN': 0.2, 'FP': 0.3,  'PINNY': 0.25, 'BOL': 0.25},
+    'passingYards':      {'ESPN': 0.1, 'FP': 0.7,  'PINNY': 0.1,  'BOL': 0.1,  'USG': 0.0},
+    'passingTouchdowns': {'ESPN': 0.1, 'FP': 0.1,  'PINNY': 0.4,  'BOL': 0.4,  'USG': 0.0},
+    'rushingYards':      {'ESPN': 0.2, 'FP': 0.3,  'PINNY': 0.25, 'BOL': 0.25, 'USG': 0.0},
+    'receivingYards':    {'ESPN': 0.2, 'FP': 0.3,  'PINNY': 0.25, 'BOL': 0.25, 'USG': 0.0},
+    'default':           {'ESPN': 0.2, 'FP': 0.3,  'PINNY': 0.25, 'BOL': 0.25, 'USG': 0.0},
 }
 
 
@@ -261,7 +278,7 @@ def imputed_flag_columns(df):
     return [c for c in df.columns if c.endswith(IMPUTED_SUFFIX)]
 
 
-def coverage_report(df, sources=('ESPN', 'FP', 'PINNY', 'BOL'), stats=None):
+def coverage_report(df, sources=('ESPN', 'FP', 'PINNY', 'BOL', 'USG'), stats=None):
     """Per-source share of cells that are real rather than imputed.
 
     Plan 03 step 4: a source quietly degrading should be visible, not absorbed by
@@ -325,7 +342,7 @@ def print_coverage_report(df, weights_dict=None, key_stats=(
     print("")
     print("========== Projection Source Coverage (% real, not imputed) ==========")
     overall = rep.groupby("source")["real_pct"].mean().round(1)
-    sources = [s for s in ("ESPN", "FP", "PINNY", "BOL") if s in overall.index]
+    sources = [s for s in ("ESPN", "FP", "PINNY", "BOL", "USG") if s in overall.index]
 
     header = f"  {'stat':<24}" + "".join(f"{s:>12}" for s in sources)
     print(header)
@@ -746,7 +763,8 @@ def _apply_scoring(df, s_df, col_pfix_list):
     return df
 
 
-def proj_to_score(proj_df, s_league, col_pfix_list=['ESPN', 'FP', 'MEAN', 'PINNY', 'BOL', 'TRUE']):
+def proj_to_score(proj_df, s_league, col_pfix_list=['ESPN', 'FP', 'MEAN', 'PINNY',
+                                                    'BOL', 'USG', 'TRUE']):
     """Score projected stat lines with a league's rules, per lineup slot.
 
     ESPN prices the same rule differently depending on the slot a player occupies

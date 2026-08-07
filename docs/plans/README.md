@@ -26,7 +26,7 @@ These are what the scan turned up *beyond* that.
 | 15 | [Draft board: ADP, VOR, tiers](15-draft-board.md) | **Done** | Nine league-aware boards in 16s. Also fixed the season path never using plan 11's per-slot scoring |
 | 16 | [Usage data layer](16-usage-data-layer.md) | **Done** | The shared extraction and feature layer, the ID crosswalk, and the gates. **G0 passed** (+0.832 residual correlation with ESPN against FantasyPros' +0.988); **G1 failed** on the crude baseline and located the deficit in not knowing who plays |
 | 17 | [Draft usage model](17-draft-usage-model.md) | **Superseded** | Split into 16 / 18 / 19 / 20. Two of its claims were measured and did not survive; the stub records which |
-| 18 | [Season usage model](18-season-usage-model.md) | **Built, awaiting G2** | The draft head. Covers 80.4% of rostered players; beats the naive heuristic on RB/WR/TE ordering, not on yardage, slightly worse at QB. **Rookie arm is the win** — ρ ≈ 0.64 against ~0. Out of `WEIGHTS` until a played season answers G2 |
+| 18 | [Season usage model](18-season-usage-model.md) | **Shipped as source 5, weight 0.0** | The draft head, now on all nine boards. **Best-covered source in the pre-season blend** — 23.1% real against ESPN's 13.1%. Abstains at QB, where it measured worse. **Rookie arm is the win** — ρ ≈ 0.61 against ~0. Weight stays 0.0 until a played season answers G2; turning it on is one number |
 | 19 | [Weekly usage model](19-weekly-usage-model.md) | Not started | **Where the larger edge is.** Trailing expected production beats trailing actual at predicting next week (R² 0.2907 vs 0.2702), and it is the only head that gets the live injury report |
 | 20 | [Consensus sources](20-consensus-sources.md) | **Deprioritised on evidence** | FantasyPros' marginal value is +0.027 against ESPN's +0.068, so a sixth expert aggregator is the worst available use of the effort |
 | 21 | [Depth charts, scheme, play-caller](21-coaching-and-scheme.md) | **Done** | 2026 depth charts pulled past nflreadr's season guard — the daily snapshot that made the rookie arm work. Coach and coordinator priors built and **measured out** of both arms: the depth chart already carries their signal |
@@ -59,9 +59,10 @@ each plan doc carries its own evidence and postscript.
 
 | | Plan | Why it is next |
 |---|---|---|
-| 1 | **Show `USG_` on the board without blending it** — [18](18-season-usage-model.md) step 3 | The season model is built and measured but locked out of `TRUE_Points` until G2 can be run, which needs a played season. A `USG_` column *beside* the blend asserts nothing and is useful now, most of all for rookies, where the four existing sources are weakest |
-| 2 | **[09](09-frontend-draft-views.md) Live Draft page** | The last draft-critical UI piece. Slips gracefully — the board on a second monitor works without it |
-| 3 | **Abstain for QB in the season head** — [18](18-season-usage-model.md) §Ship criteria | Measured: the model makes quarterback ordering *worse* (−0.0155 Spearman) and the three passing stats are the only ones whose MAE regressed |
+| ~~1~~ | ~~**Show `USG_` on the board without blending it** — [18](18-season-usage-model.md) step 3~~ | **Done 2026-08-07.** Wired as the fifth source at weight 0.0 — scored per league, on all nine boards, and verified not to move `TRUE_Points` (max difference 0.0 over 1,026 rows) |
+| ~~2~~ | ~~**Abstain for QB in the season head**~~ | **Done 2026-08-07.** `ABSTAIN_POSITIONS = ("QB",)`; the backtest overrides it so the evidence stays reproducible |
+| 1 | **[09](09-frontend-draft-views.md) Live Draft page** | The last draft-critical UI piece. Slips gracefully — the board on a second monitor works without it |
+| 2 | **Render the new `USG_` columns** — [09](09-frontend-draft-views.md) | The board page predates them. `USG_PosRankDelta`, `usg_expected_games` and `usg_arm` are on `board.parquet` and nothing shows them yet. Note the level caveat: `USG_Points` is injury-adjusted and `TRUE_Points` is not, so compare ranks and not points |
 
 ### Before week 1
 
@@ -123,16 +124,30 @@ independence gate; [18](18-season-usage-model.md) and
 [21](21-coaching-and-scheme.md) is the situational context underneath both.
 [Plan 17](17-draft-usage-model.md) is a superseded stub.
 
-The season head predicts 80.4% of rostered players. Against the naive draft heuristic
-it improves ordering at RB/WR/TE and cuts MAE 10–13% on the noisy rate stats; it does
-not improve yardage and is slightly worse at QB. Its rookie arm is the clear win —
-draft capital plus depth-chart position orders rookies at ρ ≈ 0.64 where a guess
+The season head predicts 73.2% of rostered players — 80.4% before it was made to
+abstain at quarterback, which is the 7% it was measured to be worse at. Against the
+naive draft heuristic it improves ordering at RB/WR/TE and cuts MAE 10–13% on the
+noisy rate stats; it does not improve yardage. Its rookie arm is the clear win —
+draft capital plus depth-chart position orders rookies at ρ ≈ 0.61 where a guess
 carrying no such information manages ~0.
 
-**Nothing is in `WEIGHTS`.** G0 (independence) passed at +0.832 against FantasyPros'
-+0.988; G1 failed on the crude baseline and the failure located the whole deficit in
-not knowing who plays; G2 cannot be measured on history at all. `python -m
-Scripts.usage.backtest` reproduces every number above.
+**It is the fifth source, at weight 0.0.** As of 2026-08-07 `USG_` is registered in
+`WEIGHTS`, scored by `proj_to_score`, counted as an independent opinion in the
+floor/ceiling spread, and present on all nine boards — while contributing exactly
+nothing to `TRUE_Points`, verified at max difference 0.0 across all 45 `TRUE_`
+columns over 1,026 rows.
+
+That is not timidity, it is the gate: G0 (independence) passed at +0.832 against
+FantasyPros' +0.988; G1 failed on the crude baseline and located the whole deficit in
+not knowing who plays; **G2 cannot be measured on history at all**, because no
+historical pre-season blend survives to compare against. The 2026 board is the first
+chance, and that means after the season is played. Turning it on is one number in
+`Scripts/projection_utils.py`.
+
+Worth knowing before reading the column: `USG_Points` is an expected value (× ~13.5
+expected games) where ESPN and FantasyPros project a healthy 17, so it sits ~20% low
+for everyone. Compare `USG_PosRank`, not points. `python -m Scripts.usage.backtest`
+reproduces every number above; `python -m Scripts.usage.project` builds the artifact.
 
 Three things were measured and rejected rather than assumed, and are recorded in code
 so they are not rediscovered: the coach prior in the veteran arm, the coach prior in

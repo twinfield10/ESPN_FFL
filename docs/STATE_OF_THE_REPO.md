@@ -4,7 +4,9 @@
 store + app), 14 (Sheets reads the store) and 15 (draft boards) landed on the 5th;
 plan 16's data layer and its go/no-go gates on the 6th; plan 09's draft board page,
 plan 16's availability and feature layers, plan 18's season usage model with its
-rookie arm, and plan 21's depth-chart and coaching context on the 7th.
+rookie arm, and plan 21's depth-chart and coaching context on the 7th — and, later
+the same day, plan 18 steps 3 and 6: the usage model wired in as the blend's **fifth
+source** at weight 0.0, abstaining at quarterback.
 
 A standing assessment of what works, what is broken, and what to do next. Update
 it as things change — particularly the *Known issues* table, which is the part
@@ -40,10 +42,23 @@ arm is the clear win** — draft capital plus depth-chart position orders rookie
 ρ ≈ 0.64 where a projection carrying no such information manages ~0, on 1,497
 player-seasons the model previously said nothing about.
 
-**Nothing is in `WEIGHTS`.** The comparison that would justify it — the four-source
-blend with and without `USG_` — cannot be run on any past season, because no
+**It is now the blend's fifth source, at weight 0.0.** `python -m
+Scripts.usage.project` writes it, `Scripts/season_projections.py` loads it, and
+`USG_Points` / `USG_PosRank` / `USG_PosRankDelta` / `usg_expected_games` / `usg_arm`
+are on all nine boards. It contributes nothing to `TRUE_Points` and that was verified
+rather than assumed: rebuilding a league with and without the weight entry gives all
+45 `TRUE_` columns bit-identical over 1,026 rows.
+
+The comparison that would justify a real weight — the blend with and without `USG_`,
+scored against realised results — cannot be run on any past season, because no
 historical pre-season blend survives. The 2026 board is the first chance, and that
-means after the season is played.
+means after the season is played. What shipping at 0.0 buys is that answering it is
+then one number rather than a build.
+
+It is also, unexpectedly, the **best-covered source in the pre-season blend**: 23.1%
+real cells against ESPN's 13.1%, FantasyPros' 0.8%, Pinnacle's 0.1% and BetOnline's
+0.3%, and 51.9% on receiving yards against ESPN's 34.9%. Players with any real
+projection went 523 → 675.
 
 One problem from the rollover is still open: **BetOnline's weekly props API blocks
 the scraper**, removing one of four projection sources. Details below — it needs a
@@ -234,11 +249,15 @@ which is acceptable for a single-user repo but is the obvious hardening target.
 - [ ] Decide what to do about BetOnline weekly props (below).
 - [ ] Re-run the full weekly pipeline end-to-end once against 2026 and confirm
       the Sheets render.
-- [ ] Surface `USG_` on the draft board **without** blending it — the model is
-      measured but locked out of `TRUE_Points` until G2, and a column beside the
-      blend asserts nothing. → [plan 18](plans/18-season-usage-model.md)
-- [ ] Abstain for QB in the season head; the walk-forward says the model makes
-      quarterback ordering worse.
+- [x] ~~Surface `USG_` on the draft board **without** blending it.~~ Done
+      2026-08-07 — wired as the fifth source at weight 0.0, on all nine boards.
+      → [plan 18](plans/18-season-usage-model.md#the-fifth-source-wired--2026-08-07)
+- [x] ~~Abstain for QB in the season head.~~ Done 2026-08-07 —
+      `season.ABSTAIN_POSITIONS`. Coverage 80.4% → 73.2%, which is the 7% the model
+      measured worse at.
+- [ ] Render the new `USG_` columns on the board page — they are in
+      `board.parquet` and nothing shows them yet.
+      → [plan 09](plans/09-frontend-draft-views.md)
 
 The ordered list of everything outstanding lives in
 **[`plans/README.md` §What is left](plans/README.md#what-is-left)**.
@@ -273,7 +292,8 @@ is meant to be used this way: every `<year>_<Team>_season` article carries
 | **Blend weights assume coverage the sources don't have.** Pinnacle covered 213 players in 2025 wk 17 vs FantasyPros' 575 and BetOnline's 598, and has no defensive stats at all — but carries a full 25% weight. Gaps are imputed from the ESPN/FP mean, so for most players `PINNY_*` *is* ESPN/FP, double-counted. → [plan 03](plans/03-projection-source-coverage.md) | `projection_utils.py` |
 | **Unrecognised scoring rules are silently dropped.** `build_scoring_table()` emits a NaN `colName`, which `proj_to_score` then skips without error. Two GOP Degenerates kicker rules are affected in 2026. → [plan 01](plans/01-scoring-coverage.md) | `scrape_player_stats.py` |
 | `clean_pinny()` is ~27% commented out — the pivot, TD-split and no-vig `adjust_value()` are inert, so it returns near-raw data. Measured, Pinnacle *does* still contribute real lines for the players it covers; the problem is coverage (plan 03), not absence. An earlier note here overstated this. | `projection_utils.py` |
-| Player matching is still `(week, player_name)` string equality in the **projection sources**, patched by hardcoded rename dicts (~140 entries). The ESPN side is fixed: `Scripts/crosswalk.py` gives an ID join at 98.5-99% coverage, and boards carry `gsis_id`. Pointing FantasyPros/Pinnacle/BetOnline at `fantasypros_id` is the remaining work — 89% of offensive players resolve, the misses being 2026 rookies. → [plan 20](plans/20-consensus-sources.md) | `projection_utils.py`, `scrape_pinnacle.py:33-46` |
+| Player matching is still `(week, player_name)` string equality in the **projection sources**, patched by hardcoded rename dicts (~140 entries). The ESPN side is fixed: `Scripts/crosswalk.py` gives an ID join at 98.5-99% coverage, and boards carry `gsis_id`. **The usage source is the first to join on an id** (`gsis_id` → `player_id`, 769 of 778 for 2026); pointing FantasyPros/Pinnacle/BetOnline at `fantasypros_id` is the remaining work — 89% of offensive players resolve, the misses being 2026 rookies. → [plan 20](plans/20-consensus-sources.md) | `projection_utils.py`, `scrape_pinnacle.py:33-46` |
+| **The crosswalk carries no 2026 rookies.** 95 of the usage model's predictions resolve to no ESPN id, all of them rookies — the population its strongest arm exists to project. Worked around with a `join_key` name fallback in `_merge_usage`, which inherits the shared-name protection but is still a name join. A refreshed `load_ff_playerids()` pull closer to the season should shrink it. | `Scripts/crosswalk.py`, `season_projections.py` |
 | ESPN sometimes doubles yardage projections; worked around by halving when `ESPN > FP*1.75 and > 40`. A heuristic, not a fix. | `projection_utils.py` |
 | The 2025 Pinnacle juice formula changed mid-season in commit `c3b4d16` (sign flipped, coefficient halved 0.5 → 0.25) with no explanation in the message or the code. Unclear which is correct. | `scrape_pinnacle.py` |
 | BOL splits `anytimeTouchdown` 100% to rushing for QB/RB and 100% to receiving for WR/TE. Crude for pass-catching backs. | `scrape_BOL.py` |
@@ -286,7 +306,7 @@ is meant to be used this way: every `<year>_<Team>_season` article carries
 
 | Issue | Location |
 |---|---|
-| Test coverage is thin in the places that matter most. `tests/` covers paths, config, season/week derivation, the scoring registry, per-slot scoring, the blend primitives, the store, the usage layer's leakage guarantee, the draft board page's derivations, the season usage head with both its arms, the coaching table's Wikipedia parsing and the team-profile as-of boundary (463 tests, no network), including a guard that the notebook never re-defines the shared projection functions. Nothing covers the scrapers, the Sheets renderer, `analytic_utils`, `luck_index`, or `simulation_utils`. | `tests/` |
+| Test coverage is thin in the places that matter most. `tests/` covers paths, config, season/week derivation, the scoring registry, per-slot scoring, the blend primitives, the store, the usage layer's leakage guarantee, the draft board page's derivations, the season usage head with both its arms, the fifth source's registration/join/abstention plumbing, the coaching table's Wikipedia parsing and the team-profile as-of boundary (489 tests, no network), including a guard that the notebook never re-defines the shared projection functions. Nothing covers the scrapers, the Sheets renderer, `analytic_utils`, `luck_index`, or `simulation_utils`. | `tests/` |
 | No retry/backoff on any HTTP call. Four bare `except:` blocks remain — `populateGoogleSheet.py`'s is gone. A global `warnings.filterwarnings("ignore")` in `fetch_utils.py:16` silences every warning process-wide; `Scripts.scoring` and `Scripts.projection_utils` each force their own filter past it, which is a workaround rather than a fix. → [plan 06](plans/06-performance.md) | repo-wide |
 | `build_league_frame` calls `fetch_league`, then `get_ply_stats_by_matchup` calls it again — ~1s of duplicated ESPN round-trip per league, ~12% of a pre-season refresh. Fixing it means changing that function's signature from ids to a `League`. → [plan 06](plans/06-performance.md) | `equivalence.py`, `scrape_player_stats.py:463` |
 | `oauth2client==4.1.3` is end-of-life upstream and is only needed for Sheets auth. A Google auth change would mean migrating to `google-auth` mid-season, so it is worth doing before the season. → [plan 14](plans/14-thin-google-sheets.md) step 2.3 | `populateGoogleSheet.py`, `requirements.txt` |
