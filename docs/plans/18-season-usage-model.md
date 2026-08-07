@@ -2,11 +2,12 @@
 
 **Priority:** High (seasonal) · **Effort:** M · **Status:** **Built and backtested
 2026-08-07**, not yet in `WEIGHTS`. `Scripts/usage/{features,season,backtest}.py`,
-45 tests. Walk-forward 2019–2025 beats the naive draft heuristic on ordering at
-RB/WR/TE and on top-N hit rate at all four positions; it does not improve yardage
-and slightly hurts QB ordering. §Backtest results has the numbers. **G2 as written
-still cannot be measured historically** — it needs the four-source blend, which
-does not exist for a past season — so the 2026 board is the gate.
+58 tests. Walk-forward 2019–2025 beats the naive draft heuristic on ordering at
+RB/WR/TE; it does not improve yardage and slightly hurts QB ordering. **The rookie
+draft-capital arm passed its gate decisively** and now covers 80.4% of rostered
+players. §Backtest results and §Rookies have the numbers. **G2 as written still
+cannot be measured historically** — it needs the four-source blend, which does not
+exist for a past season — so the 2026 board is the gate.
 **Depends on:** [16](16-usage-data-layer.md) — Step 0 gates and the feature layer ·
 [15 (draft board)](15-draft-board.md) — done
 **Supersedes:** [17](17-draft-usage-model.md)
@@ -183,6 +184,76 @@ Rookies are a large share of draft-day uncertainty, so a wrong confident answer
 here is costly. Abstention is the safe default and the burden of proof is on the
 draft-capital arm.
 
+#### Built and measured 2026-08-07 — the arm wins, and not narrowly
+
+**No new pull was needed.** `load_draft_picks` was the obvious source and is the
+wrong one: for **2026 it carries no real `gsis_id` at all** — 0 of 257 picks in
+`00-00…` format against ~99% in every season 2010–2025 — so the join would have
+fitted beautifully on history and returned nothing for the season that needs it. It
+also uses PFR team codes (`LVR`, `KAN`, `GNB`). `rosters_weekly.draft_number` is
+already in the feature frame, is the overall pick, and needs no join: verified
+against the picks file on Fernando Mendoza (1) and Jeremiyah Love (3).
+
+**Draft capital carries far more signal than this plan assumed.** Over 2,008 rookie
+player-seasons 2017–2025:
+
+| | n | % who played | mean games |
+|---|---|---|---|
+| drafted | 670 | **87.9** | 9.17 |
+| undrafted | 1,338 | **21.2** | 1.08 |
+
+and monotone by round — round 1: 13.2 games, 3.58 targets/g, 404 receiving yards;
+round 7: 5.4 games, 0.90, 54; undrafted: 1.1 games, 0.24, 10. Within drafted
+rookies, pick number against the volume that matters correlates **−0.59 (RB
+carries), −0.60 (WR targets), −0.57 (TE targets), −0.57 (QB attempts)** — as strong
+as the veteran arm's own predictors.
+
+**The verdict, on the walk-forward, against a projection carrying no draft
+information (the positional rookie mean):**
+
+| Pos | n | ρ arm | ρ mean | Δ | MAE arm | MAE mean |
+|---|---|---|---|---|---|---|
+| QB | 150 | **0.5986** | −0.0115 | +0.610 | 26.02 | 55.03 |
+| RB | 368 | **0.6156** | +0.0112 | +0.604 | 21.53 | 39.72 |
+| WR | 676 | **0.6121** | −0.0345 | +0.647 | 14.28 | 29.51 |
+| TE | 303 | **0.6175** | +0.0451 | +0.573 | 10.15 | 20.01 |
+
+The arm orders rookies within position at ρ ≈ 0.61 where the uninformative guess
+carries none, and roughly halves MAE. Calibration is slightly conservative, which is
+the right direction: drafted rookies averaged 60.8 realised points against 51.0
+projected, undrafted 3.0 against 0.7. **The arm ships.** Coverage goes from 57.8% to
+80.4% of rostered players.
+
+`log(pick)` for volume, measured: it beats linear at every position (R² 0.374 vs
+0.352 RB carries, 0.417 vs 0.360 WR targets) and `1/pick` is worst. Undrafted is a
+separate indicator rather than "pick 300", because it is a different population and
+two of three rookies are in it.
+
+#### Two things this arm got wrong first, both caught by looking at the output
+
+**Games played is not log-linear in draft position.** It is flat across the early
+rounds and then declines — RB means by round 13.2, 12.6, 10.6, 12.6, 10.0, 7.9, 6.9
+— so a log fit extrapolated **21.7 games at pick 1**, clipped to 18. Searching a
+shift parameter did not rescue it: the best shift ranged 0 to 60 by position, bought
+at most 0.01 R², and still put pick 1 at 15.9. Replaced with a bin mean over
+draft-capital groups, which cannot extrapolate past what rookies actually did:
+
+| Pos | 1–32 | 33–64 | 65–128 | 129–262 | undrafted |
+|---|---|---|---|---|---|
+| QB | 11.5 | — | 2.3 | 2.7 | 0.5 |
+| RB | 13.3 | 12.0 | 11.8 | 7.8 | 1.7 |
+| TE | 14.8 | 11.9 | 8.9 | 5.6 | 0.8 |
+| WR | 14.0 | 12.9 | 10.5 | 7.2 | 1.0 |
+
+Volume keeps the log fit, where the relationship really is monotone.
+
+**A rookie needs a rookie efficiency baseline.** A rookie is less efficient per
+opportunity than an established player, so the pool's baseline overstates every
+rookie projection. Pooled rookie rates per position replaced it — and those needed
+their own floor: without a minimum pooled denominator the table carried an
+`int_per_attempt` of 0.200 for running backs, which is one rookie's single
+intercepted pass.
+
 ### Team context changes
 
 Usage is sticky *for a player in a stable situation*. A new offensive
@@ -255,32 +326,43 @@ so it cannot lose on availability rather than on production.
 
 | Pos | n | USG | naive | Δ |
 |---|---|---|---|---|
-| QB | 513 | 0.6877 | 0.7038 | **−0.0161** |
+| QB | 513 | 0.6883 | 0.7038 | **−0.0155** |
 | RB | 1,021 | 0.7121 | 0.6902 | **+0.0218** |
-| WR | 1,494 | 0.7526 | 0.7399 | **+0.0127** |
-| TE | 801 | 0.7259 | 0.6976 | **+0.0284** |
+| WR | 1,492 | 0.7500 | 0.7394 | **+0.0106** |
+| TE | 801 | 0.7271 | 0.6976 | **+0.0295** |
+
+**Veteran rows only, and the restriction is load-bearing.** The naive baseline is
+last season carried forward, so for a rookie it is 0 by construction — on all 1,497
+rookie rows. Pooling them in credits the model for *covering* rookies rather than for
+projecting anyone better, and it inflated this table badly: RB read +0.149 pooled
+against +0.022 where both arms can actually speak. The rookie arm gets its own
+comparison in §Rookies, against a baseline that can answer.
 
 **Per-stat MAE**, on rows the model speaks for:
 
 | Stat | n | USG | naive | Δ |
 |---|---|---|---|---|
-| receivingTouchdowns | 2,732 | 1.27 | 1.45 | **−12.4%** |
-| passingInterceptions | 1,301 | 1.19 | 1.35 | **−12.0%** |
-| rushingTouchdowns | 2,393 | 0.96 | 1.00 | −4.2% |
-| receivingYards | 2,732 | 141.30 | 146.61 | −3.6% |
-| receivingReceptions | 2,732 | 12.46 | 12.92 | −3.5% |
-| rushingYards | 2,393 | 89.26 | 89.00 | +0.3% |
-| passingTouchdowns | 1,301 | 2.15 | 2.13 | +0.7% |
-| passingYards | 1,301 | 302.03 | 297.92 | +1.4% |
+| receivingTouchdowns | 2,702 | 1.28 | 1.47 | **−12.5%** |
+| passingInterceptions | 429 | 3.54 | 3.95 | **−10.4%** |
+| rushingTouchdowns | 1,265 | 1.68 | 1.75 | −4.2% |
+| receivingYards | 2,702 | 142.66 | 148.09 | −3.7% |
+| receivingReceptions | 2,702 | 12.58 | 13.05 | −3.6% |
+| rushingYards | 1,265 | 157.63 | 156.19 | +0.9% |
+| passingTouchdowns | 429 | 6.32 | 6.27 | +0.9% |
+| passingYards | 429 | 904.99 | 879.84 | +2.9% |
+
+Row counts fell for the rushing and passing stats once the relevance gate landed —
+they are now computed only on positions that really accumulate them, so the absolute
+values rise and the comparison means something.
 
 **Top-N hit rate**, computed per season and averaged:
 
 | Pos | N | USG | naive |
 |---|---|---|---|
-| QB | 12 | 0.607 | 0.595 |
-| RB | 24 | 0.619 | 0.595 |
-| WR | 36 | 0.683 | 0.627 |
-| TE | 12 | 0.512 | 0.452 |
+| QB | 12 | 0.607 | 0.619 |
+| RB | 24 | 0.619 | 0.631 |
+| WR | 36 | 0.671 | 0.687 |
+| TE | 12 | 0.512 | 0.500 |
 
 ### Reading it honestly
 
@@ -291,17 +373,19 @@ baseline is most of the available edge. Volume-driven yardage does *not* improve
 prior-season volume carried forward is already close to the best cheap estimate, and
 the fitted regression matches rather than beats it.
 
-**Top-N improves at all four positions**, which is the metric closest to what a
-board is for, and by more than the Spearman moved: WR +0.056, TE +0.060.
+**Top-N is a wash** — better at TE, marginally worse at the other three. An earlier
+run showed it improving everywhere, and that was an artefact: rookies and abstentions
+were being ranked in the naive arm (as zeros) while excluded from the model's,
+diluting the baseline. Both comparisons here run on veteran rows only.
 
 **QB ordering gets slightly worse.** The quarterback arm is the weakest — 119
 rostered quarterbacks, `pass_attempts_pg` R² 0.35, and the passing stats are the
 three where MAE regressed. A defensible v1.1 would abstain for QB.
 
-**Coverage is 57.8%** — 3,829 of 6,620 rostered player-seasons. The 42% it says
-nothing about are overwhelmingly players with no prior season, including all 1,497
-rookie rows. That is the designed behaviour, and the blend's absent-source path
-handles it.
+**Coverage is 80.4%** — 5,324 of 6,620 rostered player-seasons: 3,834 veteran,
+1,497 rookie, 1,289 abstained. Before the rookie arm it was 57.8%. What remains
+unprojected is players with neither a prior season nor rookie status — a second-year
+player who never appeared, mostly — and the blend's absent-source path handles them.
 
 ### The fitted expected-games head, and what it says
 
@@ -356,9 +440,10 @@ plus this head's own:
   compare against — a permanent limitation of the data, not a gap in the work. G2
   gets its answer from the 2026 board: build it with and without `USG_` in `WEIGHTS`
   and score both against realised 2026. Until then `USG_` stays out.
-- **Rookie arm** — ships only if draft capital beats abstention on the same
-  walk-forward. **Not attempted.** v1 abstains, which the backtest confirms is 1,497
-  of 6,620 rows saying nothing rather than guessing.
+- ~~**Rookie arm** — ships only if draft capital beats abstention on the same
+  walk-forward.~~ **Passed, decisively, 2026-08-07.** ρ ≈ 0.61 within position
+  against ~0 for a projection with no draft information, and MAE roughly halved. See
+  §Rookies. Coverage went 57.8% → 80.4%.
 - **A QB arm** — new, and the backtest is the reason. Quarterback ordering is
   slightly *worse* with the model (−0.0161 Spearman) and the three passing stats are
   the only ones whose MAE regressed. Abstaining for QB is the defensible v1.1.
@@ -383,7 +468,7 @@ name to `WEIGHTS` makes the blend harder to reason about for nothing.
    tested.
 4. ~~Walk-forward backtest; write the table into this document.~~ **Done** —
    `python -m Scripts.usage.backtest`, §Backtest results.
-5. Rookie arm, measured against abstention.
+5. ~~Rookie arm, measured against abstention.~~ **Done** — it won; see §Rookies.
 6. A QB arm, or abstention there — see §Ship criteria.
 7. Hand the enlarged source set to
    [plan 03](03-projection-source-coverage.md)'s weight re-tune.

@@ -91,8 +91,77 @@ VOLUME_REGRESSORS: Tuple[str, ...] = (
 GAMES_REGRESSORS: Tuple[str, ...] = ("p1_games", "p1_weeks_on_reserve",
                                      "team_changed")
 
+#: Regressors for the rookie arm.
+#:
+#: ``log_pick`` rather than the raw pick number: measured on 670 drafted rookie
+#: seasons 2017-2025, the log transform beats linear at every position (R² 0.374 vs
+#: 0.352 for RB carries, 0.417 vs 0.360 for WR targets, 0.391 vs 0.326 for TE, 0.385
+#: vs 0.327 for QB attempts) and ``1/pick`` is worst of the three. Production decays
+#: with draft position rather than falling off a line.
+#:
+#: ``undrafted`` is a separate indicator with ``log_pick`` held at 0, so the two
+#: coefficients read directly: the intercept plus ``undrafted`` is what an undrafted
+#: rookie gets, and the intercept plus ``log_pick`` times the log of the pick is what
+#: a drafted one gets. Undrafted is not "pick 300" -- it is a different population,
+#: and 2 of 3 rookies are in it.
+ROOKIE_REGRESSORS: Tuple[str, ...] = ("log_pick", "undrafted")
+
 #: Minimum rows before a volume regression is trusted.
 MIN_FIT_ROWS = 40
+
+#: Minimum rookie rows before the rookie arm is trusted for a position. Lower than
+#: :data:`MIN_FIT_ROWS` because rookies are a ninth of the pool -- QB has 96 drafted
+#: rookie seasons across nine years -- and higher than nothing because the arm's
+#: whole justification is that it beats saying nothing.
+MIN_ROOKIE_FIT_ROWS = 30
+
+#: Per-game volume a position must average before that volume is modelled for it.
+#:
+#: This is a relevance gate, and it exists because the fits it removes were doing
+#: real damage quietly. Mean per-game volume in training, by position:
+#:
+#:     QB   targets 0.015   carries 1.781   attempts 14.316
+#:     RB   targets 1.197   carries 4.026   attempts  0.002
+#:     WR   targets 2.102   carries 0.083   attempts  0.007
+#:     TE   targets 1.513   carries 0.012   attempts  0.001
+#:
+#: A regression on WR pass attempts fits 111 trick plays, lands at R² 0.0004, and
+#: still returns a positive intercept -- so **315 of 389 receivers were given a
+#: passing line**, median 2.12 yards, and 117 tight ends a rushing line. Tiny in
+#: points, and exactly the failure plan 16's positional-coverage risk names: a model
+#: emitting a number for a stat that is not the player's. 0.25 separates the six real
+#: (position, volume) pairs from the six junk ones with an order of magnitude to
+#: spare either side.
+MIN_MEAN_VOLUME = 0.25
+
+#: Draft-capital bins for the rookie availability head, as (first pick, last pick).
+#: ``None`` is the undrafted bin.
+#:
+#: **Binned rather than fitted, and that is the second thing this arm got wrong.**
+#: Rookie games played against draft position is flat across the early rounds and
+#: then declines -- measured RB means by round: 13.2, 12.6, 10.6, 12.6, 10.0, 7.9,
+#: 6.9 -- and no log fit captures flat-then-declining. Linear in log(pick) predicted
+#: **21.7 games at pick 1**, clipped to 18, for a population whose round-1 average is
+#: 13.2. Searching a shift parameter did not rescue it: the best shift per position
+#: ranged 0 to 60, bought at most 0.01 R², and still put pick 1 at 15.9 games.
+#:
+#: A bin mean cannot extrapolate past what rookies actually did, which is the whole
+#: property wanted here. Volume keeps the log fit, where the relationship really is
+#: monotone and R² runs 0.39-0.42.
+ROOKIE_GAMES_BINS: Tuple[Optional[Tuple[int, int]], ...] = (
+    (1, 32), (33, 64), (65, 128), (129, 262), None,
+)
+
+#: Pooled opportunities a rookie rate needs before it is recorded at all.
+#:
+#: Without it the baselines table carries an ``int_per_attempt`` of 0.200 for running
+#: backs -- one rookie's single pass attempt, which happened to be intercepted -- and
+#: a ``rec_td_per_target`` of 0.200 for quarterbacks. Those rates are unreachable in
+#: practice, because the relevance gate means no back gets a passing volume to
+#: multiply them by, but they belong in neither the persisted model nor the printed
+#: summary: a number built on five opportunities invites being used as though it
+#: meant something.
+MIN_RATE_DENOMINATOR = 50.0
 
 #: Model version, bumped when the structure changes rather than when it is refitted.
 MODEL_VERSION = "1.0.0"
@@ -134,9 +203,88 @@ class SeasonUsageModel:
     volume: Dict[Tuple[str, str], VolumeFit]
     games: Dict[str, VolumeFit] = field(default_factory=dict)
     games_by_position: Dict[str, float] = field(default_factory=dict)
+    rookie_volume: Dict[Tuple[str, str], VolumeFit] = field(default_factory=dict)
+    rookie_games: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    rookie_efficiency: Dict[str, Dict[str, float]] = field(default_factory=dict)
     train_seasons: Tuple[int, ...] = ()
     version: str = MODEL_VERSION
     fitted_at: Optional[str] = None
+
+    # --- the rookie arm --------------------------------------------------
+
+    @staticmethod
+    def _rookie_terms(frame: pl.DataFrame) -> Dict[str, pl.Expr]:
+        """The two draft-capital regressors, as expressions.
+
+        Args:
+            frame: Any frame carrying ``draft_number``.
+
+        Returns:
+            dict: Regressor name to expression.
+        """
+        pick = (pl.col("draft_number").cast(pl.Float64)
+                if "draft_number" in frame.columns
+                else pl.lit(None, dtype=pl.Float64))
+        drafted = pick.is_not_null() & (pick > 0)
+        return {
+            "log_pick": pl.when(drafted).then(pick.log()).otherwise(0.0),
+            "undrafted": pl.when(drafted).then(0.0).otherwise(1.0),
+        }
+
+    def rookie_expected_games(self, frame: pl.DataFrame) -> pl.Expr:
+        """Games played for a rookie, from his draft-capital bin's mean.
+
+        Args:
+            frame: Feature frame carrying ``position`` and ``draft_number``.
+
+        Returns:
+            pl.Expr: Expected games, null for a position with no rookie table.
+        """
+        pick = (pl.col("draft_number").cast(pl.Float64)
+                if "draft_number" in frame.columns
+                else pl.lit(None, dtype=pl.Float64))
+        label = draft_bin(pick)
+
+        expression = pl.lit(None, dtype=pl.Float64)
+        for position, by_bin in self.rookie_games.items():
+            if not by_bin:
+                continue
+            # The position's own rookie mean, for a bin too thin to have its own.
+            fallback = float(np.mean(list(by_bin.values())))
+            per_position = pl.lit(fallback)
+            for bin_name, games in by_bin.items():
+                per_position = pl.when(label == bin_name).then(
+                    pl.lit(float(games))).otherwise(per_position)
+            expression = pl.when(pl.col("position") == position).then(
+                per_position).otherwise(expression)
+        return expression
+
+    def _rookie_linear(self, frame: pl.DataFrame,
+                       fits: Dict, key) -> pl.Expr:
+        """Evaluate a per-position rookie fit, keyed by ``key(position)``.
+
+        Args:
+            frame: Feature frame.
+            fits: Position-keyed (or (position, target)-keyed) fits.
+            key: Callable turning a position into the dict key.
+
+        Returns:
+            pl.Expr: The prediction, null for positions with no fit.
+        """
+        terms = self._rookie_terms(frame)
+        expression = pl.lit(None, dtype=pl.Float64)
+        for position in {p for p in
+                         (k[0] if isinstance(k, tuple) else k for k in fits)}:
+            fit = fits.get(key(position))
+            if fit is None:
+                continue
+            value = pl.lit(fit.intercept)
+            for name, coefficient in fit.coefficients.items():
+                if name in terms:
+                    value = value + terms[name] * coefficient
+            expression = pl.when(pl.col("position") == position).then(
+                value.clip(lower_bound=0.0)).otherwise(expression)
+        return expression
 
     # --- prediction ------------------------------------------------------
 
@@ -210,46 +358,86 @@ class SeasonUsageModel:
 
         return expression
 
-    def predict(self, frame: pl.DataFrame) -> pl.DataFrame:
+    def predict(self, frame: pl.DataFrame, rookies: bool = True) -> pl.DataFrame:
         """Attach ``USG_<stat>`` season totals, plus the terms behind them.
 
         The intermediate columns are returned on purpose. Plan 18 asks for
         "18 points per game x 14.2 games" to be visible rather than collapsed, and a
         board that shows target share next to a projection is the deliverable.
 
+        Two arms, chosen per row. A player with a prior season gets the veteran arm,
+        which extrapolates his own volume. A rookie has no prior season at all, so
+        every veteran feature is null and the arm cannot run; the rookie arm predicts
+        from draft capital instead and takes efficiency from the positional *rookie*
+        baseline, since rookies are less efficient per opportunity than the pool.
+
         Args:
             frame: Feature frame from
                 :func:`Scripts.usage.features.season_features`.
+            rookies: Run the rookie arm. False abstains on rookies, which is the
+                comparison plan 18 asks for -- the arm ships only if it beats saying
+                nothing.
 
         Returns:
             pl.DataFrame: ``frame`` plus ``expected_games``, ``pred_<volume>`` per
-            :data:`VOLUME_TARGETS`, and ``USG_<stat>`` per :data:`STAT_TERMS`. The
-            ``USG_`` columns are null wherever the model abstains.
+            :data:`VOLUME_TARGETS`, ``usg_arm`` naming which arm spoke, and
+            ``USG_<stat>`` per :data:`STAT_TERMS`. The ``USG_`` columns are null
+            wherever the model abstains.
         """
-        out = frame.with_columns(self.expected_games(frame).alias("expected_games"))
-        out = out.with_columns(
-            [self.predict_volume(out, target).alias(f"pred_{target}")
-             for target in VOLUME_TARGETS]
-        )
-
-        # Abstain outright for a player with no prior season. That is every rookie,
-        # which is plan 18's stated v1: the draft-capital arm ships only if it beats
-        # abstention on the walk-forward, and a wrong confident answer about rookies
-        # is expensive on draft day.
+        is_rookie = (pl.col("is_rookie").fill_null(False)
+                     if "is_rookie" in frame.columns else pl.lit(False))
         has_history = pl.col(f"{ft.LAG1_PREFIX}games").is_not_null()
+        # A rookie is a player with no prior season, and the flag has to agree with
+        # that or the two arms would both claim the same row. Prior history wins:
+        # a "rookie" with a prior season is a data problem, not a rookie.
+        use_rookie = pl.lit(rookies) & is_rookie & ~has_history
+
+        out = frame.with_columns(
+            pl.when(use_rookie)
+            .then(self.rookie_expected_games(frame))
+            .otherwise(self.expected_games(frame))
+            .clip(lower_bound=0.0, upper_bound=18.0)
+            .alias("expected_games"),
+            pl.when(use_rookie).then(pl.lit("rookie"))
+            .when(has_history).then(pl.lit("veteran"))
+            .otherwise(pl.lit("abstain")).alias("usg_arm"),
+        )
+        out = out.with_columns([
+            pl.when(pl.col("usg_arm") == "rookie")
+            .then(self._rookie_linear(
+                out, self.rookie_volume, lambda p, t=target: (p, t)))
+            .otherwise(self.predict_volume(out, target))
+            .alias(f"pred_{target}")
+            for target in VOLUME_TARGETS
+        ])
+
+        speaks = pl.col("usg_arm") != "abstain"
 
         exprs = []
         for stat, (volume, rate) in STAT_TERMS.items():
             rate_column = f"{ft.LAG1_PREFIX}{rate}"
             if rate_column not in out.columns:
                 continue
+            # Rookies have no rate of their own, so they take the positional rookie
+            # baseline. Using the whole pool's baseline would overstate them: a
+            # rookie is less efficient per opportunity than an established player,
+            # and that difference is measurable rather than assumed.
+            rookie_rate = pl.lit(None, dtype=pl.Float64)
+            for position, rates in self.rookie_efficiency.items():
+                if rate in rates:
+                    rookie_rate = pl.when(pl.col("position") == position).then(
+                        pl.lit(float(rates[rate]))).otherwise(rookie_rate)
+
+            effective_rate = (pl.when(pl.col("usg_arm") == "rookie")
+                              .then(rookie_rate)
+                              .otherwise(pl.col(rate_column)))
             predicted = (pl.col("expected_games")
                          * pl.col(f"pred_{volume}")
-                         * pl.col(rate_column))
+                         * effective_rate)
             exprs.append(
-                pl.when(has_history
+                pl.when(speaks
                         & pl.col(f"pred_{volume}").is_not_null()
-                        & pl.col(rate_column).is_not_null()
+                        & effective_rate.is_not_null()
                         # No opportunity of this kind means this stat is not his.
                         # Without the guard a receiver gets an intercept's worth of
                         # passing yards, which is exactly how step 0's baseline
@@ -294,6 +482,46 @@ class SeasonUsageModel:
                 f"{c.get('p1_games', 0):>8.3f}{c.get('team_changed', 0):>8.3f}"
                 f"{fit.r2:>8.4f}"
             )
+
+        if self.rookie_volume or self.rookie_games:
+            lines += [
+                "",
+                "  rookie arm (draft capital). undrafted column is the level for an "
+                "undrafted rookie,",
+                "  relative to the intercept; log_pick is per unit of log(overall "
+                "pick).",
+                f"  {'position':<10}{'target':<18}{'n':>7}{'const':>9}"
+                f"{'log_pick':>10}{'undrafted':>11}{'R2':>8}",
+            ]
+            rookie_fits = list(self.rookie_volume.values())
+            for rookie_fit in sorted(rookie_fits,
+                                     key=lambda f: (f.position, f.target)):
+                c = rookie_fit.coefficients
+                lines.append(
+                    f"  {rookie_fit.position:<10}{rookie_fit.target:<18}"
+                    f"{rookie_fit.n:>7}{rookie_fit.intercept:>9.3f}"
+                    f"{c.get('log_pick', 0):>10.3f}"
+                    f"{c.get('undrafted', 0):>11.3f}{rookie_fit.r2:>8.4f}")
+
+        if self.rookie_games:
+            lines += ["", "  rookie games played, mean by draft-capital bin"]
+            bins = [bin_label(b) for b in ROOKIE_GAMES_BINS]
+            lines.append("  " + f"{'position':<10}"
+                         + "".join(f"{name:>12}" for name in bins))
+            for position, by_bin in sorted(self.rookie_games.items()):
+                cells = "".join(
+                    (f"{by_bin[name]:>12.1f}" if name in by_bin else f"{'—':>12}")
+                    for name in bins)
+                lines.append(f"  {position:<10}{cells}")
+
+        if self.rookie_efficiency:
+            lines += ["", "  rookie efficiency baselines (pooled, per position)"]
+            for position, rates in sorted(self.rookie_efficiency.items()):
+                shown = ", ".join(f"{name} {value:.3f}"
+                                  for name, value in sorted(rates.items())
+                                  if value)
+                lines.append(f"  {position:<6}{shown}")
+
         return "\n".join(lines)
 
     def to_dict(self) -> Dict:
@@ -305,6 +533,10 @@ class SeasonUsageModel:
             "games_by_position": self.games_by_position,
             "games_fits": [asdict(fit) for fit in self.games.values()],
             "volume_fits": [asdict(fit) for fit in self.volume.values()],
+            "rookie_games_by_bin": self.rookie_games,
+            "rookie_volume_fits": [asdict(fit)
+                                   for fit in self.rookie_volume.values()],
+            "rookie_efficiency": self.rookie_efficiency,
         }
 
     def save(self, path=None):
@@ -433,6 +665,182 @@ def _fit_games(frame: pl.DataFrame, position: str) -> Optional[VolumeFit]:
     return _least_squares(rows, GAMES_REGRESSORS, position, "games")
 
 
+def _rookie_rows(frame: pl.DataFrame, position: str) -> pl.DataFrame:
+    """Rookie training rows for one position, with the draft-capital regressors.
+
+    Args:
+        frame: Training rows.
+        position: Position to select.
+
+    Returns:
+        pl.DataFrame: ``log_pick``, ``undrafted`` and the identity columns.
+    """
+    pick = (pl.col("draft_number").cast(pl.Float64)
+            if "draft_number" in frame.columns
+            else pl.lit(None, dtype=pl.Float64))
+    drafted = pick.is_not_null() & (pick > 0)
+
+    # The regressors are attached before any filtering, so an empty result still
+    # carries them. Returning `frame.head(0)` early instead raised
+    # ColumnNotFoundError on `log_pick` in the caller's select -- an empty frame with
+    # the wrong schema is not an empty frame.
+    out = frame.with_columns(
+        pl.when(drafted).then(pick.log()).otherwise(0.0).alias("log_pick"),
+        pl.when(drafted).then(0.0).otherwise(1.0).alias("undrafted"),
+    )
+    if "is_rookie" not in frame.columns:
+        return out.clear()
+
+    return out.filter(
+        (pl.col("position") == position)
+        & pl.col("is_rookie").fill_null(False)
+        # A "rookie" with a prior season is a data problem. Excluded from the fit
+        # rather than trusted, because the arm's whole purpose is the no-history case.
+        & pl.col(f"{ft.LAG1_PREFIX}games").is_null()
+    )
+
+
+def _fit_rookie_volume(frame: pl.DataFrame, position: str,
+                       target: str) -> Optional[VolumeFit]:
+    """One position's rookie volume, from draft capital.
+
+    Fitted over **all** rookies including the undrafted and those who never played,
+    unlike the veteran arm which excludes structural zeros. That is deliberate: the
+    zeros are the prediction here. Two of three rookies go undrafted and 79% of those
+    never take a snap, so a model fitted only on rookies who produced would project
+    every undrafted free agent as a contributor.
+
+    Args:
+        frame: Training rows.
+        position: Position to fit.
+        target: Volume column, e.g. ``targets_pg``.
+
+    Returns:
+        VolumeFit | None: None below :data:`MIN_ROOKIE_FIT_ROWS`.
+    """
+    outcome = f"y_{target}"
+    if outcome not in frame.columns:
+        return None
+    rows = _rookie_rows(frame, position).select(
+        pl.col("log_pick"), pl.col("undrafted"),
+        # A rookie who never appeared has no row in the outcome frame, and his
+        # realised volume is zero rather than unknown.
+        pl.col(outcome).cast(pl.Float64).fill_null(0.0).alias("y"),
+    ).drop_nulls()
+    if rows.height < MIN_ROOKIE_FIT_ROWS:
+        return None
+    fit = _least_squares(rows, ROOKIE_REGRESSORS, position, target)
+    return fit
+
+
+def bin_label(first: Optional[Tuple[int, int]]) -> str:
+    """A stable key for a draft-capital bin.
+
+    Args:
+        first: A :data:`ROOKIE_GAMES_BINS` entry.
+
+    Returns:
+        str: e.g. ``"1-32"`` or ``"undrafted"``.
+    """
+    return "undrafted" if first is None else f"{first[0]}-{first[1]}"
+
+
+def draft_bin(pick: pl.Expr) -> pl.Expr:
+    """Map a pick number onto a :data:`ROOKIE_GAMES_BINS` label.
+
+    Args:
+        pick: Expression yielding the overall pick, null for undrafted.
+
+    Returns:
+        pl.Expr: The bin label.
+    """
+    expression = pl.lit(bin_label(None))
+    for bounds in ROOKIE_GAMES_BINS:
+        if bounds is None:
+            continue
+        low, high = bounds
+        expression = pl.when(pick.is_not_null()
+                             & (pick >= low) & (pick <= high)) \
+            .then(pl.lit(bin_label(bounds))).otherwise(expression)
+    return expression
+
+
+def _fit_rookie_games(frame: pl.DataFrame, position: str) -> Dict[str, float]:
+    """One position's mean rookie games played, per draft-capital bin.
+
+    A bin mean rather than a regression -- see :data:`ROOKIE_GAMES_BINS` for the
+    measurement that forced it.
+
+    Args:
+        frame: Training rows.
+        position: Position to summarise.
+
+    Returns:
+        dict: Bin label to mean games. Empty when there are too few rookie rows.
+    """
+    if "y_games" not in frame.columns:
+        return {}
+    rows = _rookie_rows(frame, position)
+    if rows.height < MIN_ROOKIE_FIT_ROWS:
+        return {}
+
+    pick = (pl.col("draft_number").cast(pl.Float64)
+            if "draft_number" in rows.columns
+            else pl.lit(None, dtype=pl.Float64))
+    grouped = (
+        rows.with_columns(draft_bin(pick).alias("bin"))
+        .group_by("bin")
+        .agg(pl.col("y_games").cast(pl.Float64).fill_null(0.0).mean().alias("games"),
+             pl.len().alias("n"))
+        # A bin with almost nobody in it is noise, and its mean would be applied to
+        # every rookie who lands there. Dropped rather than trusted; the fallback is
+        # the position's overall rookie mean.
+        .filter(pl.col("n") >= 5)
+    )
+    return {row["bin"]: float(row["games"]) for row in grouped.iter_rows(named=True)}
+
+
+def rookie_efficiency(frame: pl.DataFrame,
+                      positions: Sequence[str] = ft.MODELLED_POSITIONS
+                      ) -> Dict[str, Dict[str, float]]:
+    """Pooled efficiency rates for rookies, per position.
+
+    Separate from :func:`Scripts.usage.features.positional_baselines`, which pools
+    the whole population. A rookie is less efficient per opportunity than an
+    established player, and using the pool's rate would overstate every rookie
+    projection by that difference.
+
+    Pooled from realised totals, so a rookie with two targets does not weigh as much
+    as one with a hundred.
+
+    Args:
+        frame: Training rows carrying ``y_tot_<stat>`` outcomes.
+        positions: Positions to compute.
+
+    Returns:
+        dict: ``{position: {rate_name: value}}``, omitting rates with no volume.
+    """
+    out: Dict[str, Dict[str, float]] = {}
+    for position in positions:
+        rows = _rookie_rows(frame, position)
+        if rows.is_empty():
+            continue
+        rates: Dict[str, float] = {}
+        for name, numerator, denominator in ft.EFFICIENCY_RATES:
+            num, den = f"y_tot_{numerator}", f"y_tot_{denominator}"
+            if num not in rows.columns or den not in rows.columns:
+                continue
+            totals = rows.select(
+                pl.col(num).cast(pl.Float64).sum().alias("num"),
+                pl.col(den).cast(pl.Float64).sum().alias("den"),
+            ).row(0, named=True)
+            if totals["den"] and totals["den"] >= MIN_RATE_DENOMINATOR:
+                rates[name] = totals["num"] / totals["den"]
+        if rates:
+            out[position] = rates
+    return out
+
+
 def training_frame(seasons: Sequence[int], history_start: int,
                    positions: Sequence[str] = ft.MODELLED_POSITIONS) -> pl.DataFrame:
     """Feature rows for several seasons, each with that season's realised outcome.
@@ -469,17 +877,47 @@ def training_frame(seasons: Sequence[int], history_start: int,
             *[pl.col(target).alias(f"y_{target}") for target in VOLUME_TARGETS
               if target in totals.columns],
             pl.col("games").alias("y_games"),
-            *[(pl.col(f"tot_{numerator}")).alias(f"y_tot_{numerator}")
-              for numerator in ("receiving_yards", "receptions", "receiving_tds",
-                                "rushing_yards", "rushing_tds", "passing_yards",
-                                "passing_tds", "passing_interceptions")
-              if f"tot_{numerator}" in totals.columns],
+            # Both halves of every rate, derived from the rate definitions rather
+            # than listed: the numerators are the per-stat MAE outcomes, and the
+            # denominators are what `rookie_efficiency` pools over. Hardcoding the
+            # numerators alone is what left the rookie arm with no rate to apply.
+            *[pl.col(f"tot_{column}").alias(f"y_tot_{column}")
+              for column in sorted({c for _, num, den in ft.EFFICIENCY_RATES
+                                    for c in (num, den)})
+              if f"tot_{column}" in totals.columns],
         )
         frames.append(features.join(outcome, on="gsis_id", how="left"))
 
     if not frames:
         return pl.DataFrame()
     return pl.concat(frames, how="diagonal")
+
+
+def models_volume(train: pl.DataFrame, position: str, target: str,
+                  minimum: float = MIN_MEAN_VOLUME) -> bool:
+    """Whether this position gets enough of this volume to be worth modelling.
+
+    The relevance gate. See :data:`MIN_MEAN_VOLUME` for the measured reason it
+    exists: without it, a regression fitted on 111 trick plays gave four in five
+    receivers a passing line.
+
+    Args:
+        train: Training rows.
+        position: Position to check.
+        target: Volume column.
+        minimum: Mean per-game volume required.
+
+    Returns:
+        bool: True when the position averages at least ``minimum`` per game.
+    """
+    outcome = f"y_{target}"
+    if outcome not in train.columns:
+        return False
+    rows = train.filter(pl.col("position") == position)
+    if rows.is_empty():
+        return False
+    mean = rows.select(pl.col(outcome).cast(pl.Float64).fill_null(0.0).mean()).item()
+    return mean is not None and mean >= minimum
 
 
 def fit(train: pl.DataFrame, train_seasons: Sequence[int],
@@ -499,14 +937,24 @@ def fit(train: pl.DataFrame, train_seasons: Sequence[int],
     """
     volume: Dict[Tuple[str, str], VolumeFit] = {}
     games: Dict[str, VolumeFit] = {}
+    rookie_vol: Dict[Tuple[str, str], VolumeFit] = {}
+    rookie_gms: Dict[str, Dict[str, float]] = {}
     for position in positions:
         for target in VOLUME_TARGETS:
+            if not models_volume(train, position, target):
+                continue
             fitted = _fit_volume(train, position, target)
             if fitted is not None:
                 volume[(position, target)] = fitted
+            fitted_rookie = _fit_rookie_volume(train, position, target)
+            if fitted_rookie is not None:
+                rookie_vol[(position, target)] = fitted_rookie
         fitted_games = _fit_games(train, position)
         if fitted_games is not None:
             games[position] = fitted_games
+        fitted_rookie_games = _fit_rookie_games(train, position)
+        if fitted_rookie_games:
+            rookie_gms[position] = fitted_rookie_games
 
     # The fallback for a position with no games fit, and the number reported. Taken
     # over players who were on a roster the prior season, matching the fitted
@@ -527,6 +975,9 @@ def fit(train: pl.DataFrame, train_seasons: Sequence[int],
         volume=volume,
         games=games,
         games_by_position=means,
+        rookie_volume=rookie_vol,
+        rookie_games=rookie_gms,
+        rookie_efficiency=rookie_efficiency(train, positions),
         train_seasons=tuple(sorted(train_seasons)),
         fitted_at=fitted_at,
     )

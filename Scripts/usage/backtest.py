@@ -191,6 +191,20 @@ def run_season(test_season: int, history_start: int = HISTORY_START,
 
     weights = scoring_weights(test_season, league_key)
 
+    # An uninformative rookie projection: the positional rookie mean, carrying no
+    # draft information at all. This is what the arm has to beat -- plan 18 puts the
+    # burden of proof on draft capital, and "better than nothing" is only meaningful
+    # against a guess that uses nothing.
+    rookie_means = (
+        train.filter(pl.col("is_rookie").fill_null(False)
+                     & pl.col(f"{ft.LAG1_PREFIX}games").is_null())
+        .group_by("position")
+        .agg([pl.col(column).cast(pl.Float64).fill_null(0.0).mean()
+              .alias(f"mean_{column}")
+              for column in OUTCOME_COLUMNS.values() if column in train.columns])
+    )
+    predicted = predicted.join(rookie_means, on="position", how="left")
+
     # The naive draft heuristic: last season's production, unadjusted. It is what a
     # drafter does by default and the only historical baseline that survives -- see
     # the module docstring on why ESPN's and FantasyPros' past projections do not.
@@ -220,6 +234,9 @@ def run_season(test_season: int, history_start: int = HISTORY_START,
                    {s: f"{sn.USAGE_PREFIX}{s}" for s in OUTCOME_COLUMNS}, weights)
         ).otherwise(None).alias("usg_points"),
         points(predicted, OUTCOME_COLUMNS, weights).alias("actual_points"),
+        points(predicted,
+               {stat: f"mean_{column}" for stat, column in OUTCOME_COLUMNS.items()},
+               weights).alias("rookie_mean_points"),
         # Prior-season per-game production x this season's games, so the naive
         # baseline gets the same availability information the model has. Without
         # that it would be beaten on games played rather than on production, which
@@ -243,10 +260,22 @@ def report(frames: Sequence[pl.DataFrame], positions=ft.MODELLED_POSITIONS) -> s
     pooled = pl.concat(frames, how="diagonal")
     lines = []
 
+    # The USG-vs-naive tables run on **veteran rows only**, and the restriction is
+    # load-bearing. The naive baseline is last season's production carried forward,
+    # so for a rookie it is 0 by construction -- on all 1,497 rookie rows. Pooling
+    # them in credits the model for *covering* rookies rather than for projecting
+    # anyone more accurately, and it inflated every figure in this table: RB Spearman
+    # read +0.149 pooled against +0.022 on the population where both can actually
+    # speak. The rookie arm gets its own comparison below, against a baseline that
+    # can answer.
+    veterans = (pooled.filter(pl.col("usg_arm") == "veteran")
+                if "usg_arm" in pooled.columns else pooled)
+
     lines.append("=== within-position Spearman vs realised season points ===")
+    lines.append("  veteran rows only — the naive baseline cannot project a rookie")
     lines.append(f"  {'pos':<6}{'n':>6}{'USG':>10}{'naive':>10}{'delta':>10}")
     for position in positions:
-        rows = pooled.filter((pl.col("position") == position)
+        rows = veterans.filter((pl.col("position") == position)
                              & pl.col("usg_points").is_not_null()
                              & pl.col("actual_points").is_not_null())
         usg = spearman(rows, "usg_points", "actual_points")
@@ -258,14 +287,14 @@ def report(frames: Sequence[pl.DataFrame], positions=ft.MODELLED_POSITIONS) -> s
                      f"{usg - naive:>+10.4f}")
 
     lines.append("")
-    lines.append("=== per-stat MAE, on rows the model speaks for ===")
+    lines.append("=== per-stat MAE, veteran rows the model speaks for ===")
     lines.append(f"  {'stat':<24}{'n':>7}{'USG':>10}{'naive':>10}{'delta %':>10}")
     for stat, outcome in OUTCOME_COLUMNS.items():
         predicted_column = f"{sn.USAGE_PREFIX}{stat}"
         naive_column = f"{ft.LAG1_PREFIX}act_{stat}_pg"
         if predicted_column not in pooled.columns or outcome not in pooled.columns:
             continue
-        rows = pooled.filter(pl.col(predicted_column).is_not_null()
+        rows = veterans.filter(pl.col(predicted_column).is_not_null()
                             & pl.col(outcome).is_not_null())
         if rows.height < 10:
             continue
@@ -286,10 +315,11 @@ def report(frames: Sequence[pl.DataFrame], positions=ft.MODELLED_POSITIONS) -> s
                          f"{'—':>10}{'—':>10}")
 
     lines.append("")
-    lines.append("=== top-N hit rate vs realised, pooled over seasons ===")
+    lines.append("=== top-N hit rate vs realised, per season then averaged ===")
+    lines.append("  veteran rows only, for the same reason as above")
     lines.append(f"  {'pos':<6}{'N':>4}{'USG':>10}{'naive':>10}")
     for position, n in (("QB", 12), ("RB", 24), ("WR", 36), ("TE", 12)):
-        rows = pooled.filter(pl.col("position") == position)
+        rows = veterans.filter(pl.col("position") == position)
         usg = top_n_hit_rate(rows, "usg_points", "actual_points", n)
         naive = top_n_hit_rate(rows, "naive_points", "actual_points", n)
         if usg is None:
@@ -298,16 +328,74 @@ def report(frames: Sequence[pl.DataFrame], positions=ft.MODELLED_POSITIONS) -> s
         lines.append(f"  {position:<6}{n:>4}{usg:>10.3f}{naive_text}")
 
     lines.append("")
-    lines.append("=== coverage: where the model abstains ===")
+    lines.append("=== coverage, by arm ===")
     total = pooled.height
     spoke = pooled.filter(pl.col("usg_points").is_not_null()).height
     lines.append(f"  {spoke} of {total} rostered player-seasons "
                  f"({100 * spoke / total:.1f}%) got a projection.")
-    rookies = pooled.filter(pl.col("is_rookie").fill_null(False))
-    if rookies.height:
-        lines.append(f"  {rookies.height} rookie rows, "
-                     f"{rookies.filter(pl.col('usg_points').is_not_null()).height} "
-                     f"projected — abstention is plan 18's v1 for rookies.")
+    if "usg_arm" in pooled.columns:
+        for (arm,), rows in pooled.group_by(["usg_arm"], maintain_order=False):
+            lines.append(f"  {arm:<10}{rows.height:>6}")
+
+    lines.append("")
+    lines.append(report_rookie_arm(pooled, positions))
+    return "\n".join(lines)
+
+
+def report_rookie_arm(pooled: pl.DataFrame,
+                      positions=ft.MODELLED_POSITIONS) -> str:
+    """Does the draft-capital arm beat saying nothing?
+
+    Plan 18 puts the burden of proof here, so the comparison is against a projection
+    that carries **no** draft information: the positional rookie mean. If the arm
+    cannot beat that, it has no information a board can use, and abstaining is
+    strictly better than adding an uninformative fifth source to ``WEIGHTS``.
+
+    Args:
+        pooled: Scored frames from every test season, concatenated.
+        positions: Positions to report.
+
+    Returns:
+        str: The printable verdict.
+    """
+    rookies = pooled.filter(pl.col("usg_arm") == "rookie") \
+        if "usg_arm" in pooled.columns else pooled.head(0)
+    if rookies.is_empty():
+        return "=== rookie arm ===\n  no rookie rows projected."
+
+    lines = ["=== rookie arm: draft capital vs an uninformative guess ===",
+             f"  {'pos':<6}{'n':>6}{'rho arm':>10}{'rho mean':>10}{'Δ':>9}"
+             f"{'MAE arm':>10}{'MAE mean':>10}"]
+    for position in positions:
+        rows = rookies.filter((pl.col("position") == position)
+                             & pl.col("actual_points").is_not_null())
+        if rows.height < 10:
+            lines.append(f"  {position:<6}{rows.height:>6}   too few rows")
+            continue
+        arm_rho = spearman(rows, "usg_points", "actual_points")
+        mean_rho = spearman(rows, "rookie_mean_points", "actual_points")
+        arm_mae = rows.select(
+            (pl.col("usg_points") - pl.col("actual_points")).abs().mean()).item()
+        mean_mae = rows.select(
+            (pl.col("rookie_mean_points") - pl.col("actual_points"))
+            .abs().mean()).item()
+        # The positional mean is one number for everyone, so its rank correlation is
+        # undefined -- every player ties. Reported as 0.0, which is what "no ordering
+        # information" means, rather than hidden.
+        mean_rho = 0.0 if mean_rho is None else mean_rho
+        lines.append(f"  {position:<6}{rows.height:>6}{arm_rho:>10.4f}"
+                     f"{mean_rho:>10.4f}{arm_rho - mean_rho:>+9.4f}"
+                     f"{arm_mae:>10.2f}{mean_mae:>10.2f}")
+
+    drafted = rookies.filter(pl.col("draft_number").is_not_null())
+    undrafted = rookies.filter(pl.col("draft_number").is_null())
+    lines.append("")
+    lines.append(f"  drafted rookies   {drafted.height:>5}, "
+                 f"mean realised {drafted['actual_points'].mean():.1f} pts, "
+                 f"mean projected {drafted['usg_points'].mean():.1f}")
+    lines.append(f"  undrafted rookies {undrafted.height:>5}, "
+                 f"mean realised {undrafted['actual_points'].mean():.1f} pts, "
+                 f"mean projected {undrafted['usg_points'].mean():.1f}")
     return "\n".join(lines)
 
 

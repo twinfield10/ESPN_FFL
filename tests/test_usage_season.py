@@ -321,3 +321,180 @@ def test_the_scoring_league_has_a_full_registry_history():
         registry.filter(pl.col("league_key") == bt.SCORING_LEAGUE)["season"]
         .unique().to_list())
     assert set(bt.DEFAULT_TEST_SEASONS) <= seasons
+
+
+# --- the rookie arm ------------------------------------------------------
+
+def rookie_rows(n=120, seed=1, position="WR"):
+    """Rookie training rows where volume decays with log(pick).
+
+    Two thirds undrafted, matching the real split (1,338 of 2,008 rookie
+    player-seasons 2017-2025), because that population is most of what the arm has
+    to get right.
+    """
+    rng = np.random.default_rng(seed)
+    drafted = n // 3
+    picks = list(rng.integers(1, 257, drafted)) + [None] * (n - drafted)
+    volume = [max(0.0, 12.0 - 2.0 * np.log(p) + rng.normal(0, 0.5))
+              if p is not None else max(0.0, rng.normal(0.2, 0.2))
+              for p in picks]
+    return pl.DataFrame({
+        "gsis_id": [f"r{i}" for i in range(n)],
+        "position": [position] * n,
+        "is_rookie": [True] * n,
+        "team_changed": [None] * n,
+        "draft_number": picks,
+        "p1_games": [None] * n,
+        "p1_targets_pg": [None] * n,
+        "p2_targets_pg": [None] * n,
+        "y_targets_pg": volume,
+        "y_games": [12.0 if p is not None else 1.0 for p in picks],
+        "y_tot_receiving_yards": [v * 100 for v in volume],
+        "y_tot_targets": [v * 14 for v in volume],
+        "y_tot_receptions": [v * 9 for v in volume],
+    }, schema_overrides={"draft_number": pl.Int32})
+
+
+def test_the_rookie_arm_recovers_the_draft_position_slope():
+    fit = sn._fit_rookie_volume(rookie_rows(), "WR", "targets_pg")
+    assert fit is not None
+    assert fit.coefficients["log_pick"] < 0     # later pick, less volume
+    assert fit.r2 > 0.5
+
+
+def test_the_rookie_arm_fits_undrafted_players_too():
+    """Two of three rookies go undrafted and 79% of those never take a snap. A fit
+    that excluded them would project every undrafted free agent as a contributor.
+    """
+    fit = sn._fit_rookie_volume(rookie_rows(n=120), "WR", "targets_pg")
+    assert fit.n == 120
+    assert fit.coefficients["undrafted"] < 0
+
+
+def test_undrafted_is_not_modelled_as_a_late_pick():
+    """It is a different population, not pick 300 -- so it gets its own indicator
+    with log_pick held at zero."""
+    assert set(sn.ROOKIE_REGRESSORS) == {"log_pick", "undrafted"}
+    frame = pl.DataFrame({"draft_number": [None, 32]},
+                         schema={"draft_number": pl.Int32})
+    terms = sn.SeasonUsageModel._rookie_terms(frame)
+    out = frame.select(terms["log_pick"].alias("lp"),
+                       terms["undrafted"].alias("ud"))
+    assert out["lp"].to_list() == [0.0, pytest.approx(np.log(32))]
+    assert out["ud"].to_list() == [1.0, 0.0]
+
+
+def test_a_rookie_row_is_projected_by_the_rookie_arm():
+    train = rookie_rows()
+    model = sn.fit(train, [2025])
+    frame = feature_rows([{"is_rookie": True, "p1_games": None,
+                           "p1_targets_pg": None, "draft_number": 10,
+                           "p1_yards_per_target": None}])
+    out = model.predict(frame)
+    assert out["usg_arm"][0] == "rookie"
+    assert out["USG_receivingYards"][0] is not None
+
+
+def test_an_earlier_pick_is_projected_higher():
+    model = sn.fit(rookie_rows(), [2025])
+    frame = feature_rows([
+        {"gsis_id": "early", "is_rookie": True, "p1_games": None,
+         "draft_number": 5, "p1_yards_per_target": None},
+        {"gsis_id": "late", "is_rookie": True, "p1_games": None,
+         "draft_number": 220, "p1_yards_per_target": None},
+    ])
+    out = model.predict(frame).sort("gsis_id")
+    values = dict(zip(out["gsis_id"], out["USG_receivingYards"]))
+    assert values["early"] > values["late"]
+
+
+def test_rookies_may_be_abstained_on_for_the_comparison():
+    """Plan 18's test is arm against abstention, so abstention has to be runnable."""
+    model = sn.fit(rookie_rows(), [2025])
+    frame = feature_rows([{"is_rookie": True, "p1_games": None,
+                           "draft_number": 10, "p1_yards_per_target": None}])
+    out = model.predict(frame, rookies=False)
+    assert out["usg_arm"][0] == "abstain"
+    assert out["USG_receivingYards"][0] is None
+
+
+def test_prior_history_wins_over_the_rookie_flag():
+    """A "rookie" with a prior season is a data problem, not a rookie -- and both
+    arms must not claim the same row."""
+    model = trained_model(rookie_volume={
+        ("WR", "targets_pg"): sn.VolumeFit(
+            position="WR", target="targets_pg", intercept=99.0,
+            coefficients={"log_pick": 0.0, "undrafted": 0.0}, n=100, r2=0.5)})
+    frame = feature_rows([{"is_rookie": True, "p1_games": 16, "draft_number": 5}])
+    out = model.predict(frame)
+    assert out["usg_arm"][0] == "veteran"
+
+
+def test_rookies_use_a_rookie_efficiency_baseline_not_the_pools():
+    """A rookie is less efficient per opportunity than an established player."""
+    rates = sn.rookie_efficiency(rookie_rows(), positions=["WR"])
+    assert "yards_per_target" in rates["WR"]
+    assert rates["WR"]["yards_per_target"] == pytest.approx(100 / 14, rel=0.01)
+
+
+def test_a_rate_built_on_almost_no_opportunity_is_not_recorded():
+    """One rookie back's single intercepted pass gave RB an int_per_attempt of
+    0.200. Unreachable in practice, and still wrong to record."""
+    # 60 rows at 0.5 targets each pools to 30, under the 50-opportunity floor.
+    frame = rookie_rows(n=60).with_columns(pl.lit(0.5).alias("y_tot_targets"))
+    rates = sn.rookie_efficiency(frame, positions=["WR"])
+    assert "yards_per_target" not in rates.get("WR", {})
+    assert "catch_rate" not in rates.get("WR", {})
+
+
+def test_too_few_rookie_rows_yields_no_arm():
+    assert sn._fit_rookie_volume(rookie_rows(n=10), "WR", "targets_pg") is None
+
+
+# --- the relevance gate --------------------------------------------------
+
+def volume_frame(position, target, mean):
+    return pl.DataFrame({
+        "position": [position] * 50,
+        f"y_{target}": [mean] * 50,
+    })
+
+
+def test_a_position_that_barely_uses_a_volume_is_not_modelled_for_it():
+    """WR pass attempts average 0.007 a game across the training seasons. A
+    regression on 111 trick plays returned a positive intercept, so 315 of 389
+    receivers were handed a passing line with a median of 2.12 yards."""
+    assert not sn.models_volume(
+        volume_frame("WR", "pass_attempts_pg", 0.007), "WR", "pass_attempts_pg")
+    assert not sn.models_volume(
+        volume_frame("TE", "carries_pg", 0.012), "TE", "carries_pg")
+
+
+def test_a_volume_the_position_really_gets_is_modelled():
+    assert sn.models_volume(
+        volume_frame("QB", "carries_pg", 1.781), "QB", "carries_pg")
+    assert sn.models_volume(
+        volume_frame("RB", "targets_pg", 1.197), "RB", "targets_pg")
+
+
+def test_the_gate_removes_the_cross_position_fits_from_a_real_fit():
+    """Six real (position, volume) pairs survive, six junk ones do not."""
+    rows = []
+    means = {("QB", "targets_pg"): 0.015, ("QB", "carries_pg"): 1.781,
+             ("QB", "pass_attempts_pg"): 14.3, ("RB", "targets_pg"): 1.197,
+             ("RB", "carries_pg"): 4.026, ("RB", "pass_attempts_pg"): 0.002,
+             ("WR", "targets_pg"): 2.102, ("WR", "carries_pg"): 0.083,
+             ("WR", "pass_attempts_pg"): 0.007, ("TE", "targets_pg"): 1.513,
+             ("TE", "carries_pg"): 0.012, ("TE", "pass_attempts_pg"): 0.001}
+    for position in ("QB", "RB", "WR", "TE"):
+        for _ in range(60):
+            row = {"position": position}
+            for target in sn.VOLUME_TARGETS:
+                row[f"y_{target}"] = means[(position, target)]
+            rows.append(row)
+    frame = pl.DataFrame(rows)
+    gated = {(p, t) for p in ("QB", "RB", "WR", "TE") for t in sn.VOLUME_TARGETS
+             if sn.models_volume(frame, p, t)}
+    assert gated == {("QB", "carries_pg"), ("QB", "pass_attempts_pg"),
+                     ("RB", "targets_pg"), ("RB", "carries_pg"),
+                     ("WR", "targets_pg"), ("TE", "targets_pg")}

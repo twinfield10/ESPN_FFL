@@ -179,11 +179,20 @@ Fixed this cycle:
   ([plan 18](plans/18-season-usage-model.md)).
 
   Against the naive draft heuristic it improves within-position ordering at RB
-  (+0.0218 Spearman), TE (+0.0284) and WR (+0.0127), improves top-N hit rate at all
-  four positions, and cuts MAE 12% on receiving touchdowns and interceptions — the
-  noisy rates where shrinking to a positional baseline is most of the edge. It does
-  **not** improve yardage, and it makes QB ordering slightly worse. It abstains on
-  42% of rostered players, all 1,497 rookie rows included.
+  (+0.0218 Spearman), TE (+0.0295) and WR (+0.0106), and cuts MAE 10-13% on receiving
+  touchdowns and interceptions — the noisy rates where shrinking to a positional
+  baseline is most of the edge. It does **not** improve yardage, it makes QB ordering
+  slightly worse, and top-N hit rate is a wash.
+
+  **The rookie arm ships.** Draft capital is a far stronger signal than plan 18
+  assumed: 87.9% of drafted rookies play against 21.2% of undrafted, and pick number
+  correlates −0.57 to −0.60 with the volume that matters per position. On the
+  walk-forward it orders rookies within position at ρ ≈ 0.61 where a projection
+  carrying no draft information manages ~0, and roughly halves MAE. Coverage went
+  57.8% → 80.4%. It needed no new data pull — `rosters_weekly.draft_number` was
+  already in the feature frame, and `load_draft_picks` would have been the wrong
+  source anyway: for **2026 it carries no real `gsis_id` at all**, so the join would
+  have fitted on history and returned nothing for the season that needs it.
 
   **It is deliberately not in `WEIGHTS`.** The comparison that would justify wiring
   it in — the four-source blend with and without it — cannot be run on any past
@@ -254,7 +263,7 @@ is meant to be used this way: every `<year>_<Team>_season` article carries
 
 | Issue | Location |
 |---|---|
-| Test coverage is thin in the places that matter most. `tests/` covers paths, config, season/week derivation, the scoring registry, per-slot scoring, the blend primitives, the store, the usage layer's leakage guarantee and the draft board page's derivations, and the usage layer's season head (409 tests, no network), including a guard that the notebook never re-defines the shared projection functions. Nothing covers the scrapers, the Sheets renderer, `analytic_utils`, `luck_index`, or `simulation_utils`. | `tests/` |
+| Test coverage is thin in the places that matter most. `tests/` covers paths, config, season/week derivation, the scoring registry, per-slot scoring, the blend primitives, the store, the usage layer's leakage guarantee and the draft board page's derivations, and the usage layer's season head (422 tests, no network), including a guard that the notebook never re-defines the shared projection functions. Nothing covers the scrapers, the Sheets renderer, `analytic_utils`, `luck_index`, or `simulation_utils`. | `tests/` |
 | No retry/backoff on any HTTP call. Four bare `except:` blocks remain — `populateGoogleSheet.py`'s is gone. A global `warnings.filterwarnings("ignore")` in `fetch_utils.py:16` silences every warning process-wide; `Scripts.scoring` and `Scripts.projection_utils` each force their own filter past it, which is a workaround rather than a fix. → [plan 06](plans/06-performance.md) | repo-wide |
 | `build_league_frame` calls `fetch_league`, then `get_ply_stats_by_matchup` calls it again — ~1s of duplicated ESPN round-trip per league, ~12% of a pre-season refresh. Fixing it means changing that function's signature from ids to a `League`. → [plan 06](plans/06-performance.md) | `equivalence.py`, `scrape_player_stats.py:463` |
 | `oauth2client==4.1.3` is end-of-life upstream and is only needed for Sheets auth. A Google auth change would mean migrating to `google-auth` mid-season, so it is worth doing before the season. → [plan 14](plans/14-thin-google-sheets.md) step 2.3 | `populateGoogleSheet.py`, `requirements.txt` |
