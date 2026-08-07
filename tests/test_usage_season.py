@@ -52,7 +52,7 @@ def trained_model(**overrides):
     games = {
         "WR": sn.VolumeFit(
             position="WR", target="games", intercept=0.0,
-            coefficients={"p1_games": 1.0, "p1_weeks_on_reserve": 0.0,
+            coefficients={"p1_availability": 1.0, "p1_weeks_on_reserve": 0.0,
                           "team_changed": 0.0},
             n=100, r2=0.2),
     }
@@ -74,12 +74,13 @@ def test_every_modelled_stat_is_a_volume_times_a_rate():
 
 
 def test_a_prediction_is_games_times_volume_times_rate():
-    frame = feature_rows([{"p1_games": 16, "p1_targets_pg": 8.0,
+    """Expected games is a share of the slate: availability 1.0 x 17 games."""
+    frame = feature_rows([{"p1_availability": 1.0, "p1_targets_pg": 8.0,
                            "p1_yards_per_target": 8.5}])
     out = trained_model().predict(frame)
-    assert out["expected_games"][0] == pytest.approx(16.0)
+    assert out["expected_games"][0] == pytest.approx(17.0)
     assert out["pred_targets_pg"][0] == pytest.approx(8.0)
-    assert out["USG_receivingYards"][0] == pytest.approx(16 * 8.0 * 8.5)
+    assert out["USG_receivingYards"][0] == pytest.approx(17 * 8.0 * 8.5)
 
 
 def test_receptions_and_yards_share_one_volume_term():
@@ -142,20 +143,24 @@ def test_kickers_and_defences_are_outside_the_modelled_positions():
 # --- expected games ------------------------------------------------------
 
 def test_expected_games_cannot_exceed_the_slate():
+    """The share is clipped to 1.0 before it is multiplied up, so the bound holds
+    whatever slate is passed rather than only at the hardcoded 18."""
     model = trained_model(games={
         "WR": sn.VolumeFit(position="WR", target="games", intercept=40.0,
-                           coefficients={"p1_games": 0.0,
+                           coefficients={"p1_availability": 0.0,
                                          "p1_weeks_on_reserve": 0.0,
                                          "team_changed": 0.0},
                            n=100, r2=0.1)})
     out = model.predict(feature_rows([{}]))
-    assert out["expected_games"][0] == pytest.approx(18.0)
+    assert out["expected_games"][0] == pytest.approx(sn.DEFAULT_TARGET_SLATE)
+    out16 = model.predict(feature_rows([{}]), target_slate=16.0)
+    assert out16["expected_games"][0] == pytest.approx(16.0)
 
 
 def test_expected_games_cannot_be_negative():
     model = trained_model(games={
         "WR": sn.VolumeFit(position="WR", target="games", intercept=-5.0,
-                           coefficients={"p1_games": 0.0,
+                           coefficients={"p1_availability": 0.0,
                                          "p1_weeks_on_reserve": 0.0,
                                          "team_changed": 0.0},
                            n=100, r2=0.1)})
@@ -169,14 +174,37 @@ def test_a_position_with_no_games_fit_falls_back_to_its_mean():
     assert out["expected_games"][0] == pytest.approx(15.0)
 
 
-def test_availability_is_not_a_games_regressor():
-    """It is games_played / games_available, so it is collinear with p1_games.
-    Fitting both gave RB +1.056 on games against -10.160 on availability -- offsetting
-    coefficients that cannot be read and will not transfer.
+def test_availability_and_raw_games_are_never_both_regressors():
+    """Availability is games_played / games_available, so the two are collinear.
+    Fitting both gave RB +1.056 on games against -10.160 on availability --
+    offsetting coefficients that cannot be read and will not transfer.
+
+    v1.1.0 swapped which one is used rather than adding the second: the head works
+    in share of slate, so `p1_availability` is in and `p1_games` is out. The
+    invariant that mattered was never "use games", it was "never use both".
     """
-    assert "p1_availability" not in sn.GAMES_REGRESSORS
-    assert "p1_games" in sn.GAMES_REGRESSORS
+    assert "p1_availability" in sn.GAMES_REGRESSORS
+    assert "p1_games" not in sn.GAMES_REGRESSORS
     assert "p1_weeks_on_reserve" in sn.GAMES_REGRESSORS
+
+
+def test_the_games_head_is_scale_free():
+    """The point of the share form: a 16-game season and a 17-game season describe
+    the same player identically. Fitted in raw games they did not, and 45% of the
+    training range predates the 17-game slate."""
+    full16 = feature_rows([{"p1_games": 16, "p1_availability": 1.0}])
+    full17 = feature_rows([{"p1_games": 17, "p1_availability": 1.0}])
+    model = trained_model()
+    assert (model.predict(full16)["expected_games"][0]
+            == pytest.approx(model.predict(full17)["expected_games"][0]))
+
+
+def test_the_projected_slate_scales_the_answer():
+    frame = feature_rows([{"p1_availability": 1.0}])
+    model = trained_model()
+    at17 = model.predict(frame, target_slate=17.0)["expected_games"][0]
+    at16 = model.predict(frame, target_slate=16.0)["expected_games"][0]
+    assert at17 / at16 == pytest.approx(17.0 / 16.0)
 
 
 # --- fitting -------------------------------------------------------------
@@ -349,6 +377,7 @@ def rookie_rows(n=120, seed=1, position="WR"):
         "p2_targets_pg": [None] * n,
         "y_targets_pg": volume,
         "y_games": [12.0 if p is not None else 1.0 for p in picks],
+        "y_games_available": [17.0] * n,
         "y_tot_receiving_yards": [v * 100 for v in volume],
         "y_tot_targets": [v * 14 for v in volume],
         "y_tot_receptions": [v * 9 for v in volume],
@@ -555,3 +584,50 @@ def test_declining_a_position_leaves_the_others_alone():
     assert out["usg_arm"].to_list() == ["abstain", "veteran"]
     assert out["USG_receivingYards"][0] is None
     assert out["USG_receivingYards"][1] is not None
+
+
+# --- the slate normalisation (v1.1.0) ------------------------------------
+
+def test_a_rookie_who_never_played_counts_as_zero_not_as_missing():
+    """Caught while fixing the era bias, and it is the trap that version of the
+    change walked into.
+
+    The bins are a mean over *every* rookie, and 78.8% of undrafted rookies never
+    appear. Those players have no outcome row and therefore no measured slate, so a
+    share fit that requires a denominator drops them -- which silently reweights the
+    bin onto the minority who played. It took the undrafted bin from 1.1 games to
+    5.8, enough to project a camp body as a third of a season, and nothing about the
+    fitted table looked wrong."""
+    # The never-played rows carry a *null* slate, which is how they really arrive:
+    # no outcome row means no measured denominator either.
+    played = {"y_games": 12.0, "y_games_available": 17.0}
+    never = {"y_games": 0.0, "y_games_available": None}
+    rows = pl.DataFrame([
+        {"gsis_id": f"d{i}", "position": "WR", "is_rookie": True,
+         "draft_number": 10, "team_changed": None, "p1_games": None, **played}
+        for i in range(10)
+    ] + [
+        {"gsis_id": f"u{i}", "position": "WR", "is_rookie": True,
+         "draft_number": None, "team_changed": None, "p1_games": None, **never}
+        for i in range(20)
+    ], schema_overrides={"draft_number": pl.Int32})
+
+    bins = sn._fit_rookie_games(rows, "WR")
+    undrafted = bins.get(sn.bin_label(None))
+    assert undrafted is not None, "the undrafted bin must exist, not be dropped"
+    assert undrafted == pytest.approx(0.0), (
+        "a rookie who never played is a zero, not an absent observation")
+
+
+def test_the_share_is_stored_not_the_games():
+    """`rookie_games` and the games fits are on a 0-1 scale, so a reader who assumes
+    games gets an obviously wrong number rather than a subtly wrong one."""
+    rows = pl.DataFrame([
+        {"gsis_id": f"d{i}", "position": "WR", "is_rookie": True,
+         "draft_number": 10, "team_changed": None, "p1_games": None,
+         "y_games": 17.0, "y_games_available": 17.0}
+        for i in range(sn.MIN_ROOKIE_FIT_ROWS)
+    ], schema_overrides={"draft_number": pl.Int32})
+    bins = sn._fit_rookie_games(rows, "WR")
+    assert all(0.0 <= v <= 1.0 for v in bins.values())
+    assert bins[sn.bin_label((1, 32))] == pytest.approx(1.0)

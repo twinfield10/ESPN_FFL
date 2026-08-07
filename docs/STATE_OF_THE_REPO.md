@@ -227,6 +227,22 @@ Fixed this cycle:
   season, because FantasyPros' URLs take no season parameter and no historical
   pre-season blend survives. The 2026 board is the first chance to answer it.
 
+  **The expected-games heads work in share of the slate, not games** (v1.1.0). The
+  NFL went 16 games to 17 in 2021 and 45% of the training range predates it, so a fit
+  in raw games learned a blend of two eras — players who managed 16+ the prior year
+  average 13.06 next season in the 16-game era against 13.64 in the 17-game era. On
+  the veteran arm the correction is small (+0.066 games), because the old fit had the
+  slate on both sides and largely self-corrected; on the **rookie bins**, which are a
+  plain mean with no predictor to compensate, it lands properly — rookie ordering
+  improved from ρ ≈ 0.61 to ρ ≈ 0.64 and rookie MAE fell 4–8%. No metric regressed.
+
+  Fixing it nearly introduced a worse bug: a share needs a denominator, and a rookie
+  who never played has no outcome row and so no measured slate. Filtering those rows
+  out took the undrafted bin from **1.1 games to 5.8** — projecting a camp body as a
+  third of a season — while every printed table still looked reasonable. A missing
+  slate is now filled, never filtered. Same lesson as the `0.0` one below: **a player
+  who never appeared is a zero, not an absent observation.**
+
   A scheduling fact worth knowing for the draft: **nflreadr will not serve 2026
   injuries, snap counts or depth charts at all** while `most_recent_season()` is
   2025, though it does serve the 2026 roster and updates it daily. So a pre-season

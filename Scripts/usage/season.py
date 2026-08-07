@@ -40,6 +40,7 @@ import numpy as np
 import polars as pl
 
 from Scripts.paths import DATA_DIR
+from Scripts.usage import context as ctx
 from Scripts.usage import features as ft
 
 #: Prefix the model's output carries into the blend, beside ``ESPN_``/``FP_``/
@@ -99,15 +100,44 @@ VETERAN_SITUATIONAL_REJECTED: Tuple[str, ...] = ("coach_volume", "staff_continui
 #: prior games predict next season at r = +0.663 over the whole pool but only +0.343
 #: among players who managed 8+ games, so the relationship is real but far from
 #: one-to-one. See plan 18 §Expected games played.
-#: ``p1_availability`` is deliberately absent: it is ``games_played /
-#: games_available``, so it is collinear with ``p1_games`` up to the 16-to-17-game
-#: schedule change. Fitting both gave offsetting nonsense -- RB came out at +1.056
-#: on games and −10.160 on availability, QB at +0.052 and +8.620 -- coefficients
-#: that cannot be read and will not transfer. ``p1_weeks_on_reserve`` replaces it
-#: and is not mechanically tied to appearances: it separates "hurt" from "healthy
-#: and benched", and correlates −0.462 with next season's games played.
-GAMES_REGRESSORS: Tuple[str, ...] = ("p1_games", "p1_weeks_on_reserve",
+#:
+#: **The head works in share-of-slate, not in games** (v1.1.0). Both sides are
+#: divided by the number of games that season actually offered: the target is
+#: ``y_games / y_games_available`` and the regressor is ``p1_availability``, with
+#: :meth:`SeasonUsageModel.expected_games` multiplying back up by the slate being
+#: projected.
+#:
+#: The reason is a measured bias. The NFL went from 16 games to 17 in 2021, and 45%
+#: of the training rows predate that. Fitted in raw games, the head learns a blend of
+#: the two eras and projects a 17-game season too low: among players who had managed
+#: 16+ the previous year, next-season games average **13.06** in the 16-game era
+#: against **13.64** in the 17-game era, so a 2026 projection inherited roughly a
+#: quarter-game of downward bias for no reason other than which seasons happened to
+#: be in the sample. In share terms those two eras agree, which is what makes the
+#: normalisation the fix rather than a fudge.
+#:
+#: An earlier revision recorded ``p1_availability`` as "deliberately absent" because
+#: fitting it *alongside* ``p1_games`` gave offsetting nonsense -- RB +1.056 on games
+#: against −10.160 on availability, QB +0.052 against +8.620. That objection was
+#: about collinearity between the two, and it still holds: availability is used here
+#: **instead of** raw games, never with it. The same note also observed that the two
+#: are collinear "up to the 16-to-17-game schedule change" -- which named this bias
+#: exactly, since that residual difference is the whole of it.
+#:
+#: ``p1_weeks_on_reserve`` stays in games rather than share: it is a count of weeks
+#: unavailable, not an appearance rate, so it is not mechanically tied to the slate.
+#: It separates "hurt" from "healthy and benched" and correlates −0.462 with next
+#: season's games played.
+GAMES_REGRESSORS: Tuple[str, ...] = ("p1_availability", "p1_weeks_on_reserve",
                                      "team_changed")
+
+#: Games the season being projected offers, when the data cannot say.
+#:
+#: The head predicts a *share* of the slate, so something has to supply the slate.
+#: For a past season it is measured from ``player_weeks``; for the season being
+#: drafted it cannot be, because nflreadr serves no future schedule. 17 has been the
+#: slate since 2021.
+DEFAULT_TARGET_SLATE: float = 17.0
 
 #: Regressors for the rookie arm.
 #:
@@ -233,7 +263,12 @@ ROOKIE_GAMES_BINS: Tuple[Optional[Tuple[int, int]], ...] = (
 MIN_RATE_DENOMINATOR = 50.0
 
 #: Model version, bumped when the structure changes rather than when it is refitted.
-MODEL_VERSION = "1.0.0"
+#:
+#: 1.1.0 -- the two expected-games heads predict a share of the slate rather than a
+#: count of games, removing the 16-to-17-game bias described in
+#: :data:`GAMES_REGRESSORS`. The coefficients are on a different scale from 1.0.0's
+#: and are not interchangeable with them, which is what the bump is for.
+MODEL_VERSION = "1.1.0"
 
 #: Positions the model declines to project, whatever features it has for them.
 #:
@@ -332,15 +367,23 @@ class SeasonUsageModel:
             "coach_volume": column(coach_column) if coach_column else pl.lit(0.0),
         }
 
-    def rookie_expected_games(self, frame: pl.DataFrame) -> pl.Expr:
+    def rookie_expected_games(
+            self, frame: pl.DataFrame,
+            target_slate: float = DEFAULT_TARGET_SLATE) -> pl.Expr:
         """Games played for a rookie, from his draft-capital bin's mean.
+
+        The bins hold a **share of the slate**, so the share is multiplied back up
+        by the season being projected -- the same normalisation the veteran head
+        uses, and for the same measured reason.
 
         Args:
             frame: Feature frame carrying ``position`` and ``draft_number``.
+            target_slate: Games the projected season offers.
 
         Returns:
             pl.Expr: Expected games, null for a position with no rookie table.
         """
+        slate = float(target_slate) if target_slate else DEFAULT_TARGET_SLATE
         pick = (pl.col("draft_number").cast(pl.Float64)
                 if "draft_number" in frame.columns
                 else pl.lit(None, dtype=pl.Float64))
@@ -358,7 +401,7 @@ class SeasonUsageModel:
                     pl.lit(float(games))).otherwise(per_position)
             expression = pl.when(pl.col("position") == position).then(
                 per_position).otherwise(expression)
-        return expression
+        return expression.clip(lower_bound=0.0, upper_bound=1.0) * slate
 
     def _rookie_linear(self, frame: pl.DataFrame, fits: Dict, key,
                        target: Optional[str] = None) -> pl.Expr:
@@ -389,26 +432,42 @@ class SeasonUsageModel:
 
     # --- prediction ------------------------------------------------------
 
-    def expected_games(self, frame: pl.DataFrame) -> pl.Expr:
+    def expected_games(self, frame: pl.DataFrame,
+                       target_slate: float = DEFAULT_TARGET_SLATE) -> pl.Expr:
         """Games played, predicted from the player's own prior availability.
 
-        Falls back to the position's mean where a position has no fit, and to the
-        overall mean where it has neither -- both of which are only reachable for a
-        position with almost no training rows.
+        The head predicts a **share of the slate** (see :data:`GAMES_REGRESSORS`),
+        so the share is multiplied back up by the games the projected season offers.
+        Fitting in raw games instead let the 16-game seasons in the training range
+        pull a 17-game projection down by about a quarter of a game.
+
+        Falls back to the position's mean share where a position has no fit, and to
+        the overall mean where it has neither -- both of which are only reachable for
+        a position with almost no training rows.
 
         Args:
             frame: Feature frame from :func:`Scripts.usage.features.season_features`.
+            target_slate: Games the projected season offers. Defaults to
+                :data:`DEFAULT_TARGET_SLATE`; pass the measured slate when
+                backtesting a season that really had a different one.
 
         Returns:
             pl.Expr: Expected games played, clipped to a plausible slate.
         """
+        # `games_by_position` is stored in games, so the fallback converts to a share
+        # before the multiply below turns it back. Storing it in games keeps the
+        # printed summary readable and comparable with the earlier version.
+        slate = float(target_slate) if target_slate else DEFAULT_TARGET_SLATE
         fallback = float(np.mean(list(self.games_by_position.values()))
                          if self.games_by_position else 16.0)
+        shares = {position: games / slate
+                  for position, games in self.games_by_position.items()}
         expression = pl.col("position").replace_strict(
-            self.games_by_position, default=fallback, return_dtype=pl.Float64)
+            shares, default=fallback / slate, return_dtype=pl.Float64)
 
         values = {
-            "p1_games": pl.col(f"{ft.LAG1_PREFIX}games").cast(pl.Float64),
+            "p1_availability": pl.col(f"{ft.LAG1_PREFIX}availability")
+            .cast(pl.Float64),
             "p1_weeks_on_reserve": pl.col(f"{ft.LAG1_PREFIX}weeks_on_reserve")
             .cast(pl.Float64),
             "team_changed": pl.col("team_changed").cast(pl.Float64),
@@ -422,9 +481,12 @@ class SeasonUsageModel:
                 terms).otherwise(expression)
 
         # A player cannot play more than the slate, and a negative prediction is not
-        # a prediction. 18 rather than 17 because a team's weeks, not its games, is
-        # what the feature counts when a season runs long.
-        return expression.clip(lower_bound=0.0, upper_bound=18.0)
+        # a prediction. The share is clipped before the multiply so the bound holds
+        # whatever slate is passed; 18 rather than 17 because a team's weeks, not its
+        # games, is what the feature counts when a season runs long -- a traded
+        # player really can appear in all 18.
+        return (expression.clip(lower_bound=0.0, upper_bound=1.0) * slate).clip(
+            lower_bound=0.0, upper_bound=18.0)
 
     @staticmethod
     def _veteran_terms(frame: pl.DataFrame, target: str, lag1: str,
@@ -486,7 +548,8 @@ class SeasonUsageModel:
         return expression
 
     def predict(self, frame: pl.DataFrame, rookies: bool = True,
-                abstain_positions: Optional[Sequence[str]] = None) -> pl.DataFrame:
+                abstain_positions: Optional[Sequence[str]] = None,
+                target_slate: float = DEFAULT_TARGET_SLATE) -> pl.DataFrame:
         """Attach ``USG_<stat>`` season totals, plus the terms behind them.
 
         The intermediate columns are returned on purpose. Plan 18 asks for
@@ -509,6 +572,10 @@ class SeasonUsageModel:
                 :data:`ABSTAIN_POSITIONS`. Pass ``()`` to project every position,
                 which is what the backtest needs in order to keep measuring the
                 quarterback arm that default exists because of.
+            target_slate: Games the projected season offers. Both games heads
+                predict a share of the slate, so this converts back to games.
+                Defaults to :data:`DEFAULT_TARGET_SLATE`; the backtest passes each
+                fold's measured slate so a 16-game season is scored as one.
 
         Returns:
             pl.DataFrame: ``frame`` plus ``expected_games``, ``pred_<volume>`` per
@@ -532,8 +599,8 @@ class SeasonUsageModel:
 
         out = frame.with_columns(
             pl.when(use_rookie)
-            .then(self.rookie_expected_games(frame))
-            .otherwise(self.expected_games(frame))
+            .then(self.rookie_expected_games(frame, target_slate=target_slate))
+            .otherwise(self.expected_games(frame, target_slate=target_slate))
             .clip(lower_bound=0.0, upper_bound=18.0)
             .alias("expected_games"),
             # A declined position is an abstention like any other, so it reaches the
@@ -599,17 +666,21 @@ class SeasonUsageModel:
             f"  version {self.version}, trained on "
             f"{min(self.train_seasons)}-{max(self.train_seasons)}",
             "",
-            "  expected games (fitted, not a shrinkage constant)",
-            f"  {'position':<10}{'n':>7}{'const':>9}{'p1_gms':>9}"
-            f"{'reserve':>10}{'moved':>8}{'R2':>8}",
+            "  expected games, as a share of the slate (fitted, not a constant)",
+            f"  {'position':<10}{'n':>7}{'const':>9}{'p1_avail':>10}"
+            f"{'reserve':>10}{'moved':>8}{'R2':>8}{'@17gms':>9}",
         ]
         for position, fit in sorted(self.games.items()):
             c = fit.coefficients
+            # What a fully-available player gets, in games, which is the number
+            # anyone reading this table actually wants.
+            full = ((fit.intercept + c.get("p1_availability", 0.0))
+                    * DEFAULT_TARGET_SLATE)
             lines.append(
                 f"  {position:<10}{fit.n:>7}{fit.intercept:>9.3f}"
-                f"{c.get('p1_games', 0):>9.3f}"
+                f"{c.get('p1_availability', 0):>10.3f}"
                 f"{c.get('p1_weeks_on_reserve', 0):>10.3f}"
-                f"{c.get('team_changed', 0):>8.3f}{fit.r2:>8.4f}")
+                f"{c.get('team_changed', 0):>8.3f}{fit.r2:>8.4f}{full:>9.2f}")
         lines += [
             "",
             "  volume",
@@ -648,13 +719,17 @@ class SeasonUsageModel:
                     f"{c.get('undrafted', 0):>11.3f}{rookie_fit.r2:>8.4f}")
 
         if self.rookie_games:
-            lines += ["", "  rookie games played, mean by draft-capital bin"]
+            lines += ["", f"  rookie games played by draft-capital bin, shown at a "
+                          f"{DEFAULT_TARGET_SLATE:.0f}-game slate"]
             bins = [bin_label(b) for b in ROOKIE_GAMES_BINS]
             lines.append("  " + f"{'position':<10}"
                          + "".join(f"{name:>12}" for name in bins))
             for position, by_bin in sorted(self.rookie_games.items()):
+                # Stored as a share; rendered in games, which is what the plan's
+                # table records and what a reader can sanity-check.
                 cells = "".join(
-                    (f"{by_bin[name]:>12.1f}" if name in by_bin else f"{'—':>12}")
+                    (f"{by_bin[name] * DEFAULT_TARGET_SLATE:>12.1f}"
+                     if name in by_bin else f"{'—':>12}")
                     for name in bins)
                 lines.append(f"  {position:<10}{cells}")
 
@@ -832,30 +907,42 @@ def _fit_games(frame: pl.DataFrame, position: str) -> Optional[VolumeFit]:
     the population the prediction is made for. Rookies have no prior availability at
     all and the model abstains on them entirely.
 
+    **Fitted in share of slate, both sides.** The outcome is ``y_games /
+    y_games_available`` and the regressor is ``p1_availability``, so a player who
+    made all 16 in 2019 and one who made all 17 in 2023 are the same observation
+    rather than two different ones. See :data:`GAMES_REGRESSORS` for the measured
+    bias this removes.
+
     Args:
-        frame: Training rows carrying ``p1_games``, ``p1_availability`` and
-            ``y_games``.
+        frame: Training rows carrying ``p1_availability``, ``y_games`` and
+            ``y_games_available``.
         position: Position to fit.
 
     Returns:
         VolumeFit | None: None below :data:`MIN_FIT_ROWS`.
     """
-    lag_games = f"{ft.LAG1_PREFIX}games"
+    lag_availability = f"{ft.LAG1_PREFIX}availability"
     lag_reserve = f"{ft.LAG1_PREFIX}weeks_on_reserve"
-    if any(c not in frame.columns for c in (lag_games, "y_games")):
+    if any(c not in frame.columns
+           for c in (lag_availability, "y_games", "y_games_available")):
         return None
 
     rows = frame.filter(
         (pl.col("position") == position)
         & pl.col("y_games").is_not_null()
-        & pl.col(lag_games).is_not_null()
+        & pl.col(lag_availability).is_not_null()
+        # A zero slate would divide the outcome by nothing. It cannot arise from
+        # `team_games`, which counts weeks a team really appeared, but the guard is
+        # cheaper than the silent infinity it prevents.
+        & (pl.col("y_games_available").cast(pl.Float64) > 0)
     ).select(
-        pl.col(lag_games).cast(pl.Float64).alias("p1_games"),
+        pl.col(lag_availability).cast(pl.Float64).alias("p1_availability"),
         (pl.col(lag_reserve).cast(pl.Float64).fill_null(0.0)
          if lag_reserve in frame.columns
          else pl.lit(0.0)).alias("p1_weeks_on_reserve"),
         pl.col("team_changed").cast(pl.Float64).fill_null(0.0).alias("team_changed"),
-        pl.col("y_games").cast(pl.Float64).alias("y"),
+        (pl.col("y_games").cast(pl.Float64)
+         / pl.col("y_games_available").cast(pl.Float64)).alias("y"),
     ).drop_nulls()
 
     return _least_squares(rows, GAMES_REGRESSORS, position, "games")
@@ -974,22 +1061,41 @@ def _fit_rookie_games(frame: pl.DataFrame, position: str) -> Dict[str, float]:
         frame: Training rows.
         position: Position to summarise.
 
+    Stored as a **share of the slate**, like the veteran head and for the same
+    reason: 45% of the training rows come from 16-game seasons, so a bin mean taken
+    in raw games projects a 17-game season low. See :data:`GAMES_REGRESSORS`.
+
     Returns:
-        dict: Bin label to mean games. Empty when there are too few rookie rows.
+        dict: Bin label to mean share of the slate. Empty when there are too few
+        rookie rows.
     """
-    if "y_games" not in frame.columns:
+    if any(c not in frame.columns for c in ("y_games", "y_games_available")):
         return {}
     rows = _rookie_rows(frame, position)
     if rows.height < MIN_ROOKIE_FIT_ROWS:
         return {}
 
+    # A missing slate is filled, never filtered. A rookie who never appeared has no
+    # outcome row and therefore no measured denominator, and dropping him would
+    # reweight the bin onto the minority who played -- 78.8% of undrafted rookies are
+    # in that group, and it moved the undrafted bin from 1.1 games to 5.8. The rows'
+    # own maximum is the season's slate, since every player shares it.
+    slate = rows.select(
+        pl.col("y_games_available").cast(pl.Float64).max()).item()
+    rows = rows.with_columns(
+        pl.col("y_games_available").cast(pl.Float64)
+        .fill_null(float(slate or DEFAULT_TARGET_SLATE))
+        .alias("y_games_available"))
+
     pick = (pl.col("draft_number").cast(pl.Float64)
             if "draft_number" in rows.columns
             else pl.lit(None, dtype=pl.Float64))
     grouped = (
-        rows.with_columns(draft_bin(pick).alias("bin"))
+        rows.filter(pl.col("y_games_available").cast(pl.Float64) > 0)
+        .with_columns(draft_bin(pick).alias("bin"))
         .group_by("bin")
-        .agg(pl.col("y_games").cast(pl.Float64).fill_null(0.0).mean().alias("games"),
+        .agg((pl.col("y_games").cast(pl.Float64).fill_null(0.0)
+              / pl.col("y_games_available").cast(pl.Float64)).mean().alias("games"),
              pl.len().alias("n"))
         # A bin with almost nobody in it is noise, and its mean would be applied to
         # every rookie who lands there. Dropped rather than trusted; the fallback is
@@ -1085,7 +1191,34 @@ def training_frame(seasons: Sequence[int], history_start: int,
                                     for c in (num, den)})
               if f"tot_{column}" in totals.columns],
         )
-        frames.append(features.join(outcome, on="gsis_id", how="left"))
+
+        # The slate the outcome season actually offered, which is the denominator
+        # that puts a 16-game and a 17-game season on one scale. Taken from
+        # `season_availability` rather than from `team_games` directly, because it
+        # already resolves the traded player -- his denominator is the larger of his
+        # two teams' slates, and a player who moved mid-season can legitimately
+        # appear in all 18 weeks when neither team's bye fell inside his tenure.
+        availability = ctx.season_availability([season], weekly).select(
+            "gsis_id", pl.col("games_available").alias("y_games_available"))
+        outcome = outcome.join(availability, on="gsis_id", how="left")
+
+        joined = features.join(outcome, on="gsis_id", how="left")
+
+        # A player who never appeared has no availability row and no outcome row at
+        # all, and he is not missing data -- he is a zero. The rookie bins are a mean
+        # over *every* rookie including the majority who never play (78.8% of
+        # undrafted are in that group), so leaving him without a denominator is not a
+        # rounding error: it took the undrafted bin from 1.1 games to 5.8 and would
+        # have projected a camp body as a third of a season. Filled after the join,
+        # because that is where those rows first exist.
+        season_slate = ctx.team_games(weekly).select(
+            pl.col("team_games").cast(pl.Float64).max()).item()
+        joined = joined.with_columns(
+            pl.col("y_games_available").cast(pl.Float64)
+            .fill_null(float(season_slate or DEFAULT_TARGET_SLATE))
+            .alias("y_games_available"))
+
+        frames.append(joined)
 
     if not frames:
         return pl.DataFrame()

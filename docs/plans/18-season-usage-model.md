@@ -241,12 +241,14 @@ shift parameter did not rescue it: the best shift ranged 0 to 60 by position, bo
 at most 0.01 R², and still put pick 1 at 15.9. Replaced with a bin mean over
 draft-capital groups, which cannot extrapolate past what rookies actually did:
 
+Stored as a share of the slate since v1.1.0, shown here at 17 games:
+
 | Pos | 1–32 | 33–64 | 65–128 | 129–262 | undrafted |
 |---|---|---|---|---|---|
-| QB | 11.5 | — | 2.3 | 2.7 | 0.5 |
-| RB | 13.3 | 12.0 | 11.8 | 7.8 | 1.7 |
-| TE | 14.8 | 11.9 | 8.9 | 5.6 | 0.8 |
-| WR | 14.0 | 12.9 | 10.5 | 7.2 | 1.0 |
+| QB | 11.8 | — | 2.4 | 2.8 | 0.6 |
+| RB | 13.8 | 12.5 | 12.2 | 8.0 | 1.8 |
+| TE | 15.3 | 12.3 | 9.1 | 5.7 | 0.8 |
+| WR | 14.3 | 13.3 | 10.8 | 7.4 | 1.0 |
 
 Volume keeps the log fit, where the relationship really is monotone.
 
@@ -390,21 +392,77 @@ three where MAE regressed. A defensible v1.1 would abstain for QB.
 unprojected is players with neither a prior season nor rookie status — a second-year
 player who never appeared, mostly — and the blend's absent-source path handles them.
 
+### The 16-to-17-game bias, found and removed — 2026-08-07 (v1.1.0)
+
+The head used to be fitted in raw games. The NFL slate went from 16 to 17 in 2021 and
+**45% of the training rows predate that**, so the fit learned a blend of two eras.
+Measured on players who had managed 16+ the prior year, next-season games average
+**13.06** in the 16-game era against **13.64** in the 17-game era.
+
+Both heads now predict a **share of the slate** — target `y_games / y_games_available`,
+regressor `p1_availability` — and multiply back up by the season being projected.
+A 16-game and a 17-game season then describe the same player identically. The
+backtest passes each fold's *measured* slate, so a 2019 fold is still scored against
+16 games.
+
+This also settles an old note. `GAMES_REGRESSORS` recorded `p1_availability` as
+"deliberately absent", because fitting it *alongside* `p1_games` gave offsetting
+nonsense (RB +1.056 on games against −10.160 on availability). That objection was
+about collinearity between the two and still holds — availability is used **instead
+of** raw games, never with it. The same note also observed the two were collinear
+"up to the 16-to-17-game schedule change", which named this bias exactly.
+
+**The effect is not where it was expected to be.** On the veteran arm it is small —
+2026 expected games move **+0.066 on average, +0.023 for fully-available players** —
+because the old fit had the slate on *both* sides and largely self-corrected. The
+rookie bins are a plain mean of games with no predictor to compensate, so the era mix
+passed straight through, and that is where the correction lands: every bin rises
+about 3%, and rookie ordering improves materially.
+
+| | before | after |
+|---|---|---|
+| rookie ρ, QB / RB / WR / TE | 0.599 / 0.616 / 0.612 / 0.618 | **0.655 / 0.643 / 0.634 / 0.626** |
+| rookie MAE, QB / RB / WR / TE | 26.0 / 21.5 / 14.3 / 10.2 | **24.0 / 20.5 / 13.5 / 9.5** |
+| receivingYards MAE vs naive | −3.7% | **−4.1%** |
+| receivingTouchdowns MAE | −12.5% | **−13.0%** |
+| rushingYards MAE | +0.9% | **+0.4%** |
+| TE top-12 hit rate | 0.500 | **0.512** |
+
+Veteran Spearman is unchanged to three decimals. No metric regressed.
+
+#### The trap inside the fix, which nearly shipped
+
+A share needs a denominator, and the first version filtered out rows that had none:
+`y_games_available > 0`. **A rookie who never played has no outcome row and therefore
+no measured slate**, so that filter silently dropped him — and 78.8% of undrafted
+rookies are in exactly that group. The undrafted bin went from **1.1 games to 5.8**,
+which would have projected a camp body as a third of a season, and every printed
+table still looked reasonable.
+
+A missing slate is now *filled*, never filtered — in `training_frame` where the season
+is known, and again defensively in `_fit_rookie_games` from the rows' own maximum. The
+distinction is the same one this repo keeps paying for: **a player who never appeared
+is a zero, not an absent observation.**
+
 ### The fitted expected-games head, and what it says
 
-| Pos | n | const | p1_games | reserve | team change | R² |
-|---|---|---|---|---|---|---|
-| QB | 468 | 3.269 | 0.643 | 0.235 | −2.272 | 0.437 |
-| RB | 958 | 4.087 | 0.555 | 0.198 | −1.150 | 0.191 |
-| TE | 731 | 4.593 | 0.534 | 0.151 | −0.649 | 0.224 |
-| WR | 1,333 | 4.828 | 0.535 | 0.161 | −1.691 | 0.189 |
+Coefficients are in **share of the slate** as of v1.1.0; the last column converts a
+fully-available player back to games at a 17-game season.
 
-**The slope on prior games comes out at 0.53–0.64, not 1.0** — the model estimates
-about 45% shrinkage rather than having it asserted, which is the same conclusion the
-r = +0.663 / +0.343 split argued for. Changing team costs 0.6 to 2.3 games. R² of
-0.19 for a skill position is the honest ceiling on this: **availability is mostly not
-predictable**, and the head's job is trimming the tail rather than differentiating
-the top, where every estimate lands within a game of 14.
+| Pos | n | const | p1_availability | reserve | team change | R² | @17 games |
+|---|---|---|---|---|---|---|---|
+| QB | 468 | 0.196 | 0.642 | 0.014 | −0.137 | 0.441 | 14.24 |
+| RB | 958 | 0.259 | 0.543 | 0.011 | −0.071 | 0.187 | 13.63 |
+| TE | 731 | 0.289 | 0.540 | 0.008 | −0.039 | 0.218 | 14.09 |
+| WR | 1,333 | 0.304 | 0.540 | 0.009 | −0.103 | 0.188 | 14.34 |
+
+**The slope on prior availability comes out at 0.54–0.64, not 1.0** — the model
+estimates about 45% shrinkage rather than having it asserted, which is the same
+conclusion the r = +0.663 / +0.343 split argued for. Changing team costs 0.7 to 2.3
+games at a 17-game slate. R² of 0.19 for a skill position is the honest ceiling on
+this: **availability is mostly not predictable**, and the head's job is trimming the
+tail rather than differentiating the top, where every estimate lands within a game
+of 14.
 
 Two things went wrong building this and both are worth recording:
 

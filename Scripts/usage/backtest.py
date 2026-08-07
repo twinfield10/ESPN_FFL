@@ -187,11 +187,22 @@ def run_season(test_season: int, history_start: int = HISTORY_START,
                    fitted_at=datetime.now().astimezone().isoformat(timespec="seconds"))
 
     test = sn.training_frame([test_season], history_start)
+
+    # The slate the *test* season really offered, not the one 2026 will. The games
+    # heads predict a share, so scoring a 2019 fold against 17 games would inflate
+    # every prediction by a game -- the mirror image of the bias the share
+    # normalisation removes. Measured from the fold's own data rather than assumed
+    # from the year, which keeps 2022's two 16-game teams correct.
+    slate = test.select(
+        pl.col("y_games_available").cast(pl.Float64).max()).item()
+    if not slate:
+        slate = sn.DEFAULT_TARGET_SLATE
+
     # Every position, including the ones shipped code declines. The backtest is what
     # decides whether an arm is worth having, so it has to keep measuring the arms
     # that lost -- `ABSTAIN_POSITIONS` exists because of the quarterback row in this
     # table, and honouring the default here would erase the evidence for it.
-    predicted = model.predict(test, abstain_positions=())
+    predicted = model.predict(test, abstain_positions=(), target_slate=slate)
 
     weights = scoring_weights(test_season, league_key)
 
