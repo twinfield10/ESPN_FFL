@@ -575,6 +575,8 @@ def load_usage_season(season: int) -> pd.DataFrame:
     # a string in that namespace is a trap waiting for the first caller that
     # assumes every `USG_` column is numeric.
     context = {"expected_games": "usg_expected_games",
+               "usg_evidence": "usg_evidence",
+               "usg_thin_evidence": "usg_thin_evidence",
                "games_sd": "usg_games_sd",
                "games_low": "usg_games_low",
                "games_high": "usg_games_high",

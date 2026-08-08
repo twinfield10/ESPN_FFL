@@ -42,6 +42,16 @@ arm is the clear win** — draft capital plus depth-chart position orders rookie
 ρ ≈ 0.64 where a projection carrying no such information manages ~0, on 1,497
 player-seasons the model previously said nothing about.
 
+**The board says when the model's evidence is thin.** `usg_evidence` names the
+conditions under which a projection orders players worse, chosen by measurement: a
+prior season under 8 games (+42% rank error), a team change (+32%) and bottom-quartile
+prior volume (+23%). Two obvious candidates were rejected by the same measurement --
+having only one prior season is no worse than two (-7%), and a **rookie orders 14%
+better** than the pool, so the intuitive version of this flag would have marked the
+model's strongest arm as its weakest. 27 of 162 draftable players carry a flag; DJ
+Moore, Wan'Dale Robinson and Kenneth Walker III -- three of the largest disagreements
+with ESPN -- are all team changes, while Justin Jefferson at ADP 12 is unflagged.
+
 **The usage model is adjusted by ESPN's estimated return date.**
 `Scripts/scrape_espn_injuries.py` pulls `site.api.espn.com`'s injury report, which
 carries a `returnDate` the fantasy API does not -- 152 of 152 non-active records have

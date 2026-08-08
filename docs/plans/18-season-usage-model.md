@@ -793,6 +793,48 @@ to 14.2%, which is arguably more honest given how correlated plan 03 measured th
 market sources to be. Not changed here; it is a separate decision and a visible board
 column.
 
+#### It says when its own evidence is thin
+
+`usg_evidence` and `usg_thin_evidence` on every board. `USG_PosRankDelta` otherwise
+reads the same whether the model is standing on nine seasons of stable usage or
+extrapolating from four games at a new team, and the difference matters most exactly
+where the disagreement is largest.
+
+**The conditions were chosen by measurement, and two obvious ones were rejected by
+it.** Median within-position rank error as a share of the position pool, 2019–2025
+walk-forward, baseline **0.096**:
+
+| condition | n | median | vs baseline | flagged |
+|---|---|---|---|---|
+| thin prior season (<8 games) | 1,330 | 0.137 | **+42%** | yes |
+| changed teams | 1,121 | 0.127 | **+32%** | yes |
+| low prior volume (bottom quartile) | 932 | 0.118 | **+23%** | yes |
+| no second prior season | 2,525 | 0.089 | −7% | no |
+| rookie arm | 1,497 | 0.083 | **−14%** | no |
+
+The last two are the reason for measuring rather than asserting. Both look like thin
+evidence and neither is: a player with one prior season is no worse than one with two,
+and a **rookie orders better than the pool** — which is the rookie arm's whole result
+(ρ ≈ 0.64 against ~0). The intuitive version of this flag would have marked the
+model's strongest arm as its weakest.
+
+On the 2026 board, 291 of 765 projected players carry a flag and 27 of 162 draftable
+ones do — it discriminates rather than blanket-warning. It lands where expected: DJ
+Moore, Wan'Dale Robinson and Kenneth Walker III, three of the largest disagreements,
+are all *changed teams*. **Justin Jefferson is unflagged**, so the model's fade on him
+at ADP 12 rests on full evidence, which makes it more credible rather than less.
+
+Two bugs found building it, both silent:
+
+- The label was assembled with an empty string for each non-firing reason, which
+  survives the concatenation and leaves `"thin prior season; ; "`. Nulls and
+  `ignore_nulls` do it properly.
+- **`low prior volume` never fired at all.** The quartile was taken over every row,
+  and rookies and abstentions carry no prior volume — filled to 0.0, they *are* the
+  bottom quartile, so the cut landed at 0.0 and the comparison was unsatisfiable. The
+  flag was simply absent rather than wrong, which a count check catches and a spot
+  check does not.
+
 #### It is adjusted by ESPN's estimated return date
 
 **The model cannot see a current injury and the other sources can.** nflreadr refuses

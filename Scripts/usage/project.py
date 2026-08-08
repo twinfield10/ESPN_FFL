@@ -64,7 +64,7 @@ HISTORY_START = 2016
 #: projection. These are diagnostics, not stats -- they carry no ``USG_`` prefix, so
 #: ``proj_to_score`` will not try to price them.
 CONTEXT_COLUMNS = ("expected_games", "games_sd", "games_low", "games_high",
-                   "usg_arm", "position",
+                   "usg_arm", "usg_evidence", "usg_thin_evidence", "position",
                    "pred_targets_pg", "pred_carries_pg", "pred_pass_attempts_pg")
 
 
@@ -156,6 +156,110 @@ def attach_espn_id(frame: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+#: Games in a prior season below which its rates are treated as thin.
+#:
+#: Eight, and it is the largest single error inflator this model has: on the
+#: 2019-2025 walk-forward, players whose prior season ran under 8 games ordered
+#: **42% worse** than the pool median, measured as within-position rank error as a
+#: share of the position pool.
+THIN_PRIOR_GAMES = 8
+
+#: Quantile of prior-season volume below which a projection is treated as thin.
+LOW_VOLUME_QUANTILE = 0.25
+
+#: What a thin-evidence flag is worth, measured rather than asserted.
+#:
+#: Median |rank error| as a share of the position pool, 2019-2025 walk-forward,
+#: baseline **0.096**:
+#:
+#: ===========================  ======  ========  ==========
+#: condition                         n    median    vs base
+#: thin prior season (<8 games)   1,330     0.137       +42%
+#: changed teams                  1,121     0.127       +32%
+#: low prior volume (bottom q)      932     0.118       +23%
+#: ---------------------------  ------  --------  ----------
+#: no second prior season         2,525     0.089        -7%
+#: rookie arm                     1,497     0.083       -14%
+#: ===========================  ======  ========  ==========
+#:
+#: The last two are the point of measuring. Both look like thin evidence and neither
+#: is: a rookie projected from draft capital orders **better** than the pool, which is
+#: the rookie arm's whole result (rho ~ 0.64 against ~0), and a player with only one
+#: prior season is no worse than one with two. Flagging them would have marked the
+#: model's strongest arm as its weakest.
+THIN_EVIDENCE_REASONS = ("thin prior season", "changed teams", "low prior volume")
+
+
+def attach_evidence(frame: pl.DataFrame) -> pl.DataFrame:
+    """Name the conditions under which this projection orders players worse.
+
+    ``USG_PosRankDelta`` reads the same whether the model is standing on nine
+    seasons of stable usage or extrapolating from four games at a new team. This
+    says which, in words, so the disagreement can be weighed at the point of
+    decision rather than taken flat.
+
+    Only the three conditions in :data:`THIN_EVIDENCE_REASONS` are flagged, because
+    only those measured. See that constant for the table.
+
+    Args:
+        frame: Prediction frame, after :meth:`SeasonUsageModel.predict`.
+
+    Returns:
+        pl.DataFrame: ``frame`` plus ``usg_evidence`` -- a semicolon-joined list of
+        reasons, empty where none apply -- and ``usg_thin_evidence``.
+    """
+    veteran = pl.col("usg_arm") == "veteran"
+
+    columns = [c for c in (f"{ft.LAG1_PREFIX}targets_pg",
+                           f"{ft.LAG1_PREFIX}carries_pg",
+                           f"{ft.LAG1_PREFIX}pass_attempts_pg")
+               if c in frame.columns]
+    volume = (pl.sum_horizontal([pl.col(c).fill_null(0.0) for c in columns])
+              if columns else pl.lit(0.0))
+
+    # The threshold is computed as its own column first. `quantile(...).over(...)` is
+    # not a window aggregation in polars and silently yields nulls, which made the
+    # comparison never fire -- the flag was simply absent rather than wrong, which is
+    # the kind of quiet failure a count check catches and a spot check does not.
+    scored = frame.with_columns(volume.alias("_volume"))
+    # Masked to veterans before the quantile. Rookies and abstentions carry no prior
+    # volume, which fills to 0.0 -- and there are enough of them that they *are* the
+    # bottom quartile, putting the cut at 0.0 and making the comparison unsatisfiable.
+    # The flag was silently never set.
+    scored = scored.with_columns(
+        pl.when(veteran).then(pl.col("_volume")).otherwise(None)
+        .quantile(LOW_VOLUME_QUANTILE).over("position").alias("_low_cut"))
+
+    reasons = {
+        # Rookies are excluded from all three. They have no prior season by
+        # definition, so every veteran test would fire on them -- and they order
+        # *better* than the pool, so flagging them would invert the meaning.
+        "thin prior season": veteran & (
+            pl.col(f"{ft.LAG1_PREFIX}games").fill_null(99) < THIN_PRIOR_GAMES),
+        "changed teams": veteran & pl.col("team_changed").fill_null(False),
+        "low prior volume": veteran & (pl.col("_volume") < pl.col("_low_cut")),
+    }
+
+    scored = scored.with_columns(
+        [expression.alias(f"_reason_{i}")
+         for i, expression in enumerate(reasons.values())])
+
+    # `None` rather than an empty string for a reason that does not apply, so
+    # `ignore_nulls` drops it outright. Empty strings survive the concat and leave
+    # "thin prior season; ; " behind, which then needs unpicking with regexes.
+    label = pl.concat_str(
+        [pl.when(pl.col(f"_reason_{i}")).then(pl.lit(name)).otherwise(None)
+         for i, name in enumerate(reasons)],
+        separator="; ", ignore_nulls=True)
+
+    return (scored.with_columns(
+        label.fill_null("").alias("usg_evidence"),
+        pl.any_horizontal([pl.col(f"_reason_{i}") for i in range(len(reasons))])
+        .alias("usg_thin_evidence"))
+        .drop(["_volume", "_low_cut"]
+              + [f"_reason_{i}" for i in range(len(reasons))]))
+
+
 def to_full_slate(frame: pl.DataFrame, columns: Sequence[str],
                   slate: float = sn.DEFAULT_TARGET_SLATE) -> pl.DataFrame:
     """Rescale the stat lines from expected games to a full healthy season.
@@ -241,6 +345,9 @@ def build(season: int, refit: bool = False,
 
     # And an interval on each stat line itself.
     predicted = model.stat_intervals(predicted)
+
+    # Which conditions, if any, make this projection order players worse.
+    predicted = attach_evidence(predicted)
 
     stat_columns = [f"{sn.USAGE_PREFIX}{stat}" for stat in sn.STAT_TERMS
                     if f"{sn.USAGE_PREFIX}{stat}" in predicted.columns]
