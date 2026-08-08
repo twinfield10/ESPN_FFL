@@ -386,6 +386,64 @@ agents — ESPN gives an unrostered player a `pro_team` of the literal string `"
 which otherwise gets its own RB1 and RB2 and a handcuff to a team that does not
 exist.
 
+### Vacated opportunity share — measured 2026-08-08, and it makes three
+
+Built to answer a specific critique: the model leans on last year's volume, and for a
+player who changed teams that volume was earned in a different offence. `team_changed`
+is one blunt coefficient. The proposed fix was a **vacated share** — the fraction of a
+team's prior-season targets or carries whose owner is no longer on the roster, which is
+the opportunity a new arrival walks into.
+
+The feature is real and has spread. On 2025: Green Bay retained **100%** of its 2024
+target volume, Pittsburgh lost **51.8%**, median 26.6%.
+
+It predicts nothing. Train 2020–2023, test 2024–2025, next-season total targets:
+
+| | n | base | + vacated | Δ |
+|---|---|---|---|---|
+| all players | 599 | 0.6578 | 0.6578 | **+0.0000** |
+| changed teams only | 122 | 0.4996 | 0.5014 | +0.0018 |
+
+And **not because the depth chart already carries it**, which was the obvious
+explanation and is wrong: adding it to a base *without* the depth chart gains +0.0004,
+and `corr(vacated, depth_rank)` is **−0.009**. The two are unrelated. The feature
+simply has no player-level signal.
+
+**That is the third team-level context feature to fail the same way**, and the pattern
+is now the finding:
+
+| feature | team level | player level |
+|---|---|---|
+| coach prior | large between-coach spread (RB target share 0.132–0.263) | ~0.001 Spearman |
+| team strength | **+0.064 R²** on team rush attempts | +0.0015 |
+| vacated share | 0 to 51.8% spread across teams | **+0.0000** |
+
+**Team-level context does not survive to player level, because role variance dominates
+it.** Who starts, who is hurt, who was drafted over — that range is 0 to 300 carries,
+against team effects worth tens. The only feature that has ever moved this model is the
+one that resolves *role*: the depth chart, worth +0.048 R² on veteran carries. Three
+independent attempts to add situational context have now confirmed the same boundary.
+
+#### A finer depth rank does not help either
+
+Checked at the same time, since role resolution is the thing that works. `depth_rank`
+is clipped to 3 because the two upstream schemas disagree, and 589 of 909 players on
+the 2026 chart sit in that bucket — an obvious place to look for granularity.
+
+2025 has both a fine pre-season chart and a realised outcome, so it is testable.
+Explaining 2025 targets from the 2025 pre-season chart alone:
+
+| | R² |
+|---|---|
+| clipped rank 1–3 (what the model uses) | **0.4175** |
+| fine rank 1–6 | 0.2537 |
+
+The fine scale is *worse*, and the mean targets by fine rank say why — 61.9, 24.0,
+16.2, 10.5. The drop from first to second string is enormous and everything below
+flattens, so a linear term on the fine scale fits that curve badly while the clip
+approximates it well. The clip was adopted as a schema workaround and happens to be the
+better functional form. Anything finer would need bins or a log, not a longer scale.
+
 ### Deferred, with reasons
 - **`load_ftn_charting`** (motion, play action, RPO, backfield count) is the richest
   scheme data and starts only in 2022. Four seasons is thin for a walk-forward that
