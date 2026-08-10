@@ -30,6 +30,7 @@ These are what the scan turned up *beyond* that.
 | 19 | [Weekly usage model](19-weekly-usage-model.md) | Not started | **Where the larger edge is.** Trailing expected production beats trailing actual at predicting next week (R² 0.2907 vs 0.2702), and it is the only head that gets the live injury report |
 | 20 | [Consensus sources](20-consensus-sources.md) | **Deprioritised on evidence** | FantasyPros' marginal value is +0.027 against ESPN's +0.068, so a sixth expert aggregator is the worst available use of the effort |
 | 21 | [Depth charts, scheme, play-caller](21-coaching-and-scheme.md) | **Done** | 2026 depth charts pulled past nflreadr's season guard — the daily snapshot that made the rookie arm work. Coach and coordinator priors built and **measured out** of both arms: the depth chart already carries their signal |
+| 22 | [Feature research for the season head](22-feature-research.md) | **Measured, nothing merged** | Routes, Next Gen Stats, red-zone role and contracts pulled and tested; ridge swept. All eleven experiments rejected. The finding: player-level context that is a *function of past usage* does not survive either, because past usage is already the strongest regressor. Ships the data layer, the lab and `docs/model_lab.html` |
 
 ### Local frontend
 
@@ -60,7 +61,7 @@ each plan doc carries its own evidence and postscript.
 | | Plan | Why it is next |
 |---|---|---|
 | ~~1~~ | ~~**Show `USG_` on the board without blending it** — [18](18-season-usage-model.md) step 3~~ | **Done 2026-08-07.** Wired as the fifth source at weight 0.0 — scored per league, on all nine boards, and verified not to move `TRUE_Points` (max difference 0.0 over 1,026 rows) |
-| ~~2~~ | ~~**Abstain for QB in the season head**~~ | **Done 2026-08-07.** `ABSTAIN_POSITIONS = ("QB",)`; the backtest overrides it so the evidence stays reproducible |
+| ~~2~~ | ~~**Abstain for QB in the season head**~~ | **Done 2026-08-07 and then undone the same day.** The abstention was lifted once the depth chart landed in the veteran arm and quarterback ordering went positive; `ABSTAIN_POSITIONS` is now `()`. The backtest overrides it either way so the evidence stays reproducible |
 | 1 | **[09](09-frontend-draft-views.md) Live Draft page** | The last draft-critical UI piece. Slips gracefully — the board on a second monitor works without it |
 | 2 | **Render the new `USG_` columns** — [09](09-frontend-draft-views.md) | The board page predates them. `USG_PosRankDelta`, `usg_expected_games` and `usg_arm` are on `board.parquet` and nothing shows them yet. Note the level caveat: `USG_Points` is injury-adjusted and `TRUE_Points` is not, so compare ranks and not points |
 
@@ -124,12 +125,16 @@ independence gate; [18](18-season-usage-model.md) and
 [21](21-coaching-and-scheme.md) is the situational context underneath both.
 [Plan 17](17-draft-usage-model.md) is a superseded stub.
 
-The season head predicts 73.2% of rostered players — 80.4% before it was made to
-abstain at quarterback, which is the 7% it was measured to be worse at. Against the
-naive draft heuristic it improves ordering at RB/WR/TE and cuts MAE 10–13% on the
-noisy rate stats; it does not improve yardage. Its rookie arm is the clear win —
-draft capital plus depth-chart position orders rookies at ρ ≈ 0.61 where a guess
-carrying no such information manages ~0.
+The season head predicts **83.7%** of rostered players on the 2026 pull (765 of 914)
+and 80.3% across the walk-forward. The quarterback abstention that briefly took this
+to 73.2% was lifted on 2026-08-07 once the depth chart landed in the veteran arm.
+Against the naive draft heuristic it improves ordering at **all four** positions
+(+0.013 QB, +0.062 RB, +0.053 WR, +0.066 TE) and cuts MAE 7–17% on every stat. Its
+rookie arm is the clear win — draft capital plus depth-chart position orders rookies
+at ρ ≈ 0.63 where a guess carrying no such information manages ~0.
+
+[Plan 22](22-feature-research.md) then tried eleven things on top of it and merged
+none of them. The running record is [`docs/model_lab.html`](../model_lab.html).
 
 **It is the fifth source, at weight 0.0.** As of 2026-08-07 `USG_` is registered in
 `WEIGHTS`, scored by `proj_to_score`, counted as an independent opinion in the

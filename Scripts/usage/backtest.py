@@ -165,13 +165,19 @@ def top_n_hit_rate(frame: pl.DataFrame, predicted: str, actual: str,
 
 
 def run_season(test_season: int, history_start: int = HISTORY_START,
-               league_key: str = SCORING_LEAGUE) -> Tuple[pl.DataFrame, sn.SeasonUsageModel]:
+               league_key: str = SCORING_LEAGUE,
+               feature_kwargs: Optional[Dict[str, object]] = None,
+               ) -> Tuple[pl.DataFrame, sn.SeasonUsageModel]:
     """Train on everything before ``test_season`` and predict it.
 
     Args:
         test_season: Season to predict.
         history_start: Earliest season the features may see.
         league_key: League whose scoring prices the comparison.
+        feature_kwargs: Passed to :func:`Scripts.usage.season.training_frame`, for
+            both the training and the test fold. Passing them to only one would fit
+            on one feature set and predict with another, which is a bug rather than
+            an experiment.
 
     Returns:
         tuple: The scored prediction frame, and the fitted model.
@@ -180,13 +186,15 @@ def run_season(test_season: int, history_start: int = HISTORY_START,
         FileNotFoundError: When a required pull is missing.
     """
     train_seasons = [s for s in range(history_start + 1, test_season)]
-    train = sn.training_frame(train_seasons, history_start)
+    train = sn.training_frame(train_seasons, history_start,
+                              feature_kwargs=feature_kwargs)
     # Stamped here rather than inside `fit`, which takes it as an argument so a fit
     # is reproducible from its inputs alone.
     model = sn.fit(train, train_seasons,
                    fitted_at=datetime.now().astimezone().isoformat(timespec="seconds"))
 
-    test = sn.training_frame([test_season], history_start)
+    test = sn.training_frame([test_season], history_start,
+                             feature_kwargs=feature_kwargs)
 
     # The slate the *test* season really offered, not the one 2026 will. The games
     # heads predict a share, so scoring a 2019 fold against 17 games would inflate

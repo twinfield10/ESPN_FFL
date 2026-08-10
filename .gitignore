@@ -35,6 +35,15 @@ env/
 .DS_Store
 Thumbs.db
 
+# Data/G2/ is deliberately NOT ignored, and it is the one data directory in this
+# repo that must not be. Everything else under Data/ is either regenerable from a
+# pull or rebuildable from the pipeline; the G2 archive is neither. It is the
+# pre-season 2026 board blended with and without USG_, and once week 1 is played
+# the inputs have moved and it cannot be reconstructed -- FantasyPros serves no
+# season parameter, so a past board is gone the moment it stops being current.
+# Plan 18 records G2 as unmeasurable on history for exactly that reason. This
+# archive is the only thing that makes it measurable going forward.
+
 # --- Regenerable local data ------------------------------------------------
 # Equivalence snapshots: large, and rebuilt from the pipeline on demand.
 Data/Equivalence/
@@ -56,6 +65,16 @@ Data/NFL/*/injuries.parquet
 Data/NFL/*/snap_counts.parquet
 Data/NFL/*/depth_charts.parquet
 Data/NFL/*/context_meta.json
+# Role-resolving pulls, rebuilt by `Rscript R/GetAdvanced.R`. Same argument again,
+# except that these are the expensive ones: routes and red_zone both need full
+# play-by-play, so a cold backfill is minutes rather than seconds. Contracts is
+# not season-scoped and is small, but it is still a straight nflreadr pull with
+# nothing merged into it, so it regenerates identically and is ignored too.
+Data/NFL/*/routes.parquet
+Data/NFL/*/ngs.parquet
+Data/NFL/*/red_zone.parquet
+Data/NFL/*/advanced_meta.json
+Data/NFL/contracts.parquet
 # Coach-per-game and team names, rebuilt by `Rscript R/GetCoaches.R`. The *derived*
 # Data/NFL/coaching_staff.parquet is committed -- it merges in Wikipedia data that
 # cannot be regenerated identically once an article is edited.

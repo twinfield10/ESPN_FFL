@@ -1,0 +1,1745 @@
+{
+  "blend_weights": {
+    "results": [
+      {
+        "even_weights": {
+          "BOL": 0.0,
+          "ESPN": 0.0,
+          "FP": 1.0,
+          "PINNY": 0.0
+        },
+        "max_half_disagreement": 0.9032841150243884,
+        "n_even": 160,
+        "n_odd": 231,
+        "n_total_evalset": 5257,
+        "odd_weights": {
+          "BOL": 0.161,
+          "ESPN": 0.112,
+          "FP": 0.097,
+          "PINNY": 0.631
+        },
+        "out_of_sample_mae_change_pct": 0.16649712177329215,
+        "shipped_weights": {
+          "BOL": 0.0,
+          "ESPN": 0.5,
+          "FP": 0.5,
+          "PINNY": 0.0
+        },
+        "stat": "receivingReceptions"
+      },
+      {
+        "even_weights": {
+          "BOL": 0.223,
+          "ESPN": 0.0,
+          "FP": 0.777,
+          "PINNY": 0.0
+        },
+        "max_half_disagreement": 0.6245028446288445,
+        "n_even": 165,
+        "n_odd": 236,
+        "n_total_evalset": 5257,
+        "odd_weights": {
+          "BOL": 0.555,
+          "ESPN": 0.0,
+          "FP": 0.153,
+          "PINNY": 0.292
+        },
+        "out_of_sample_mae_change_pct": -2.1067537128416847,
+        "shipped_weights": {
+          "BOL": 0.0,
+          "ESPN": 0.5,
+          "FP": 0.5,
+          "PINNY": 0.0
+        },
+        "stat": "receivingYards"
+      },
+      {
+        "even_weights": {
+          "BOL": 0.0,
+          "ESPN": 0.0,
+          "FP": 1.0,
+          "PINNY": 0.0
+        },
+        "max_half_disagreement": 0.2716857109162554,
+        "n_even": 110,
+        "n_odd": 155,
+        "n_total_evalset": 5257,
+        "odd_weights": {
+          "BOL": 0.0,
+          "ESPN": 0.0,
+          "FP": 0.728,
+          "PINNY": 0.272
+        },
+        "out_of_sample_mae_change_pct": -1.173328780326653,
+        "shipped_weights": {
+          "BOL": 0.0,
+          "ESPN": 0.5,
+          "FP": 0.5,
+          "PINNY": 0.0
+        },
+        "stat": "rushingYards"
+      }
+    ],
+    "season": 2025
+  },
+  "experiments": {
+    "baseline": {
+      "arms": {
+        "abstain": 1289,
+        "rookie": 1497,
+        "veteran": 3834
+      },
+      "feature_kwargs": {},
+      "games_regressors": [
+        "p1_availability",
+        "p1_weeks_on_reserve",
+        "p1_snap_share",
+        "team_changed",
+        "age"
+      ],
+      "hypothesis": "The shipped model, as the comparison every other row is read against.",
+      "mae": {
+        "passingInterceptions": {
+          "n": 429,
+          "naive": 4.039577576968932,
+          "usg": 3.353987298288036
+        },
+        "passingTouchdowns": {
+          "n": 429,
+          "naive": 6.364581649330594,
+          "usg": 5.920050894773291
+        },
+        "passingYards": {
+          "n": 429,
+          "naive": 889.411479811185,
+          "usg": 816.6256606497449
+        },
+        "receivingReceptions": {
+          "n": 2696,
+          "naive": 13.112579759901408,
+          "usg": 11.448539921724702
+        },
+        "receivingTouchdowns": {
+          "n": 2696,
+          "naive": 1.488887008137412,
+          "usg": 1.2412265846028405
+        },
+        "receivingYards": {
+          "n": 2696,
+          "naive": 149.27825702561947,
+          "usg": 130.93887718573376
+        },
+        "rushingTouchdowns": {
+          "n": 1255,
+          "naive": 1.8077119507105854,
+          "usg": 1.6301724376805955
+        },
+        "rushingYards": {
+          "n": 1255,
+          "naive": 160.22045209496136,
+          "usg": 145.74464110240612
+        }
+      },
+      "naive_spearman": {
+        "QB": 0.6972155539038923,
+        "RB": 0.6866190191939595,
+        "TE": 0.6985398405154867,
+        "WR": 0.7391615891946351
+      },
+      "naive_top_n": {
+        "QB": 0.619047619047619,
+        "RB": 0.619047619047619,
+        "TE": 0.511904761904762,
+        "WR": 0.6825396825396826
+      },
+      "name": "baseline",
+      "note": "",
+      "projected": 5317,
+      "ran_at": "2026-08-08T13:00:49-04:00",
+      "rostered": 6620,
+      "seasons": [
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "source": "\u2014",
+      "spearman": {
+        "QB": 0.7104653850500854,
+        "RB": 0.7488786435427472,
+        "TE": 0.7643072224844148,
+        "WR": 0.7922567188043391
+      },
+      "spearman_n": {
+        "QB": 513,
+        "RB": 1021,
+        "TE": 801,
+        "WR": 1485
+      },
+      "subpopulations": {
+        "changed_teams": {
+          "n": 1121,
+          "naive": 0.6949066070843422,
+          "usg": 0.7350353362081856
+        },
+        "settled": {
+          "n": 2699,
+          "naive": 0.803783125210036,
+          "usg": 0.8453332523861876
+        },
+        "thin_prior_season": {
+          "n": 1330,
+          "naive": 0.3914247930579377,
+          "usg": 0.4740915519958393
+        }
+      },
+      "top_n": {
+        "QB": 0.630952380952381,
+        "RB": 0.6785714285714286,
+        "TE": 0.5357142857142857,
+        "WR": 0.7023809523809523
+      },
+      "volume_regressors": [
+        "p1_volume",
+        "p2_volume",
+        "p1_games",
+        "team_changed",
+        "age",
+        "depth_rank",
+        "is_first_string"
+      ]
+    },
+    "contracts_x_moved": {
+      "arms": {
+        "abstain": 1289,
+        "rookie": 1497,
+        "veteran": 3834
+      },
+      "feature_kwargs": {
+        "contracts": true
+      },
+      "games_regressors": [
+        "p1_availability",
+        "p1_weeks_on_reserve",
+        "p1_snap_share",
+        "team_changed",
+        "age"
+      ],
+      "hypothesis": "A settled veteran's prior volume already encodes what his team thinks of him, but a mover's describes a job he no longer has. Contract value should help on changed-teams rows and nowhere else, which is why it enters interacted rather than as a main effect.",
+      "mae": {
+        "passingInterceptions": {
+          "n": 429,
+          "naive": 4.039577576968932,
+          "usg": 3.3386604467059855
+        },
+        "passingTouchdowns": {
+          "n": 429,
+          "naive": 6.364581649330594,
+          "usg": 5.887539017095675
+        },
+        "passingYards": {
+          "n": 429,
+          "naive": 889.411479811185,
+          "usg": 811.2859979512389
+        },
+        "receivingReceptions": {
+          "n": 2686,
+          "naive": 13.133227477907068,
+          "usg": 11.461600144086669
+        },
+        "receivingTouchdowns": {
+          "n": 2686,
+          "naive": 1.4923058072376127,
+          "usg": 1.241345136596519
+        },
+        "receivingYards": {
+          "n": 2686,
+          "naive": 149.5617153860223,
+          "usg": 131.04732230269497
+        },
+        "rushingTouchdowns": {
+          "n": 1249,
+          "naive": 1.810565830685921,
+          "usg": 1.638604317019372
+        },
+        "rushingYards": {
+          "n": 1249,
+          "naive": 160.39345272382369,
+          "usg": 145.844851671035
+        }
+      },
+      "naive_spearman": {
+        "QB": 0.6972155539038923,
+        "RB": 0.6855707419291541,
+        "TE": 0.6985398405154867,
+        "WR": 0.7390019510135266
+      },
+      "naive_top_n": {
+        "QB": 0.619047619047619,
+        "RB": 0.619047619047619,
+        "TE": 0.511904761904762,
+        "WR": 0.6825396825396826
+      },
+      "name": "contracts_x_moved",
+      "note": "Changed teams is plan 18's worst thin-evidence flag at +32% median rank error. Probed positive at all four positions on that subpopulation and a wash or worse on the full one.",
+      "projected": 5303,
+      "ran_at": "2026-08-08T13:01:12-04:00",
+      "rostered": 6620,
+      "seasons": [
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "source": "OverTheCap via nflreadr::load_contracts (98.1% of rostered players)",
+      "spearman": {
+        "QB": 0.7122204926787297,
+        "RB": 0.7492150997750282,
+        "TE": 0.7631327111973825,
+        "WR": 0.7942709124986518
+      },
+      "spearman_n": {
+        "QB": 513,
+        "RB": 1016,
+        "TE": 801,
+        "WR": 1476
+      },
+      "subpopulations": {
+        "changed_teams": {
+          "n": 1106,
+          "naive": 0.6914377711691516,
+          "usg": 0.7376989128448024
+        },
+        "settled": {
+          "n": 2700,
+          "naive": 0.8040985617805647,
+          "usg": 0.8450759448624805
+        },
+        "thin_prior_season": {
+          "n": 1319,
+          "naive": 0.38937708140442223,
+          "usg": 0.47443983640304904
+        }
+      },
+      "top_n": {
+        "QB": 0.630952380952381,
+        "RB": 0.6904761904761905,
+        "TE": 0.5238095238095238,
+        "WR": 0.7063492063492064
+      },
+      "verdict": "reject",
+      "verdict_reason": "mean within-position Spearman gain +0.0007 is below the +0.0050 the rule requires.",
+      "volume_regressors": [
+        "p1_volume",
+        "p2_volume",
+        "p1_games",
+        "team_changed",
+        "age",
+        "depth_rank",
+        "is_first_string",
+        "moved_contract_apy",
+        "moved_contract_gtd",
+        "moved_contract_new"
+      ]
+    },
+    "efficiency_fitted_baseline": {
+      "arms": {
+        "abstain": 1289,
+        "rookie": 1497,
+        "veteran": 3834
+      },
+      "feature_kwargs": {
+        "rate_baselines": true
+      },
+      "games_regressors": [
+        "p1_availability",
+        "p1_weeks_on_reserve",
+        "p1_snap_share",
+        "team_changed",
+        "age"
+      ],
+      "hypothesis": "The efficiency head has never had a feature: it shrinks every player toward his position's pooled rate. Replacing that constant with a rate fitted on route depth, separation and goal-line role should improve the rates most for the players with least opportunity of their own, who are exactly the ones the constant serves worst.",
+      "mae": {
+        "passingInterceptions": {
+          "n": 429,
+          "naive": 4.039577576968932,
+          "usg": 3.353987298288036
+        },
+        "passingTouchdowns": {
+          "n": 429,
+          "naive": 6.364581649330594,
+          "usg": 5.920050894773291
+        },
+        "passingYards": {
+          "n": 429,
+          "naive": 889.411479811185,
+          "usg": 816.6256606497449
+        },
+        "receivingReceptions": {
+          "n": 2696,
+          "naive": 13.112579759901408,
+          "usg": 11.480919078532398
+        },
+        "receivingTouchdowns": {
+          "n": 2696,
+          "naive": 1.488887008137412,
+          "usg": 1.2401132144161233
+        },
+        "receivingYards": {
+          "n": 2696,
+          "naive": 149.27825702561947,
+          "usg": 131.00007465297196
+        },
+        "rushingTouchdowns": {
+          "n": 1255,
+          "naive": 1.8077119507105854,
+          "usg": 1.6225877474329171
+        },
+        "rushingYards": {
+          "n": 1255,
+          "naive": 160.22045209496136,
+          "usg": 145.92448702037257
+        }
+      },
+      "naive_spearman": {
+        "QB": 0.6972155539038923,
+        "RB": 0.6866190191939595,
+        "TE": 0.6985398405154867,
+        "WR": 0.7391615891946351
+      },
+      "naive_top_n": {
+        "QB": 0.619047619047619,
+        "RB": 0.619047619047619,
+        "TE": 0.511904761904762,
+        "WR": 0.6825396825396826
+      },
+      "name": "efficiency_fitted_baseline",
+      "note": "Probed before building: WR catch rate holdout R-squared 0.083 to 0.136, TE yards-per-target 0.015 to 0.113. NGS covers only 35-75% of the relevant population, so the fallback to the positional constant carries a lot of rows.",
+      "projected": 5317,
+      "ran_at": "2026-08-08T13:00:57-04:00",
+      "rostered": 6620,
+      "seasons": [
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "source": "NGS receiving + rushing, red-zone play-by-play (2016-2025)",
+      "spearman": {
+        "QB": 0.7110853641784066,
+        "RB": 0.7477263047292964,
+        "TE": 0.7657563835207655,
+        "WR": 0.792522054597243
+      },
+      "spearman_n": {
+        "QB": 513,
+        "RB": 1021,
+        "TE": 801,
+        "WR": 1485
+      },
+      "subpopulations": {
+        "changed_teams": {
+          "n": 1121,
+          "naive": 0.6949066070843422,
+          "usg": 0.7353444358537861
+        },
+        "settled": {
+          "n": 2699,
+          "naive": 0.803783125210036,
+          "usg": 0.8453521543600065
+        },
+        "thin_prior_season": {
+          "n": 1330,
+          "naive": 0.3914247930579377,
+          "usg": 0.4768094285334425
+        }
+      },
+      "top_n": {
+        "QB": 0.630952380952381,
+        "RB": 0.6845238095238095,
+        "TE": 0.5476190476190477,
+        "WR": 0.7103174603174602
+      },
+      "verdict": "reject",
+      "verdict_reason": "mean within-position Spearman gain +0.0003 is below the +0.0050 the rule requires.",
+      "volume_regressors": [
+        "p1_volume",
+        "p2_volume",
+        "p1_games",
+        "team_changed",
+        "age",
+        "depth_rank",
+        "is_first_string"
+      ]
+    },
+    "efficiency_no_ngs_gate": {
+      "arms": {
+        "abstain": 1289,
+        "rookie": 1497,
+        "veteran": 3834
+      },
+      "feature_kwargs": {
+        "rate_baselines": true
+      },
+      "games_regressors": [
+        "p1_availability",
+        "p1_weeks_on_reserve",
+        "p1_snap_share",
+        "team_changed",
+        "age"
+      ],
+      "hypothesis": "The first efficiency run was damped by its own coverage, and the diagnostic says so precisely: the fitted prior reached 95.6% of the players who give a prior 6.8% weight and 0.4% of those who give it 88.9%, because NGS's qualifying threshold is a volume threshold and credibility weight is inversely proportional to volume. The touchdown-rate baselines did not have to inherit that: they are built on play-by-play field position, which has no threshold, and only the stray ngs_adot term gated them. Dropping it should let those two rates reach the low-volume players where a prior actually decides the number.",
+      "mae": {
+        "passingInterceptions": {
+          "n": 429,
+          "naive": 4.039577576968932,
+          "usg": 3.353987298288036
+        },
+        "passingTouchdowns": {
+          "n": 429,
+          "naive": 6.364581649330594,
+          "usg": 5.920050894773291
+        },
+        "passingYards": {
+          "n": 429,
+          "naive": 889.411479811185,
+          "usg": 816.6256606497449
+        },
+        "receivingReceptions": {
+          "n": 2696,
+          "naive": 13.112579759901408,
+          "usg": 11.480919078532398
+        },
+        "receivingTouchdowns": {
+          "n": 2696,
+          "naive": 1.488887008137412,
+          "usg": 1.2360552674671845
+        },
+        "receivingYards": {
+          "n": 2696,
+          "naive": 149.27825702561947,
+          "usg": 131.00007465297196
+        },
+        "rushingTouchdowns": {
+          "n": 1255,
+          "naive": 1.8077119507105854,
+          "usg": 1.6225877474329171
+        },
+        "rushingYards": {
+          "n": 1255,
+          "naive": 160.22045209496136,
+          "usg": 145.92448702037257
+        }
+      },
+      "naive_spearman": {
+        "QB": 0.6972155539038923,
+        "RB": 0.6866190191939595,
+        "TE": 0.6985398405154867,
+        "WR": 0.7391615891946351
+      },
+      "naive_top_n": {
+        "QB": 0.619047619047619,
+        "RB": 0.619047619047619,
+        "TE": 0.511904761904762,
+        "WR": 0.6825396825396826
+      },
+      "name": "efficiency_no_ngs_gate",
+      "note": "ngs_adot's coefficients in the touchdown fits were +0.0016 and +0.0010 -- near nothing, bought at the cost of most of the coverage. A cheap term that gates an expensive one.",
+      "projected": 5317,
+      "ran_at": "2026-08-08T13:01:05-04:00",
+      "rostered": 6620,
+      "seasons": [
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "source": "red-zone play-by-play only (79-96% coverage), NGS for the yardage rates as before",
+      "spearman": {
+        "QB": 0.7110853641784066,
+        "RB": 0.7481702584195311,
+        "TE": 0.7659199509842349,
+        "WR": 0.792479133282217
+      },
+      "spearman_n": {
+        "QB": 513,
+        "RB": 1021,
+        "TE": 801,
+        "WR": 1485
+      },
+      "subpopulations": {
+        "changed_teams": {
+          "n": 1121,
+          "naive": 0.6949066070843422,
+          "usg": 0.7349186240368657
+        },
+        "settled": {
+          "n": 2699,
+          "naive": 0.803783125210036,
+          "usg": 0.8456597888689822
+        },
+        "thin_prior_season": {
+          "n": 1330,
+          "naive": 0.3914247930579377,
+          "usg": 0.4763498986499352
+        }
+      },
+      "top_n": {
+        "QB": 0.630952380952381,
+        "RB": 0.6845238095238095,
+        "TE": 0.5595238095238095,
+        "WR": 0.7103174603174602
+      },
+      "verdict": "reject",
+      "verdict_reason": "mean within-position Spearman gain +0.0004 is below the +0.0050 the rule requires.",
+      "volume_regressors": [
+        "p1_volume",
+        "p2_volume",
+        "p1_games",
+        "team_changed",
+        "age",
+        "depth_rank",
+        "is_first_string"
+      ]
+    },
+    "red_zone_role_volume": {
+      "arms": {
+        "abstain": 1289,
+        "rookie": 1497,
+        "veteran": 3834
+      },
+      "feature_kwargs": {},
+      "games_regressors": [
+        "p1_availability",
+        "p1_weeks_on_reserve",
+        "p1_snap_share",
+        "team_changed",
+        "age"
+      ],
+      "hypothesis": "Goal-line work is role rather than skill, and role is the only thing that has ever moved this model. Prior-season red-zone share should predict next-season volume beyond raw volume.",
+      "mae": {
+        "passingInterceptions": {
+          "n": 429,
+          "naive": 4.039577576968932,
+          "usg": 3.3667790596916127
+        },
+        "passingTouchdowns": {
+          "n": 429,
+          "naive": 6.364581649330594,
+          "usg": 5.905058970934603
+        },
+        "passingYards": {
+          "n": 429,
+          "naive": 889.411479811185,
+          "usg": 813.2670599349361
+        },
+        "receivingReceptions": {
+          "n": 2693,
+          "naive": 13.122874681976711,
+          "usg": 11.47989207096011
+        },
+        "receivingTouchdowns": {
+          "n": 2693,
+          "naive": 1.4905944473669275,
+          "usg": 1.2409570678684347
+        },
+        "receivingYards": {
+          "n": 2693,
+          "naive": 149.41416920295873,
+          "usg": 131.1494187075246
+        },
+        "rushingTouchdowns": {
+          "n": 1250,
+          "naive": 1.8101010587439397,
+          "usg": 1.6400052209202354
+        },
+        "rushingYards": {
+          "n": 1250,
+          "naive": 160.69224644106583,
+          "usg": 146.5435665881964
+        }
+      },
+      "naive_spearman": {
+        "QB": 0.6972155539038923,
+        "RB": 0.6866190191939595,
+        "TE": 0.698549492892255,
+        "WR": 0.7391914098104313
+      },
+      "naive_top_n": {
+        "QB": 0.619047619047619,
+        "RB": 0.619047619047619,
+        "TE": 0.511904761904762,
+        "WR": 0.6825396825396826
+      },
+      "name": "red_zone_role_volume",
+      "note": "",
+      "projected": 5314,
+      "ran_at": "2026-08-08T13:01:18-04:00",
+      "rostered": 6620,
+      "seasons": [
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "source": "play-by-play by field position (79-96% coverage)",
+      "spearman": {
+        "QB": 0.7112312258962942,
+        "RB": 0.7455115072625761,
+        "TE": 0.7656774669040277,
+        "WR": 0.7914664440676906
+      },
+      "spearman_n": {
+        "QB": 513,
+        "RB": 1021,
+        "TE": 800,
+        "WR": 1483
+      },
+      "subpopulations": {
+        "changed_teams": {
+          "n": 1118,
+          "naive": 0.6947670109769616,
+          "usg": 0.7332226812962161
+        },
+        "settled": {
+          "n": 2699,
+          "naive": 0.803783125210036,
+          "usg": 0.8446317195015036
+        },
+        "thin_prior_season": {
+          "n": 1328,
+          "naive": 0.3920047241986557,
+          "usg": 0.47405769634267547
+        }
+      },
+      "top_n": {
+        "QB": 0.630952380952381,
+        "RB": 0.6785714285714286,
+        "TE": 0.5357142857142857,
+        "WR": 0.6984126984126985
+      },
+      "verdict": "reject",
+      "verdict_reason": "mean within-position Spearman gain -0.0005 is below the +0.0050 the rule requires.",
+      "volume_regressors": [
+        "p1_volume",
+        "p2_volume",
+        "p1_games",
+        "team_changed",
+        "age",
+        "depth_rank",
+        "is_first_string",
+        "p1_rz10_carry_share",
+        "p1_rz5_carry_share",
+        "p1_rz10_target_share"
+      ]
+    },
+    "ridge_alpha_1": {
+      "arms": {
+        "abstain": 1289,
+        "rookie": 1497,
+        "veteran": 3834
+      },
+      "feature_kwargs": {},
+      "games_regressors": [
+        "p1_availability",
+        "p1_weeks_on_reserve",
+        "p1_snap_share",
+        "team_changed",
+        "age"
+      ],
+      "hypothesis": "Not a feature but the functional form. If the heads are overfitting their seven regressors, regularising them should help. Predicted beforehand to do nothing -- n runs 450 to 1,500 per position-target against seven terms, which is comfortable for OLS -- and that prediction was wrong: alpha 10 was the single largest effect measured in this plan. The sweep exists because one good point is not a result. A gain that holds across a wide range of alpha is a real bias-variance trade; a gain that spikes at one value is the test set being fitted.",
+      "mae": {
+        "passingInterceptions": {
+          "n": 429,
+          "naive": 4.04054196593946,
+          "usg": 3.3557626978456794
+        },
+        "passingTouchdowns": {
+          "n": 429,
+          "naive": 6.365810503914128,
+          "usg": 5.923685586579255
+        },
+        "passingYards": {
+          "n": 429,
+          "naive": 890.033192868697,
+          "usg": 817.5837729407625
+        },
+        "receivingReceptions": {
+          "n": 2696,
+          "naive": 13.112480302002762,
+          "usg": 11.44922048651582
+        },
+        "receivingTouchdowns": {
+          "n": 2696,
+          "naive": 1.4887523160780052,
+          "usg": 1.2412750145310885
+        },
+        "receivingYards": {
+          "n": 2696,
+          "naive": 149.2691672187218,
+          "usg": 130.9501449984398
+        },
+        "rushingTouchdowns": {
+          "n": 1255,
+          "naive": 1.8076122765509623,
+          "usg": 1.630679574584943
+        },
+        "rushingYards": {
+          "n": 1255,
+          "naive": 160.21534937979266,
+          "usg": 145.78601508871952
+        }
+      },
+      "naive_spearman": {
+        "QB": 0.697006339887984,
+        "RB": 0.6865973028315323,
+        "TE": 0.6984709399731969,
+        "WR": 0.7391481452739251
+      },
+      "naive_top_n": {
+        "QB": 0.619047619047619,
+        "RB": 0.619047619047619,
+        "TE": 0.511904761904762,
+        "WR": 0.6825396825396826
+      },
+      "name": "ridge_alpha_1",
+      "note": "Standardised, intercept unpenalised. Alpha is NOT tuned on these folds -- the whole curve is reported and the shape is the evidence. Selecting the best point here would be exactly the fishing the decision rule exists to prevent.",
+      "projected": 5317,
+      "ran_at": "2026-08-08T13:01:31-04:00",
+      "rostered": 6620,
+      "seasons": [
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "source": "\u2014  (np.linalg.lstsq to standardised ridge)",
+      "spearman": {
+        "QB": 0.7115316814324683,
+        "RB": 0.7490070219086391,
+        "TE": 0.7648757845359468,
+        "WR": 0.7924022522048436
+      },
+      "spearman_n": {
+        "QB": 513,
+        "RB": 1021,
+        "TE": 801,
+        "WR": 1485
+      },
+      "subpopulations": {
+        "changed_teams": {
+          "n": 1121,
+          "naive": 0.694867064283572,
+          "usg": 0.7354935746554456
+        },
+        "settled": {
+          "n": 2699,
+          "naive": 0.8037684293068245,
+          "usg": 0.8454148578477944
+        },
+        "thin_prior_season": {
+          "n": 1330,
+          "naive": 0.39144554308845464,
+          "usg": 0.47527214780877786
+        }
+      },
+      "top_n": {
+        "QB": 0.630952380952381,
+        "RB": 0.6785714285714286,
+        "TE": 0.5357142857142857,
+        "WR": 0.7023809523809523
+      },
+      "verdict": "reject",
+      "verdict_reason": "mean within-position Spearman gain +0.0005 is below the +0.0050 the rule requires.",
+      "volume_regressors": [
+        "p1_volume",
+        "p2_volume",
+        "p1_games",
+        "team_changed",
+        "age",
+        "depth_rank",
+        "is_first_string"
+      ]
+    },
+    "ridge_alpha_10": {
+      "arms": {
+        "abstain": 1289,
+        "rookie": 1497,
+        "veteran": 3834
+      },
+      "feature_kwargs": {},
+      "games_regressors": [
+        "p1_availability",
+        "p1_weeks_on_reserve",
+        "p1_snap_share",
+        "team_changed",
+        "age"
+      ],
+      "hypothesis": "Not a feature but the functional form. If the heads are overfitting their seven regressors, regularising them should help. Predicted beforehand to do nothing -- n runs 450 to 1,500 per position-target against seven terms, which is comfortable for OLS -- and that prediction was wrong: alpha 10 was the single largest effect measured in this plan. The sweep exists because one good point is not a result. A gain that holds across a wide range of alpha is a real bias-variance trade; a gain that spikes at one value is the test set being fitted.",
+      "mae": {
+        "passingInterceptions": {
+          "n": 429,
+          "naive": 4.047248392824175,
+          "usg": 3.3635690328358527
+        },
+        "passingTouchdowns": {
+          "n": 429,
+          "naive": 6.376706594054551,
+          "usg": 5.952811287004631
+        },
+        "passingYards": {
+          "n": 429,
+          "naive": 895.0362204614935,
+          "usg": 825.2834566113072
+        },
+        "receivingReceptions": {
+          "n": 2697,
+          "naive": 13.11093456888587,
+          "usg": 11.455527976600132
+        },
+        "receivingTouchdowns": {
+          "n": 2697,
+          "naive": 1.4870719084722213,
+          "usg": 1.241456200160575
+        },
+        "receivingYards": {
+          "n": 2697,
+          "naive": 149.16342708889312,
+          "usg": 131.0549721834227
+        },
+        "rushingTouchdowns": {
+          "n": 1257,
+          "naive": 1.8036867643826162,
+          "usg": 1.6331023320625557
+        },
+        "rushingYards": {
+          "n": 1257,
+          "naive": 159.8953583447316,
+          "usg": 145.9551384348738
+        }
+      },
+      "naive_spearman": {
+        "QB": 0.696841811063293,
+        "RB": 0.6864516937995131,
+        "TE": 0.6980404758562953,
+        "WR": 0.738978035421615
+      },
+      "naive_top_n": {
+        "QB": 0.619047619047619,
+        "RB": 0.619047619047619,
+        "TE": 0.511904761904762,
+        "WR": 0.6865079365079365
+      },
+      "name": "ridge_alpha_10",
+      "note": "Standardised, intercept unpenalised. Alpha is NOT tuned on these folds -- the whole curve is reported and the shape is the evidence. Selecting the best point here would be exactly the fishing the decision rule exists to prevent.",
+      "projected": 5318,
+      "ran_at": "2026-08-08T13:01:44-04:00",
+      "rostered": 6620,
+      "seasons": [
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "source": "\u2014  (np.linalg.lstsq to standardised ridge)",
+      "spearman": {
+        "QB": 0.7163816503795292,
+        "RB": 0.7509784055140469,
+        "TE": 0.7686332023903872,
+        "WR": 0.7935271200269042
+      },
+      "spearman_n": {
+        "QB": 513,
+        "RB": 1021,
+        "TE": 801,
+        "WR": 1486
+      },
+      "subpopulations": {
+        "changed_teams": {
+          "n": 1122,
+          "naive": 0.6952094873103403,
+          "usg": 0.7377625183833173
+        },
+        "settled": {
+          "n": 2699,
+          "naive": 0.8035881517437936,
+          "usg": 0.8464826877972789
+        },
+        "thin_prior_season": {
+          "n": 1330,
+          "naive": 0.39180442954631445,
+          "usg": 0.48221423273802316
+        }
+      },
+      "top_n": {
+        "QB": 0.630952380952381,
+        "RB": 0.6845238095238095,
+        "TE": 0.5357142857142857,
+        "WR": 0.7023809523809523
+      },
+      "verdict": "reject",
+      "verdict_reason": "mean within-position Spearman gain +0.0034 is below the +0.0050 the rule requires.",
+      "volume_regressors": [
+        "p1_volume",
+        "p2_volume",
+        "p1_games",
+        "team_changed",
+        "age",
+        "depth_rank",
+        "is_first_string"
+      ]
+    },
+    "ridge_alpha_100": {
+      "arms": {
+        "abstain": 1289,
+        "rookie": 1497,
+        "veteran": 3834
+      },
+      "feature_kwargs": {},
+      "games_regressors": [
+        "p1_availability",
+        "p1_weeks_on_reserve",
+        "p1_snap_share",
+        "team_changed",
+        "age"
+      ],
+      "hypothesis": "Not a feature but the functional form. If the heads are overfitting their seven regressors, regularising them should help. Predicted beforehand to do nothing -- n runs 450 to 1,500 per position-target against seven terms, which is comfortable for OLS -- and that prediction was wrong: alpha 10 was the single largest effect measured in this plan. The sweep exists because one good point is not a result. A gain that holds across a wide range of alpha is a real bias-variance trade; a gain that spikes at one value is the test set being fitted.",
+      "mae": {
+        "passingInterceptions": {
+          "n": 429,
+          "naive": 4.075546128897448,
+          "usg": 3.4195654074570863
+        },
+        "passingTouchdowns": {
+          "n": 429,
+          "naive": 6.4343802963544965,
+          "usg": 6.211800542306721
+        },
+        "passingYards": {
+          "n": 429,
+          "naive": 928.6149221488378,
+          "usg": 884.4240519232385
+        },
+        "receivingReceptions": {
+          "n": 2707,
+          "naive": 13.096452326123192,
+          "usg": 11.665300469688361
+        },
+        "receivingTouchdowns": {
+          "n": 2707,
+          "naive": 1.4788666647918989,
+          "usg": 1.2501736273632926
+        },
+        "receivingYards": {
+          "n": 2707,
+          "naive": 148.68051649296956,
+          "usg": 133.26739133634428
+        },
+        "rushingTouchdowns": {
+          "n": 1264,
+          "naive": 1.7854757750067627,
+          "usg": 1.675744990319705
+        },
+        "rushingYards": {
+          "n": 1264,
+          "naive": 158.49850403238887,
+          "usg": 149.64621616419566
+        }
+      },
+      "naive_spearman": {
+        "QB": 0.69374035584237,
+        "RB": 0.685532133240563,
+        "TE": 0.6948607838853301,
+        "WR": 0.7382935550512506
+      },
+      "naive_top_n": {
+        "QB": 0.619047619047619,
+        "RB": 0.625,
+        "TE": 0.511904761904762,
+        "WR": 0.6865079365079365
+      },
+      "name": "ridge_alpha_100",
+      "note": "Standardised, intercept unpenalised. Alpha is NOT tuned on these folds -- the whole curve is reported and the shape is the evidence. Selecting the best point here would be exactly the fishing the decision rule exists to prevent.",
+      "projected": 5325,
+      "ran_at": "2026-08-08T13:01:57-04:00",
+      "rostered": 6620,
+      "seasons": [
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "source": "\u2014  (np.linalg.lstsq to standardised ridge)",
+      "spearman": {
+        "QB": 0.7266158057016262,
+        "RB": 0.7620881923273951,
+        "TE": 0.7753840585044193,
+        "WR": 0.7992684887697128
+      },
+      "spearman_n": {
+        "QB": 513,
+        "RB": 1022,
+        "TE": 801,
+        "WR": 1492
+      },
+      "subpopulations": {
+        "changed_teams": {
+          "n": 1125,
+          "naive": 0.6945149243861258,
+          "usg": 0.7500256767797802
+        },
+        "settled": {
+          "n": 2703,
+          "naive": 0.8034214778774941,
+          "usg": 0.8504223912091475
+        },
+        "thin_prior_season": {
+          "n": 1334,
+          "naive": 0.3938215300095707,
+          "usg": 0.5114650063739037
+        }
+      },
+      "top_n": {
+        "QB": 0.6428571428571427,
+        "RB": 0.6785714285714287,
+        "TE": 0.5476190476190476,
+        "WR": 0.7023809523809523
+      },
+      "verdict": "reject",
+      "verdict_reason": "ordering improves +0.0119 but mean per-stat MAE worsens +3.13%, past the 0.5% the rule allows \u2014 this source feeds the blend as a stat line, not as a rank.",
+      "volume_regressors": [
+        "p1_volume",
+        "p2_volume",
+        "p1_games",
+        "team_changed",
+        "age",
+        "depth_rank",
+        "is_first_string"
+      ]
+    },
+    "ridge_alpha_3": {
+      "arms": {
+        "abstain": 1289,
+        "rookie": 1497,
+        "veteran": 3834
+      },
+      "feature_kwargs": {},
+      "games_regressors": [
+        "p1_availability",
+        "p1_weeks_on_reserve",
+        "p1_snap_share",
+        "team_changed",
+        "age"
+      ],
+      "hypothesis": "Not a feature but the functional form. If the heads are overfitting their seven regressors, regularising them should help. Predicted beforehand to do nothing -- n runs 450 to 1,500 per position-target against seven terms, which is comfortable for OLS -- and that prediction was wrong: alpha 10 was the single largest effect measured in this plan. The sweep exists because one good point is not a result. A gain that holds across a wide range of alpha is a real bias-variance trade; a gain that spikes at one value is the test set being fitted.",
+      "mae": {
+        "passingInterceptions": {
+          "n": 429,
+          "naive": 4.042372763256405,
+          "usg": 3.3584245723560935
+        },
+        "passingTouchdowns": {
+          "n": 429,
+          "naive": 6.368647785864887,
+          "usg": 5.930282938702989
+        },
+        "passingYards": {
+          "n": 429,
+          "naive": 891.2100489203283,
+          "usg": 819.447004636666
+        },
+        "receivingReceptions": {
+          "n": 2696,
+          "naive": 13.11227408392983,
+          "usg": 11.450911127620353
+        },
+        "receivingTouchdowns": {
+          "n": 2696,
+          "naive": 1.488491029934278,
+          "usg": 1.2413841984250789
+        },
+        "receivingYards": {
+          "n": 2696,
+          "naive": 149.25142005687616,
+          "usg": 130.97615261098093
+        },
+        "rushingTouchdowns": {
+          "n": 1255,
+          "naive": 1.8074044611342077,
+          "usg": 1.6317024480200428
+        },
+        "rushingYards": {
+          "n": 1255,
+          "naive": 160.2045834973162,
+          "usg": 145.8696897119385
+        }
+      },
+      "naive_spearman": {
+        "QB": 0.6969048069360558,
+        "RB": 0.6865777745442545,
+        "TE": 0.6983531449214176,
+        "WR": 0.7390985825857378
+      },
+      "naive_top_n": {
+        "QB": 0.619047619047619,
+        "RB": 0.619047619047619,
+        "TE": 0.511904761904762,
+        "WR": 0.6825396825396826
+      },
+      "name": "ridge_alpha_3",
+      "note": "Standardised, intercept unpenalised. Alpha is NOT tuned on these folds -- the whole curve is reported and the shape is the evidence. Selecting the best point here would be exactly the fishing the decision rule exists to prevent.",
+      "projected": 5317,
+      "ran_at": "2026-08-08T13:01:37-04:00",
+      "rostered": 6620,
+      "seasons": [
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "source": "\u2014  (np.linalg.lstsq to standardised ridge)",
+      "spearman": {
+        "QB": 0.7126025666227137,
+        "RB": 0.7494517691425724,
+        "TE": 0.765942193249941,
+        "WR": 0.7926817437438853
+      },
+      "spearman_n": {
+        "QB": 513,
+        "RB": 1021,
+        "TE": 801,
+        "WR": 1485
+      },
+      "subpopulations": {
+        "changed_teams": {
+          "n": 1121,
+          "naive": 0.6949155743328684,
+          "usg": 0.7361796289416812
+        },
+        "settled": {
+          "n": 2699,
+          "naive": 0.8037204852254253,
+          "usg": 0.8456688060614547
+        },
+        "thin_prior_season": {
+          "n": 1330,
+          "naive": 0.39156196098621987,
+          "usg": 0.476704116861027
+        }
+      },
+      "top_n": {
+        "QB": 0.630952380952381,
+        "RB": 0.6785714285714286,
+        "TE": 0.5357142857142857,
+        "WR": 0.6984126984126985
+      },
+      "verdict": "reject",
+      "verdict_reason": "mean within-position Spearman gain +0.0012 is below the +0.0050 the rule requires.",
+      "volume_regressors": [
+        "p1_volume",
+        "p2_volume",
+        "p1_games",
+        "team_changed",
+        "age",
+        "depth_rank",
+        "is_first_string"
+      ]
+    },
+    "ridge_alpha_30": {
+      "arms": {
+        "abstain": 1289,
+        "rookie": 1497,
+        "veteran": 3834
+      },
+      "feature_kwargs": {},
+      "games_regressors": [
+        "p1_availability",
+        "p1_weeks_on_reserve",
+        "p1_snap_share",
+        "team_changed",
+        "age"
+      ],
+      "hypothesis": "Not a feature but the functional form. If the heads are overfitting their seven regressors, regularising them should help. Predicted beforehand to do nothing -- n runs 450 to 1,500 per position-target against seven terms, which is comfortable for OLS -- and that prediction was wrong: alpha 10 was the single largest effect measured in this plan. The sweep exists because one good point is not a result. A gain that holds across a wide range of alpha is a real bias-variance trade; a gain that spikes at one value is the test set being fitted.",
+      "mae": {
+        "passingInterceptions": {
+          "n": 429,
+          "naive": 4.056338866149641,
+          "usg": 3.3738105015115933
+        },
+        "passingTouchdowns": {
+          "n": 429,
+          "naive": 6.391940839942461,
+          "usg": 6.016256328179839
+        },
+        "passingYards": {
+          "n": 429,
+          "naive": 904.9495100157641,
+          "usg": 840.1930074160044
+        },
+        "receivingReceptions": {
+          "n": 2700,
+          "naive": 13.10510124718399,
+          "usg": 11.480460053829486
+        },
+        "receivingTouchdowns": {
+          "n": 2700,
+          "naive": 1.484473012341406,
+          "usg": 1.2423861729155041
+        },
+        "receivingYards": {
+          "n": 2700,
+          "naive": 148.9971924072603,
+          "usg": 131.31813500733344
+        },
+        "rushingTouchdowns": {
+          "n": 1261,
+          "naive": 1.7954039757356244,
+          "usg": 1.6414869593464403
+        },
+        "rushingYards": {
+          "n": 1261,
+          "naive": 159.24974168585564,
+          "usg": 146.47795677650484
+        }
+      },
+      "naive_spearman": {
+        "QB": 0.6960676835632031,
+        "RB": 0.6866933830591626,
+        "TE": 0.6972925435731476,
+        "WR": 0.7390680772397658
+      },
+      "naive_top_n": {
+        "QB": 0.619047619047619,
+        "RB": 0.625,
+        "TE": 0.511904761904762,
+        "WR": 0.6865079365079365
+      },
+      "name": "ridge_alpha_30",
+      "note": "Standardised, intercept unpenalised. Alpha is NOT tuned on these folds -- the whole curve is reported and the shape is the evidence. Selecting the best point here would be exactly the fishing the decision rule exists to prevent.",
+      "projected": 5321,
+      "ran_at": "2026-08-08T13:01:50-04:00",
+      "rostered": 6620,
+      "seasons": [
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "source": "\u2014  (np.linalg.lstsq to standardised ridge)",
+      "spearman": {
+        "QB": 0.7215298918376646,
+        "RB": 0.7545747684117682,
+        "TE": 0.7727803174096408,
+        "WR": 0.7959806051394895
+      },
+      "spearman_n": {
+        "QB": 513,
+        "RB": 1022,
+        "TE": 801,
+        "WR": 1488
+      },
+      "subpopulations": {
+        "changed_teams": {
+          "n": 1123,
+          "naive": 0.6956623262335994,
+          "usg": 0.743311593914308
+        },
+        "settled": {
+          "n": 2701,
+          "naive": 0.8036629621363846,
+          "usg": 0.8480822863743642
+        },
+        "thin_prior_season": {
+          "n": 1332,
+          "naive": 0.3939424178867092,
+          "usg": 0.4939174748774225
+        }
+      },
+      "top_n": {
+        "QB": 0.630952380952381,
+        "RB": 0.6845238095238095,
+        "TE": 0.5595238095238095,
+        "WR": 0.7063492063492064
+      },
+      "verdict": "reject",
+      "verdict_reason": "ordering improves +0.0072 but mean per-stat MAE worsens +0.87%, past the 0.5% the rule allows \u2014 this source feeds the blend as a stat line, not as a rank.",
+      "volume_regressors": [
+        "p1_volume",
+        "p2_volume",
+        "p1_games",
+        "team_changed",
+        "age",
+        "depth_rank",
+        "is_first_string"
+      ]
+    },
+    "ridge_alpha_300": {
+      "arms": {
+        "abstain": 1289,
+        "rookie": 1497,
+        "veteran": 3834
+      },
+      "feature_kwargs": {},
+      "games_regressors": [
+        "p1_availability",
+        "p1_weeks_on_reserve",
+        "p1_snap_share",
+        "team_changed",
+        "age"
+      ],
+      "hypothesis": "Not a feature but the functional form. If the heads are overfitting their seven regressors, regularising them should help. Predicted beforehand to do nothing -- n runs 450 to 1,500 per position-target against seven terms, which is comfortable for OLS -- and that prediction was wrong: alpha 10 was the single largest effect measured in this plan. The sweep exists because one good point is not a result. A gain that holds across a wide range of alpha is a real bias-variance trade; a gain that spikes at one value is the test set being fitted.",
+      "mae": {
+        "passingInterceptions": {
+          "n": 429,
+          "naive": 4.12637578576872,
+          "usg": 3.5718590172235283
+        },
+        "passingTouchdowns": {
+          "n": 429,
+          "naive": 6.567455936326253,
+          "usg": 6.752875651938195
+        },
+        "passingYards": {
+          "n": 429,
+          "naive": 966.0657920186909,
+          "usg": 984.6286506638185
+        },
+        "receivingReceptions": {
+          "n": 2708,
+          "naive": 13.105832003978321,
+          "usg": 12.34302652716441
+        },
+        "receivingTouchdowns": {
+          "n": 2708,
+          "naive": 1.4723310473459266,
+          "usg": 1.2856028649588438
+        },
+        "receivingYards": {
+          "n": 2708,
+          "naive": 148.48724509428115,
+          "usg": 140.48829821203327
+        },
+        "rushingTouchdowns": {
+          "n": 1265,
+          "naive": 1.7748825775102204,
+          "usg": 1.7654552427796386
+        },
+        "rushingYards": {
+          "n": 1265,
+          "naive": 158.09044806664272,
+          "usg": 159.67965737892166
+        }
+      },
+      "naive_spearman": {
+        "QB": 0.688878713961626,
+        "RB": 0.6836955857124168,
+        "TE": 0.690045572332005,
+        "WR": 0.7368836287343972
+      },
+      "naive_top_n": {
+        "QB": 0.6071428571428571,
+        "RB": 0.630952380952381,
+        "TE": 0.511904761904762,
+        "WR": 0.6865079365079365
+      },
+      "name": "ridge_alpha_300",
+      "note": "Standardised, intercept unpenalised. Alpha is NOT tuned on these folds -- the whole curve is reported and the shape is the evidence. Selecting the best point here would be exactly the fishing the decision rule exists to prevent.",
+      "projected": 5330,
+      "ran_at": "2026-08-08T13:02:04-04:00",
+      "rostered": 6620,
+      "seasons": [
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "source": "\u2014  (np.linalg.lstsq to standardised ridge)",
+      "spearman": {
+        "QB": 0.7288747911645125,
+        "RB": 0.7695644969172042,
+        "TE": 0.7671852027381636,
+        "WR": 0.8009461399134297
+      },
+      "spearman_n": {
+        "QB": 513,
+        "RB": 1023,
+        "TE": 801,
+        "WR": 1496
+      },
+      "subpopulations": {
+        "changed_teams": {
+          "n": 1130,
+          "naive": 0.697973921752984,
+          "usg": 0.761178707954923
+        },
+        "settled": {
+          "n": 2703,
+          "naive": 0.8014519730130782,
+          "usg": 0.8490920956182344
+        },
+        "thin_prior_season": {
+          "n": 1339,
+          "naive": 0.3998591571825424,
+          "usg": 0.532381266064554
+        }
+      },
+      "top_n": {
+        "QB": 0.5952380952380951,
+        "RB": 0.6726190476190477,
+        "TE": 0.5476190476190476,
+        "WR": 0.7023809523809523
+      },
+      "verdict": "reject",
+      "verdict_reason": "top-N hit rate falls at 2 positions (QB, RB), more than the 1 the rule tolerates.",
+      "volume_regressors": [
+        "p1_volume",
+        "p2_volume",
+        "p1_games",
+        "team_changed",
+        "age",
+        "depth_rank",
+        "is_first_string"
+      ]
+    },
+    "routes_volume": {
+      "arms": {
+        "abstain": 1289,
+        "rookie": 1497,
+        "veteran": 3834
+      },
+      "feature_kwargs": {},
+      "games_regressors": [
+        "p1_availability",
+        "p1_weeks_on_reserve",
+        "p1_snap_share",
+        "team_changed",
+        "age"
+      ],
+      "hypothesis": "Route participation is opportunity stripped of whether the quarterback liked him. Expected to fail: probed at +0.004 to +0.014 holdout R-squared and no movement in ordering at all, because routes correlate 0.88-0.91 with targets.",
+      "mae": {
+        "passingInterceptions": {
+          "n": 429,
+          "naive": 4.039577576968932,
+          "usg": 3.3396979080008986
+        },
+        "passingTouchdowns": {
+          "n": 429,
+          "naive": 6.364581649330594,
+          "usg": 5.946029291637031
+        },
+        "passingYards": {
+          "n": 429,
+          "naive": 889.411479811185,
+          "usg": 818.9113819211144
+        },
+        "receivingReceptions": {
+          "n": 2696,
+          "naive": 13.112579759901408,
+          "usg": 11.41191830945407
+        },
+        "receivingTouchdowns": {
+          "n": 2696,
+          "naive": 1.488887008137412,
+          "usg": 1.2401025162678423
+        },
+        "receivingYards": {
+          "n": 2696,
+          "naive": 149.27825702561947,
+          "usg": 130.65340991742826
+        },
+        "rushingTouchdowns": {
+          "n": 1254,
+          "naive": 1.8083680936437379,
+          "usg": 1.6309185232999754
+        },
+        "rushingYards": {
+          "n": 1254,
+          "naive": 160.3291141967423,
+          "usg": 145.39445050070324
+        }
+      },
+      "naive_spearman": {
+        "QB": 0.6972155539038923,
+        "RB": 0.6866190191939595,
+        "TE": 0.6978106099249695,
+        "WR": 0.7391615891946351
+      },
+      "naive_top_n": {
+        "QB": 0.619047619047619,
+        "RB": 0.619047619047619,
+        "TE": 0.511904761904762,
+        "WR": 0.6825396825396826
+      },
+      "name": "routes_volume",
+      "note": "Run despite the negative probe, because the probe omitted depth_rank and this is the test that includes it.",
+      "projected": 5316,
+      "ran_at": "2026-08-08T13:01:25-04:00",
+      "rostered": 6620,
+      "seasons": [
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "source": "participation x play-by-play dropbacks (98-100% coverage)",
+      "spearman": {
+        "QB": 0.7114455187683282,
+        "RB": 0.7487287374699516,
+        "TE": 0.7639226811582792,
+        "WR": 0.7918576740612835
+      },
+      "spearman_n": {
+        "QB": 513,
+        "RB": 1021,
+        "TE": 800,
+        "WR": 1485
+      },
+      "subpopulations": {
+        "changed_teams": {
+          "n": 1120,
+          "naive": 0.6949991508367404,
+          "usg": 0.7356774599850745
+        },
+        "settled": {
+          "n": 2699,
+          "naive": 0.803783125210036,
+          "usg": 0.8448028481502079
+        },
+        "thin_prior_season": {
+          "n": 1329,
+          "naive": 0.391373618312494,
+          "usg": 0.4760439464963078
+        }
+      },
+      "top_n": {
+        "QB": 0.6190476190476192,
+        "RB": 0.6785714285714286,
+        "TE": 0.5119047619047619,
+        "WR": 0.7063492063492064
+      },
+      "verdict": "reject",
+      "verdict_reason": "mean within-position Spearman gain +0.0000 is below the +0.0050 the rule requires.",
+      "volume_regressors": [
+        "p1_volume",
+        "p2_volume",
+        "p1_games",
+        "team_changed",
+        "age",
+        "depth_rank",
+        "is_first_string",
+        "p1_route_share",
+        "p1_routes_pg"
+      ]
+    }
+  },
+  "rejected_before_plan_22": [],
+  "weekly_transfer": {
+    "routes": [
+      {
+        "base_r2": 0.39951335178669756,
+        "delta": 0.011292727408350745,
+        "median_trailing_routes": 74.0,
+        "median_trailing_targets": 12.0,
+        "n_test": 1789,
+        "position": "WR",
+        "with_routes_r2": 0.4108060791950483
+      },
+      {
+        "base_r2": 0.37007217947805937,
+        "delta": 0.05464372924646166,
+        "median_trailing_routes": 56.0,
+        "median_trailing_targets": 9.0,
+        "n_test": 976,
+        "position": "TE",
+        "with_routes_r2": 0.42471590872452103
+      },
+      {
+        "base_r2": 0.2846124983589159,
+        "delta": 0.027148116074587225,
+        "median_trailing_routes": 44.0,
+        "median_trailing_targets": 6.0,
+        "n_test": 1083,
+        "position": "RB",
+        "with_routes_r2": 0.3117606144335031
+      }
+    ],
+    "shrinkage": [
+      {
+        "k": 40.0,
+        "rate": "yards_per_target",
+        "season_n_p95": 113.0,
+        "season_prior_weight": 0.26143790849673204,
+        "weekly_n_p95": 27.0,
+        "weekly_prior_weight": 0.5970149253731343
+      },
+      {
+        "k": 40.0,
+        "rate": "catch_rate",
+        "season_n_p95": 113.0,
+        "season_prior_weight": 0.26143790849673204,
+        "weekly_n_p95": 27.0,
+        "weekly_prior_weight": 0.5970149253731343
+      },
+      {
+        "k": 120.0,
+        "rate": "rec_td_per_target",
+        "season_n_p95": 113.0,
+        "season_prior_weight": 0.5150214592274678,
+        "weekly_n_p95": 27.0,
+        "weekly_prior_weight": 0.8163265306122449
+      },
+      {
+        "k": 60.0,
+        "rate": "yards_per_carry",
+        "season_n_p95": 204.0,
+        "season_prior_weight": 0.22727272727272727,
+        "weekly_n_p95": 51.0,
+        "weekly_prior_weight": 0.5405405405405406
+      },
+      {
+        "k": 150.0,
+        "rate": "rush_td_per_carry",
+        "season_n_p95": 204.0,
+        "season_prior_weight": 0.423728813559322,
+        "weekly_n_p95": 51.0,
+        "weekly_prior_weight": 0.746268656716418
+      }
+    ]
+  }
+}

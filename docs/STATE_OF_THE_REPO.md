@@ -429,9 +429,10 @@ which is acceptable for a single-user repo but is the obvious hardening target.
 - [x] ~~Surface `USG_` on the draft board **without** blending it.~~ Done
       2026-08-07 — wired as the fifth source at weight 0.0, on all nine boards.
       → [plan 18](plans/18-season-usage-model.md#the-fifth-source-wired--2026-08-07)
-- [x] ~~Abstain for QB in the season head.~~ Done 2026-08-07 —
-      `season.ABSTAIN_POSITIONS`. Coverage 80.4% → 73.2%, which is the 7% the model
-      measured worse at.
+- [x] ~~Abstain for QB in the season head.~~ Added and then removed on 2026-08-07.
+      It took coverage 80.4% → 73.2%, and was lifted once the depth chart entered
+      the veteran arm and quarterback ordering went positive (+0.0132 against the
+      naive baseline). `season.ABSTAIN_POSITIONS` is `()`; coverage is **83.7%**.
 - [ ] Render the new `USG_` columns on the board page — they are in
       `board.parquet` and nothing shows them yet.
       → [plan 09](plans/09-frontend-draft-views.md)

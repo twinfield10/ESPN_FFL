@@ -769,6 +769,27 @@ class SeasonUsageModel:
             "is_first_string": column("is_first_string"),
             "coach_volume": column(coach_column) if coach_column else pl.lit(0.0),
             "staff_continuity": column("staff_continuity"),
+            # --- plan 22 candidates ---------------------------------------
+            # Present unconditionally and zero when their column is absent, exactly
+            # like the coach prior above. That is what lets an experiment be a
+            # one-line change to VOLUME_REGRESSORS rather than a branch through the
+            # fit and the predict paths, which would be two places to get wrong.
+            "p1_route_share": column(f"{ft.LAG1_PREFIX}route_share"),
+            "p1_routes_pg": column(f"{ft.LAG1_PREFIX}routes_pg"),
+            "p1_rz10_carry_share": column(f"{ft.LAG1_PREFIX}rz10_carry_share"),
+            "p1_rz5_carry_share": column(f"{ft.LAG1_PREFIX}rz5_carry_share"),
+            "p1_rz10_target_share": column(f"{ft.LAG1_PREFIX}rz10_target_share"),
+            "p1_ez_target_share": column(f"{ft.LAG1_PREFIX}ez_target_share"),
+            # Contracts enter **interacted with team_changed**, and the interaction
+            # is the finding rather than a modelling flourish. A main effect was
+            # measured first and is a wash or worse on the full population -- a
+            # settled veteran's own prior volume already encodes what his team
+            # thinks of him. On movers, where prior volume describes a job he no
+            # longer has, the same columns are positive at all four positions. See
+            # :func:`Scripts.usage.features.contract_context`.
+            "moved_contract_apy": column("team_changed") * column("contract_apy_pct"),
+            "moved_contract_gtd": column("team_changed") * column("contract_guaranteed"),
+            "moved_contract_new": column("team_changed") * column("contract_is_new"),
         }
 
     def predict_volume(self, frame: pl.DataFrame, target: str) -> pl.Expr:
@@ -1173,6 +1194,44 @@ def _fit_volume(frame: pl.DataFrame, position: str, target: str) -> Optional[Vol
     return _least_squares(rows, VOLUME_REGRESSORS, position, target)
 
 
+#: Ridge penalty on the volume and games heads. Zero is ordinary least squares.
+#:
+#: A knob rather than a decision, and it defaults to off. Plan 22 tested whether the
+#: functional form was leaving anything on the table -- n runs 450 to 1,500 per
+#: position-target against seven regressors, which is comfortable for OLS, so the
+#: expectation was no. See ``docs/model_lab.html``.
+RIDGE_ALPHA: float = 0.0
+
+
+def _ridge(design: np.ndarray, y: np.ndarray, alpha: float) -> np.ndarray:
+    """Ridge regression, standardised, without penalising the intercept.
+
+    Standardising is not optional here. The regressors are on wildly different
+    scales -- ``p1_targets_pg`` around 5, ``age`` around 27, ``depth_rank`` 1 to 3 --
+    and an unstandardised penalty would shrink the small-scale coefficients hardest
+    for no reason but their units. The intercept is excluded because penalising it
+    pulls every prediction toward zero rather than toward the mean.
+
+    Args:
+        design: Column of ones followed by the regressors.
+        y: Outcome.
+        alpha: Penalty strength, in standardised units.
+
+    Returns:
+        np.ndarray: Coefficients on the original scale, intercept first.
+    """
+    x = design[:, 1:]
+    centre, scale = x.mean(axis=0), x.std(axis=0)
+    scale = np.where(scale == 0, 1.0, scale)
+    z = (x - centre) / scale
+
+    penalty = alpha * np.eye(z.shape[1])
+    beta_z = np.linalg.solve(z.T @ z + penalty, z.T @ (y - y.mean()))
+
+    beta = beta_z / scale
+    return np.concatenate([[y.mean() - float(centre @ beta)], beta])
+
+
 def _least_squares(rows: pl.DataFrame, regressors: Sequence[str],
                    position: str, target: str) -> Optional[VolumeFit]:
     """Ordinary least squares with an intercept, packaged as a :class:`VolumeFit`.
@@ -1192,7 +1251,11 @@ def _least_squares(rows: pl.DataFrame, regressors: Sequence[str],
     design = np.column_stack(
         [np.ones(rows.height)] + [rows[name].to_numpy() for name in regressors])
     y = rows["y"].to_numpy()
-    beta, *_ = np.linalg.lstsq(design, y, rcond=None)
+
+    if RIDGE_ALPHA > 0:
+        beta = _ridge(design, y, RIDGE_ALPHA)
+    else:
+        beta, *_ = np.linalg.lstsq(design, y, rcond=None)
     residual = y - design @ beta
     variance = float(np.sum((y - y.mean()) ** 2))
     r2 = 1.0 - float(np.sum(residual ** 2)) / variance if variance > 0 else 0.0
@@ -1508,7 +1571,9 @@ def rookie_efficiency(frame: pl.DataFrame,
 
 
 def training_frame(seasons: Sequence[int], history_start: int,
-                   positions: Sequence[str] = ft.MODELLED_POSITIONS) -> pl.DataFrame:
+                   positions: Sequence[str] = ft.MODELLED_POSITIONS,
+                   feature_kwargs: Optional[Dict[str, object]] = None
+                   ) -> pl.DataFrame:
     """Feature rows for several seasons, each with that season's realised outcome.
 
     One :func:`Scripts.usage.features.season_features` call per season, so every
@@ -1520,6 +1585,10 @@ def training_frame(seasons: Sequence[int], history_start: int,
         seasons: Seasons to build training rows for.
         history_start: Earliest season the features may look back to.
         positions: Positions to model.
+        feature_kwargs: Extra arguments for
+            :func:`Scripts.usage.features.season_features`. The hook the plan 22
+            lab uses to vary one thing at a time across a whole walk-forward
+            without the experiment having to reimplement the fold loop.
 
     Returns:
         pl.DataFrame: Features plus ``y_<volume>`` per :data:`VOLUME_TARGETS` and
@@ -1533,7 +1602,8 @@ def training_frame(seasons: Sequence[int], history_start: int,
         history = [s for s in range(history_start, season)]
         if not history:
             continue
-        features = ft.season_features(season, history, positions=positions)
+        features = ft.season_features(season, history, positions=positions,
+                                      **(feature_kwargs or {}))
 
         # The outcome, from the season itself -- the only place it may appear.
         weekly = ft.load_player_weeks([season])

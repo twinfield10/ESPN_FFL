@@ -20,7 +20,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import polars as pl
 
-from Scripts.paths import nfl_season_dir
+from Scripts.paths import DATA_DIR, nfl_season_dir
 
 #: ESPN scoring column -> (ffopportunity actual column, its expected counterpart).
 #:
@@ -187,3 +187,96 @@ def load_opportunity(seasons: Sequence[int],
     return out.with_columns(
         pl.col(value_columns).cast(pl.Float64)
     ).sort(["gsis_id", "season", "week"])
+
+
+# --- The role-resolving pulls, from R/GetAdvanced.R -------------------------
+#
+# Separate from the block above because they have a different failure mode. The
+# opportunity and player_weeks pulls are the model's spine: without them there is no
+# model, so :func:`_require` raises. These three are candidate features under test,
+# and a season that lacks them should degrade to the model without them rather than
+# refuse to run -- which is what :func:`load_advanced` returning an empty frame
+# does. The feature layer left-joins, so absent reads as null reads as abstain.
+
+#: The advanced parquets and the key each is unique on.
+ADVANCED_FILES: Dict[str, Tuple[str, ...]] = {
+    "routes": ("season", "week", "gsis_id"),
+    "ngs": ("season", "week", "gsis_id"),
+    "red_zone": ("season", "week", "gsis_id"),
+}
+
+#: Contract table, not season-scoped. A player's live contract may have been signed
+#: five years ago, so filtering to what was knowable before a given season is a
+#: feature-layer decision -- see :func:`Scripts.usage.features.contract_context`.
+CONTRACTS_PARQUET = DATA_DIR / "NFL" / "contracts.parquet"
+
+
+def advanced_path(season: int, name: str):
+    """Path to one of :data:`ADVANCED_FILES` for a season. Not created."""
+    if name not in ADVANCED_FILES:
+        raise KeyError(f"Unknown advanced pull {name!r}. "
+                       f"Known: {sorted(ADVANCED_FILES)}.")
+    return nfl_season_dir(season, f"{name}.parquet")
+
+
+def load_advanced(seasons: Sequence[int], name: str) -> pl.DataFrame:
+    """One of the advanced player-week pulls, for several seasons.
+
+    Missing seasons are skipped rather than raised on, unlike
+    :func:`load_opportunity`. These are features under test: the model has to stay
+    runnable for anyone who has not run ``R/GetAdvanced.R``, and a null feature is
+    already a case every head handles.
+
+    Args:
+        seasons: Season years to read.
+        name: One of :data:`ADVANCED_FILES`.
+
+    Returns:
+        pl.DataFrame: One row per ``(season, week, gsis_id)``. Empty with the right
+        key schema when no season has been pulled.
+
+    Raises:
+        KeyError: On an unknown pull name.
+    """
+    frames = []
+    for season in sorted(set(seasons)):
+        path = advanced_path(season, name)
+        if not path.is_file():
+            continue
+        frames.append(pl.read_parquet(path).with_columns(
+            pl.col("season").cast(pl.Int32), pl.col("week").cast(pl.Int32)))
+
+    if not frames:
+        return pl.DataFrame(schema={"season": pl.Int32, "week": pl.Int32,
+                                    "gsis_id": pl.String})
+    return pl.concat(frames, how="diagonal").sort(["gsis_id", "season", "week"])
+
+
+def load_contracts() -> pl.DataFrame:
+    """Every contract OverTheCap records, unfiltered.
+
+    Returns:
+        pl.DataFrame: One row per contract with ``gsis_id`` and ``year_signed``.
+        Empty with the key schema when ``R/GetAdvanced.R`` has not been run.
+    """
+    if not CONTRACTS_PARQUET.is_file():
+        return pl.DataFrame(schema={"gsis_id": pl.String, "year_signed": pl.Int32})
+    return pl.read_parquet(CONTRACTS_PARQUET).with_columns(
+        pl.col("year_signed").cast(pl.Int32))
+
+
+def advanced_available(seasons: Sequence[int]) -> Dict[str, List[int]]:
+    """Which advanced pulls exist for which seasons.
+
+    Reported rather than assumed, because a feature fitted on nine seasons and
+    missing in the tenth is the failure this repo has already paid for once with
+    the depth-chart schema change.
+
+    Args:
+        seasons: Season years to check.
+
+    Returns:
+        dict: Pull name to the sorted seasons present on disk.
+    """
+    return {name: sorted(s for s in seasons if advanced_path(s, name).is_file())
+            for name in ADVANCED_FILES}

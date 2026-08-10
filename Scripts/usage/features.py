@@ -29,8 +29,9 @@ Polars throughout, per ``CLAUDE.md``.
 """
 
 from datetime import date
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
+import numpy as np
 import polars as pl
 
 from Scripts.usage import context as ctx
@@ -39,6 +40,8 @@ from Scripts.usage.nflverse import (
     ACTUAL_PREFIX,
     EXPECTED_PREFIX,
     USAGE_STATS,
+    load_advanced,
+    load_contracts,
     load_opportunity,
     player_weeks_path,
 )
@@ -100,6 +103,49 @@ SHRINKAGE_K: Dict[str, float] = {
     "pass_td_per_attempt": 300.0,
     "int_per_attempt": 300.0,
 }
+
+#: Regressors for each efficiency rate's *baseline*, from the ``R/GetAdvanced.R``
+#: pulls. See :func:`fit_rate_baselines` for what is done with them.
+#:
+#: The efficiency head has never had a feature. It shrinks every player toward his
+#: position's pooled rate, which is a good default and a strictly information-free
+#: one: two receivers with the same target count get the same prior no matter that
+#: one of them runs go routes and the other runs slants.
+#:
+#: What is here is chosen mechanically rather than by search. A rate is a ratio, so
+#: its baseline should be built from the things that determine the *denominator's
+#: quality*: how far downfield the ball was thrown, how open the man was, how
+#: stacked the box was, and -- for touchdown rates -- how close to the goal line the
+#: opportunity came. Catch rate falls with depth of target; yards per carry rises
+#: with yards over expected; a touchdown rate is mostly field position wearing a
+#: rate's clothing. None of that is a surprising claim, which is the point: a
+#: baseline is a prior, and a prior built from surprising claims is how a model
+#: acquires confident nonsense.
+#:
+#: Passing rates are absent, and that is a data gap rather than a judgement. NGS
+#: publishes a passing feed with completion percentage over expected in it, which is
+#: the obvious regressor for ``yards_per_attempt`` and ``pass_td_per_attempt``, and
+#: ``R/GetAdvanced.R`` does not currently pull it. Recorded in plan 22 as untested.
+RATE_BASELINE_FEATURES: Dict[str, Tuple[str, ...]] = {
+    "yards_per_target": ("ngs_adot", "ngs_separation", "ngs_yac_oe",
+                         "ngs_air_yards_share"),
+    "catch_rate":       ("ngs_adot", "ngs_separation", "ngs_cushion"),
+    "rec_td_per_target": ("rz10_target_share", "ez_targets_pg", "ngs_adot"),
+    "yards_per_carry":  ("ngs_ryoe_per_att", "ngs_stacked_box_pct",
+                         "ngs_time_to_los"),
+    "rush_td_per_carry": ("rz5_carry_share", "rz10_carry_share"),
+}
+
+#: Minimum opportunities before a player-season may inform a baseline fit.
+#:
+#: Per rate, in denominator units, and set well below :data:`SHRINKAGE_K` on
+#: purpose. This threshold governs who *teaches* the baseline, not who receives it;
+#: everyone receives one. A player with twenty targets is a noisy observation but an
+#: unbiased one, and the fit is weighted by opportunity anyway.
+RATE_FIT_MIN_DENOMINATOR: float = 20.0
+
+#: Fewest player-seasons before a rate baseline may be fitted at all.
+RATE_FIT_MIN_ROWS: int = 60
 
 #: Positions the season head speaks for. Kickers and team defences have no usage
 #: features at all, and plan 18 fixes abstention rather than a positional default:
@@ -227,22 +273,36 @@ def positional_baselines(totals: pl.DataFrame) -> pl.DataFrame:
 
 
 def attach_efficiency(totals: pl.DataFrame, baselines: pl.DataFrame,
-                      shrinkage: Optional[Dict[str, float]] = None) -> pl.DataFrame:
-    """Efficiency rates, shrunk toward the positional baseline by volume.
+                      shrinkage: Optional[Dict[str, float]] = None,
+                      rate_baselines: Optional[
+                          Dict[Tuple[str, str], Dict[str, float]]] = None,
+                      ) -> pl.DataFrame:
+    """Efficiency rates, shrunk toward a baseline by volume.
 
     ``(n * own_rate + k * baseline) / (n + k)``, the standard credibility weighting.
     A player with no opportunity at all gets the baseline outright rather than a
     null, because the alternative -- dropping him -- would make the model's coverage
     depend on last season's usage, and a drafter still has to price him.
 
+    With ``rate_baselines`` the target of that shrinkage becomes the *fitted*
+    baseline from :func:`fit_rate_baselines` rather than the positional constant.
+    Nothing else changes: the same ``k``, the same arithmetic, the same fallback.
+    A player whose advanced features are missing, or whose ``(position, rate)`` was
+    never fitted, still gets the constant -- so this can only add information, never
+    withdraw coverage.
+
     Args:
         totals: :func:`season_totals` output.
         baselines: :func:`positional_baselines` output.
         shrinkage: Per-rate ``k``. Defaults to :data:`SHRINKAGE_K`.
+        rate_baselines: :func:`fit_rate_baselines` output. None keeps the positional
+            constant, which is the behaviour every result before plan 22 was
+            measured against.
 
     Returns:
-        pl.DataFrame: ``totals`` plus one shrunk column per rate, and ``<name>_raw``
-        holding the unshrunk value for auditability.
+        pl.DataFrame: ``totals`` plus one shrunk column per rate, ``<name>_raw``
+        holding the unshrunk value, and ``<name>_prior`` holding whatever it was
+        shrunk toward -- both for auditability.
     """
     shrinkage = SHRINKAGE_K if shrinkage is None else shrinkage
     rates = [name for name, _, _ in EFFICIENCY_RATES if name in baselines.columns]
@@ -262,15 +322,238 @@ def attach_efficiency(totals: pl.DataFrame, baselines: pl.DataFrame,
         if num not in out.columns or den not in out.columns:
             continue
         k = float(shrinkage.get(name, 50.0))
+
+        # The prior: the positional constant, overridden per position wherever a fit
+        # exists and every one of its regressors resolves on this frame.
+        prior = pl.col(f"base_{name}")
+        for (position, fitted_rate), fit in (rate_baselines or {}).items():
+            if fitted_rate != name:
+                continue
+            regressors = [c for c in fit
+                          if c not in ("intercept", "n", "r2") and c in out.columns]
+            if len(regressors) != len(
+                    [c for c in fit if c not in ("intercept", "n", "r2")]):
+                continue
+            predicted = pl.lit(float(fit["intercept"]))
+            resolved = pl.lit(True)
+            for column in regressors:
+                predicted = predicted + pl.col(column).cast(pl.Float64) * fit[column]
+                resolved = resolved & pl.col(column).is_not_null()
+            # Clipped into the range the positional constant lives in. An
+            # extrapolated negative catch rate is worse than no feature at all, and
+            # a linear fit on a bounded quantity will produce one eventually.
+            predicted = predicted.clip(lower_bound=0.0,
+                                       upper_bound=pl.col(f"base_{name}") * 3.0)
+            prior = pl.when((pl.col("position") == position) & resolved).then(
+                predicted).otherwise(prior)
+
         own = pl.when(pl.col(den) > 0).then(pl.col(num) / pl.col(den)).otherwise(None)
         exprs.append(own.alias(f"{name}_raw"))
+        exprs.append(prior.alias(f"{name}_prior"))
         exprs.append(
             ((pl.col(den).fill_null(0) * own.fill_null(0)
-              + k * pl.col(f"base_{name}"))
+              + k * prior)
              / (pl.col(den).fill_null(0) + k)).alias(name)
         )
 
     return out.with_columns(exprs).drop([f"base_{name}" for name in rates])
+
+
+def advanced_totals(seasons: Sequence[int]) -> pl.DataFrame:
+    """Season aggregates of the routes, NGS and red-zone pulls.
+
+    All three arrive per player-week from ``R/GetAdvanced.R`` and are reduced here
+    to the player-season grain the rest of this module works in. Absent pulls are
+    skipped, not raised on -- see :func:`Scripts.usage.nflverse.load_advanced`.
+
+    Counting rules, each chosen for a reason:
+
+    * Routes are **summed and re-divided**, so ``route_share`` is routes over the
+      dropbacks his teams actually threw, not the mean of his weekly shares. A
+      player who ran 40 routes in a 45-dropback game and 2 in a 10-dropback game is
+      not a 54%-share player.
+    * NGS columns are **averaged over weeks**, because they arrive as per-week
+      averages already and there is no count to re-weight them by.
+    * Red-zone counts are summed, and shares are taken against the team totals that
+      travel with them. Five goal-line carries on a team with eight is a role; five
+      on a team with forty is not.
+
+    Args:
+        seasons: Season years to read.
+
+    Returns:
+        pl.DataFrame: One row per ``(season, gsis_id)``. Empty with the key schema
+        when none of the three has been pulled.
+    """
+    empty = pl.DataFrame(schema={"season": pl.Int32, "gsis_id": pl.String})
+    pieces = []
+
+    routes = load_advanced(seasons, "routes")
+    if routes.height:
+        pieces.append(
+            routes.group_by(["season", "gsis_id"]).agg(
+                pl.col("routes").sum().alias("routes"),
+                pl.col("team_dropbacks").sum().alias("route_dropbacks"),
+                pl.len().cast(pl.Int32).alias("route_games"),
+            ).with_columns(
+                (pl.col("routes") / pl.col("route_dropbacks")).alias("route_share"),
+                (pl.col("routes") / pl.col("route_games")).alias("routes_pg"),
+            )
+        )
+
+    ngs = load_advanced(seasons, "ngs")
+    if ngs.height:
+        measures = [c for c in ngs.columns if c.startswith("ngs_")]
+        pieces.append(
+            ngs.group_by(["season", "gsis_id"]).agg(
+                [pl.col(c).mean().alias(c) for c in measures])
+        )
+
+    red_zone = load_advanced(seasons, "red_zone")
+    if red_zone.height:
+        counts = [c for c in red_zone.columns
+                  if c.startswith(("rz", "ez", "team_rz", "team_ez"))]
+        totals = red_zone.group_by(["season", "gsis_id"]).agg(
+            [pl.col(c).sum().alias(c) for c in counts]
+            + [pl.len().cast(pl.Int32).alias("red_zone_games")])
+
+        shares = []
+        for band in ("rz20", "rz10", "rz5"):
+            for plural, singular in (("carries", "carry"), ("targets", "target")):
+                own, team = f"{band}_{plural}", f"team_{band}_{plural}"
+                if own in totals.columns and team in totals.columns:
+                    shares.append(
+                        pl.when(pl.col(team) > 0)
+                        .then(pl.col(own) / pl.col(team))
+                        .otherwise(0.0)
+                        .alias(f"{band}_{singular}_share")
+                    )
+        if "ez_targets" in totals.columns:
+            shares.append(
+                (pl.col("ez_targets") / pl.col("red_zone_games")).alias("ez_targets_pg"))
+            if "team_ez_targets" in totals.columns:
+                shares.append(
+                    pl.when(pl.col("team_ez_targets") > 0)
+                    .then(pl.col("ez_targets") / pl.col("team_ez_targets"))
+                    .otherwise(0.0).alias("ez_target_share"))
+        pieces.append(totals.with_columns(shares) if shares else totals)
+
+    if not pieces:
+        return empty
+
+    out = pieces[0]
+    for piece in pieces[1:]:
+        out = out.join(piece, on=["season", "gsis_id"], how="full", coalesce=True)
+
+    # NaN to null on the way out, once, so no consumer has to remember. NGS ships
+    # NaN for a player-week it could not measure, and polars' `is_not_null()` is
+    # True for a NaN -- so a guard written the obvious way lets one through, it
+    # propagates silently through the shrinkage arithmetic, and the first visible
+    # symptom is a NaN mean three layers downstream. That is exactly what happened
+    # on the first run of the efficiency experiment: every receiving MAE came back
+    # NaN and the experiment looked like a result rather than a bug. Same failure
+    # the interval code documents; fixed here at the source instead of at each use.
+    floats = [c for c, dtype in out.schema.items() if dtype in (pl.Float32, pl.Float64)]
+    if floats:
+        out = out.with_columns([pl.col(c).fill_nan(None) for c in floats])
+    return out.sort(["gsis_id", "season"])
+
+
+def fit_rate_baselines(
+    totals: pl.DataFrame,
+    baselines: pl.DataFrame,
+    features: Optional[Dict[str, Tuple[str, ...]]] = None,
+) -> Dict[Tuple[str, str], Dict[str, float]]:
+    """Per-player efficiency baselines, fitted instead of asserted.
+
+    :func:`attach_efficiency` shrinks a player's own rate toward his position's
+    pooled rate. That constant is a prior, and this replaces it with a *conditional*
+    one: the rate a player with his route depth, separation and goal-line role would
+    be expected to post. The credibility weighting is unchanged, so a player with a
+    lot of opportunity still keeps mostly his own number. What moves is where the
+    player with little opportunity gets pulled to.
+
+    Weighted least squares, weighted by the denominator, because the alternative
+    lets a twenty-target season argue as loudly as a hundred-and-fifty-target one
+    about what a hundred-and-fifty-target season looks like.
+
+    **Fitted on whatever seasons it is given, and the caller owns that boundary.**
+    :func:`prior_season_frame` passes prior seasons only, for the same reason
+    :func:`positional_baselines` gets the same treatment.
+
+    Args:
+        totals: :func:`season_totals` output, joined to :func:`advanced_totals`.
+        baselines: :func:`positional_baselines` output, the fallback intercept.
+        features: Rate name to regressors. Defaults to
+            :data:`RATE_BASELINE_FEATURES`.
+
+    Returns:
+        dict: ``(position, rate)`` to ``{"intercept": ..., "<feature>": ..., "n":
+        ..., "r2": ...}``. A missing key means no fit was possible and the caller
+        should fall back to the positional constant.
+    """
+    features = RATE_BASELINE_FEATURES if features is None else features
+    fits: Dict[Tuple[str, str], Dict[str, float]] = {}
+    if not totals.height or "position" not in totals.columns:
+        return fits
+
+    for rate, numerator, denominator in EFFICIENCY_RATES:
+        regressors = [c for c in features.get(rate, ()) if c in totals.columns]
+        if not regressors:
+            continue
+        num, den = f"tot_{numerator}", f"tot_{denominator}"
+        if num not in totals.columns or den not in totals.columns:
+            continue
+
+        usable = totals.filter(
+            (pl.col(den) >= RATE_FIT_MIN_DENOMINATOR)
+            & pl.col(num).is_not_null()
+        ).with_columns((pl.col(num) / pl.col(den)).alias("_rate"))
+
+        for position in usable["position"].drop_nulls().unique().to_list():
+            # `fill_nan(None)` before `drop_nulls`, and it is load-bearing rather
+            # than defensive. Polars treats NaN and null as different things and
+            # `drop_nulls` keeps NaN, so an NGS column carrying one -- they do --
+            # reaches numpy intact and makes the normal equations unsolvable. This
+            # is the same "absent reads as present" failure `stat_intervals`
+            # documents, in the same float-shaped disguise, and it surfaced here as
+            # `SVD did not converge` rather than as a wrong number.
+            rows = usable.filter(pl.col("position") == position).select(
+                *[pl.col(c).cast(pl.Float64).fill_nan(None) for c in regressors],
+                pl.col("_rate").cast(pl.Float64).fill_nan(None),
+                pl.col(den).cast(pl.Float64).fill_nan(None).alias("_w"),
+            ).drop_nulls()
+            if rows.height < RATE_FIT_MIN_ROWS:
+                continue
+
+            design = np.column_stack(
+                [np.ones(rows.height)]
+                + [rows[c].to_numpy() for c in regressors])
+            y = rows["_rate"].to_numpy()
+            w = np.sqrt(rows["_w"].to_numpy())
+            if not (np.all(np.isfinite(design)) and np.all(np.isfinite(y))
+                    and np.all(np.isfinite(w))):
+                continue
+            # A regressor that never varies in this slice contributes a column of
+            # constants that the intercept already spans. lstsq tolerates the rank
+            # deficiency; the fit is meaningless, so skip rather than record it.
+            if np.any(design[:, 1:].std(axis=0) == 0):
+                continue
+
+            try:
+                beta, *_ = np.linalg.lstsq(design * w[:, None], y * w, rcond=None)
+            except np.linalg.LinAlgError:
+                continue
+
+            residual = y - design @ beta
+            variance = float(np.sum((y - y.mean()) ** 2))
+            r2 = 1.0 - float(np.sum(residual ** 2)) / variance if variance else 0.0
+
+            fit = {"intercept": float(beta[0]), "n": float(rows.height), "r2": r2}
+            fit.update({c: float(v) for c, v in zip(regressors, beta[1:])})
+            fits[(position, rate)] = fit
+
+    return fits
 
 
 def expected_production(seasons: Sequence[int]) -> pl.DataFrame:
@@ -304,18 +587,24 @@ def expected_production(seasons: Sequence[int]) -> pl.DataFrame:
 
 
 def prior_season_frame(target_season: int, history: Sequence[int],
-                       shrinkage: Optional[Dict[str, float]] = None) -> pl.DataFrame:
+                       shrinkage: Optional[Dict[str, float]] = None,
+                       rate_baselines: bool = False) -> pl.DataFrame:
     """Everything knowable about players from seasons before ``target_season``.
 
     Args:
         target_season: The season being predicted. Excluded from every input.
         history: Completed seasons available to learn from.
         shrinkage: Passed to :func:`attach_efficiency`.
+        rate_baselines: Shrink efficiency toward a fitted per-player baseline
+            instead of the positional constant. Off by default, because every
+            result recorded before plan 22 was measured against the constant and a
+            silent change of prior would invalidate the comparison rather than
+            improve on it.
 
     Returns:
         pl.DataFrame: One row per ``(season, gsis_id)`` for each season in
         ``history`` before ``target_season``, with volume, share, efficiency,
-        expected-production and availability columns.
+        expected-production, availability and advanced-role columns.
 
     Raises:
         ValueError: When ``history`` contains ``target_season`` or later. The whole
@@ -336,7 +625,17 @@ def prior_season_frame(target_season: int, history: Sequence[int],
     weekly = load_player_weeks(seasons)
     totals = season_totals(weekly)
     baselines = positional_baselines(totals)
-    totals = attach_efficiency(totals, baselines, shrinkage)
+
+    # Joined *before* the efficiency shrinkage, because the fitted baseline is a
+    # function of these columns. Left join, so a season without the pull behaves
+    # exactly as it did before R/GetAdvanced.R existed.
+    advanced = advanced_totals(seasons)
+    if advanced.height:
+        totals = totals.join(advanced, on=["season", "gsis_id"], how="left")
+
+    fitted = (fit_rate_baselines(totals, baselines)
+              if rate_baselines and advanced.height else None)
+    totals = attach_efficiency(totals, baselines, shrinkage, fitted)
 
     availability = ctx.season_availability(seasons, weekly).drop(
         [c for c in ("weeks_on_a_roster",) if True], strict=False)
@@ -347,6 +646,72 @@ def prior_season_frame(target_season: int, history: Sequence[int],
         .join(availability, on=["season", "gsis_id"], how="left")
         .join(snap_share(seasons), on=["season", "gsis_id"], how="left")
         .sort(["gsis_id", "season"])
+    )
+
+
+def contract_context(target_season: int) -> pl.DataFrame:
+    """Each player's live contract as of the offseason before ``target_season``.
+
+    A current-season fact, like ``team_changed`` and ``age`` and unlike every lagged
+    feature: a deal signed in March is public in August. It is also the only
+    forward-looking evidence this model has about a player who changed teams, which
+    is the population plan 18 measured as carrying **+32% median rank error** --
+    the worst of its three thin-evidence flags.
+
+    Measured before it was built, on next-season volume over prior volume, games and
+    ``team_changed``, train 2017-2024 and test 2025. On everyone it is a wash or
+    worse: WR −0.0117 R-squared, TE −0.0023, RB +0.0118, QB +0.0226. On changed-teams
+    rows alone it is positive at **all four** positions: WR +0.0259 (n=50), RB
+    +0.0566 (n=20), TE +0.0995 (n=23), QB +0.0202 (n=19). A settled veteran's own
+    prior volume already encodes what his team thinks of him; a mover's does not.
+    Hence the interaction rather than a main effect -- see
+    :data:`Scripts.usage.season.CONTRACT_REGRESSORS`.
+
+    ``apy_cap_pct`` rather than ``apy``: annual value as a share of the salary cap is
+    comparable across a decade in which the cap went from $155M to $280M. Raw dollars
+    would fit a coefficient that is mostly inflation.
+
+    **The leakage boundary here is imperfect and the imperfection is named.**
+    Contracts are filtered to ``year_signed <= target_season``, which admits a
+    mid-season extension signed *during* the season being predicted -- genuinely
+    unknowable at draft time. The alternative, ``< target_season``, excludes all of
+    March free agency and so discards the entire signal for exactly the movers this
+    exists for. The population is dominated by offseason signings, so the residual
+    is small; it is recorded rather than hidden, and it biases toward *over*-stating
+    the feature's value in the backtest.
+
+    Args:
+        target_season: The season being projected.
+
+    Returns:
+        pl.DataFrame: One row per ``gsis_id`` with ``contract_apy_pct``,
+        ``contract_guaranteed``, ``contract_years``, ``contract_age`` (seasons since
+        signing) and ``contract_is_new``. Empty with the key schema when the pull is
+        missing.
+    """
+    contracts = load_contracts()
+    if not contracts.height or "apy_cap_pct" not in contracts.columns:
+        return pl.DataFrame(schema={"gsis_id": pl.String})
+
+    return (
+        contracts
+        .filter(pl.col("year_signed") <= target_season)
+        .sort(["gsis_id", "year_signed"])
+        .group_by("gsis_id")
+        .last()
+        .select(
+            "gsis_id",
+            pl.col("apy_cap_pct").cast(pl.Float64).alias("contract_apy_pct"),
+            # log1p on millions rather than raw dollars: guarantees run from zero to
+            # nine figures and the untransformed column would give one Mahomes deal
+            # more leverage than the whole of the tight-end position.
+            (pl.col("guaranteed").cast(pl.Float64).clip(lower_bound=0.0)
+             .log1p()).alias("contract_guaranteed"),
+            pl.col("years").cast(pl.Float64).alias("contract_years"),
+            (pl.lit(target_season) - pl.col("year_signed"))
+            .cast(pl.Float64).alias("contract_age"),
+            (pl.col("year_signed") == target_season).alias("contract_is_new"),
+        )
     )
 
 
@@ -510,7 +875,9 @@ def attach_context(features: pl.DataFrame, target_season: int,
 def season_features(target_season: int, history: Sequence[int],
                     positions: Sequence[str] = MODELLED_POSITIONS,
                     shrinkage: Optional[Dict[str, float]] = None,
-                    include_context: bool = True) -> pl.DataFrame:
+                    include_context: bool = True,
+                    rate_baselines: bool = False,
+                    contracts: bool = False) -> pl.DataFrame:
     """One row per rostered player, with lagged features and current context.
 
     The frame the season head fits and predicts on. Features carry
@@ -529,6 +896,10 @@ def season_features(target_season: int, history: Sequence[int],
             frame to lagged production only, which is what the backtest compares
             against. Named for the parameter it is rather than `context`, which
             collides with the local holding the roster frame.
+        rate_baselines: Passed to :func:`prior_season_frame`.
+        contracts: Join :func:`contract_context`. Off by default for the same reason
+            as ``rate_baselines`` -- both are plan 22 candidates, and the shipped
+            default is whatever the walk-forward endorsed.
 
     Returns:
         pl.DataFrame: One row per ``gsis_id`` on the target season's roster at the
@@ -538,7 +909,7 @@ def season_features(target_season: int, history: Sequence[int],
         ValueError: When ``history`` reaches ``target_season`` or beyond.
         FileNotFoundError: When a required pull is missing.
     """
-    prior = prior_season_frame(target_season, history, shrinkage)
+    prior = prior_season_frame(target_season, history, shrinkage, rate_baselines)
     context = roster_context(target_season, prior)
 
     if positions:
@@ -555,6 +926,9 @@ def season_features(target_season: int, history: Sequence[int],
         lagged = lagged.rename({c: f"{prefix}{c}" for c in lagged.columns
                                 if c != "gsis_id"})
         out = out.join(lagged, on="gsis_id", how="left")
+
+    if contracts:
+        out = out.join(contract_context(target_season), on="gsis_id", how="left")
 
     if include_context:
         out = attach_context(out, target_season, history)
@@ -581,8 +955,20 @@ def leakage_columns(frame: pl.DataFrame, target_season: int) -> List[str]:
         "depth_chart_position", "years_exp", "draft_number", "entry_year",
         "prior_team", "team_changed", "is_rookie",
         # Current-season facts a drafter can read off a roster or a depth chart.
+        #
+        # `age` was missing here until plan 22 and the check never caught it, because
+        # the fixtures build rosters without a `birth_date` so `roster_context` never
+        # creates the column. It is legitimate -- a birth date does not move, so a
+        # 2026 age is knowable in 2026 -- but it was legitimate by luck rather than
+        # by declaration. See test_leakage_guard_covers_age.
+        "age",
         "depth_rank", "is_first_string", "depth_position_group", "depth_team",
         "head_coach", "prior_head_coach", "coach_is_new", "staff_continuity",
+        # A contract signed in March is public in August. Filtered to
+        # `year_signed <= target_season` by contract_context, which documents the
+        # one case that boundary admits and should not.
+        "contract_apy_pct", "contract_guaranteed", "contract_years",
+        "contract_age", "contract_is_new",
         # The keys each prior is joined on, which come off the current roster.
         *sc.PRIOR_KEYS.values(),
     }
