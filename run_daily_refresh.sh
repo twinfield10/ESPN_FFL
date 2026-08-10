@@ -48,11 +48,33 @@ RSCRIPT="/usr/local/bin/Rscript"
 LOG_DIR="${HOME}/logs"
 LOG="${LOG_DIR}/espn_ffl_refresh.log"
 
+STATUS="${REPO}/Data/refresh_status.json"
+
 mkdir -p "${LOG_DIR}"
 cd "${REPO}"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "${LOG}"; }
-fail() { log "FAILED: $*"; exit 1; }
+
+# Status is written on **both** outcomes, and that is the point. A run that fails
+# silently and a run that never happened are indistinguishable from the outside, and
+# `Scripts/refresh_status.py` exists to tell them apart -- which it can only do if
+# failure leaves a record rather than just a non-zero exit into cron's void.
+write_status() {
+  printf '{"result": "%s", "at": "%s", "stage": "%s", "season": "%s"}\n' \
+    "$1" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "${2:-}" "${SEASON:-unknown}" \
+    > "${STATUS}"
+}
+
+fail() {
+  log "FAILED: $*"
+  write_status "failed" "$*"
+  # A failed nightly run should be visible without anyone opening a log. The
+  # notification covers the case where the machine was awake and something broke;
+  # the status file covers the case where it was asleep and nothing ran at all,
+  # which no notification can ever report.
+  /usr/bin/osascript -e "display notification \"$* — see ~/logs/espn_ffl_refresh.log\" with title \"ESPN FFL refresh failed\"" 2>/dev/null || true
+  exit 1
+}
 
 log "=== daily refresh starting ==="
 
@@ -132,4 +154,5 @@ print(f\"{m['projected']}/{m['rows']} ({100 * m['projected'] / m['rows']:.1f}%)\
 " 2>/dev/null)" || COVERAGE="unreadable"
 log "usage coverage: ${COVERAGE}"
 
+write_status "ok" "complete"
 log "=== daily refresh complete ==="

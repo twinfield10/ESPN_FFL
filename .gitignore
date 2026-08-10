@@ -80,3 +80,8 @@ Data/NFL/contracts.parquet
 # cannot be regenerated identically once an article is edited.
 Data/NFL/coaches_by_game.parquet
 Data/NFL/team_names.parquet
+
+# Written by run_daily_refresh.sh on every run, read by Scripts/refresh_status.py.
+# Machine state, not data -- it says whether the nightly job ran, which is a fact
+# about this laptop rather than about football.
+Data/refresh_status.json
