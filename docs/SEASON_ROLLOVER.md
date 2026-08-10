@@ -10,6 +10,38 @@ was written down before; the 2024→2025 rollover was a single 30-file commit
 
 Do this once, before the season starts. Roughly 30 minutes.
 
+> **Two steps here have a deadline rather than an order.** Step 0 must happen
+> **before week 1** or the evidence is gone for a year. Step 9 must happen
+> **after** the season it refers to. Everything else can be done whenever.
+
+### 0. Archive the G2 counterfactual — before week 1, or not at all
+
+```bash
+python -m Scripts.lab.g2 --archive          # writes Data/G2/<season>/
+git add Data/G2&& git commit -m "chore: archive the <season> G2 counterfactual"
+```
+
+The pre-season board blended with and without `USG_`, so the question "does the
+usage head earn its third of the weight?" can finally be answered against real
+outcomes. It is the only artifact under `Data/` that is committed rather than
+gitignored, because it is the only one that cannot be rebuilt: FantasyPros serves
+no season parameter, so once the board stops being current it is gone. Plan 18
+records G2 as unmeasurable on history for exactly this reason.
+
+Run it after `python -m Scripts.refresh --all --what board` and before week 1.
+It takes seconds and needs no network.
+
+### 9. Score last season's G2 archive — after the season
+
+```bash
+Rscript R/GetUsage.R <last_season> <last_season>   # realised production
+python -m Scripts.lab.g2 --score --season <last_season>
+```
+
+If the `with_usg` arm wins, the weight is earned. If it does not, plan 18 is
+explicit about the response: **do not keep it at a token weight** — record the
+numbers and take it out.
+
 ### 1. Confirm ESPN has rolled your leagues over
 
 Do this **first** — if a league is not available yet, nothing else matters.

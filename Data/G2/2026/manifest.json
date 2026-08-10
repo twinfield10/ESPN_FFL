@@ -1,0 +1,105 @@
+{
+  "season": 2026,
+  "archived_at": "2026-08-09T11:56:25-04:00",
+  "git_sha": "a0f5ef106867cd47a7bf666b4cf6e45993f73aac",
+  "variants": {
+    "with_usg": {
+      "ESPN": 0.3333333333333333,
+      "FP": 0.3333333333333333,
+      "PINNY": 0.0,
+      "BOL": 0.0,
+      "USG": 0.3333333333333333
+    },
+    "without_usg": {
+      "ESPN": 0.5,
+      "FP": 0.5,
+      "PINNY": 0.0,
+      "BOL": 0.0,
+      "USG": 0.0
+    }
+  },
+  "question": "Does including USG_ in the blend improve the blend? Score both variants against realised 2026 with Scripts.lab.g2 --score. This archive cannot be rebuilt once the season starts.",
+  "leagues": [
+    {
+      "league_key": "big_red_fantasy_football",
+      "rows": 1026,
+      "path": "Data/G2/2026/big_red_fantasy_football.parquet",
+      "players_priced_both": 1026,
+      "players_whose_position_rank_moved": 898,
+      "mean_abs_points_difference": 10.04838801628983,
+      "max_abs_points_difference": 97.66327313609197
+    },
+    {
+      "league_key": "fields_league",
+      "rows": 1026,
+      "path": "Data/G2/2026/fields_league.parquet",
+      "players_priced_both": 1026,
+      "players_whose_position_rank_moved": 894,
+      "mean_abs_points_difference": 10.048388016289827,
+      "max_abs_points_difference": 97.66327313609197
+    },
+    {
+      "league_key": "gop_degenerates",
+      "rows": 2503,
+      "path": "Data/G2/2026/gop_degenerates.parquet",
+      "players_priced_both": 2503,
+      "players_whose_position_rank_moved": 895,
+      "mean_abs_points_difference": 4.863999709743355,
+      "max_abs_points_difference": 114.88704730629972
+    },
+    {
+      "league_key": "john_atl_league",
+      "rows": 1026,
+      "path": "Data/G2/2026/john_atl_league.parquet",
+      "players_priced_both": 1026,
+      "players_whose_position_rank_moved": 894,
+      "mean_abs_points_difference": 10.04838801628983,
+      "max_abs_points_difference": 97.66327313609197
+    },
+    {
+      "league_key": "john_pc_league",
+      "rows": 1026,
+      "path": "Data/G2/2026/john_pc_league.parquet",
+      "players_priced_both": 1026,
+      "players_whose_position_rank_moved": 889,
+      "mean_abs_points_difference": 11.321121448342689,
+      "max_abs_points_difference": 97.66327313609197
+    },
+    {
+      "league_key": "knights_ffl",
+      "rows": 1026,
+      "path": "Data/G2/2026/knights_ffl.parquet",
+      "players_priced_both": 1026,
+      "players_whose_position_rank_moved": 889,
+      "mean_abs_points_difference": 11.321121448342689,
+      "max_abs_points_difference": 97.66327313609197
+    },
+    {
+      "league_key": "twelve_dudes_one_cup",
+      "rows": 994,
+      "path": "Data/G2/2026/twelve_dudes_one_cup.parquet",
+      "players_priced_both": 994,
+      "players_whose_position_rank_moved": 889,
+      "mean_abs_points_difference": 11.68558411066358,
+      "max_abs_points_difference": 97.66327313609197
+    },
+    {
+      "league_key": "weenieless_wanderers",
+      "rows": 969,
+      "path": "Data/G2/2026/weenieless_wanderers.parquet",
+      "players_priced_both": 969,
+      "players_whose_position_rank_moved": 889,
+      "mean_abs_points_difference": 11.987069768833436,
+      "max_abs_points_difference": 97.66327313609197
+    },
+    {
+      "league_key": "winfield_football",
+      "rows": 1026,
+      "path": "Data/G2/2026/winfield_football.parquet",
+      "players_priced_both": 1026,
+      "players_whose_position_rank_moved": 889,
+      "mean_abs_points_difference": 11.321121448342687,
+      "max_abs_points_difference": 97.66327313609197
+    }
+  ]
+}

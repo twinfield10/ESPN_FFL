@@ -1231,11 +1231,25 @@ plus this head's own:
   be reconstructed: FantasyPros' URLs take no season parameter and only BetOnline's
   season-long archive survives. The 2026 board is the first clean measurement.
 
-  **Still open, and now known to be unmeasurable on history.** §Backtest results
-  compares against the naive heuristic because there *is* no historical blend to
-  compare against — a permanent limitation of the data, not a gap in the work. G2
-  gets its answer from the 2026 board: build it with and without `USG_` in `WEIGHTS`
-  and score both against realised 2026. Until then `USG_` stays out.
+  **Still open, unmeasurable on history — but the 2026 evidence is now captured.**
+  §Backtest results compares against the naive heuristic because there *is* no
+  historical blend to compare against, a permanent limitation of the data rather
+  than a gap in the work.
+
+  **Archived 2026-08-09** by `python -m Scripts.lab.g2 --archive`, into
+  `Data/G2/2026/` — the pre-season board blended twice, with `USG_` at ⅓ and with
+  its weight redistributed to ESPN/FantasyPros. Committed rather than gitignored,
+  because it is the one artifact in the repo that cannot be rebuilt: once week 1 is
+  played the inputs have moved, and a past board is gone the moment it stops being
+  current. Every league's `with_usg` arm was verified cell-identical to the shipped
+  board (max |Δ| 0.0000000000 on points and on every stat line), so the archive is
+  the board that was really drafted from and not a reconstruction of it.
+
+  The two blends are far apart enough for the comparison to mean something: **889
+  of 1,026 players change position rank**, mean |Δ points| 11.3 and max 97.7.
+
+  Answer it after the season with `python -m Scripts.lab.g2 --score`. Until then
+  the weight stays where it is on the strength of the walk-forward alone.
 - ~~**Rookie arm** — ships only if draft capital beats abstention on the same
   walk-forward.~~ **Passed, decisively, 2026-08-07.** ρ ≈ 0.61 within position
   against ~0 for a projection with no draft information, and MAE roughly halved. See
