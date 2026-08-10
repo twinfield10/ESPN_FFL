@@ -13,6 +13,7 @@ import _bootstrap  # noqa: F401  -- must precede the Scripts imports
 
 import subprocess
 import sys
+from datetime import date
 from typing import Dict, List, NamedTuple, Optional
 
 import streamlit as st
@@ -20,9 +21,53 @@ import streamlit as st
 import store
 from Scripts.config_utils import build_lg_vars
 from Scripts.paths import REPO_ROOT
+from Scripts.usage.features import SEASON_START
 
-#: Age past which the badge turns red.
-STALE_AFTER_MIN = 60
+#: Age past which the badge turns red **in season**, in minutes.
+#:
+#: An hour, and it is short on purpose. In season this badge is not asking "is the
+#: data recent", it is asking "did you refresh before locking a lineup" -- injury
+#: news an hour before kickoff is the entire reason the app renders a build time at
+#: all. A badge that goes red an hour after your last refresh is doing its job.
+STALE_AFTER_MIN_IN_SEASON = 60
+
+#: Age past which the badge turns red **before week 1**, in minutes.
+#:
+#: 25 hours, matching ``run_daily_refresh.sh``'s 6am cron and
+#: :data:`Scripts.refresh_status.DEFAULT_MAX_AGE_HOURS`. Pre-season there is nothing
+#: to do between nightly runs: the depth chart moves once a day, no games are being
+#: played, and no lineup is being locked. Holding the in-season hour here would paint
+#: the badge red 23 hours out of 24 for a month, and a badge that is always red is
+#: one nobody reads -- which costs you the one week in September when it means
+#: something.
+#:
+#: The extra hour over 24 is slack for a slow run, not tolerance for a skipped one.
+STALE_AFTER_MIN_PRE_SEASON = 25 * 60
+
+
+def stale_after_minutes(season: int, today: Optional[date] = None) -> int:
+    """The staleness threshold appropriate to where the season is.
+
+    Two cadences, so two numbers. See :data:`STALE_AFTER_MIN_IN_SEASON` and
+    :data:`STALE_AFTER_MIN_PRE_SEASON` for why one constant cannot serve both.
+
+    The boundary is :data:`Scripts.usage.features.SEASON_START`, reused rather than
+    redeclared -- it is the same "when does the season start" the age feature already
+    measures against, and it is approximate there for the same reason it can be
+    approximate here. Nothing turns on being a few days out; what turns on it is not
+    holding a game-day threshold through August.
+
+    Args:
+        season: Season year the store is for.
+        today: Overridable for tests. Defaults to the actual date.
+
+    Returns:
+        int: Minutes.
+    """
+    today = date.today() if today is None else today
+    opener = date(season, *SEASON_START)
+    return (STALE_AFTER_MIN_PRE_SEASON if today < opener
+            else STALE_AFTER_MIN_IN_SEASON)
 
 
 class Selection(NamedTuple):
@@ -228,7 +273,8 @@ def _render_freshness(meta: dict, season: int, display_name: str) -> None:
     """
     st.divider()
     age = store.store_age_minutes(meta)
-    stale = store.is_stale(meta, STALE_AFTER_MIN)
+    threshold = stale_after_minutes(season)
+    stale = store.is_stale(meta, threshold)
     when = "build time unknown" if age is None else f"built {_format_age(age)}"
     label = f"{when} · week {meta.get('current_week', '?')}"
 
@@ -236,6 +282,13 @@ def _render_freshness(meta: dict, season: int, display_name: str) -> None:
         st.error(label, icon="⚠️")
     else:
         st.success(label, icon="✅")
+
+    # Which clock is running, so a green badge at 14 hours old is not read as a bug.
+    # Pre-season the nightly cron is the cadence and this is really reporting on it,
+    # so it names the check that gives the fuller answer.
+    if threshold >= STALE_AFTER_MIN_PRE_SEASON:
+        st.caption("Pre-season: refreshed nightly at 6am. "
+                   "`python -m Scripts.refresh_status` says whether it ran.")
 
     if st.button("Refresh this league", width="stretch",
                  help="Runs Scripts.refresh in a subprocess. Seconds of ESPN "
