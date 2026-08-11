@@ -11,6 +11,9 @@ IDP league, and a superflex league without special-casing.
 
 - **[docs/STATE_OF_THE_REPO.md](docs/STATE_OF_THE_REPO.md)** — what works, what
   is broken, and the prioritised backlog. Start here.
+- **[docs/DATA_CATALOGUE.md](docs/DATA_CATALOGUE.md)** — every dataset: shape,
+  coverage, where it lives, and **how the tiers join**. `python -m Scripts.catalogue`
+  is the live version.
 - **[docs/SEASON_ROLLOVER.md](docs/SEASON_ROLLOVER.md)** — the weekly and annual
   runbooks.
 - **[docs/plans/](docs/plans/)** — small, self-contained upgrade plans.
@@ -75,6 +78,7 @@ Scripts/
   store.py                   # the local store's read/write contract
   s3_store.py                # the S3 boundary: keys, checksums, ETag-cached reads
   sync.py                    # --push / --pull / --verify between disk and S3
+  catalogue.py               # what data do we have? -> docs/DATA_CATALOGUE.md
   crosswalk.py               # gsis_id <-> espn_id <-> fantasypros_id
   draft/adp.py               # ADP, auction values, ESPN season projections
   draft/board.py             # replacement level, VOR, tiers, value
@@ -125,6 +129,7 @@ nfl/season=2026/  projections/  scoring/  injuries/       # inputs and cache
 python -m Scripts.sync --push       # after any refresh; the nightly job does it
 python -m Scripts.sync --verify     # SHA-256 both sides, exits 1 on a difference
 python -m Scripts.sync --pull       # rebuild Data/ on a fresh machine
+python -m Scripts.catalogue --both  # what is actually there, disk and bucket
 ```
 
 The app reads S3 by default. `ESPN_FFL_STORE_SOURCE=local` reads disk instead
