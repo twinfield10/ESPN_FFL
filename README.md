@@ -11,9 +11,9 @@ IDP league, and a superflex league without special-casing.
 
 - **[docs/STATE_OF_THE_REPO.md](docs/STATE_OF_THE_REPO.md)** — what works, what
   is broken, and the prioritised backlog. Start here.
-- **[docs/DATA_CATALOGUE.md](docs/DATA_CATALOGUE.md)** — every dataset: shape,
-  coverage, where it lives, and **how the tiers join**. `python -m Scripts.catalogue`
-  is the live version.
+- **[docs/DATA_CATALOGUE.md](docs/DATA_CATALOGUE.md)** — what every dataset *is*: the
+  grain of a row, what the columns mean, and **how the tiers join**. For how much of
+  it there is right now, `python -m Scripts.catalogue`.
 - **[docs/SEASON_ROLLOVER.md](docs/SEASON_ROLLOVER.md)** — the weekly and annual
   runbooks.
 - **[docs/plans/](docs/plans/)** — small, self-contained upgrade plans.

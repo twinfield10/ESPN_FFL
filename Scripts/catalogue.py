@@ -4,11 +4,12 @@
     python -m Scripts.catalogue --s3         # the bucket
     python -m Scripts.catalogue --both       # both, side by side
 
-``docs/DATA_CATALOGUE.md`` is the written version of this: what each dataset *is*,
-what produces it, and how the tiers join. This is the live counterpart, and it exists
-because that document will drift. ``Data/`` is no longer tracked in git, so nothing
-about a stale row count would show up in a diff -- the number in the doc could be a
-year old and look exactly as authoritative as a correct one.
+``docs/DATA_CATALOGUE.md`` is the other half of this and the two do not overlap: that
+document says what each dataset *is* -- the grain of a row, what the columns mean, how
+the tiers join -- and deliberately carries no counts. This says how much of it there
+is, and carries no meaning. The split is the point. A doc with numbers in it goes
+stale silently now that ``Data/`` is untracked, because a wrong row count shows up in
+no diff and reads exactly as authoritative as a right one.
 
 Reading is deliberately cheap: parquet row counts come from the file's metadata via
 ``scan_parquet``, not by loading columns, so this walks 350 files in a couple of
