@@ -17,19 +17,24 @@ Do this once, before the season starts. Roughly 30 minutes.
 ### 0. Archive the G2 counterfactual — before week 1, or not at all
 
 ```bash
-python -m Scripts.lab.g2 --archive          # writes Data/G2/<season>/
-git add Data/G2&& git commit -m "chore: archive the <season> G2 counterfactual"
+python -m Scripts.lab.g2 --archive              # writes Data/G2/<season>/
+python -m Scripts.sync --push --what archive     # to s3://espn-ffl-data
+python -m Scripts.sync --verify --what archive    # confirm it landed, exit 0
 ```
 
 The pre-season board blended with and without `USG_`, so the question "does the
 usage head earn its third of the weight?" can finally be answered against real
-outcomes. It is the only artifact under `Data/` that is committed rather than
-gitignored, because it is the only one that cannot be rebuilt: FantasyPros serves
-no season parameter, so once the board stops being current it is gone. Plan 18
-records G2 as unmeasurable on history for exactly this reason.
+outcomes. It cannot be rebuilt: FantasyPros serves no season parameter, so once the
+board stops being current it is gone. Plan 18 records G2 as unmeasurable on history
+for exactly this reason.
+
+**Verify the push rather than assuming it.** This is the one artifact in the repo
+with no second chance, and since [plan 24](plans/24-s3-data-flow.md) S3 is where it
+lives — `Data/` is no longer tracked in git. `archive/` is exempt from the bucket's
+version-expiry rules for the same reason.
 
 Run it after `python -m Scripts.refresh --all --what board` and before week 1.
-It takes seconds and needs no network.
+It takes seconds; only the push needs network.
 
 ### 9. Score last season's G2 archive — after the season
 
@@ -158,6 +163,7 @@ python -m Scripts.scrape_FP         # FantasyPros
 python -m Scripts.scrape_pinnacle   # Pinnacle (launches Chrome via Selenium)
 python -m Scripts.scrape_BOL        # BetOnline  -- SEE WARNING
 python -m Scripts.refresh --all     # build the store, once
+python -m Scripts.sync --push       # publish it to S3 -- the app reads from there
 python populateGoogleSheet.py       # render the store to Sheets
 ```
 
@@ -168,6 +174,12 @@ Run from the repo root. Scrapers use `-m` because modules import as
 scrapers. Both outputs read the same store, so they cannot disagree — but that
 means the order is no longer optional: refresh before the scrapers and you bake
 last week's lines in; skip refresh and Sheets has nothing to publish.
+
+`Scripts.sync --push` goes **after** `refresh` and is what the app actually reads —
+skip it and the Streamlit board shows the last thing that *was* pushed, with no
+error, because a stale store in S3 is a perfectly valid store. `populateGoogleSheet.py`
+reads local disk rather than S3, deliberately: it runs moments after the writer on
+the same machine. The nightly `run_daily_refresh.sh` does the push for you.
 
 Then read it:
 
@@ -214,9 +226,15 @@ BOL_FIRST_GAME_ID=259563 python -m Scripts.scrape_BOL
 
 ### Committing
 
-Weekly commits are mostly regenerated data. When a commit also changes model
-behaviour — blend weights, no-vig formulas, scoring — say so in the message.
-Several 2025 model changes are now undiscoverable without reading diffs.
+**`Data/` is no longer tracked.** Since [plan 24](plans/24-s3-data-flow.md) the data
+lives in S3, so a weekly commit is now code and docs only — which means a commit that
+changes model behaviour is no longer buried in a diff of regenerated parquet. Say so
+in the message anyway: several 2025 model changes are undiscoverable without reading
+diffs, and that is the habit worth keeping rather than the tracked bytes.
+
+Data reaches durability through `python -m Scripts.sync --push`, not through git. If
+you want to know whether it got there, `--verify` answers it and exits non-zero if
+not.
 
 ---
 
@@ -231,7 +249,11 @@ Several 2025 model changes are now undiscoverable without reading diffs.
 | Scraper writes into last season's directory | `Data/NFL_Schedules.csv` is stale — regenerate for the new season. |
 | Projections missing for a player | Name-join miss. Check `get_match_details()` output and add to the rename map. |
 | `ValueError: covers multiple seasons` | The schedule CSV has more than one season; regenerate it for a single year. |
-| App says "No store yet" | Nothing in `Data/Store`. Run `python -m Scripts.refresh --all`. |
+| App says "No store yet" | Nothing in S3 for that season. Run `python -m Scripts.refresh --all` then `python -m Scripts.sync --push`. To read the local copy instead, `ESPN_FFL_STORE_SOURCE=local`. |
+| App errors naming `ESPN_FFL_STORE_SOURCE` | S3 is unreachable — no credentials, no network, or the bucket is denying you. Set `ESPN_FFL_STORE_SOURCE=local` to carry on off disk, or `auto` to fall back automatically. |
+| Board in the app is older than the one you just built | `refresh` writes local; the app reads S3. Run `python -m Scripts.sync --push`. |
+| `Unable to locate credentials` | No `~/.aws/credentials`. The bucket is `espn-ffl-data` in `us-east-2`; see [plan 24](plans/24-s3-data-flow.md). |
+| `--verify` reports files that DIFFER | Local moved on since the last push. `python -m Scripts.sync --push` reconciles it. |
 | A league is missing from the app's picker | Only leagues with a complete store are selectable; the sidebar lists the rest. Its last refresh failed, or it was never refreshed. |
 | Freshness badge says stale | The store is over an hour old. Refresh from the sidebar or the CLI. It also reads stale when `built_at` is unparseable, which is deliberate — an unreadable build time is not evidence of freshness. |
 | `MissingProjectionSourceWarning` during a refresh | That source has no weekly props file for the season. Expected pre-season and whenever a scraper is broken; the blend imputes those columns from the ESPN/FP mean and renormalises them out. The sidebar shows it. |

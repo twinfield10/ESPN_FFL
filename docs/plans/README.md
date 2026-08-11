@@ -32,6 +32,7 @@ These are what the scan turned up *beyond* that.
 | 21 | [Depth charts, scheme, play-caller](21-coaching-and-scheme.md) | **Done** | 2026 depth charts pulled past nflreadr's season guard — the daily snapshot that made the rookie arm work. Coach and coordinator priors built and **measured out** of both arms: the depth chart already carries their signal |
 | 22 | [Feature research for the season head](22-feature-research.md) | **Measured, nothing merged** | Routes, Next Gen Stats, red-zone role and contracts pulled and tested; ridge swept. All eleven experiments rejected. The finding: player-level context that is a *function of past usage* does not survive either, because past usage is already the strongest regressor. Ships the data layer, the lab and `docs/model_lab.html` |
 | 23 | [Owner tendencies](23-owner-tendencies.md) | **Done** | 5,748 picks across 36 league-seasons, all of it one request per season. Every measurement is leave-one-out against the room and season-matched. **112 managers, 103 with a measured tendency.** Caught ESPN pre-creating a full set of picks for a draft that has not happened |
+| 24 | [S3 as the system of record](24-s3-data-flow.md) | **Done** | 258 objects, 77.5 MB, Hive-partitioned and verified by SHA-256. The nightly push also writes a **dated board snapshot**, which retires the problem `Data/G2/` exists to work around and makes ADP drift through camp measurable for the first time |
 
 ### Local frontend
 

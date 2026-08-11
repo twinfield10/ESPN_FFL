@@ -46,12 +46,19 @@ oauth2client==4.1.3
 PyYAML==6.0.1
 
 # --- Local app ----------------------------------------------------------
-# `streamlit run app/main.py`. Reads Data/Store only -- it never imports an ESPN
-# client, which is what makes the render path fast and offline-safe.
+# `streamlit run app/main.py`. Reads the store and nothing else -- it never
+# imports an ESPN client, which is what keeps the render path fast. Since the
+# store moved to S3 the render path is no longer offline by default; set
+# ESPN_FFL_STORE_SOURCE=local to read the local copy instead.
 streamlit==1.61.1
 
-# --- Optional -----------------------------------------------------------
-boto3==1.35.88            # S3 persistence in Scripts/aws_utils.py (dormant)
+# --- S3 -----------------------------------------------------------------
+# The store lives in s3://espn-ffl-data. Scripts/s3_store.py is the boundary and
+# uses boto3 directly; s3fs is what lets pandas and polars accept an "s3://" path,
+# and was installed but unpinned until now -- so a clean `pip install -r` built an
+# environment that could not read the store at all.
+boto3==1.35.88
+s3fs==2024.12.0
 
 # --- Notebook only ------------------------------------------------------
 matplotlib==3.10.8

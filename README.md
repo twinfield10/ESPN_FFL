@@ -72,7 +72,9 @@ Scripts/
   scoring.py                 # the scoring registry (one source of truth)
   equivalence.py             # build_league_frame(): the single ingest path
   refresh.py                 # builds the store  <- the app's only writer
-  store.py                   # the store's read/write contract
+  store.py                   # the local store's read/write contract
+  s3_store.py                # the S3 boundary: keys, checksums, ETag-cached reads
+  sync.py                    # --push / --pull / --verify between disk and S3
   crosswalk.py               # gsis_id <-> espn_id <-> fantasypros_id
   draft/adp.py               # ADP, auction values, ESPN season projections
   draft/board.py             # replacement level, VOR, tiers, value
@@ -91,33 +93,58 @@ R/
   GetNFL.R                   # schedule + season stats via nflfastR
   GetPlayerIDs.R             # the cross-provider player id table
   GetSeasonProps.R           # BetOnline season-long futures
-Data/
-  NFL/<season>/              # season player stats
+Data/                        # local: a writer's scratch pad + a read cache.
+  NFL/<season>/              #   Not tracked in git -- S3 is the record.
   NFL_Schedules.csv          # current season schedule (drives season + week)
   Projections/<source>/Season/<season>/
   Projections/<source>/Landing/<season>/
-  Scoring/scoring.csv        # the scoring registry (committed)
-  NFL/player_ids.parquet     # the id crosswalk (committed)
-  Store/<season>/<league>/   # app data store (gitignored, regenerable)
-                             #   lineups.parquet, board.parquet, meta.json
+  Scoring/scoring.csv        # the scoring registry
+  NFL/player_ids.parquet     # the id crosswalk
+  G2/<season>/               # the one thing that cannot be rebuilt
+  Store/<season>/<league>/   #   lineups.parquet, board.parquet, meta.json
+  .s3cache/                  # downloaded objects, keyed by ETag; safe to delete
 ```
 
 Data paths are **season-scoped**. Before 2026 they were not, so a new season's
 scrape merged into the previous season's files.
 
+### The data lives in S3
+
+`s3://espn-ffl-data` (`us-east-2`, versioned) is the system of record; `Data/` is
+local scratch and is **not tracked in git**. Keys are Hive-partitioned so a query
+engine can prune on them:
+
+```
+store/season=2026/league=knights_ffl/board.parquet        # what the app reads
+snapshots/board/season=2026/league=knights_ffl/date=.../  # one board per night
+archive/g2/season=2026/                                   # irreproducible
+nfl/season=2026/  projections/  scoring/  injuries/       # inputs and cache
+```
+
+```bash
+python -m Scripts.sync --push       # after any refresh; the nightly job does it
+python -m Scripts.sync --verify     # SHA-256 both sides, exits 1 on a difference
+python -m Scripts.sync --pull       # rebuild Data/ on a fresh machine
+```
+
+The app reads S3 by default. `ESPN_FFL_STORE_SOURCE=local` reads disk instead
+(offline, and the draft-morning escape hatch); `auto` prefers S3 and falls back.
+See [plan 24](docs/plans/24-s3-data-flow.md).
+
 ---
 
 ## Local app
 
-The app reads `Data/Store` and nothing else — no page talks to ESPN. That
-separation is not stylistic: rebuilding one league's blended frame is ~8s
-pre-season and rises toward ~23s with a full season of box scores, against 11ms
-to read the same frame back from parquet. A UI that recomputed on a dropdown
-change would be unusable, so refresh is an explicit step.
+The app reads the store and nothing else — no page talks to ESPN. That separation is
+not stylistic: rebuilding one league's blended frame is ~8s pre-season and rises
+toward ~23s with a full season of box scores, against 11ms to read the same frame
+back from parquet. A UI that recomputed on a dropdown change would be unusable, so
+refresh is an explicit step.
 
 ```bash
 python -m Scripts.refresh --all      # build the store (slow, hits ESPN)
-streamlit run app/main.py            # read it (fast, offline-safe)
+python -m Scripts.sync --push        # publish it -- the app reads S3
+streamlit run app/main.py            # read it (one list call, then cached)
 ```
 
 Refresh options:
