@@ -76,6 +76,8 @@ Scripts/
   crosswalk.py               # gsis_id <-> espn_id <-> fantasypros_id
   draft/adp.py               # ADP, auction values, ESPN season projections
   draft/board.py             # replacement level, VOR, tiers, value
+  draft/history.py           # every pick the league has ever made
+  draft/tendencies.py        # what each manager does that the room does not
   analytic_utils.py          # lineup efficiency, records, SOS
   luck_index.py              # 7-factor weekly luck index
   simulation_utils.py        # Monte Carlo season sim + playoff odds
@@ -133,6 +135,7 @@ pre-season draft board, and nothing about week 9 changes your draft.
 
 ```bash
 python -m Scripts.refresh --all --what board      # nine draft boards, ~16s
+python -m Scripts.refresh --all --what draft      # pick history + owner tendencies, ~10s
 ```
 
 The board is **league-aware**, which is the whole point of building one: replacement

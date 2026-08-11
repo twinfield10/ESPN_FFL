@@ -47,12 +47,19 @@ from Scripts import paths
 SCHEMA_VERSION = 1
 
 #: Artifact name -> filename. The keys double as the ``--what`` values accepted by
-#: ``Scripts/refresh.py``; ``draft`` (pick history) is reserved for the draft
-#: roadmap's Phase 1.
+#: ``Scripts/refresh.py``.
+#:
+#: ``draft`` and ``tendencies`` are written together by one ``--what draft`` run
+#: and kept as two artifacts rather than one: the picks are the evidence and the
+#: tendencies are a reading of it, and every threshold in that reading is a
+#: judgement call that will be revised. Storing only the reading would mean
+#: re-pulling ten seasons from ESPN every time one of them moves.
 ARTIFACTS = {
     "lineups": "lineups.parquet",
     "team_stats": "team_stats.parquet",
     "board": "board.parquet",
+    "draft": "draft.parquet",
+    "tendencies": "tendencies.parquet",
 }
 
 META_FILENAME = "meta.json"
@@ -276,6 +283,8 @@ def write_league_store(
     lineups: Optional[pd.DataFrame] = None,
     team_stats: Optional[pd.DataFrame] = None,
     board: Optional[pd.DataFrame] = None,
+    draft: Optional[pd.DataFrame] = None,
+    tendencies: Optional[pd.DataFrame] = None,
     league=None,
     meta_extra: Optional[Dict[str, Any]] = None,
 ) -> Path:
@@ -294,6 +303,8 @@ def write_league_store(
         lineups: ``clean_lineups`` output.
         team_stats: ``scrape_team_stats`` output.
         board: ``Scripts.draft.board.build_board`` output.
+        draft: ``Scripts.draft.history.fetch_draft_history`` output.
+        tendencies: ``Scripts.draft.tendencies.build_tendencies`` output.
         league: The live ESPN ``League``, for metadata.
         meta_extra: Extra keys for ``meta.json``.
 
@@ -304,7 +315,8 @@ def write_league_store(
         ValueError: When no artifact is supplied -- writing a store with no
             contents would only serve to refresh ``built_at``.
     """
-    candidates = {"lineups": lineups, "team_stats": team_stats, "board": board}
+    candidates = {"lineups": lineups, "team_stats": team_stats, "board": board,
+                  "draft": draft, "tendencies": tendencies}
     written = {name: df for name, df in candidates.items() if df is not None}
     if not written:
         raise ValueError(

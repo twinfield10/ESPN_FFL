@@ -292,6 +292,135 @@ st.dataframe(
     },
 )
 
+# --- who you are drafting against ---------------------------------------
+
+if store.has_artifact(selection.season, selection.league_key, "tendencies"):
+    tendencies = store.load_tendencies(selection.season, selection.league_key)
+    picks = store.load_draft(selection.season, selection.league_key)
+
+    st.subheader("Who you are drafting against")
+    st.caption(
+        "Every number here is measured against the room the manager was actually "
+        f"sitting in, with that manager left out of the baseline — "
+        f"{picks['season'].n_unique()} drafts, {picks.height:,} picks, "
+        f"{picks['season'].min()}–{picks['season'].max()}. "
+        "These are tendencies, not verdicts: nothing here says whether any of it "
+        "worked."
+    )
+
+    cards = st.columns(2)
+    for index, row in enumerate(tendencies.iter_rows(named=True)):
+        with cards[index % 2].container(border=True):
+            mine = " · you" if row["owner"] == my_owner else ""
+            st.markdown(f"**{row['owner_display']}**  \n"
+                        f"<span style='opacity:0.7;font-size:0.85em'>"
+                        f"{row['headline']}{mine}</span>",
+                        unsafe_allow_html=True)
+            st.write(row["description"])
+
+    # Deliberately not filtered by the page's position multiselect. That control
+    # scopes the *board* -- which players you are browsing -- and its default of
+    # QB/RB/WR/TE would hide the single most distinctive tendency these leagues
+    # have: the manager who takes a kicker in round 5.
+    timing = dv.timing_matrix(picks, dv.TIMED_CHART_POSITIONS)
+    if timing.is_empty():
+        st.caption(
+            "No timing chart for this league: it drafts by auction, where the "
+            "order players are nominated in is not what anyone paid for them. The "
+            "budget columns below carry the equivalent."
+        )
+    else:
+        st.markdown("**When each position comes off the board**")
+        st.caption(
+            "Every position, whatever the filter above is set to. Rounds earlier "
+            "or later than the rest of the room — left of the line is early. A "
+            "manager who never took the position in a season counts as one round "
+            "past the end of that draft rather than being dropped: never taking a "
+            "kicker is the tendency."
+        )
+        # Sorted by mean deviation so the aggressive managers are at the top and
+        # the patient ones at the bottom; within a row the dots are the positions.
+        order = (timing.group_by("owner").agg(pl.col("delta").mean())
+                 .sort("delta")["owner"].to_list())
+
+        def _label(name: str) -> str:
+            """The manager's rendered name, marking the league's own owner."""
+            shown = dv.owner_label(name)
+            return f"{shown} (you)" if name == my_owner else shown
+
+        labelled = timing.with_columns(
+            pl.col("owner").map_elements(_label, return_dtype=pl.Utf8)
+            .alias("manager"))
+        row_order = [_label(name) for name in order]
+
+        present_positions = timing["position"].unique().to_list()
+        chart_positions = [p for p in dv.TIMED_CHART_POSITIONS
+                           if p in present_positions]
+        scale = alt.Scale(domain=chart_positions,
+                          range=[colors[dv.POSITION_HUES[p]] for p in chart_positions])
+        base = alt.Chart(labelled.to_pandas())
+        # The room is the zero line, not an average of averages -- each dot is
+        # already a deviation from its own draft's own baseline.
+        room = (alt.Chart(pl.DataFrame({"zero": [0.0]}).to_pandas())
+                .mark_rule(strokeDash=[4, 3], strokeWidth=1, opacity=0.7,
+                           color=ink["muted"])
+                .encode(x="zero:Q"))
+        dots = base.mark_circle(size=110, opacity=0.95, strokeWidth=1.5,
+                                stroke=ink["surface"]).encode(
+            x=alt.X("delta:Q", title="Rounds vs the room  (left is earlier)",
+                    axis=alt.Axis(gridColor=ink["grid"], labelColor=ink["muted"],
+                                  titleColor=ink["muted"], domain=False)),
+            y=alt.Y("manager:N", title=None, sort=row_order,
+                    # labelLimit defaults to 180px, which clipped "Tommy Winfield
+                    # (you)" to an ellipsis in the league it matters most in.
+                    axis=alt.Axis(labelColor=ink["text"], domain=False,
+                                  ticks=False, grid=True, gridColor=ink["grid"],
+                                  labelLimit=220)),
+            color=alt.Color("position:N", scale=scale,
+                            legend=alt.Legend(title=None, orient="top",
+                                              labelColor=ink["text"])),
+            tooltip=[alt.Tooltip("manager:N", title="Manager"),
+                     alt.Tooltip("position:N", title="Pos"),
+                     alt.Tooltip("own_round:Q", title="His round", format=".1f"),
+                     alt.Tooltip("room_round:Q", title="The room", format=".1f"),
+                     alt.Tooltip("delta:Q", title="Difference", format="+.1f"),
+                     alt.Tooltip("seasons:Q", title="Drafts", format=".0f")],
+        )
+        st.altair_chart(
+            # 40px a row: six positions land on one row and several cluster near
+            # zero, so the band has to be tall enough for them to sit apart.
+            (room + dots).properties(height=40 * len(row_order) + 20)
+            .configure_view(strokeWidth=0),
+            width="stretch",
+        )
+
+    with st.expander("The measurements behind these descriptions"):
+        st.dataframe(
+            dv.tendency_frame(tendencies), width="stretch", hide_index=True,
+            column_config={
+                "Rds early": st.column_config.NumberColumn(format="%+.1f"),
+                "Rds late": st.column_config.NumberColumn(format="%+.1f"),
+                "Extra picks": st.column_config.NumberColumn(format="%+.1f"),
+                "Rookie %": st.column_config.NumberColumn(format="percent"),
+                "Auto %": st.column_config.NumberColumn(format="percent"),
+                "Top-3 $": st.column_config.NumberColumn(format="percent"),
+            },
+        )
+        st.markdown("""
+- **The baseline leaves the manager out.** In a six-team league a manager is a
+  sixth of the room, and including them shrinks their own deviation by 17% — in
+  exactly the leagues with the longest history.
+- **Nothing is pooled across eras.** Rookie appetite, positional shares and NFL-team
+  leans are each measured within a season first and averaged after, because these
+  leagues drafted 5 rookies in 2016 and 168 in 2025. Pooled, every long-serving
+  manager would read as rookie-averse purely from when they arrived.
+- **A tendency needs two drafts.** Managers with one are named and left alone.
+- **No outcome is measured.** Whether the kicker in round 5 was a mistake needs
+  every past season scored in this league's own rules, which the store does not
+  hold. Predictable is what a board can use; correct is a different question.
+""")
+
+
 # --- what these numbers do not say --------------------------------------
 
 with st.expander("What is missing from these columns, and why"):
@@ -315,6 +444,7 @@ with st.expander("What is missing from these columns, and why"):
 - **Half the pool has no projection at all** and is hidden: their blended points are
   a literal 0.0 rather than a null, so they would otherwise sort as the league's
   worst players rather than as unknowns.
-- **Draft history is not here.** Points-over-expectation per manager and positional
-  tendency by round are roadmap Phase 1, which has not been backfilled.
+- **Draft history says what managers do, not how it went.** Positional tendency by
+  round is above. Points-over-expectation per manager is not: it needs every past
+  season scored in this league's own rules, and the store holds one season.
 """)

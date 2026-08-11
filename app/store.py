@@ -96,6 +96,41 @@ def load_board(season: int, league_key: str) -> pl.DataFrame:
                           _store.store_mtime(season, league_key))
 
 
+def load_draft(season: int, league_key: str) -> pl.DataFrame:
+    """Every pick this league has ever made, when the history has been built.
+
+    Args:
+        season: Season year.
+        league_key: ``config.yaml`` league key.
+
+    Returns:
+        pl.DataFrame: ``Scripts.draft.history.fetch_draft_history`` output -- one
+        row per pick across every season the league has existed.
+
+    Raises:
+        FileNotFoundError: When ``--what draft`` has not been run.
+    """
+    return _load_artifact(season, league_key, "draft",
+                          _store.store_mtime(season, league_key))
+
+
+def load_tendencies(season: int, league_key: str) -> pl.DataFrame:
+    """One row per manager: what they reliably do that the room does not.
+
+    Args:
+        season: Season year.
+        league_key: ``config.yaml`` league key.
+
+    Returns:
+        pl.DataFrame: ``Scripts.draft.tendencies.build_tendencies`` output.
+
+    Raises:
+        FileNotFoundError: When ``--what draft`` has not been run.
+    """
+    return _load_artifact(season, league_key, "tendencies",
+                          _store.store_mtime(season, league_key))
+
+
 def load_meta(season: int, league_key: str) -> dict:
     """The store's metadata: build time, current week, coverage, versions.
 

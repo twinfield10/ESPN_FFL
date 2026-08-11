@@ -17,7 +17,7 @@ These are what the scan turned up *beyond* that.
 | 06 | [Performance](06-performance.md) | Not started | Quadratic `pd.concat` in row loops; a duplicated `fetch_league` round-trip; a process-wide warnings filter |
 | 07 | [Frontend foundation & data store](07-frontend-foundation.md) | **Done** | 11ms to read a league back from parquet against ~8s to rebuild it |
 | 08 | [Week-to-week views](08-frontend-weekly-views.md) | Not started | Unblocked since 07 |
-| 09 | [Draft views](09-frontend-draft-views.md) | **Board done** | Board page renders for all nine leagues. Left: **Live Draft**, and **Draft History** (blocked on roadmap Phase 1) |
+| 09 | [Draft views](09-frontend-draft-views.md) | **Board + tendencies done** | Board page renders for all nine leagues, with owner tendencies on it ([23](23-owner-tendencies.md)). Left: **Live Draft** |
 | 10 | [Scoring registry](10-scoring-registry.md) | **Done** | Scoring was re-derived from a mutable live object 4× per league and never recorded |
 | 11 | [Per-slot scoring](11-per-slot-scoring.md) | **Done** | GOP's D/ST was inflated ~16%, and every league credited offensive players for imputed defensive stats at D/ST rates |
 | 12 | [Season projections](12-season-projections.md) | **Done** | Season props blended and scored per league — the draft board's input |
@@ -31,6 +31,7 @@ These are what the scan turned up *beyond* that.
 | 20 | [Consensus sources](20-consensus-sources.md) | **Deprioritised on evidence** | FantasyPros' marginal value is +0.027 against ESPN's +0.068, so a sixth expert aggregator is the worst available use of the effort |
 | 21 | [Depth charts, scheme, play-caller](21-coaching-and-scheme.md) | **Done** | 2026 depth charts pulled past nflreadr's season guard — the daily snapshot that made the rookie arm work. Coach and coordinator priors built and **measured out** of both arms: the depth chart already carries their signal |
 | 22 | [Feature research for the season head](22-feature-research.md) | **Measured, nothing merged** | Routes, Next Gen Stats, red-zone role and contracts pulled and tested; ridge swept. All eleven experiments rejected. The finding: player-level context that is a *function of past usage* does not survive either, because past usage is already the strongest regressor. Ships the data layer, the lab and `docs/model_lab.html` |
+| 23 | [Owner tendencies](23-owner-tendencies.md) | **Done** | 5,748 picks across 36 league-seasons, all of it one request per season. Every measurement is leave-one-out against the room and season-matched. **112 managers, 103 with a measured tendency.** Caught ESPN pre-creating a full set of picks for a draft that has not happened |
 
 ### Local frontend
 
@@ -101,9 +102,11 @@ each plan doc carries its own evidence and postscript.
   FantasyPros' marginal value at +0.027 against ESPN's +0.068, so a sixth expert
   aggregator is the worst available use of the effort. Sleeper's case now rests on the
   ID join and coverage, not independence.
-- **Roadmap Phases 1, 4, 5** — draft history backfill, the Monte Carlo mock-draft
-  simulator, and the live terminal assistant. Phase 1 blocks
-  [09](09-frontend-draft-views.md)'s Draft History page.
+- **Roadmap Phases 4, 5** — the Monte Carlo mock-draft simulator and the live
+  terminal assistant. Phase 1 (draft history) landed as
+  [23](23-owner-tendencies.md); what is still missing from it is *outcomes*,
+  points-over-expectation per manager, which needs past seasons scored in each
+  league's own rules.
 
 ### Blocked or waiting on the calendar
 
@@ -113,7 +116,7 @@ each plan doc carries its own evidence and postscript.
   a different host and works, so the draft board is unaffected.
 - **`Rscript R/GetNFL.R 2026`** needs a re-run once week 1 is played, for
   `Data/NFL/2026/NFL_Stats.csv` and a refreshed `NFL_Tackles_By_Position.csv`.
-- **[09](09-frontend-draft-views.md) Draft History** waits on roadmap Phase 1.
+- **[09](09-frontend-draft-views.md) Live Draft** is the last piece of that plan; draft history landed as [23](23-owner-tendencies.md).
 - **Plan 18's rookie draft-capital arm** shipped; its remaining question — whether a
   *combine* arm adds anything — is unmeasured and low priority.
 

@@ -38,10 +38,14 @@ SERIES_COLORS: Dict[str, Dict[int, str]] = {
              5: "#d55181", 6: "#008300", 7: "#9085e9", 8: "#e66767"},
 }
 
-#: Chart ink, per theme: (gridline, axis/label muted, primary text).
+#: Chart ink, per theme: (gridline, axis/label muted, primary text, surface).
+#: ``surface`` is the page background a mark sits on, used as the stroke on
+#: overlapping marks so two dots at the same coordinate read as two.
 CHART_INK: Dict[str, Dict[str, str]] = {
-    "light": {"grid": "#e1e0d9", "muted": "#898781", "text": "#0b0b0b"},
-    "dark": {"grid": "#2c2c2a", "muted": "#898781", "text": "#ffffff"},
+    "light": {"grid": "#e1e0d9", "muted": "#898781", "text": "#0b0b0b",
+              "surface": "#ffffff"},
+    "dark": {"grid": "#2c2c2a", "muted": "#898781", "text": "#ffffff",
+             "surface": "#0e1117"},
 }
 
 # Tier is deliberately *not* colour-encoded anywhere. It reads as an ordinal blue
@@ -300,6 +304,92 @@ def value_targets(board: pl.DataFrame, limit: int = 12) -> pl.DataFrame:
         .sort("value", descending=True)
         .head(limit)
     )
+
+
+#: Column order for the owner-tendency detail table, and the label each gets.
+TENDENCY_COLUMNS: List[tuple] = [
+    ("owner_display", "Manager"),
+    ("seasons", "Drafts"),
+    ("headline", "Reads as"),
+    ("earliest_position", "Earliest"),
+    ("earliest_delta", "Rds early"),
+    ("latest_position", "Latest"),
+    ("latest_delta", "Rds late"),
+    ("favourite_team", "NFL lean"),
+    ("favourite_team_excess", "Extra picks"),
+    ("favourite_player", "His guy"),
+    ("favourite_player_times", "Times"),
+    ("rookie_rate", "Rookie %"),
+    ("auto_rate", "Auto %"),
+    ("top3_share", "Top-3 $"),
+]
+
+
+def timing_matrix(picks: pl.DataFrame, positions: Sequence[str],
+                  min_seasons: int = 2) -> pl.DataFrame:
+    """Rounds each manager takes each position, against the same room.
+
+    Computed here rather than stored because it is a reshape of ``draft.parquet``
+    -- 960 rows for the deepest league -- and because reusing
+    ``Scripts.draft.tendencies.positional_timing`` is the only way the chart and
+    the descriptions cannot disagree about what "two rounds early" means.
+
+    Args:
+        picks: A stored pick history.
+        positions: Positions to keep, in the page's current filter.
+        min_seasons: Managers with fewer drafts are dropped; one draft is not a
+            tendency and plotting it as one is the whole failure mode here.
+
+    Returns:
+        pl.DataFrame: ``owner``, ``position``, ``own_round``, ``room_round``,
+        ``delta``, ``seasons``. Empty for an auction league, which has no rounds
+        to be early in.
+    """
+    from Scripts.draft.tendencies import positional_timing
+
+    timing = positional_timing(picks)
+    if timing.is_empty():
+        return timing
+    keep = [p for p in positions if p in TIMED_CHART_POSITIONS]
+    return timing.filter(pl.col("position").is_in(keep)
+                         & (pl.col("seasons") >= min_seasons))
+
+
+#: Positions the timing chart draws. The same six the tendencies module times,
+#: intersected with the palette -- every one has a fixed hue already.
+TIMED_CHART_POSITIONS = ("QB", "RB", "WR", "TE", "K", "D/ST")
+
+
+def owner_label(owner: str) -> str:
+    """A manager's name as it should be shown.
+
+    Re-exported from the tendencies module rather than reimplemented, so the
+    chart's axis and the cards above it cannot spell a manager two ways.
+
+    Args:
+        owner: The name as ESPN stores it.
+
+    Returns:
+        str: e.g. ``"Hank Winfield"``.
+    """
+    from Scripts.draft.tendencies import display_name
+
+    return display_name(owner)
+
+
+def tendency_frame(tendencies: pl.DataFrame) -> pl.DataFrame:
+    """Select and rename the columns the tendency detail table shows.
+
+    Args:
+        tendencies: A stored tendencies frame.
+
+    Returns:
+        pl.DataFrame: Renamed display columns, in :data:`TENDENCY_COLUMNS` order.
+    """
+    present = [(source, label) for source, label in TENDENCY_COLUMNS
+               if source in tendencies.columns]
+    return tendencies.select([pl.col(source).alias(label)
+                              for source, label in present])
 
 
 def display_frame(board: pl.DataFrame) -> pl.DataFrame:

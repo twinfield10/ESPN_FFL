@@ -9,6 +9,7 @@ the whole reason the store exists -- see
     python -m Scripts.refresh --league Knights_FFL
     python -m Scripts.refresh --all
     python -m Scripts.refresh --all --what board            # draft boards
+    python -m Scripts.refresh --all --what draft            # picks + tendencies
     python -m Scripts.refresh --all --what lineups,team_stats
     python -m Scripts.refresh --league Knights_FFL --season 2025
 
@@ -30,13 +31,15 @@ from Scripts import store
 from Scripts.config_utils import build_lg_vars, get_season, resolve_league
 from Scripts.paths import REPO_ROOT
 
-#: Artifacts ``--what`` accepts. ``draft`` (pick history) arrives with the draft
-#: roadmap's Phase 1.
-WHAT_CHOICES = ("lineups", "team_stats", "board")
+#: Artifacts ``--what`` accepts. ``draft`` builds two of them -- the pick history
+#: and the owner tendencies read off it.
+WHAT_CHOICES = ("lineups", "team_stats", "board", "draft")
 
 #: Built unless ``--what`` says otherwise. ``team_stats`` is excluded on purpose --
 #: see the module docstring. ``board`` is excluded because it is a pre-season
-#: artifact: nothing about week 9 changes your draft.
+#: artifact: nothing about week 9 changes your draft. ``draft`` is excluded for a
+#: stronger version of the same reason: a finished draft never changes at all, so
+#: rebuilding it weekly re-reads ten seasons to write the same bytes.
 DEFAULT_WHAT = ("lineups",)
 
 
@@ -89,6 +92,8 @@ def refresh_league(
     lineups = None
     team_stats = None
     board = None
+    draft = None
+    tendencies = None
     league = None
 
     def _league():
@@ -131,6 +136,32 @@ def refresh_league(
         _log(f"  board       {board.shape[0]:>6} rows x {board.shape[1]:>4} cols "
              f"  {timings['board']:.2f}s")
 
+    if "draft" in what:
+        from Scripts.draft.history import fetch_draft_history, history_summary
+        from Scripts.draft.tendencies import build_tendencies, tendencies_summary
+
+        start = time.time()
+        # Every season the league has existed, not just this one: a tendency is
+        # the whole point and one draft is not a tendency. No League object is
+        # needed -- this is one JSON request per season.
+        seasons = range(int(cfg["start"]), season + 1)
+        history = fetch_draft_history(cfg["ID"], seasons, swid=cfg["SWID"],
+                                      espn_s2=cfg["ESPN_S2"], current_season=season)
+        timings["draft"] = time.time() - start
+        _log(f"  draft       {history_summary(history)}   {timings['draft']:.2f}s")
+
+        if history.is_empty():
+            # Pre-draft in a league's first season. Writing an empty artifact
+            # would make the page offer a tendencies table with nothing in it.
+            _log("  draft       no drafts on record yet; nothing written")
+        else:
+            owners = build_tendencies(history)
+            _log(f"  tendencies  {tendencies_summary(owners)}")
+            # Pandas at the store boundary: write_league_store's contract is
+            # pandas, and one conversion here is cheaper than a second write path.
+            draft = history.to_pandas()
+            tendencies = owners.to_pandas()
+
     if "team_stats" in what:
         from Scripts.scrape_team_stats import scrape_team_stats
 
@@ -153,7 +184,8 @@ def refresh_league(
                  f"{team_stats.shape[1]:>3} cols   {timings['team_stats']:.2f}s "
                  f"({start_year}-{season})")
 
-    if lineups is None and team_stats is None and board is None:
+    if all(artifact is None for artifact in
+           (lineups, team_stats, board, draft, tendencies)):
         _log("  nothing to write")
         return timings
 
@@ -163,7 +195,8 @@ def refresh_league(
     start = time.time()
     directory = store.write_league_store(
         season, league_key,
-        lineups=lineups, team_stats=team_stats, board=board, league=league,
+        lineups=lineups, team_stats=team_stats, board=board, draft=draft,
+        tendencies=tendencies, league=league,
         meta_extra={
             "display_name": cfg["display_name"],
             "primary_owner": cfg["primary_own"],

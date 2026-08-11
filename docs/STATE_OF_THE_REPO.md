@@ -31,7 +31,8 @@ Both things that were true at the start of this cycle are now addressed:
    from another project. It is deleted; `Scripts/draft/` builds a league-aware board
    ([plan 15](plans/15-draft-board.md)), `app/pages/draft_board.py` renders it
    ([plan 09](plans/09-frontend-draft-views.md)), and there is a **usable draft-day
-   artifact today**. What remains is the live draft page and draft history.
+   artifact today**, and `docs/plans/23-owner-tendencies.md` puts owner tendencies
+   on it. What remains is the live draft page.
 
 **There is also a projection model now, and it is honest about its limits.**
 `Scripts/usage/` holds a season head that predicts 80.4% of rostered players from
@@ -506,7 +507,7 @@ build).
 
 | Phase | Deliverable | Depends on |
 |---|---|---|
-| **1. Draft history** | Backfill 2016-2025 drafts to `Data/Draft/`. Points-over-expectation per manager, positional tendency by round, reach/steal distribution. Also captures `bid_amount` and `keeper_status`, which the ESPN wrapper already parses but the old code ignored. | — |
+| **1. Draft history** | ~~**Mostly done**~~ — [plan 23](plans/23-owner-tendencies.md). `python -m Scripts.refresh --all --what draft` pulls 5,748 picks across 36 league-seasons in 10s, into the store rather than `Data/Draft/`. Positional tendency by round, NFL-team lean, player loyalty, rookie appetite, autodraft rate, and auction budget shape — every one leave-one-out against the room and season-matched. `bid` and `keeper` are captured. **Points-over-expectation is not done**: it needs every past season scored in each league's own rules, which the store does not hold. | — |
 | **2. Season projections** | Season-long stat lines from FantasyPros (`week=draft`), BetOnline season props (port `R/GetSeasonProps.R` to Python, emitting raw stats not PPR), and ESPN. Blended and scored per league. Plus a real player crosswalk. | — |
 | **3. ADP + VOR + board** | ~~**Done**~~ — [plan 15](plans/15-draft-board.md). `python -m Scripts.refresh --all --what board` builds nine league-aware boards in ~16s. One `kona_player_info` request per league returns ADP, auction values **and** a 45-stat season projection, carrying `player.id` so the ESPN join is exact. Replacement level from each league's real starting slots; 1-D KMeans tiers; value vs ADP. | 2 |
 | **4. Draft simulation** | Monte Carlo mock drafts. Opponent models calibrated from Phase 1 tendencies. Tests Zero-RB / Hero-RB / BPA from your actual slot. | 1, 3 |
@@ -521,5 +522,5 @@ Two findings make this cheaper than it looks:
   rescoring per league instead of hardcoded PPR. Its 2025 output is preserved at
   `Data/Projections/BetOnline/Season/2025/BetOnline_SeasonProps_Offense.csv`.
 
-If time runs short, **Phase 2 → 3** still gets a real draft board. Phases 1, 4
-and 5 are upside.
+If time runs short, **Phase 2 → 3** still gets a real draft board. Phases 4 and 5
+are upside; Phase 1 landed.
