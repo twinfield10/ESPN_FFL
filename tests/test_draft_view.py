@@ -276,6 +276,135 @@ def test_the_model_block_sits_between_the_market_and_the_status_columns():
     assert order.index("Model evidence") < order.index("Injury")
 
 
+# --- where the points came from ------------------------------------------
+#
+# The join is on the *franchise*, not the manager, and these tests are mostly
+# about why. See dv._franchise_key: ESPN spells a person four different ways
+# across its two endpoints, and each way costs a manager their entire draft.
+
+def _weeks(rows):
+    """A lineups frame with the columns drafted_versus_added reads."""
+    defaults = {"team_name": "Team Tommy", "team_owner": "Tommy Winfield",
+                "player_id": 1, "slotPosition": "RB", "points": 10.0}
+    return pl.DataFrame([{**defaults, **row} for row in rows])
+
+
+def _picks(rows):
+    defaults = {"team_name": "Team Tommy", "player_id": 1}
+    return pl.DataFrame([{**defaults, **row} for row in rows])
+
+
+#: A draft that exists but contains nobody these managers fielded. Not the same
+#: thing as an empty picks frame, which means the draft is *unknown* — see
+#: test_a_season_with_no_draft_data_refuses_to_answer.
+NOBODY_RELEVANT = [{"team_name": "Team Tommy", "player_id": 9999}]
+
+
+def test_points_split_between_the_draft_and_the_wire():
+    weeks = _weeks([{"player_id": 1, "points": 30.0},
+                    {"player_id": 2, "points": 12.0}])
+    out = dv.drafted_versus_added(weeks, _picks([{"player_id": 1}]))
+    assert out["drafted"].to_list() == [30.0]
+    assert out["added"].to_list() == [12.0]
+    assert out["share_drafted"].to_list() == [pytest.approx(71.428, rel=1e-3)]
+
+
+@pytest.mark.parametrize("in_lineups,in_draft", [
+    ("Hank Winfield", "hank Winfield"),      # set_owner_names applies str.title
+    ("Zach Imel", "Zachary Imel"),           # a nickname
+    ("Logan Tola", "Matt Logan Tola"),       # an extra given name
+    ("Alex Holton", "Michael Beal"),         # the team changed hands
+])
+def test_the_draft_is_found_however_espn_spells_the_manager(in_lineups, in_draft):
+    """All four pairs are real, in 2025, one league each. Joining on the manager
+    loses the whole team and reports it as having drafted nobody — 2,592.95 points
+    for Zach Imel. Joining on the franchise is immune to all four, including the
+    last, which no string rule could fix."""
+    weeks = _weeks([{"team_owner": in_lineups, "points": 40.0}])
+    picks = _picks([{"player_id": 1}]).with_columns(
+        pl.lit(in_draft).alias("owner"))
+    out = dv.drafted_versus_added(weeks, picks)
+    assert out["drafted"].to_list() == [40.0]
+    assert out["added"].to_list() == [0.0]
+
+
+def test_a_player_is_drafted_for_the_team_that_took_him_not_the_one_that_added_him():
+    """One player, two rosters, one draft pick: the same points are not 'drafted'
+    for both."""
+    weeks = _weeks([{"team_name": "Team Tommy", "team_owner": "Tommy Winfield",
+                     "points": 20.0},
+                    {"team_name": "Team Jack", "team_owner": "Jack Winfield",
+                     "points": 15.0}])
+    picks = pl.concat([_picks([{"team_name": "Team Tommy"}]),
+                       _picks([{"team_name": "Team Jack", "player_id": 777}])])
+    out = dv.drafted_versus_added(weeks, picks)
+    by_owner = dict(zip(out["owner"], out["drafted"]))
+    assert by_owner["Tommy Winfield"] == 20.0
+    assert by_owner["Jack Winfield"] == 0.0
+
+
+def test_a_team_absent_from_the_draft_is_unknown_rather_than_zero():
+    """Zero would claim they drafted nobody who scored. Null says the draft
+    cannot be matched to them, which is the truth and the distinction that has
+    already cost this repo three separate bugs."""
+    weeks = _weeks([{"team_name": "Expansion Team", "team_owner": "New Guy",
+                     "points": 55.0}])
+    out = dv.drafted_versus_added(weeks, _picks([{"team_name": "Team Tommy"}]))
+    assert out["drafted"].to_list() == [None]
+    assert out["added"].to_list() == [None]
+    assert out["share_drafted"].to_list() == [None]
+    assert out["total"].to_list() == [55.0]
+
+
+def test_bench_points_are_excluded_because_they_never_counted():
+    weeks = _weeks([{"slotPosition": "RB", "points": 20.0},
+                    {"slotPosition": "BE", "points": 50.0},
+                    {"slotPosition": "IR", "points": 5.0}])
+    picks = _picks([{"player_id": 1}])
+    assert dv.drafted_versus_added(weeks, picks)["total"].to_list() == [20.0]
+    assert dv.drafted_versus_added(
+        weeks, picks, starters_only=False)["total"].to_list() == [75.0]
+
+
+def test_free_agents_are_not_a_manager():
+    """`team_owner` is 'Free Agent' for anyone nobody rostered that week."""
+    weeks = _weeks([{"team_owner": "Free Agent", "team_name": "Free Agent",
+                     "points": 99.0},
+                    {"team_owner": "Tommy Winfield", "points": 10.0}])
+    out = dv.drafted_versus_added(weeks, _picks(NOBODY_RELEVANT))
+    assert out["owner"].to_list() == ["Tommy Winfield"]
+
+
+def test_teams_are_ordered_by_what_they_scored():
+    weeks = _weeks([{"team_name": "Small", "team_owner": "Small", "points": 10.0},
+                    {"team_name": "Big", "team_owner": "Big", "points": 90.0}])
+    picks = pl.concat([_picks([{"team_name": "Small", "player_id": 9999}]),
+                       _picks([{"team_name": "Big", "player_id": 9999}])])
+    assert dv.drafted_versus_added(weeks, picks)["owner"].to_list() == ["Big",
+                                                                       "Small"]
+
+
+def test_a_season_with_no_draft_data_refuses_to_answer():
+    """Deliberate, and the opposite of what is convenient. With no picks every
+    point would classify as 'added', which is a coherent-looking claim that the
+    whole league built its season off waivers — this repo's recurring failure of
+    an absent source reading as a real answer. Empty is the honest output."""
+    assert dv.drafted_versus_added(_weeks([{"points": 25.0}]),
+                                   pl.DataFrame()).is_empty()
+    assert dv.drafted_versus_added(pl.DataFrame(), pl.DataFrame()).is_empty()
+
+
+def test_a_lineups_frame_missing_the_columns_is_empty_rather_than_raising():
+    """Stores written before this reach the same path."""
+    thin = _weeks([{}]).drop("slotPosition")
+    assert dv.drafted_versus_added(thin, _picks([{}])).is_empty()
+
+
+def test_a_team_that_only_fielded_its_bench_does_not_divide_by_zero():
+    weeks = _weeks([{"slotPosition": "BE", "points": 30.0}])
+    assert dv.drafted_versus_added(weeks, _picks(NOBODY_RELEVANT)).is_empty()
+
+
 # --- colour --------------------------------------------------------------
 
 def test_every_hued_position_has_a_colour_in_both_themes():

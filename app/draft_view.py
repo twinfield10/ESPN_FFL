@@ -403,6 +403,144 @@ def owner_label(owner: str) -> str:
     return display_name(owner)
 
 
+#: What a manager's points are split into: the players they drafted themselves,
+#: against everyone else they fielded — waiver claims, free agents, trade returns.
+#: Labels rather than booleans because they are read off a chart legend.
+SOURCE_DRAFTED = "Drafted"
+SOURCE_ADDED = "Added in season"
+
+#: ``team_owner`` in a lineups frame is this for a player nobody rostered that
+#: week. It is not a manager and must not become a bar.
+FREE_AGENT_OWNER = "Free Agent"
+
+
+def _franchise_key(column: str) -> pl.Expr:
+    """A team name reduced to something two artifacts can be joined on.
+
+    **The franchise is the join key, not the manager,** and that was arrived at by
+    measurement rather than preference. ESPN does not spell a person consistently
+    across its endpoints, so joining on the manager silently loses whole teams and
+    reports them as having drafted nothing at all. Every row below is real, in
+    2025, in a different league:
+
+    | ``lineups.parquet`` | ``draft.parquet`` | Cause |
+    |---|---|---|
+    | ``Hank Winfield`` | ``hank Winfield`` | ``str.title`` in ``set_owner_names`` |
+    | ``Zach Imel`` | ``Zachary Imel`` | a nickname |
+    | ``Logan Tola`` | ``Matt Logan Tola`` | an extra given name |
+    | ``Alex Holton`` | ``Michael Beal`` | the team changed hands |
+
+    Case-folding fixes only the first. The last cannot be fixed by any string rule
+    and is what settles the design: the question is what a *roster* got from draft
+    day, and a roster survives a handover even though the name against it does
+    not. Each of these cost a manager their entire draft — 2,592.95 points for
+    Zach Imel, all of it reported as waiver pickups.
+
+    ``team_name`` was checked before being trusted, across all nine leagues for
+    2025: no team renamed itself mid-season, no two teams shared a name, and all
+    108 matched a drafting team. The manager is still who gets displayed.
+
+    Args:
+        column: Name of the column holding the team name.
+
+    Returns:
+        pl.Expr: The name trimmed and lowercased.
+    """
+    return pl.col(column).str.strip_chars().str.to_lowercase()
+
+
+def drafted_versus_added(lineups: pl.DataFrame, picks: pl.DataFrame,
+                         starters_only: bool = True) -> pl.DataFrame:
+    """How much of each manager's season came from their own draft.
+
+    A player counts as *drafted* for a team only if that team drafted them. The
+    same player is drafted for whoever took them and added for whoever picked them
+    up later, which is the honest reading of a mid-season move and falls out of
+    joining on the pair rather than on the player. Teams are matched on
+    ``team_name`` — see :func:`_franchise_key` for why the manager's name does not
+    work.
+
+    Starters only by default. Bench points are real but never counted for anyone,
+    so including them would answer a different question — how much talent did you
+    hold — than the one asked, which is how much of what you *scored* came from
+    draft day.
+
+    A team whose name is absent from ``picks`` gets **null** rather than zero for
+    ``drafted`` and ``added``. Zero would be a claim that they drafted nobody who
+    scored; null is the truth, which is that this season's draft cannot be matched
+    to them. The distinction is the one that has already cost this repo three
+    separate bugs.
+
+    Args:
+        lineups: One season's weekly rows, with ``team_name``, ``team_owner``,
+            ``player_id``, ``slotPosition`` and ``points``.
+        picks: Draft picks for **that same season**, with ``team_name`` and
+            ``player_id``. Filter by season before calling; this cannot tell one
+            season's picks from another's and would count a player drafted in any
+            season as drafted in this one.
+        starters_only: Count only points scored from a starting slot.
+
+    Returns:
+        pl.DataFrame: One row per team — ``owner``, ``manager`` (rendered),
+        ``drafted``, ``added``, ``total`` and ``share_drafted`` (0–100), ordered
+        by total points descending. ``drafted``/``added``/``share_drafted`` are
+        null where the draft could not be matched. Empty if either input is, or if
+        ``picks`` is empty — with no draft every point would classify as added,
+        and a league that looks like it built itself off waivers is exactly the
+        kind of confident wrong answer this codebase keeps having to unlearn.
+    """
+    needed = {"team_name", "team_owner", "player_id", "points", "slotPosition"}
+    empty = pl.DataFrame(schema={"owner": pl.Utf8, "manager": pl.Utf8,
+                                 "drafted": pl.Float64, "added": pl.Float64,
+                                 "total": pl.Float64,
+                                 "share_drafted": pl.Float64})
+    if (lineups.is_empty() or picks.is_empty()
+            or not needed <= set(lineups.columns)
+            or "team_name" not in picks.columns):
+        return empty
+
+    drafted = (picks.select(_franchise_key("team_name").alias("_team"), "player_id")
+               .unique()
+               .with_columns(pl.lit(True).alias("_drafted")))
+    drafting_teams = drafted.select("_team").unique()
+
+    rows = (lineups
+            .filter(pl.col("team_owner").is_not_null()
+                    & (pl.col("team_owner") != FREE_AGENT_OWNER))
+            .with_columns(_franchise_key("team_name").alias("_team"))
+            .join(drafted, on=["_team", "player_id"], how="left")
+            .with_columns(pl.col("_drafted").fill_null(False))
+            .join(drafting_teams.with_columns(pl.lit(True).alias("_known")),
+                  on="_team", how="left")
+            .with_columns(pl.col("_known").fill_null(False)))
+
+    if starters_only:
+        rows = rows.filter(
+            pl.col("slotPosition").is_in(list(NON_STARTING_SLOTS)).not_())
+
+    if rows.is_empty():
+        return empty
+
+    return (rows.group_by("_team")
+            .agg(pl.col("team_owner").mode().first().alias("owner"),
+                 pl.col("_known").first().alias("_known"),
+                 pl.col("points").filter(pl.col("_drafted")).sum().alias("_drafted_pts"),
+                 pl.col("points").filter(pl.col("_drafted").not_()).sum().alias("_added_pts"),
+                 pl.col("points").sum().alias("total"))
+            .with_columns(
+                pl.when("_known").then(pl.col("_drafted_pts")).alias("drafted"),
+                pl.when("_known").then(pl.col("_added_pts")).alias("added"))
+            .with_columns(
+                pl.when(pl.col("total") > 0)
+                .then(100 * pl.col("drafted") / pl.col("total"))
+                .otherwise(None).alias("share_drafted"),
+                pl.col("owner").map_elements(owner_label, return_dtype=pl.Utf8)
+                .alias("manager"))
+            .select("owner", "manager", "drafted", "added", "total",
+                    "share_drafted")
+            .sort("total", descending=True))
+
+
 def tendency_frame(tendencies: pl.DataFrame) -> pl.DataFrame:
     """Select and rename the columns the tendency detail table shows.
 
