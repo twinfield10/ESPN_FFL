@@ -433,6 +433,118 @@ if store.has_artifact(selection.season, selection.league_key, "tendencies"):
             width="stretch",
         )
 
+    # --- and how much of it the draft actually supplied --------------------
+    #
+    # Everything above this point is what managers *do*; this is the first thing
+    # on the page that touches how it went. It needs a finished season, so it
+    # looks back rather than at the season being drafted -- the most recent one
+    # this league has both a draft and a set of played weeks for.
+    played = next(
+        (past for past in sorted(picks["season"].unique().to_list(), reverse=True)
+         if past < selection.season
+         and store.has_artifact(past, selection.league_key, "lineups")),
+        None,
+    )
+    split = (dv.drafted_versus_added(
+                 store.load_lineups(played, selection.league_key),
+                 picks.filter(pl.col("season") == played))
+             if played is not None else dv.drafted_versus_added(
+                 pl.DataFrame(), pl.DataFrame()))
+
+    # A team whose name is not in that season's draft carries nulls rather than
+    # zeros, so it is named rather than drawn as a manager who drafted nobody.
+    unmatched = split.filter(pl.col("drafted").is_null())
+    split = split.filter(pl.col("drafted").is_not_null())
+
+    if not split.is_empty():
+        st.markdown(f"**Where the points came from — {played}**")
+        st.caption(
+            "Points scored **from a starting slot**, split by who put the player "
+            "on the roster. A player is drafted for whoever took them and added "
+            "for whoever picked them up later, so a mid-season pickup counts to "
+            "the manager who made the move. Bench points are excluded: they are "
+            "real but they never counted for anyone, and including them answers "
+            "how much talent you held rather than how much of what you *scored* "
+            "came from draft day."
+        )
+        if not unmatched.is_empty():
+            st.caption(
+                "⚠️ Left out, because their draft could not be matched to them: "
+                + ", ".join(f"**{name}**" for name in unmatched["manager"])
+                + ". Shown as missing rather than as having drafted nobody."
+            )
+
+        totals = split.with_columns(
+            pl.when(pl.col("owner") == my_owner)
+            .then(pl.col("manager") + pl.lit(" (you)"))
+            .otherwise(pl.col("manager")).alias("who"))
+        bar_order = totals["who"].to_list()
+
+        long = (totals.unpivot(on=["drafted", "added"],
+                               index=["who", "total", "share_drafted"],
+                               variable_name="source", value_name="points")
+                # An explicit rank, because ordering on the label would stack
+                # them alphabetically and put "Added in season" at the baseline.
+                # Drafted belongs against the axis: it is what came first.
+                .with_columns(
+                    pl.col("source").replace_strict({"drafted": 0, "added": 1},
+                                                    return_dtype=pl.Int8)
+                    .alias("stack_rank"),
+                    pl.col("source").replace_strict(
+                        {"drafted": dv.SOURCE_DRAFTED,
+                         "added": dv.SOURCE_ADDED})))
+
+        # Slots 1 and 2, the palette's fixed first pair for a two-series
+        # categorical. Validated against both surfaces rather than assumed:
+        # worst adjacent separation is dE 24.7 protan on white and 26.8 on the
+        # dark surface, well clear of the 8 the check asks for.
+        source_scale = alt.Scale(domain=[dv.SOURCE_DRAFTED, dv.SOURCE_ADDED],
+                                 range=[colors[1], colors[2]])
+        bars = (alt.Chart(long.to_pandas())
+                # 1px of surface on each segment is the 2px gap between fills;
+                # without it a manager who added almost nothing reads as one bar.
+                .mark_bar(cornerRadiusEnd=4, stroke=ink["surface"], strokeWidth=1)
+                .encode(
+                    x=alt.X("points:Q", title="Points from a starting slot",
+                            stack=True,
+                            axis=alt.Axis(gridColor=ink["grid"],
+                                          labelColor=ink["muted"],
+                                          titleColor=ink["muted"], domain=False)),
+                    y=alt.Y("who:N", title=None, sort=bar_order,
+                            axis=alt.Axis(labelColor=ink["text"], domain=False,
+                                          ticks=False, grid=False,
+                                          labelLimit=220)),
+                    color=alt.Color("source:N", scale=source_scale,
+                                    legend=alt.Legend(title=None, orient="top",
+                                                      labelColor=ink["text"])),
+                    order=alt.Order("stack_rank:Q"),
+                    tooltip=[alt.Tooltip("who:N", title="Manager"),
+                             alt.Tooltip("source:N", title="From"),
+                             alt.Tooltip("points:Q", title="Points", format=".1f"),
+                             alt.Tooltip("total:Q", title="Season total",
+                                         format=".1f"),
+                             alt.Tooltip("share_drafted:Q", title="% drafted",
+                                         format=".1f")],
+                ))
+        # One direct label a bar, not one a segment: the share is the number the
+        # chart is actually about, and it wears a text token rather than a series
+        # colour so identity stays with the marks.
+        labels = (alt.Chart(totals.to_pandas())
+                  .mark_text(align="left", dx=6, fontSize=12, color=ink["muted"])
+                  .encode(x=alt.X("total:Q"), y=alt.Y("who:N", sort=bar_order),
+                          text=alt.Text("share_drafted:Q", format=".0f")))
+        st.altair_chart(
+            (bars + labels).properties(height=40 * split.height + 20)
+            .configure_view(strokeWidth=0),
+            width="stretch",
+        )
+        st.caption(
+            f"The number past each bar is the percentage that came from the "
+            f"draft. Range this season: "
+            f"{split['share_drafted'].min():.0f}%–"
+            f"{split['share_drafted'].max():.0f}%."
+        )
+
     with st.expander("The measurements behind these descriptions"):
         st.dataframe(
             dv.tendency_frame(tendencies), width="stretch", hide_index=True,
