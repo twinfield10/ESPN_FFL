@@ -499,6 +499,89 @@ def test_no_seasons_is_empty_rather_than_raising():
     assert dv.acquisition_averages(pl.DataFrame()).is_empty()
 
 
+# --- opponent notes, filtered to who is actually draftable ----------------
+
+def _note(player, traits, description, seasons=10):
+    return pl.DataFrame([{"owner": "Someone", "owner_display": "Someone",
+                          "seasons": seasons, "favourite_player": player,
+                          "traits": traits, "description": description}])
+
+
+LOYALTY = "has drafted {} in 4 of the 5 drafts he was available in"
+TIMING = "waits on K — round 14.7 against the room's 11.7"
+TIMING2 = "waits on TE — round 7.5 against the room's 5.4"
+
+
+def test_a_loyalty_clause_survives_when_the_player_is_draftable():
+    note = _note("Bijan Robinson",
+                 [TIMING, LOYALTY.format("Bijan Robinson")],
+                 "Waits on K — round 14.7 against the room's 11.7. Has "
+                 "drafted Bijan Robinson in 4 of the 5 drafts he was available "
+                 "in. (10 drafts)")
+    out = dv.notes_for_board(note, _board([{"player_name": "Bijan Robinson"}]))
+    assert "Bijan Robinson" in out["description"][0]
+    assert out["favourite_player_draftable"].to_list() == [True]
+
+
+def test_a_loyalty_clause_goes_when_the_player_is_not_on_the_board():
+    """Leonard Fournette is true and useless: a third of a note nobody has time
+    to read, spent on a player nobody can take."""
+    note = _note("Leonard Fournette",
+                 [TIMING, LOYALTY.format("Leonard Fournette"), TIMING2],
+                 "Waits on K — round 14.7 against the room's 11.7. "
+                 "Has drafted Leonard Fournette in 4 of the 5 drafts he was "
+                 "available in. Waits on TE — round 7.5 against the room's 5.4. "
+                 "(10 drafts)")
+    out = dv.notes_for_board(note, _board([{"player_name": "Bijan Robinson"}]))
+    described = out["description"][0]
+    assert "Fournette" not in described
+    assert "Waits on K" in described and "Waits on TE" in described
+    assert described.endswith("(10 drafts)")
+    assert out["favourite_player_draftable"].to_list() == [False]
+
+
+def test_a_name_full_of_full_stops_does_not_break_the_rewrite():
+    """T.Y. Hilton is why the trait text is matched rather than the description
+    being split on sentences."""
+    note = _note("T.Y. Hilton",
+                 [TIMING, LOYALTY.format("T.Y. Hilton")],
+                 "Waits on K — round 14.7 against the room's 11.7. Has drafted "
+                 "T.Y. Hilton in 4 of the 5 drafts he was available in. "
+                 "(10 drafts)")
+    out = dv.notes_for_board(note, _board([{"player_name": "Somebody Else"}]))
+    assert out["description"][0] == ("Waits on K — round 14.7 against the "
+                                     "room's 11.7. (10 drafts)")
+
+
+def test_only_the_loyalty_clause_is_filtered():
+    """Timing and team lean describe *how* a manager drafts and stay true
+    whoever happens to be available."""
+    note = _note("Leonard Fournette",
+                 [TIMING, LOYALTY.format("Leonard Fournette")],
+                 "Waits on K — round 14.7 against the room's 11.7. Has drafted "
+                 "Leonard Fournette in 4 of the 5 drafts he was available in. "
+                 "(10 drafts)")
+    out = dv.notes_for_board(note, _board([{"player_name": "Nobody"}]))
+    assert "Waits on K" in out["description"][0]
+    assert TIMING in out["traits"][0].to_list()
+
+
+def test_a_note_that_was_only_about_a_stale_player_says_so():
+    note = _note("Leonard Fournette", [LOYALTY.format("Leonard Fournette")],
+                 "Has drafted Leonard Fournette in 4 of the 5 drafts he was "
+                 "available in. (10 drafts)")
+    out = dv.notes_for_board(note, _board([{"player_name": "Nobody"}]))
+    assert "Fournette" not in out["description"][0]
+    assert "not on this year's board" in out["description"][0]
+
+
+def test_notes_without_the_columns_to_decide_are_left_alone():
+    assert dv.notes_for_board(pl.DataFrame(), _board([{}])).is_empty()
+    note = _note("Someone", [TIMING], "Waits on K. (10 drafts)").drop("traits")
+    assert dv.notes_for_board(note, _board([{}]))["description"][0] == \
+        "Waits on K. (10 drafts)"
+
+
 # --- colour --------------------------------------------------------------
 
 def test_every_hued_position_has_a_colour_in_both_themes():

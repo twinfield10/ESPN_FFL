@@ -228,7 +228,7 @@ def test_a_description_carries_at_most_three_clauses():
 
 def test_the_clause_keeps_its_own_capitals():
     """``str.capitalize`` lowercased player names and position codes."""
-    assert dt._sentence("has drafted Justin Tucker at QB") == (
+    assert dt.sentence_case("has drafted Justin Tucker at QB") == (
         "Has drafted Justin Tucker at QB.")
 
 
