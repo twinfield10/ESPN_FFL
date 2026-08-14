@@ -1,7 +1,7 @@
 # 09 — Local frontend: draft views
 
 **Priority:** High (seasonal) · **Effort:** Large · **Status:** **Board done
-2026-08-07**; Live not started; History blocked on roadmap Phase 1
+2026-08-07, model columns added 2026-08-14**; Live not started; History unblocked
 **Depends on:** [07 (foundation)](07-frontend-foundation.md), and the draft
 phases in [`../STATE_OF_THE_REPO.md`](../STATE_OF_THE_REPO.md#roadmap--draft-strategy)
 
@@ -22,13 +22,58 @@ What is still open:
 - **Live Draft** (§2) — not started. It is the one page that talks to ESPN in the
   render path, and the plan's own build order puts it last because it is the most
   likely to slip.
-- **Draft History** (§3) — blocked. It reads a `draft.parquet` that roadmap Phase 1
-  has not backfilled; `Scripts.store.ARTIFACTS` reserves the key and nothing writes
-  it yet.
+- **Draft History** (§3) — **no longer blocked, as of plan 23.** This said
+  `draft.parquet` was unwritten and roadmap Phase 1 had not backfilled it; both are
+  now false. `Scripts.refresh --what draft` writes it, the artifact holds 826 picks
+  for Knights 2026, and the board page already reads it for the owner-tendency cards.
+  What is missing from it is *outcomes* — points-over-expectation per manager, which
+  needs every past season scored in each league's own rules.
 - **Floor/ceiling is half-built.** Source disagreement is in; prior-season variance
   is not, because it needs per-week 2025 actuals joined per player out of
   `Data/Store/2025/*/lineups.parquet` — a different data path from anything the
-  board builder touches today.
+  board builder touches today. Note the model is deliberately **not** a fourth input
+  to this interval: it projects an expected value where the other sources project a
+  healthy season, and mixing the two widened the median interval from 8.5% to 24.0%.
+
+## The model columns, added 2026-08-14
+
+The page predated the usage model and showed none of it, which by 2026-08-14 meant a
+third of `TRUE_Points` was invisible on the artifact built to explain `TRUE_Points`.
+Four columns now sit between the market block and the status columns:
+
+| | |
+|---|---|
+| `USG` | The model's own projection. The one number on the table not comparable to `Proj` — see below |
+| `Δrk` | `TRUE_PosRank − USG_PosRank`. Positive where the model likes a player more than ESPN and FantasyPros do |
+| `Exp G` | Games out of 17 the model expects the player available for, which `USG` is already scaled by |
+| `Model evidence` | Why the model's evidence is thin, or why it produced nothing |
+
+**The level mismatch is handled by showing ranks alongside the points, not by hiding
+the points.** `USG` is an expected value over `Exp G` games; `Proj` assumes a healthy
+17. Subtracting them means nothing, so the `USG` tooltip says so and the page's "what
+is missing" panel says it again at length. `Δrk`, being a rank, is immune — the same
+property that keeps the model out of `Floor`/`Ceil`.
+
+**`Model evidence` exists because an empty `USG` meant three different things** and
+all three rendered as the same blank cell, which reads as agreement:
+
+| State | Rows, Knights 2026 |
+|---|---|
+| `not modelled` — K and D/ST, never modelled, plus anyone with no usage history | 316 |
+| `withdrawn (availability)` — the model declined a player whose expected games were too low to price | 90 |
+| `withdrawn (injury)` — the report withdrew a price the model had already made | 12 |
+| the flag itself — `changed teams`, `thin prior season`, `low prior volume`, or a combination | 290 |
+| `—`, priced with nothing flagged | 318 |
+
+A withdrawal is reported ahead of the evidence text where a row carries both, which
+7 rows do: that there is no number is more useful than why the absent number would
+have been shaky. Sorting by `Δrk` is offered in both directions, because the
+interesting disagreements are at both ends.
+
+Verified headless through `AppTest` across all nine leagues, four of four columns
+present on each. The board's default position filter shows only QB/RB/TE/WR, so
+`not modelled` is mostly reached by widening that filter — which is pre-existing
+behaviour, not something these columns changed.
 
 ## Goal
 

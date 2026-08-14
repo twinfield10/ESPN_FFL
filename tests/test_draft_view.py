@@ -207,6 +207,75 @@ def test_display_frame_skips_columns_the_artifact_lacks():
     assert "Floor" not in frame.columns and "Player" in frame.columns
 
 
+# --- the model's own account of itself -----------------------------------
+#
+# Five states, and the whole point of the column is that three of them would
+# otherwise render as the same empty cell.
+
+def _modelled(rows):
+    """A board carrying the usage model's columns."""
+    defaults = {"usg_arm": "veteran", "USG_Points": 90.0, "usg_evidence": "",
+                "usg_expected_games": 15.0, "USG_PosRankDelta": 0.0}
+    return _board([{**defaults, **row} for row in rows])
+
+
+def _labels(board):
+    return dv.with_model_evidence(board)["usg_evidence_label"].to_list()
+
+
+def test_a_priced_player_with_nothing_flagged_reads_as_clear():
+    assert _labels(_modelled([{}])) == [dv.EVIDENCE_CLEAR]
+
+
+def test_a_flagged_player_shows_the_models_reason_verbatim():
+    board = _modelled([{"usg_evidence": "changed teams"}])
+    assert _labels(board) == ["changed teams"]
+
+
+def test_a_position_the_model_never_covers_is_not_confused_with_agreement():
+    board = _modelled([{"usg_arm": None, "USG_Points": None,
+                        "usg_evidence": None, "usg_expected_games": None}])
+    assert _labels(board) == [dv.EVIDENCE_NOT_MODELLED]
+
+
+def test_an_abstention_reads_as_withdrawn_on_availability():
+    board = _modelled([{"usg_arm": "abstain", "USG_Points": None,
+                        "usg_expected_games": 4.9}])
+    assert _labels(board) == [dv.EVIDENCE_WITHDRAWN_AVAILABILITY]
+
+
+def test_an_injury_withdrawal_is_told_apart_from_an_abstention():
+    """Same empty USG, different reason: the arm ran and the report pulled it."""
+    board = _modelled([{"usg_arm": "veteran", "USG_Points": None,
+                        "usg_expected_games": 11.3}])
+    assert _labels(board) == [dv.EVIDENCE_WITHDRAWN_INJURY]
+
+
+def test_a_withdrawal_outranks_the_evidence_text_it_also_carries():
+    """The 7 real rows that are flagged *and* unpriced: absence is the headline."""
+    board = _modelled([{"usg_arm": "veteran", "USG_Points": None,
+                        "usg_evidence": "thin prior season; changed teams"}])
+    assert _labels(board) == [dv.EVIDENCE_WITHDRAWN_INJURY]
+
+
+def test_a_board_predating_the_model_is_returned_untouched():
+    board = _board([{}])
+    assert dv.with_model_evidence(board).columns == board.columns
+
+
+def test_the_model_block_is_dropped_from_a_board_that_predates_it():
+    frame = dv.display_frame(dv.with_model_evidence(_board([{}])))
+    for label in ("USG", "Δrk", "Exp G", "Model evidence"):
+        assert label not in frame.columns
+
+
+def test_the_model_block_sits_between_the_market_and_the_status_columns():
+    frame = dv.display_frame(dv.with_model_evidence(_modelled([{}])))
+    order = frame.columns
+    assert order.index("$") < order.index("USG")
+    assert order.index("Model evidence") < order.index("Injury")
+
+
 # --- colour --------------------------------------------------------------
 
 def test_every_hued_position_has_a_colour_in_both_themes():

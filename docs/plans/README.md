@@ -65,7 +65,7 @@ each plan doc carries its own evidence and postscript.
 | ~~1~~ | ~~**Show `USG_` on the board without blending it** — [18](18-season-usage-model.md) step 3~~ | **Done 2026-08-07.** Wired as the fifth source at weight 0.0 — scored per league, on all nine boards, and verified not to move `TRUE_Points` (max difference 0.0 over 1,026 rows) |
 | ~~2~~ | ~~**Abstain for QB in the season head**~~ | **Done 2026-08-07 and then undone the same day.** The abstention was lifted once the depth chart landed in the veteran arm and quarterback ordering went positive; `ABSTAIN_POSITIONS` is now `()`. The backtest overrides it either way so the evidence stays reproducible |
 | 1 | **[09](09-frontend-draft-views.md) Live Draft page** | The last draft-critical UI piece. Slips gracefully — the board on a second monitor works without it |
-| 2 | **Render the new `USG_` columns** — [09](09-frontend-draft-views.md) | The board page predates them. `USG_PosRankDelta`, `usg_expected_games` and `usg_arm` are on `board.parquet` and nothing shows them yet. Note the level caveat: `USG_Points` is injury-adjusted and `TRUE_Points` is not, so compare ranks and not points |
+| ~~2~~ | ~~**Render the new `USG_` columns** — [09](09-frontend-draft-views.md)~~ | **Done 2026-08-14.** `USG`, `Δrk`, `Exp G` and **Model evidence** on every table, with the level caveat in the `USG` tooltip and spelled out in the page's own "what is missing" panel: `USG_Points` is injury-adjusted and `TRUE_Points` is not, so `Δrk` is the comparison that survives. The evidence column exists because an empty `USG` meant three different things — not modelled, withdrawn on availability, withdrawn on injury — and all three looked like agreement |
 
 ### Before week 1
 

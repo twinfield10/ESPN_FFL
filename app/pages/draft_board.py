@@ -28,6 +28,53 @@ import draft_view as dv
 import store
 from components.header import render_sidebar
 
+# One config for every table on the page. Both the board and the value-targets table
+# render through `dv.display_frame`, so they share a column vocabulary; they had
+# drifted into two literal dicts that agreed on Proj/VOR/Value/ADP by hand. Streamlit
+# ignores config for a column a frame does not carry, so one dict serves both.
+COLUMN_CONFIG = {
+    "Proj": st.column_config.NumberColumn(format="%.1f"),
+    "Floor": st.column_config.NumberColumn(format="%.0f"),
+    "Ceil": st.column_config.NumberColumn(format="%.0f"),
+    "VOR": st.column_config.NumberColumn(format="%.1f"),
+    "VOR rk": st.column_config.NumberColumn(format="%.0f"),
+    "Pos rk": st.column_config.NumberColumn(format="%.0f"),
+    "ADP": st.column_config.NumberColumn(format="%.1f"),
+    "Value": st.column_config.NumberColumn(format="%+.0f"),
+    "$": st.column_config.NumberColumn(format="$%.0f"),
+    "Bye": st.column_config.NumberColumn(format="%.0f"),
+    "Tier": st.column_config.NumberColumn(format="%.0f"),
+    "USG": st.column_config.NumberColumn(
+        format="%.1f",
+        help="The usage model's own season projection, and the one number on this "
+             "table that is **not** comparable to Proj. USG is an expected value "
+             "over the games the model expects the player to be available for "
+             "(Exp G); Proj assumes a healthy 17. Subtracting the two means "
+             "nothing. Δrk is the comparison that survives.",
+    ),
+    "Δrk": st.column_config.NumberColumn(
+        format="%+.0f",
+        help="The model's rank within position minus the blend's. Positive means "
+             "the model likes the player more than ESPN and FantasyPros do, "
+             "negative less. Being a rank, it is immune to the level mismatch that "
+             "makes USG and Proj incomparable — which is why the model's dissent is "
+             "carried here rather than in Floor/Ceil.",
+    ),
+    "Exp G": st.column_config.NumberColumn(
+        format="%.1f",
+        help="Games out of 17 the model expects this player to be available for, "
+             "from ESPN's estimated return date where there is one. USG is already "
+             "scaled by it, so a low number here explains a low USG that is not a "
+             "statement about the player's per-game quality.",
+    ),
+    "Model evidence": st.column_config.TextColumn(
+        help="The model's own account of where its evidence is thin: a prior season "
+             "under 8 games, a team change, or bottom-quartile prior volume — each "
+             "measured to raise rank error. “—” means it priced the player and "
+             "flagged nothing; “withdrawn” means it produced no number at all.",
+    ),
+}
+
 selection = render_sidebar()
 meta = selection.meta
 
@@ -45,7 +92,8 @@ if not store.has_artifact(selection.season, selection.league_key, "board"):
     )
     st.stop()
 
-board = store.load_board(selection.season, selection.league_key)
+board = dv.with_model_evidence(store.load_board(selection.season,
+                                                selection.league_key))
 theme = getattr(getattr(st.context, "theme", None), "type", "light") or "light"
 colors = dv.SERIES_COLORS[theme]
 ink = dv.CHART_INK[theme]
@@ -253,10 +301,7 @@ if not targets.is_empty():
     )
     st.dataframe(
         dv.display_frame(targets), width="stretch", hide_index=True,
-        column_config={"Proj": st.column_config.NumberColumn(format="%.1f"),
-                       "VOR": st.column_config.NumberColumn(format="%.1f"),
-                       "Value": st.column_config.NumberColumn(format="%+.0f"),
-                       "ADP": st.column_config.NumberColumn(format="%.1f")},
+        column_config=COLUMN_CONFIG,
     )
 
 # --- the board -----------------------------------------------------------
@@ -270,6 +315,12 @@ sort_options = {
     "ADP": ("adp", False),
     "Auction value": ("auction_value_filled", True),
 }
+# Sorting by the model's dissent is how the Δrk column gets used: the interesting
+# players are at both ends, so it is offered in both directions rather than one.
+if "USG_PosRankDelta" in shown.columns:
+    sort_options["Model highest above us"] = ("USG_PosRankDelta", True)
+    sort_options["Model lowest below us"] = ("USG_PosRankDelta", False)
+
 choice = st.radio("Sort by", list(sort_options), horizontal=True,
                   help="Value first, on purpose — see the page docstring.")
 sort_col, descending = sort_options[choice]
@@ -277,19 +328,7 @@ table = shown.sort(sort_col, descending=descending, nulls_last=True)
 
 st.dataframe(
     dv.display_frame(table), width="stretch", hide_index=True, height=560,
-    column_config={
-        "Proj": st.column_config.NumberColumn(format="%.1f"),
-        "Floor": st.column_config.NumberColumn(format="%.0f"),
-        "Ceil": st.column_config.NumberColumn(format="%.0f"),
-        "VOR": st.column_config.NumberColumn(format="%.1f"),
-        "VOR rk": st.column_config.NumberColumn(format="%.0f"),
-        "Pos rk": st.column_config.NumberColumn(format="%.0f"),
-        "ADP": st.column_config.NumberColumn(format="%.1f"),
-        "Value": st.column_config.NumberColumn(format="%+.0f"),
-        "$": st.column_config.NumberColumn(format="$%.0f"),
-        "Bye": st.column_config.NumberColumn(format="%.0f"),
-        "Tier": st.column_config.NumberColumn(format="%.0f"),
-    },
+    column_config=COLUMN_CONFIG,
 )
 
 # --- who you are drafting against ---------------------------------------
@@ -447,4 +486,38 @@ with st.expander("What is missing from these columns, and why"):
 - **Draft history says what managers do, not how it went.** Positional tendency by
   round is above. Points-over-expectation per manager is not: it needs every past
   season scored in this league's own rules, and the store holds one season.
+""")
+
+    if "usg_evidence_label" in board.columns:
+        label = board["usg_evidence_label"]
+        not_modelled = int(label.eq(dv.EVIDENCE_NOT_MODELLED).sum())
+        withdrawn = int(label.is_in([dv.EVIDENCE_WITHDRAWN_AVAILABILITY,
+                                     dv.EVIDENCE_WITHDRAWN_INJURY]).sum())
+        flagged = int(label.is_in([dv.EVIDENCE_CLEAR, dv.EVIDENCE_NOT_MODELLED,
+                                   dv.EVIDENCE_WITHDRAWN_AVAILABILITY,
+                                   dv.EVIDENCE_WITHDRAWN_INJURY]).not_().sum())
+        st.markdown(f"""
+- **`USG` is not comparable to `Proj`, and that is not a rounding difference.** The
+  model projects an expected value — per-game production times the games it expects
+  the player to actually be available for, which `Exp G` shows. `Proj` projects a
+  healthy 17-game season, because ESPN and FantasyPros do. Subtracting one from the
+  other mixes two quantities and the result means nothing. **`Δrk` is the comparison
+  that survives**, being a rank; it is the same reason the model is deliberately kept
+  out of `Floor`/`Ceil`, where it once widened the median disagreement interval from
+  8.5% to 24.0% by sitting below all four other sources for half the pool.
+- **The model contributes a third of `Proj`.** ESPN, FantasyPros and the usage model
+  are an equal three-way split; Pinnacle and BetOnline are weighted zero. So `Δrk`
+  is not an outside second opinion — it is one of the three voices already inside the
+  number to its left, shown separately so you can see it pull.
+- **The model says nothing about {not_modelled:,} of {board.height:,} players, and
+  withdrew on {withdrawn:,} more.** It has never modelled K or D/ST, and it declines
+  a player whose expected games are too low to price or whose injury report withdraws
+  them outright. An empty `USG` is one of those three, and `Model evidence` says
+  which — a blank there would read as agreement.
+- **{flagged:,} players carry a thin-evidence flag,** and the flags were chosen by
+  measurement rather than intuition: a prior season under 8 games raises rank error
+  42%, a team change 32%, bottom-quartile prior volume 23%. Two plausible candidates
+  were *rejected* by the same measurement — one prior season is no worse than two,
+  and a rookie orders **14% better** than the pool, so flagging rookies would have
+  marked the model's strongest arm as its weakest.
 """)

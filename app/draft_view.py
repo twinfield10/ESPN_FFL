@@ -62,7 +62,29 @@ CHART_INK: Dict[str, Dict[str, str]] = {
 #: -- is squeezed into the left edge.
 SCARCITY_DEPTH = 1.6
 
+#: What ``model_evidence`` says when the model priced a player and flagged nothing.
+#: A visible mark rather than an empty cell, because a blank in this column would be
+#: indistinguishable from the model having no opinion at all -- which is the whole
+#: distinction the column exists to draw.
+EVIDENCE_CLEAR = "—"
+
+#: What it says when the model produced no projection. Two different reasons, kept
+#: apart on purpose: ``availability`` is the model declining a player it could see
+#: (its expected-games estimate was too low to price), ``injury`` is the report
+#: withdrawing one it had already priced. Both read as an empty ``USG``, and telling
+#: them apart is the difference between "no data" and "actively withheld".
+EVIDENCE_WITHDRAWN_AVAILABILITY = "withdrawn (availability)"
+EVIDENCE_WITHDRAWN_INJURY = "withdrawn (injury)"
+
+#: And when the model does not cover the position at all -- K and D/ST, which it has
+#: never modelled, plus anyone it had no usage history for.
+EVIDENCE_NOT_MODELLED = "not modelled"
+
 #: Column order for the board table, and the label each gets.
+#:
+#: The model block sits after the market block and before the status columns, so the
+#: table reads left to right as: who they are, what we think, what the room thinks,
+#: what the model thinks, what is wrong with them.
 DISPLAY_COLUMNS: List[tuple] = [
     ("player_name", "Player"),
     ("primaryPosition", "Pos"),
@@ -78,6 +100,10 @@ DISPLAY_COLUMNS: List[tuple] = [
     ("adp", "ADP"),
     ("value", "Value"),
     ("auction_value_filled", "$"),
+    ("USG_Points", "USG"),
+    ("USG_PosRankDelta", "Δrk"),
+    ("usg_expected_games", "Exp G"),
+    ("usg_evidence_label", "Model evidence"),
     ("injury_status", "Injury"),
     ("team_owner", "Owner"),
 ]
@@ -390,6 +416,57 @@ def tendency_frame(tendencies: pl.DataFrame) -> pl.DataFrame:
                if source in tendencies.columns]
     return tendencies.select([pl.col(source).alias(label)
                               for source, label in present])
+
+
+def with_model_evidence(board: pl.DataFrame) -> pl.DataFrame:
+    """Add ``usg_evidence_label``: why the model's number is thin, or missing.
+
+    The board carries the model's self-assessment across four columns, and an empty
+    ``USG`` cell can mean three different things that matter differently at a draft:
+    the model does not cover the position, the model declined to price a player it
+    could see, or the injury report withdrew a price it had already made. Collapsing
+    those into one blank throws away the distinction; this resolves them into one
+    readable string instead.
+
+    Order matters and is not arbitrary. A withdrawal is checked before the evidence
+    text because a player can carry both -- the model flagged its evidence *and* then
+    produced nothing -- and "there is no number here" is the more useful fact than
+    why the number that does not exist would have been shaky.
+
+    ``usg_evidence`` arrives as an empty string when the model ran and flagged
+    nothing, and as null when the model never ran. Those are different facts and both
+    would render as an empty cell, which is why neither is passed through as-is.
+
+    Args:
+        board: A stored draft board. Boards written before the usage model landed
+            carry none of the ``usg_*`` columns.
+
+    Returns:
+        pl.DataFrame: The board with ``usg_evidence_label`` added, or returned
+        unchanged if it carries no ``usg_arm`` to reason about — in which case
+        :func:`display_frame` drops the column along with the rest of the model
+        block, exactly as it does for any other artifact that predates a feature.
+    """
+    if "usg_arm" not in board.columns:
+        return board
+
+    evidence = (pl.col("usg_evidence") if "usg_evidence" in board.columns
+                else pl.lit(None, dtype=pl.String))
+    points = (pl.col("USG_Points") if "USG_Points" in board.columns
+              else pl.lit(None, dtype=pl.Float64))
+
+    return board.with_columns(
+        pl.when(pl.col("usg_arm").is_null())
+        .then(pl.lit(EVIDENCE_NOT_MODELLED))
+        .when(pl.col("usg_arm") == "abstain")
+        .then(pl.lit(EVIDENCE_WITHDRAWN_AVAILABILITY))
+        .when(points.is_null())
+        .then(pl.lit(EVIDENCE_WITHDRAWN_INJURY))
+        .when(evidence.fill_null("") != "")
+        .then(evidence)
+        .otherwise(pl.lit(EVIDENCE_CLEAR))
+        .alias("usg_evidence_label")
+    )
 
 
 def display_frame(board: pl.DataFrame) -> pl.DataFrame:
