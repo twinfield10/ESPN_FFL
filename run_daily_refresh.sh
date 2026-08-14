@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# run_daily_refresh.sh -- pull the current-season inputs and rebuild the boards.
+# run_daily_refresh.sh -- pull the current-season inputs, rebuild the boards, and
+# publish them to S3.
 #
 # The depth chart is the reason this exists. It is the only feature that has ever
 # moved the season model (+0.048 R-squared on veteran carries, against roughly
@@ -153,6 +154,20 @@ m = json.load(p.open())
 print(f\"{m['projected']}/{m['rows']} ({100 * m['projected'] / m['rows']:.1f}%)\")
 " 2>/dev/null)" || COVERAGE="unreadable"
 log "usage coverage: ${COVERAGE}"
+
+# --- 6. Push to S3 ------------------------------------------------------
+# Last, and only on a clean run. Everything above either succeeded or called fail(),
+# so reaching this line is the signal that the data is worth publishing -- which is
+# the same guard that stops the boards being rebuilt on a failed pull, applied one
+# step further along. S3 never receives stale data wearing a fresh timestamp.
+#
+# This also writes the dated board snapshot, which is the point of doing it here
+# rather than by hand: `snapshots/board/season=/league=/date=/` accumulates one
+# board per night, so the pre-season market becomes a time series instead of being
+# overwritten every morning. Data/G2/ had to be built by hand precisely because that
+# history did not exist -- see docs/plans/24-s3-data-flow.md.
+log "pushing to S3"
+"${PYTHON}" -m Scripts.sync --push >>"${LOG}" 2>&1 || fail "Scripts.sync --push"
 
 write_status "ok" "complete"
 log "=== daily refresh complete ==="

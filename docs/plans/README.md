@@ -32,6 +32,7 @@ These are what the scan turned up *beyond* that.
 | 21 | [Depth charts, scheme, play-caller](21-coaching-and-scheme.md) | **Done** | 2026 depth charts pulled past nflreadr's season guard — the daily snapshot that made the rookie arm work. Coach and coordinator priors built and **measured out** of both arms: the depth chart already carries their signal |
 | 22 | [Feature research for the season head](22-feature-research.md) | **Measured, nothing merged** | Routes, Next Gen Stats, red-zone role and contracts pulled and tested; ridge swept. All eleven experiments rejected. The finding: player-level context that is a *function of past usage* does not survive either, because past usage is already the strongest regressor. Ships the data layer, the lab and `docs/model_lab.html` |
 | 23 | [Owner tendencies](23-owner-tendencies.md) | **Done** | 5,748 picks across 36 league-seasons, all of it one request per season. Every measurement is leave-one-out against the room and season-matched. **112 managers, 103 with a measured tendency.** Caught ESPN pre-creating a full set of picks for a draft that has not happened |
+| 24 | [S3 as the system of record](24-s3-data-flow.md) | **Done** | `s3://espn-ffl-data` holds every tier, Hive-partitioned so a query engine can prune, and `--verify` proves 249 current-state files SHA-256 identical against disk. `Data/` is untracked now; the app reads S3 by default. The nightly push also writes a **dated board snapshot**, which retires the problem `Data/G2/` exists to work around and makes ADP drift through camp measurable for the first time |
 
 ### Local frontend
 
@@ -97,7 +98,17 @@ each plan doc carries its own evidence and postscript.
 
 - **[06](06-performance.md)** — quadratic `pd.concat` in row loops, the duplicated
   `fetch_league` round-trip, the process-wide `warnings.filterwarnings("ignore")`.
-- **[05](05-dependency-upgrades.md)** — the rest of the dependency upgrades.
+- **[05](05-dependency-upgrades.md)** — the rest of the dependency upgrades. `boto3`
+  moved out of "low priority" with plan 24: it is the app's read path now.
+- **[24](24-s3-data-flow.md)'s two deliberate omissions.** The **query layer** —
+  the partitions are laid out for Athena or DuckDB-over-S3 and nothing reads them
+  that way yet; the first question worth asking is the **ADP drift through camp**
+  the nightly snapshots now make answerable, and that one only improves with
+  waiting, since every night adds a row. The **cloud runner** is the larger piece
+  and was scoped out on purpose: the design no longer assumes local disk, which was
+  the prerequisite, but moving the 6am job still needs ESPN cookies in a secret
+  store, an R runtime for `R/GetContext.R`, and a notification path that is not
+  `osascript`. Until then a shut lid is still a skipped night.
 - **[20](20-consensus-sources.md)** — deprioritised on evidence. Plan 16 step 0 put
   FantasyPros' marginal value at +0.027 against ESPN's +0.068, so a sixth expert
   aggregator is the worst available use of the effort. Sleeper's case now rests on the

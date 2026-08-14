@@ -35,53 +35,33 @@ env/
 .DS_Store
 Thumbs.db
 
-# Data/G2/ is deliberately NOT ignored, and it is the one data directory in this
-# repo that must not be. Everything else under Data/ is either regenerable from a
-# pull or rebuildable from the pipeline; the G2 archive is neither. It is the
-# pre-season 2026 board blended with and without USG_, and once week 1 is played
-# the inputs have moved and it cannot be reconstructed -- FantasyPros serves no
-# season parameter, so a past board is gone the moment it stops being current.
-# Plan 18 records G2 as unmeasurable on history for exactly that reason. This
-# archive is the only thing that makes it measurable going forward.
+# --- Data ----------------------------------------------------------------
+# Nothing under Data/ is tracked. S3 is the system of record -- see
+# docs/plans/24-s3-data-flow.md -- and `python -m Scripts.sync --push` is how data
+# reaches durability. Locally Data/ is a writer's scratch pad plus a read cache, and
+# it is safe to delete: `--pull` rebuilds it.
+#
+# This used to be a long list of per-file exceptions, because the tiers differ in how
+# expensive they are to rebuild and that mattered when the decision was per file. It
+# still differs and it still matters, but the place to record it is the plan doc and
+# the runbook, not here:
+#
+#   * Data/G2/ cannot be rebuilt at any price. FantasyPros serves no season
+#     parameter, so a past board is gone the moment it stops being current, which is
+#     why the archive exists at all (plan 18). It was the one tracked data directory
+#     in the repo. It is now in S3 under archive/, exempt from version expiry, and
+#     still reachable in git history at every commit up to ab477f9 -- untracking is
+#     not deletion.
+#   * Data/NFL/{routes,red_zone}.parquet need full play-by-play, so a cold backfill
+#     is minutes rather than seconds. That is why the nflverse pulls are mirrored to
+#     S3 at all rather than just regenerated.
+#   * Data/Equivalence/ is deliberately NOT in S3 either. At 74 MB it is half the
+#     tree, and it is before/after debug snapshots from the espn-api 0.46.0
+#     migration -- evidence about a bug that is fixed, not live data.
+#   * Data/refresh_status.json is machine state, not data. It says whether the
+#     nightly job ran, which is a fact about this laptop rather than about football,
+#     so it is neither tracked nor uploaded.
+Data/
 
-# --- Regenerable local data ------------------------------------------------
-# Equivalence snapshots: large, and rebuilt from the pipeline on demand.
-Data/Equivalence/
-# The local data store the app reads. Rebuilt by `python -m Scripts.refresh`,
-# and a lineups.parquet is ~235 x 469 per league-season.
-Data/Store/
-# nflverse usage pulls, rebuilt by `Rscript R/GetUsage.R` -- ~3.5 MB a season and
-# regenerable in seconds. Listed by filename rather than as Data/NFL/*/ because
-# Data/NFL/2025/NFL_Stats.csv is committed. Data/NFL/player_ids.parquet is
-# committed too, and is not season-scoped, so it is unaffected either way.
-Data/NFL/*/opportunity.parquet
-Data/NFL/*/player_weeks.parquet
-Data/NFL/*/usage_meta.json
-# Availability and role pulls, rebuilt by `Rscript R/GetContext.R`. Same argument.
-# depth_charts is the big one: ~35k rows a season through 2024 and 549k for 2025,
-# where upstream switched the feed to a timestamped snapshot log.
-Data/NFL/*/rosters_weekly.parquet
-Data/NFL/*/injuries.parquet
-Data/NFL/*/snap_counts.parquet
-Data/NFL/*/depth_charts.parquet
-Data/NFL/*/context_meta.json
-# Role-resolving pulls, rebuilt by `Rscript R/GetAdvanced.R`. Same argument again,
-# except that these are the expensive ones: routes and red_zone both need full
-# play-by-play, so a cold backfill is minutes rather than seconds. Contracts is
-# not season-scoped and is small, but it is still a straight nflreadr pull with
-# nothing merged into it, so it regenerates identically and is ignored too.
-Data/NFL/*/routes.parquet
-Data/NFL/*/ngs.parquet
-Data/NFL/*/red_zone.parquet
-Data/NFL/*/advanced_meta.json
-Data/NFL/contracts.parquet
-# Coach-per-game and team names, rebuilt by `Rscript R/GetCoaches.R`. The *derived*
-# Data/NFL/coaching_staff.parquet is committed -- it merges in Wikipedia data that
-# cannot be regenerated identically once an article is edited.
-Data/NFL/coaches_by_game.parquet
-Data/NFL/team_names.parquet
-
-# Written by run_daily_refresh.sh on every run, read by Scripts/refresh_status.py.
-# Machine state, not data -- it says whether the nightly job ran, which is a fact
-# about this laptop rather than about football.
-Data/refresh_status.json
+# Objects downloaded from S3, cached by ETag. Disposable by design.
+Data/.s3cache/

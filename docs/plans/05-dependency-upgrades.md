@@ -14,7 +14,7 @@ of it is safely behind; two items need real thought.
 | pyarrow | 18.1.0 | 25.0.0 | Upgrade |
 | polars | 1.19.0 | 1.43.2 | Upgrade |
 | selenium | 4.20.0 | 4.46.0 | Upgrade with the Pinnacle scraper |
-| boto3 | 1.35.88 | 1.43.62 | Low priority (S3 path is dormant) |
+| boto3 | 1.35.88 | 1.43.62 | **No longer low priority** — since [plan 24](24-s3-data-flow.md) S3 is the system of record and the app's read path, so this is load-bearing. `s3fs==2024.12.0` is pinned alongside it and was installed but unpinned until then |
 | numpy / scikit-learn / requests / bs4 / statsmodels / gspread | — | minor | Routine |
 
 ## espn-api 0.45.1 → 0.46.0 — do this first
