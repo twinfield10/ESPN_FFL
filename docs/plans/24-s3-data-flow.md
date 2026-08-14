@@ -178,6 +178,16 @@ is not a design constraint at this volume and should not be treated as one.
 - **`--pull` deliberately bypasses the ETag cache.** It writes each object to its real
   home, so caching a second copy doubled the footprint of every pull — 20 MB of store
   became 40 MB. Found while measuring, fixed, and pinned by a test.
+- **Checking out a commit from before this one, and coming back, empties `Data/`.**
+  Found the hard way on 2026-08-14, merging this branch. Those files were tracked at
+  `ab477f9` and are untracked now, so checking out the older commit materialises them
+  and returning to a commit that deletes them from the index deletes them from the
+  working tree as well. Git is right; it reads as data loss. `--pull` restores
+  everything, which is the whole point, and this is the first time the design was
+  tested by needing it rather than by measuring it. The tell is `test_crosswalk`,
+  `test_lab_g2` and `test_nfl_utils` failing together — the guards that read real data
+  instead of fixtures. In the [runbook](../SEASON_ROLLOVER.md#troubleshooting) too,
+  because the symptom is alarming and the fix is one command.
 
 ## What is left
 
