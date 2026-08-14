@@ -17,7 +17,7 @@ These are what the scan turned up *beyond* that.
 | 06 | [Performance](06-performance.md) | Not started | Quadratic `pd.concat` in row loops; a duplicated `fetch_league` round-trip; a process-wide warnings filter |
 | 07 | [Frontend foundation & data store](07-frontend-foundation.md) | **Done** | 11ms to read a league back from parquet against ~8s to rebuild it |
 | 08 | [Week-to-week views](08-frontend-weekly-views.md) | Not started | Unblocked since 07 |
-| 09 | [Draft views](09-frontend-draft-views.md) | **Board + tendencies done** | Board page renders for all nine leagues, with owner tendencies on it ([23](23-owner-tendencies.md)). Left: **Live Draft** |
+| 09 | [Draft views](09-frontend-draft-views.md) | **Board + tendencies done** | Board page renders for all nine leagues, with owner tendencies on it ([23](23-owner-tendencies.md)). Split into **Board / Values / League** tabs on 2026-08-14, with search, team and bye filters and an auction budget the `$` column is denominated in — it had been showing ESPN's $200 in a league that plays for $250. Left: **Live Draft** |
 | 10 | [Scoring registry](10-scoring-registry.md) | **Done** | Scoring was re-derived from a mutable live object 4× per league and never recorded |
 | 11 | [Per-slot scoring](11-per-slot-scoring.md) | **Done** | GOP's D/ST was inflated ~16%, and every league credited offensive players for imputed defensive stats at D/ST rates |
 | 12 | [Season projections](12-season-projections.md) | **Done** | Season props blended and scored per league — the draft board's input |
@@ -34,16 +34,23 @@ These are what the scan turned up *beyond* that.
 | 23 | [Owner tendencies](23-owner-tendencies.md) | **Done** | 5,748 picks across 36 league-seasons, all of it one request per season. Every measurement is leave-one-out against the room and season-matched. **112 managers, 103 with a measured tendency.** Caught ESPN pre-creating a full set of picks for a draft that has not happened |
 | 24 | [S3 as the system of record](24-s3-data-flow.md) | **Done** | `s3://espn-ffl-data` holds every tier, Hive-partitioned so a query engine can prune, and `--verify` proves 249 current-state files SHA-256 identical against disk. `Data/` is untracked now; the app reads S3 by default. The nightly push also writes a **dated board snapshot**, which retires the problem `Data/G2/` exists to work around and makes ADP drift through camp measurable for the first time |
 | 25 | [`results`, the artifact that reaches back](25-results-backfill.md) | **Done, one league** | The store held one played season while `draft.parquet` held ten, so every retrospective question was half-answerable. `lineups` **cannot** be built for a past season — it carries FantasyPros columns and FantasyPros serves no season parameter — so `results` holds what was scored and nothing else. Winfield_Football backfilled 2019–2025; `espn_api` serves no box scores before 2019. Turned up that ESPN's three team identities are each stable over a different span: join within a season on `team_name`, group across seasons on `owner_id` |
+| 26 | [User accounts](26-user-accounts.md) | **Seam built, login not started** | Nine configured leagues narrow to the viewer's four in exactly one place (`app/auth.py`), so a login lands in one function rather than in every page that ever called `store.list_leagues`. Deliberately **not** a security boundary yet — the enforcement step belongs at the store read, and building it against an audience of one would be enforcement nobody could test |
 
 ### Local frontend
 
 Plans 07, 08 and 09 replace the notebook-plus-Google-Sheets workflow, split because
-the foundation blocked the other two.
+the foundation blocked the other two. [26](26-user-accounts.md) is the seam that
+decides which leagues any of them may show.
 
 **07 is done**: the store lives at `Data/Store/<season>/<league_key>/`,
 `python -m Scripts.refresh` builds it and `streamlit run app/main.py` reads it — 11ms
 against ~8s to rebuild a league pre-season and ~23s in season. **09's board page is
-done** and renders for all nine leagues. **08 is unblocked and not started.**
+done**, split into Board / Values / League tabs, and renders for all nine leagues —
+though the picker now offers the viewer's four, per 26. **08 is unblocked and not
+started.**
+
+Every title, header and column label across the app is **Title Case**; captions and
+explanatory paragraphs stay sentence case, because they are sentences.
 
 Both plans have postscripts worth reading before touching that code, because building
 each turned up bugs nothing would otherwise have reported — a same-day regression that

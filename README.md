@@ -107,6 +107,8 @@ Scripts/
 app/                         # local Streamlit app; reads the store, never ESPN
   main.py                    # entry: st.navigation
   store.py                   # cached, Polars-native reads + staleness
+  auth.py                    # who is looking, and which leagues they may open
+  draft_view.py              # the draft board's derivations, testable without Streamlit
   components/header.py       # league/season/week picker, freshness, refresh
   pages/                     # one file per view
 R/
@@ -191,6 +193,30 @@ level comes from each league's real starting slots, so the same player is ranked
 differently across your nine. Josh Allen is VOR rank 9 in the 10-team superflex and
 21 in 14-team Knights_FFL, because a superflex `OP` slot pushes QB replacement from
 QB14 to QB20.
+
+The board page is three tabs. **Board** is the working surface — player search,
+filters for position, NFL team and bye week, an auction budget, and the table,
+sorted by VOR. **Values** is where the room and our valuation disagree. **League**
+is what does not change during a draft: the positional cliff, the tier runway, and
+who you are drafting against.
+
+The auction budget matters more than it looks. ESPN publishes its market auction
+values against **its own $200 budget**, so the `$` column was denominated in
+somebody else's money; the input rescales it (default $250) and the board carries
+the value as a share of a budget so the dollars are portable.
+
+### Who the app is for
+
+The picker offers **your** leagues, not all nine. `config.yaml` holds nine across
+five owners and the app scopes them through `app/auth.py`, which defaults to
+Winfield_Football. There is **no login yet** — that module is the seam one lands in,
+so identity arrives in one function rather than in every page. It is not a security
+boundary; see [plan 26](docs/plans/26-user-accounts.md) for what the real thing
+needs.
+
+```bash
+ESPN_FFL_ALL_LEAGUES=1 streamlit run app/main.py   # every configured league
+```
 
 The sidebar shows when the store was built, turns red past an hour, and lists
 per-source projection coverage so a dead source is visible rather than absorbed

@@ -1,7 +1,8 @@
 # 09 — Local frontend: draft views
 
 **Priority:** High (seasonal) · **Effort:** Large · **Status:** **Board done
-2026-08-07, model columns added 2026-08-14**; Live not started; History unblocked
+2026-08-07, model columns added 2026-08-14, split into three tabs 2026-08-14**;
+Live not started; History unblocked
 **Depends on:** [07 (foundation)](07-frontend-foundation.md), and the draft
 phases in [`../STATE_OF_THE_REPO.md`](../STATE_OF_THE_REPO.md#roadmap--draft-strategy)
 
@@ -34,6 +35,75 @@ What is still open:
   board builder touches today. Note the model is deliberately **not** a fourth input
   to this interval: it projects an expected value where the other sources project a
   healthy season, and mixing the two widened the median interval from 8.5% to 24.0%.
+
+## The three tabs, 2026-08-14
+
+The page had become one scroll holding a filterable table, two charts, six manager
+cards and a decade of acquisition history. That is three jobs stacked vertically,
+and the one you do under time pressure — find a player, read his number, decide —
+was the one you had to scroll past two charts to reach.
+
+| Tab | What it is for | What is on it |
+|---|---|---|
+| **Board** (default) | the working surface | search, the four filters, the auction budget, the table, and the column caveats |
+| **Values** | where the room is wrong | *Falling past their price*, with its own position filter and a depth slider |
+| **League** | what does not change during a draft | toplines, the positional cliff, the tier runway, owner tendencies, acquisition history |
+
+**Board now sorts by VOR, not by value.** Value-first was right when the page was
+one surface — it is the thing a board can tell you that the room cannot, and the
+argument for it is still in this plan's §1. It is wrong once *Falling past their
+price* has a tab of its own: value against ADP is a second opinion about the room,
+and the surface you actually draft from should answer "who is worth the most" first.
+Value is still one radio click away and still the whole subject of the Values tab.
+
+**Each tab carries its own position filter, deliberately.** The Board's is "what am
+I looking at right now" and gets narrowed constantly; the League tab's is "which
+curves am I comparing" and should not be dragged around by it. One shared control
+would have meant a chart quietly reshaping itself because you typed a name into a
+search box on another tab.
+
+### Four filters, not one
+
+| Filter | Semantics |
+|---|---|
+| **Search** | literal substring, case-insensitive |
+| **Positions** | keep the ones named |
+| **NFL Teams** | keep the ones named |
+| **Bye Weeks** | keep the ones named, *including* dropping players with no recorded bye |
+
+Every one is an **include** list: empty keeps everything, non-empty keeps only what
+it names. That single rule is what makes four controls composable without a legend
+explaining each, and it is what settles the bye filter's awkward case — "keep only
+weeks 5 and 10" cannot honestly keep a player nobody knows the bye of.
+
+The search is matched **literally**, which is a fix rather than a preference. It
+compiled as a regex before, and the names on a board are full of regex syntax:
+`T.J.` matched any three characters between two dots, `Amon-Ra St. Brown` the same,
+and a name typed with an unclosed bracket raised out of the page instead of finding
+nothing.
+
+### The auction budget
+
+The `$` column was denominated in somebody else's money. ESPN publishes
+`auctionValueAverage` against **its own $200 auction** — the 2026 pool agrees: the
+338 players it has priced sum to $1,871 of the $2,000 a ten-team $200 auction puts
+on the table, with the rest spread across a bench it prices in pennies — and the
+board stored those dollars as published.
+
+`draft_view.at_budget` now carries two columns instead of one: `auction_share` is
+the fraction of a team's budget the market puts on a player, and `auction_dollars`
+is that share at the budget set on the Board tab. The share is what makes the
+dollars portable; the dollars are what gets shown. Default **$250**.
+
+It is a straight proportion, and the help text says so. A real auction's minimum bid
+does not scale with the budget — the last roster spots cost $1 whatever you are
+playing for — so raising the budget adds slightly more to the top of the board than
+a flat multiple suggests. The distortion is small next to the disagreement between
+any two sources' valuations, and correcting it needs a roster size the function is
+not given.
+
+Verified headless through `AppTest` across all four of the viewer's leagues: Puka
+Nacua prices at $57.76 on ESPN's budget, $72.20 at 250 and $144.40 at 500.
 
 ## The model columns, added 2026-08-14
 

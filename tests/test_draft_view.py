@@ -124,6 +124,117 @@ def test_search_is_case_insensitive():
     assert dv.filter_board(board, None, search="CHASE").height == 1
 
 
+def test_search_matches_a_name_literally_rather_than_as_a_regex():
+    """Half the interesting names on a board are regex syntax. "T.J." matched any
+    three characters between the dots, and a typed "(" raised out of the page."""
+    board = _board([
+        {"player_name": "T.J. Hockenson"},
+        {"player_name": "TQJX Nobody"},
+    ])
+    assert dv.filter_board(board, None, search="T.J.")["player_name"].to_list() \
+        == ["T.J. Hockenson"]
+    assert dv.filter_board(board, None, search="(unclosed").is_empty()
+
+
+def test_the_team_filter_keeps_only_the_teams_named():
+    board = _board([
+        {"player_name": "Lion", "pro_team": "DET"},
+        {"player_name": "Packer", "pro_team": "GB"},
+        {"player_name": "Bear", "pro_team": "CHI"},
+    ])
+    assert dv.filter_board(board, None, teams=["DET", "CHI"])["player_name"] \
+        .to_list() == ["Lion", "Bear"]
+
+
+def test_an_empty_team_selection_keeps_every_team():
+    board = _board([{"pro_team": "DET"}, {"pro_team": "GB"}])
+    assert dv.filter_board(board, None, teams=[]).height == 2
+    assert dv.filter_board(board, None, teams=None).height == 2
+
+
+def test_the_bye_filter_keeps_only_the_weeks_named():
+    """Include semantics, like every other filter on the page: "bye weeks 5 and 10"
+    means show me those, not hide them."""
+    board = _board([
+        {"player_name": "Five", "bye_week": 5.0},
+        {"player_name": "Ten", "bye_week": 10.0},
+        {"player_name": "Fourteen", "bye_week": 14.0},
+    ])
+    assert dv.filter_board(board, None, byes=[5, 10])["player_name"].to_list() \
+        == ["Five", "Ten"]
+
+
+def test_a_bye_selection_drops_players_whose_bye_is_unknown():
+    """"Keep only week 5" cannot honestly keep a player nobody knows the bye of."""
+    board = _board([
+        {"player_name": "Known", "bye_week": 5.0},
+        {"player_name": "Unknown", "bye_week": None},
+    ])
+    assert dv.filter_board(board, None, byes=[5])["player_name"].to_list() == ["Known"]
+    assert dv.filter_board(board, None, byes=[]).height == 2
+
+
+def test_the_four_board_filters_compose():
+    board = _board([
+        {"player_name": "Jahmyr Gibbs", "primaryPosition": "RB",
+         "pro_team": "DET", "bye_week": 5.0},
+        {"player_name": "Jameson Williams", "primaryPosition": "WR",
+         "pro_team": "DET", "bye_week": 5.0},
+        {"player_name": "Josh Jacobs", "primaryPosition": "RB",
+         "pro_team": "GB", "bye_week": 5.0},
+        {"player_name": "Jahmyr Nobody", "primaryPosition": "RB",
+         "pro_team": "DET", "bye_week": 9.0},
+    ])
+    out = dv.filter_board(board, ["RB"], teams=["DET"], byes=[5], search="jahmyr")
+    assert out["player_name"].to_list() == ["Jahmyr Gibbs"]
+
+
+# --- the filter options ---------------------------------------------------
+
+def test_teams_and_byes_are_offered_from_what_the_board_actually_holds():
+    board = _board([
+        {"pro_team": "GB", "bye_week": 10.0},
+        {"pro_team": "DET", "bye_week": 5.0},
+        {"pro_team": "DET", "bye_week": 5.0},
+    ])
+    assert dv.board_teams(board) == ["DET", "GB"]
+    assert dv.board_byes(board) == [5, 10]
+
+
+def test_a_board_with_no_byes_offers_no_bye_filter_rather_than_raising():
+    """What a board built before bye weeks were attached looks like."""
+    board = _board([{}]).drop(["bye_week", "pro_team"])
+    assert dv.board_byes(board) == [] and dv.board_teams(board) == []
+
+
+# --- the auction budget ---------------------------------------------------
+
+def test_auction_values_are_rescaled_from_espns_budget_to_this_leagues():
+    """The stored number is a market average in ESPN's own $200 auction, so a
+    league playing for $250 was reading a column denominated in other money."""
+    board = dv.at_budget(_board([{"auction_value_filled": 20.0}]), 250)
+    assert board["auction_share"].to_list() == [0.1]
+    assert board["auction_dollars"].to_list() == [25.0]
+
+
+def test_the_default_budget_leaves_the_share_alone_and_scales_the_dollars():
+    board = dv.at_budget(_board([{"auction_value_filled": 64.0}]),
+                         dv.BASE_AUCTION_BUDGET)
+    assert board["auction_dollars"].to_list() == [64.0]
+
+
+def test_the_dollar_column_reads_the_rescaled_value_not_the_stored_one():
+    frame = dv.display_frame(dv.at_budget(_board([{"auction_value_filled": 20.0}]),
+                                          400))
+    assert frame["$"].to_list() == [40.0]
+
+
+def test_a_board_with_no_auction_column_is_returned_untouched():
+    board = _board([{}]).drop("auction_value_filled")
+    assert dv.at_budget(board, 250).columns == board.columns
+    assert "$" not in dv.display_frame(dv.at_budget(board, 250)).columns
+
+
 # --- the scarcity curve --------------------------------------------------
 
 def test_the_curve_stops_a_fixed_multiple_past_replacement():
@@ -265,15 +376,19 @@ def test_a_board_predating_the_model_is_returned_untouched():
 
 def test_the_model_block_is_dropped_from_a_board_that_predates_it():
     frame = dv.display_frame(dv.with_model_evidence(_board([{}])))
-    for label in ("USG", "Δrk", "Exp G", "Model evidence"):
+    for label in ("USG", "Δ Rk", "Exp G", "Model Evidence"):
         assert label not in frame.columns
 
 
 def test_the_model_block_sits_between_the_market_and_the_status_columns():
-    frame = dv.display_frame(dv.with_model_evidence(_modelled([{}])))
+    # Through at_budget, because `$` is the budget-rescaled column now and the page
+    # renders nothing that has not been through it.
+    frame = dv.display_frame(
+        dv.at_budget(dv.with_model_evidence(_modelled([{}])),
+                     dv.DEFAULT_AUCTION_BUDGET))
     order = frame.columns
     assert order.index("$") < order.index("USG")
-    assert order.index("Model evidence") < order.index("Injury")
+    assert order.index("Model Evidence") < order.index("Injury")
 
 
 # --- where the points came from ------------------------------------------

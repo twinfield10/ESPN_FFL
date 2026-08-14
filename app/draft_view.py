@@ -85,6 +85,15 @@ EVIDENCE_NOT_MODELLED = "not modelled"
 #: The model block sits after the market block and before the status columns, so the
 #: table reads left to right as: who they are, what we think, what the room thinks,
 #: what the model thinks, what is wrong with them.
+#:
+#: Labels are Title Case, which is the house style for every header on every page.
+#: They are also the keys of the page's ``column_config``, so the two move together
+#: or a format silently stops applying -- Streamlit ignores config for a column the
+#: frame does not carry rather than raising.
+#:
+#: ``$`` reads :func:`at_budget`'s output rather than the stored
+#: ``auction_value_filled``, so the column shows this league's budget instead of the
+#: $200 one ESPN publishes against.
 DISPLAY_COLUMNS: List[tuple] = [
     ("player_name", "Player"),
     ("primaryPosition", "Pos"),
@@ -95,18 +104,78 @@ DISPLAY_COLUMNS: List[tuple] = [
     ("floor", "Floor"),
     ("ceiling", "Ceil"),
     ("vor", "VOR"),
-    ("vor_rank", "VOR rk"),
-    ("pos_rank", "Pos rk"),
+    ("vor_rank", "VOR Rk"),
+    ("pos_rank", "Pos Rk"),
     ("adp", "ADP"),
     ("value", "Value"),
-    ("auction_value_filled", "$"),
+    ("auction_dollars", "$"),
     ("USG_Points", "USG"),
-    ("USG_PosRankDelta", "Δrk"),
+    ("USG_PosRankDelta", "Δ Rk"),
     ("usg_expected_games", "Exp G"),
-    ("usg_evidence_label", "Model evidence"),
+    ("usg_evidence_label", "Model Evidence"),
     ("injury_status", "Injury"),
     ("team_owner", "Owner"),
 ]
+
+
+# --- the auction budget ---------------------------------------------------
+
+#: The budget ESPN's published auction values are denominated in.
+#:
+#: ESPN's auction default is $200, and the 2026 pool agrees: the 338 players it has
+#: actually priced sum to $1,871 of the $2,000 a ten-team $200 auction puts on the
+#: table, with the remaining ~$129 spread across the deep bench it prices at pennies.
+#: The board stores those dollars as published, so a league playing for $250 was
+#: reading a column denominated in somebody else's money.
+BASE_AUCTION_BUDGET = 200.0
+
+#: What the budget input starts at.
+DEFAULT_AUCTION_BUDGET = 250
+
+#: ``st.session_state`` key the budget input owns. Named here rather than in the
+#: page so the page can read the current budget *before* the widget that sets it is
+#: drawn -- Streamlit reruns top to bottom with session state already updated, so
+#: reading the key is what makes the ``$`` column right on the same run in which it
+#: changed, and on tabs that render before the input.
+AUCTION_BUDGET_KEY = "auction_budget"
+
+
+def at_budget(board: pl.DataFrame, budget: float,
+              base: float = BASE_AUCTION_BUDGET) -> pl.DataFrame:
+    """Re-price ESPN's auction values into the budget this league actually plays for.
+
+    The stored value is a market average in ESPN's own $200 auction. Held as a
+    **share of a budget** it is portable, so this carries both: ``auction_share``
+    is the fraction of one team's money the market puts on the player, and
+    ``auction_dollars`` is that share at ``budget``. The table shows the dollars;
+    the share is what makes them meaningful.
+
+    The rescale is straight proportion, which is what makes it honest to a point
+    and no further. A real auction's minimum bid does not scale -- the last roster
+    spots cost $1 whatever the budget is -- so raising the budget adds slightly
+    more to the top of the board than a flat multiple suggests. The distortion is
+    small next to the disagreement between any two sources' valuations, and
+    correcting it would need a roster size this function is not given.
+
+    Args:
+        board: A stored draft board.
+        budget: This league's per-team auction budget.
+        base: Budget the stored values are denominated in. Overridable so the
+            assumption is visible rather than buried in a literal.
+
+    Returns:
+        pl.DataFrame: The board with ``auction_share`` and ``auction_dollars``
+        added, or unchanged when it carries no auction column -- the ``$`` column
+        then drops out of :func:`display_frame` exactly as any other absent column
+        does.
+    """
+    if "auction_value_filled" not in board.columns or not base:
+        return board
+    share = pl.col("auction_value_filled") / float(base)
+    return board.with_columns(
+        share.alias("auction_share"),
+        (share * float(budget)).alias("auction_dollars"),
+    )
 
 
 def available_only(board: pl.DataFrame) -> pl.DataFrame:
@@ -194,6 +263,36 @@ def board_positions(board: pl.DataFrame) -> List[str]:
     return sorted(present, key=lambda p: (POSITION_HUES.get(p, 99), p))
 
 
+def board_teams(board: pl.DataFrame) -> List[str]:
+    """NFL teams present in this league's pool, alphabetically.
+
+    Args:
+        board: A stored draft board.
+
+    Returns:
+        list: Team abbreviations. Empty when the board carries no ``pro_team``.
+    """
+    if "pro_team" not in board.columns:
+        return []
+    return sorted(board["pro_team"].drop_nulls().unique().to_list())
+
+
+def board_byes(board: pl.DataFrame) -> List[int]:
+    """Bye weeks present in this league's pool, in week order.
+
+    Args:
+        board: A stored draft board.
+
+    Returns:
+        list: Week numbers as ints. Empty when the board carries no ``bye_week``,
+        which is what a board built before byes were attached looks like.
+    """
+    if "bye_week" not in board.columns:
+        return []
+    weeks = board["bye_week"].drop_nulls().unique().to_list()
+    return sorted(int(week) for week in weeks)
+
+
 def filter_board(
     board: pl.DataFrame,
     positions: Optional[Sequence[str]] = None,
@@ -203,8 +302,16 @@ def filter_board(
     hide_unprojected: bool = True,
     max_tier: Optional[int] = None,
     search: str = "",
+    teams: Optional[Sequence[str]] = None,
+    byes: Optional[Sequence[int]] = None,
 ) -> pl.DataFrame:
     """Apply the page's filters.
+
+    Every filter is an **include** list: an empty selection keeps everything, and a
+    non-empty one keeps only what it names. That is the one rule that makes four
+    controls composable without a legend explaining each -- and it is why ``byes``
+    drops players whose bye is unknown, which "keep only weeks 5 and 10" has to
+    mean if it is to mean anything.
 
     Args:
         board: A stored draft board.
@@ -218,6 +325,9 @@ def filter_board(
             unknowns.
         max_tier: Keep tiers at or above this one. None keeps all.
         search: Case-insensitive substring of the player name.
+        teams: NFL teams to keep. None or empty keeps all.
+        byes: Bye weeks to keep. None or empty keeps all; a non-empty selection
+            also drops players with no recorded bye.
 
     Returns:
         pl.DataFrame: The filtered board, still in its stored ``vor`` order.
@@ -231,10 +341,21 @@ def filter_board(
         out = out.filter(~pl.col("projection_missing").fill_null(False))
     if positions:
         out = out.filter(pl.col("primaryPosition").is_in(list(positions)))
+    if teams and "pro_team" in out.columns:
+        out = out.filter(pl.col("pro_team").is_in(list(teams)))
+    if byes and "bye_week" in out.columns:
+        out = out.filter(pl.col("bye_week").is_in([int(week) for week in byes]))
     if max_tier is not None and "tier" in out.columns:
         out = out.filter(pl.col("tier").is_null() | (pl.col("tier") <= max_tier))
     if search:
-        out = out.filter(pl.col("player_name").str.contains(f"(?i){search}"))
+        # Matched literally, not as a regex. The names on a board are full of
+        # characters a regex reads as syntax -- "T.J. Hockenson" matched any three
+        # characters between the dots, "Amon-Ra St. Brown" the same, and a name
+        # typed with an unclosed bracket raised out of the page instead of finding
+        # nothing. Case folded on both sides rather than with an inline `(?i)`,
+        # which a literal match does not honour.
+        out = out.filter(pl.col("player_name").str.to_lowercase()
+                         .str.contains(search.strip().lower(), literal=True))
     return out
 
 
@@ -336,14 +457,14 @@ def value_targets(board: pl.DataFrame, limit: int = 12) -> pl.DataFrame:
 TENDENCY_COLUMNS: List[tuple] = [
     ("owner_display", "Manager"),
     ("seasons", "Drafts"),
-    ("headline", "Reads as"),
+    ("headline", "Reads As"),
     ("earliest_position", "Earliest"),
-    ("earliest_delta", "Rds early"),
+    ("earliest_delta", "Rds Early"),
     ("latest_position", "Latest"),
-    ("latest_delta", "Rds late"),
-    ("favourite_team", "NFL lean"),
-    ("favourite_team_excess", "Extra picks"),
-    ("favourite_player", "His guy"),
+    ("latest_delta", "Rds Late"),
+    ("favourite_team", "NFL Lean"),
+    ("favourite_team_excess", "Extra Picks"),
+    ("favourite_player", "His Guy"),
     ("favourite_player_times", "Times"),
     ("rookie_rate", "Rookie %"),
     ("auto_rate", "Auto %"),
@@ -407,7 +528,7 @@ def owner_label(owner: str) -> str:
 #: against everyone else they fielded — waiver claims, free agents, trade returns.
 #: Labels rather than booleans because they are read off a chart legend.
 SOURCE_DRAFTED = "Drafted"
-SOURCE_ADDED = "Added in season"
+SOURCE_ADDED = "Added in Season"
 
 #: ``team_owner`` in a lineups frame is this for a player nobody rostered that
 #: week. It is not a manager and must not become a bar.
@@ -669,11 +790,11 @@ ACQUISITION_COLUMNS: List[tuple] = [
     ("manager", "Manager"),
     ("seasons", "Seasons"),
     ("total", "Points"),
-    ("drafted", "From the draft"),
-    ("added", "From the wire"),
-    ("share_drafted", "% drafted"),
+    ("drafted", "From the Draft"),
+    ("added", "From the Wire"),
+    ("share_drafted", "% Drafted"),
     ("moves", "Moves"),
-    ("points_per_move", "Pts / move"),
+    ("points_per_move", "Pts / Move"),
 ]
 
 

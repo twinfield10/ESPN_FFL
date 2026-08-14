@@ -1,7 +1,14 @@
-"""The sidebar: what league, what week, how fresh, and the refresh button.
+"""The sidebar: who is looking, what league, what week, how fresh, and refresh.
 
 Selections live in ``st.session_state`` so they persist as you move between
 pages -- every page reads the same ``(season, league_key, week)``.
+
+**The league list is scoped to the viewer**, through :mod:`auth`. There is no login
+yet and this module does not implement one; it asks ``auth.current_viewer()`` who is
+looking and ``auth.visible_leagues()`` what they may open, so a real identity
+provider lands in one function in one module rather than in every page that ever
+called ``store.list_leagues``. Nine leagues are configured and five belong to other
+owners; the picker offers the four the viewer plays in.
 
 Freshness is deliberately loud. The failure mode this app exists to avoid is
 rendering an hour-old number as though it were live, so the build time, the
@@ -18,6 +25,7 @@ from typing import Dict, List, NamedTuple, Optional
 
 import streamlit as st
 
+import auth
 import store
 from Scripts.config_utils import build_lg_vars
 from Scripts.paths import REPO_ROOT
@@ -128,7 +136,7 @@ def _no_store_message(seasons: List[int]) -> None:
     Args:
         seasons: Seasons found on disk, if any.
     """
-    st.title("No store yet")
+    st.title("No Store Yet")
     st.markdown(
         "The app only reads `Data/Store`, and there is nothing in it for any "
         "league. Building it is an explicit step because it costs seconds per "
@@ -143,6 +151,38 @@ def _no_store_message(seasons: List[int]) -> None:
     )
     if seasons:
         st.caption(f"Seasons with a partial store on disk: {seasons}")
+    st.stop()
+
+
+def _no_visible_league_message(viewer: auth.Viewer, season: int,
+                               configured: Dict[str, str]) -> None:
+    """Explain that this viewer's leagues are not built for this season, and stop.
+
+    Distinct from :func:`_no_store_message` on purpose: a store that holds five
+    other owners' leagues and none of yours is not an empty store, and telling you
+    to run ``--all`` would be answering a question you did not ask.
+
+    Args:
+        viewer: The current viewer.
+        season: Season year.
+        configured: League key to display name.
+    """
+    st.title("No Leagues for You in This Season")
+    names = [configured.get(key, key) for key in viewer.leagues]
+    st.markdown(
+        f"`{season}` has a store, but none of it is yours. Signed in as "
+        f"**{viewer.display_name}**, whose leagues are: "
+        + ", ".join(f"**{name}**" for name in names) + "."
+    )
+    st.code(
+        "\n".join(f"python -m Scripts.refresh --league {configured.get(key, key)} "
+                  f"--season {season}" for key in viewer.leagues),
+        language="bash",
+    )
+    st.caption(
+        f"To browse every configured league instead, set `{auth.ALL_LEAGUES_ENV}=1` "
+        f"before starting the app."
+    )
     st.stop()
 
 
@@ -227,12 +267,14 @@ def render_sidebar() -> Selection:
         Selection: The resolved season, league, week and metadata.
     """
     configured = _configured_leagues()
+    viewer = auth.current_viewer()
     seasons = store.list_seasons()
     if not seasons:
         _no_store_message([])
 
     with st.sidebar:
         st.markdown("### Fantasy Football")
+        st.caption(f"Signed in as **{viewer.display_name}**")
 
         season = _sticky_selectbox("Season", "season", seasons)
 
@@ -240,8 +282,15 @@ def render_sidebar() -> Selection:
         if not built:
             _no_store_message(seasons)
 
+        # The one place the app narrows nine leagues to this viewer's. Everything
+        # downstream reads `Selection.league_key`, so nothing else has to know.
+        mine = auth.visible_leagues(viewer, built)
+        if not mine:
+            _no_visible_league_message(viewer, season, configured)
+
         league_key = _sticky_selectbox(
-            "League", "league_key", built,
+            "League", "league_key", mine,
+            default=auth.default_league(viewer, mine),
             format_func=lambda k: configured.get(k, k),
         )
 
@@ -257,7 +306,7 @@ def render_sidebar() -> Selection:
 
         _render_freshness(meta, season, display_name)
         _render_coverage(meta)
-        _render_missing_leagues(configured, built)
+        _render_missing_leagues(viewer, configured, mine)
 
     return Selection(season=season, league_key=league_key,
                      display_name=display_name, week=week, meta=meta)
@@ -275,8 +324,8 @@ def _render_freshness(meta: dict, season: int, display_name: str) -> None:
     age = store.store_age_minutes(meta)
     threshold = stale_after_minutes(season)
     stale = store.is_stale(meta, threshold)
-    when = "build time unknown" if age is None else f"built {_format_age(age)}"
-    label = f"{when} · week {meta.get('current_week', '?')}"
+    when = "Build Time Unknown" if age is None else f"Built {_format_age(age)}"
+    label = f"{when} · Week {meta.get('current_week', '?')}"
 
     if stale:
         st.error(label, icon="⚠️")
@@ -290,7 +339,7 @@ def _render_freshness(meta: dict, season: int, display_name: str) -> None:
         st.caption("Pre-season: refreshed nightly at 6am. "
                    "`python -m Scripts.refresh_status` says whether it ran.")
 
-    if st.button("Refresh this league", width="stretch",
+    if st.button("Refresh This League", width="stretch",
                  help="Runs Scripts.refresh in a subprocess. Seconds of ESPN "
                       "round-trips, which is why it is not automatic."):
         _run_refresh(display_name, season)
@@ -311,7 +360,7 @@ def _render_coverage(meta: dict) -> None:
         return
 
     st.divider()
-    st.caption("Projection sources (% real, not imputed)")
+    st.caption("Projection Sources (% Real, Not Imputed)")
     for source in ("ESPN", "FP", "PINNY", "BOL"):
         if source not in overall:
             continue
@@ -327,18 +376,25 @@ def _render_coverage(meta: dict) -> None:
         )
 
 
-def _render_missing_leagues(configured: Dict[str, str], built: List[str]) -> None:
-    """List configured leagues that have no store, with the command to build them.
+def _render_missing_leagues(viewer: auth.Viewer, configured: Dict[str, str],
+                            visible: List[str]) -> None:
+    """List *this viewer's* leagues that have no store, with the build command.
+
+    Scoped to the viewer for the same reason the picker is: a list of five other
+    owners' unbuilt leagues is noise on a sidebar whose job is to say whether what
+    you are looking at is current.
 
     Args:
+        viewer: The current viewer.
         configured: League key to display name.
-        built: League keys that do have a store.
+        visible: League keys the viewer may open that do have a store.
     """
-    missing = sorted(set(configured) - set(built))
+    expected = set(viewer.leagues) & set(configured) if viewer.leagues else set(configured)
+    missing = sorted(expected - set(visible))
     if not missing:
         return
     st.divider()
-    with st.expander(f"{len(missing)} league(s) not built"):
+    with st.expander(f"{len(missing)} of Your Leagues Not Built"):
         st.caption("Not selectable until refreshed.")
         st.code("python -m Scripts.refresh --all", language="bash")
         for key in missing:

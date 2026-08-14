@@ -260,13 +260,24 @@ Fixed this cycle:
   ([plan 16](plans/16-usage-data-layer.md#step-0--the-gates-measured-2026-08-06)).
 
 - **The draft board has a page, and building it fixed three things underneath it.**
-  `app/pages/draft_board.py` reads `board.parquet` and nothing else: the scarcity
-  curve out to 1.6× replacement level with each position's replacement rank drawn
-  in, a tier-runway chart answering "how many are left in tier 2", value-on-the-board,
-  and the full table sorted by **value rather than rank**. Renders for all nine
-  leagues, verified headless. Josh Allen is VOR rank **9** in the 10-team superflex
-  against **21** in 14-team Knights, because the `OP` slot pushes quarterback
-  replacement to QB20 ([plan 09](plans/09-frontend-draft-views.md)).
+  `app/pages/draft_board.py` reads `board.parquet` and nothing else, across three
+  tabs: **Board** (search, position/team/bye filters, an auction budget, the table
+  sorted by VOR), **Values** (where the room and our valuation disagree) and
+  **League** (the scarcity curve out to 1.6× replacement level with each position's
+  replacement rank drawn in, the tier-runway chart answering "how many are left in
+  tier 2", and owner tendencies). Renders for all nine leagues, verified headless.
+  Josh Allen is VOR rank **9** in the 10-team superflex against **21** in 14-team
+  Knights, because the `OP` slot pushes quarterback replacement to QB20
+  ([plan 09](plans/09-frontend-draft-views.md)).
+
+  The `$` column had been showing ESPN's own $200 auction in leagues that play for
+  $250. It is now a share of a budget, rescaled to whatever the Board tab is set to.
+
+- **The app shows the viewer's leagues, not all nine.** `app/auth.py` is the seam a
+  login lands in — one function, called from one component, so identity does not
+  have to be retrofitted into every page later. There is no authentication yet and
+  it is **not** a security boundary; `ESPN_FFL_ALL_LEAGUES=1` drops the scope for
+  when another owner's Sheet needs explaining ([plan 26](plans/26-user-accounts.md)).
 
   The three defects it surfaced, none of them visible from the builder's own output:
   **(1)** `_apply_scoring` propagated NaN, so `ESPN_Points`/`FP_Points`/
@@ -541,7 +552,7 @@ is meant to be used this way: every `<year>_<Team>_season` article carries
 
 | Issue | Location |
 |---|---|
-| Test coverage is thin in the places that matter most. `tests/` covers paths, config, season/week derivation, the scoring registry, per-slot scoring, the blend primitives, the store, the usage layer's leakage guarantee, the draft board page's derivations, the season usage head with both its arms, the fifth source's registration/join/abstention plumbing, the coaching table's Wikipedia parsing, the team-profile as-of boundary, and the S3 layer — key mapping, checksummed upload, the `meta.json`-last *sequence*, sync's push/pull/verify and the app's three read modes, all against a stub so it still needs no network or credentials, and the board page's model block including the three ways an empty `USG` has to be told apart (731 tests), including a guard that the notebook never re-defines the shared projection functions. Nothing covers the scrapers, the Sheets renderer, `analytic_utils`, `luck_index`, or `simulation_utils`. | `tests/` |
+| Test coverage is thin in the places that matter most. `tests/` covers paths, config, season/week derivation, the scoring registry, per-slot scoring, the blend primitives, the store, the usage layer's leakage guarantee, the draft board page's derivations, the season usage head with both its arms, the fifth source's registration/join/abstention plumbing, the coaching table's Wikipedia parsing, the team-profile as-of boundary, and the S3 layer — key mapping, checksummed upload, the `meta.json`-last *sequence*, sync's push/pull/verify and the app's three read modes, all against a stub so it still needs no network or credentials, the board page's model block including the three ways an empty `USG` has to be told apart, the board's four include-filters and the auction-budget rescale, and the viewer scoping that decides which leagues the app may offer (786 tests), including a guard that the notebook never re-defines the shared projection functions. Nothing covers the scrapers, the Sheets renderer, `analytic_utils`, `luck_index`, or `simulation_utils`. | `tests/` |
 | No retry/backoff on any HTTP call. Four bare `except:` blocks remain — `populateGoogleSheet.py`'s is gone. A global `warnings.filterwarnings("ignore")` in `fetch_utils.py:16` silences every warning process-wide; `Scripts.scoring` and `Scripts.projection_utils` each force their own filter past it, which is a workaround rather than a fix. → [plan 06](plans/06-performance.md) | repo-wide |
 | `build_league_frame` calls `fetch_league`, then `get_ply_stats_by_matchup` calls it again — ~1s of duplicated ESPN round-trip per league, ~12% of a pre-season refresh. Fixing it means changing that function's signature from ids to a `League`. → [plan 06](plans/06-performance.md) | `equivalence.py`, `scrape_player_stats.py:463` |
 | `oauth2client==4.1.3` is end-of-life upstream and is only needed for Sheets auth. A Google auth change would mean migrating to `google-auth` mid-season, so it is worth doing before the season. → [plan 14](plans/14-thin-google-sheets.md) step 2.3 | `populateGoogleSheet.py`, `requirements.txt` |
