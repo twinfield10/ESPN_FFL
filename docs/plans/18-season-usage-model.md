@@ -1,14 +1,24 @@
 # 18 — The season usage model (pre-season / draft head)
 
-**Priority:** High (seasonal) · **Effort:** M · **Status:** **Built, backtested and
-wired in as the fifth source 2026-08-07**, at weight **0.0**.
+**Priority:** High (seasonal) · **Effort:** M · **Status:** **Built, backtested, and
+carrying real weight since 2026-08-07.**
 `Scripts/usage/{features,season,project,backtest}.py`, 84 tests. Walk-forward
 2019–2025 beats the naive draft heuristic on ordering at RB/WR/TE; it does not improve
-yardage, and **it now abstains for QB**, where it measured worse. **The rookie
-draft-capital arm passed its gate decisively.** `USG_` reaches all nine boards and is
-the best-covered source in the pre-season blend (23.1% real against ESPN's 13.1%);
-adding it does not move `TRUE_Points` by design, verified at max difference 0.0 over
-1,026 rows. §The fifth source, wired has the details. **G2 as written still cannot be
+yardage. **The rookie draft-capital arm passed its gate decisively.** `USG_` reaches
+all nine boards and is the best-covered source in the pre-season blend (23.1% real
+against ESPN's 13.1%). §The fifth source, wired has the details.
+
+> **Two things in this header were stale until 2026-08-14, and both understated the
+> model.** It read "at weight **0.0**" and "**it now abstains for QB**". Neither is
+> true of the code: `projection_utils.WEIGHTS` is an equal three-way split of ESPN,
+> FantasyPros and `USG` at **0.333 each**, with Pinnacle and BetOnline at zero, and
+> `season.ABSTAIN_POSITIONS` is `()`. The 0.0 was the *initial* wiring, kept
+> deliberately so that turning it on would be one number rather than a build; it was
+> turned on the same day, and the quarterback abstention was lifted once the depth
+> chart entered the veteran arm and QB ordering went positive. So the sentence below
+> about not moving `TRUE_Points` — verified at max difference 0.0 over 1,026 rows —
+> is a record of the 0.0 configuration, not a description of the boards you are
+> drafting from. **The model is now a third of every `TRUE_Points` on all nine.** **G2 as written still cannot be
 measured historically** — it needs the four-source blend, which does not exist for a
 past season — so the 2026 board is the gate, and turning the weight on is one number.
 **Depends on:** [16](16-usage-data-layer.md) — Step 0 gates and the feature layer ·
