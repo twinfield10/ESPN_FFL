@@ -13,7 +13,7 @@ already cost this repo twice (12 projection functions, then
 
 import _bootstrap  # noqa: F401  -- must precede the Scripts imports
 
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Mapping, Optional, Sequence
 
 import polars as pl
 
@@ -493,7 +493,9 @@ def drafted_versus_added(lineups: pl.DataFrame, picks: pl.DataFrame,
     empty = pl.DataFrame(schema={"owner": pl.Utf8, "manager": pl.Utf8,
                                  "drafted": pl.Float64, "added": pl.Float64,
                                  "total": pl.Float64,
-                                 "share_drafted": pl.Float64})
+                                 "share_drafted": pl.Float64,
+                                 "moves": pl.UInt32,
+                                 "points_per_move": pl.Float64})
     if (lineups.is_empty() or picks.is_empty()
             or not needed <= set(lineups.columns)
             or "team_name" not in picks.columns):
@@ -502,43 +504,195 @@ def drafted_versus_added(lineups: pl.DataFrame, picks: pl.DataFrame,
     drafted = (picks.select(_franchise_key("team_name").alias("_team"), "player_id")
                .unique()
                .with_columns(pl.lit(True).alias("_drafted")))
+    # ESPN's owner GUID, carried through so seasons can be grouped by *person*.
+    # Necessary because neither of the other two identities survives a decade:
+    # team names change (Jack's "Cococnut Crushers" became "Coconut Crushers" in
+    # 2023, Tommy renamed his four times) and so do owner names (ESPN recorded
+    # Jack as "J W" in one season, which split him into a separate manager with
+    # one season to his name). The GUID has been the same for all six managers
+    # every year since 2019.
+    identities = (picks.select(_franchise_key("team_name").alias("_team"),
+                               pl.col("owner_id").alias("owner_id"))
+                  .unique(subset=["_team"])
+                  if "owner_id" in picks.columns else None)
     drafting_teams = drafted.select("_team").unique()
 
-    rows = (lineups
-            .filter(pl.col("team_owner").is_not_null()
-                    & (pl.col("team_owner") != FREE_AGENT_OWNER))
-            .with_columns(_franchise_key("team_name").alias("_team"))
-            .join(drafted, on=["_team", "player_id"], how="left")
-            .with_columns(pl.col("_drafted").fill_null(False))
-            .join(drafting_teams.with_columns(pl.lit(True).alias("_known")),
-                  on="_team", how="left")
-            .with_columns(pl.col("_known").fill_null(False)))
+    rostered = (lineups
+                .filter(pl.col("team_owner").is_not_null()
+                        & (pl.col("team_owner") != FREE_AGENT_OWNER))
+                .with_columns(_franchise_key("team_name").alias("_team"))
+                .join(drafted, on=["_team", "player_id"], how="left")
+                .with_columns(pl.col("_drafted").fill_null(False))
+                .join(drafting_teams.with_columns(pl.lit(True).alias("_known")),
+                      on="_team", how="left")
+                .with_columns(pl.col("_known").fill_null(False)))
 
-    if starters_only:
-        rows = rows.filter(
-            pl.col("slotPosition").is_in(list(NON_STARTING_SLOTS)).not_())
+    # Counted before the starter filter, and deliberately. A move is a player you
+    # brought in; whether you ever started them is the *result* of the move, not
+    # part of its definition. Counting only the ones who started would flatter a
+    # manager who claimed twenty players and got three right, which is exactly
+    # what points-per-move is supposed to expose.
+    moves = (rostered.filter(pl.col("_drafted").not_())
+             .group_by("_team")
+             .agg(pl.col("player_id").n_unique().alias("moves")))
+
+    rows = (rostered.filter(
+                pl.col("slotPosition").is_in(list(NON_STARTING_SLOTS)).not_())
+            if starters_only else rostered)
 
     if rows.is_empty():
         return empty
 
-    return (rows.group_by("_team")
-            .agg(pl.col("team_owner").mode().first().alias("owner"),
-                 pl.col("_known").first().alias("_known"),
-                 pl.col("points").filter(pl.col("_drafted")).sum().alias("_drafted_pts"),
-                 pl.col("points").filter(pl.col("_drafted").not_()).sum().alias("_added_pts"),
-                 pl.col("points").sum().alias("total"))
-            .with_columns(
-                pl.when("_known").then(pl.col("_drafted_pts")).alias("drafted"),
-                pl.when("_known").then(pl.col("_added_pts")).alias("added"))
-            .with_columns(
-                pl.when(pl.col("total") > 0)
-                .then(100 * pl.col("drafted") / pl.col("total"))
-                .otherwise(None).alias("share_drafted"),
-                pl.col("owner").map_elements(owner_label, return_dtype=pl.Utf8)
-                .alias("manager"))
-            .select("owner", "manager", "drafted", "added", "total",
-                    "share_drafted")
+    summary = (rows.group_by("_team")
+               .agg(pl.col("team_owner").mode().first().alias("owner"),
+                    pl.col("_known").first().alias("_known"),
+                    pl.col("points").filter(pl.col("_drafted")).sum().alias("_drafted_pts"),
+                    pl.col("points").filter(pl.col("_drafted").not_()).sum().alias("_added_pts"),
+                    pl.col("points").sum().alias("total"))
+               .join(moves, on="_team", how="left")
+               .with_columns(pl.col("moves").fill_null(0))
+               .with_columns(
+                   pl.when("_known").then(pl.col("_drafted_pts")).alias("drafted"),
+                   pl.when("_known").then(pl.col("_added_pts")).alias("added"))
+               .with_columns(
+                   pl.when(pl.col("total") > 0)
+                   .then(100 * pl.col("drafted") / pl.col("total"))
+                   .otherwise(None).alias("share_drafted"),
+                   # Null rather than zero when nobody was added: a manager who
+                   # never touched the wire has no points-per-move, and 0.0 would
+                   # rank them alongside one whose every pickup failed.
+                   pl.when(pl.col("moves") > 0)
+                   .then(pl.col("added") / pl.col("moves"))
+                   .otherwise(None).alias("points_per_move"),
+                   pl.col("owner").map_elements(owner_label, return_dtype=pl.Utf8)
+                   .alias("manager")))
+
+    if identities is None:
+        summary = summary.with_columns(pl.lit(None, dtype=pl.Utf8).alias("owner_id"))
+    else:
+        summary = summary.join(identities, on="_team", how="left")
+
+    return (summary.select("owner", "manager", "owner_id", "drafted", "added",
+                           "total", "share_drafted", "moves", "points_per_move")
             .sort("total", descending=True))
+
+
+def acquisition_history(picks: pl.DataFrame,
+                        results_by_season: Mapping[int, pl.DataFrame]
+                        ) -> pl.DataFrame:
+    """Run :func:`drafted_versus_added` over several seasons and stack the answers.
+
+    Each season is matched against *its own* draft. That is the whole reason this
+    is a loop rather than one join over a concatenated frame: team names and owner
+    names both drift between seasons, so a player drafted by "Coconut Crushers" in
+    2023 must not be credited to "Cococnut Crushers" in 2022.
+
+    Args:
+        picks: Draft picks across every season, carrying a ``season`` column —
+            i.e. ``draft.parquet`` as stored.
+        results_by_season: Season year to that season's ``results`` frame.
+
+    Returns:
+        pl.DataFrame: :func:`drafted_versus_added` output for each season with a
+        ``season`` column added, concatenated. Seasons that produce nothing are
+        skipped. Empty when none of them produce anything.
+    """
+    frames = []
+    for season, results in sorted(results_by_season.items()):
+        one = drafted_versus_added(results,
+                                   picks.filter(pl.col("season") == season))
+        if not one.is_empty():
+            frames.append(one.with_columns(
+                pl.lit(season, dtype=pl.Int64).alias("season")))
+    if not frames:
+        return drafted_versus_added(pl.DataFrame(), pl.DataFrame()).with_columns(
+            pl.lit(None, dtype=pl.Int64).alias("season"))
+    return pl.concat(frames)
+
+
+def acquisition_averages(history: pl.DataFrame) -> pl.DataFrame:
+    """Average a manager's acquisition split across every season they played.
+
+    The per-season numbers answer "what happened that year"; this answers whether
+    it is a habit. A manager who leans on the wire once had a bad draft; one who
+    does it every year is telling you something about how they play.
+
+    Averaged per season rather than pooled, so a manager is not weighted by how
+    many seasons they happened to be in the league. ``share_drafted`` is the mean
+    of the seasonal shares for the same reason — a pooled ratio would let their
+    highest-scoring season dominate the description of their habits.
+
+    Args:
+        history: :func:`drafted_versus_added` output for several seasons,
+            concatenated, carrying a ``season`` column.
+
+    Returns:
+        pl.DataFrame: One row per manager — ``manager``, ``seasons``, and the
+        per-season means of ``drafted``, ``added``, ``total``, ``share_drafted``,
+        ``moves`` and ``points_per_move`` — ordered by mean share drafted
+        descending, so the managers who lived off their own drafts come first.
+        Empty if the input is.
+    """
+    if history.is_empty() or "season" not in history.columns:
+        return pl.DataFrame(schema={"manager": pl.Utf8, "seasons": pl.UInt32,
+                                    "drafted": pl.Float64, "added": pl.Float64,
+                                    "total": pl.Float64,
+                                    "share_drafted": pl.Float64,
+                                    "moves": pl.Float64,
+                                    "points_per_move": pl.Float64})
+
+    # Group on the GUID where there is one. Grouping on the displayed name splits
+    # a manager in two the moment ESPN spells them differently for one season --
+    # Jack Winfield came out as six seasons plus a separate "J W" with one.
+    identity = ("owner_id" if "owner_id" in history.columns
+                and history["owner_id"].null_count() == 0 else "manager")
+
+    return (history.sort("season")
+            .group_by(identity)
+            .agg(pl.col("season").n_unique().alias("seasons"),
+                 # The name they go by *now*, not an arbitrary one from 2019.
+                 pl.col("manager").last().alias("manager"),
+                 pl.col("drafted").mean(),
+                 pl.col("added").mean(),
+                 pl.col("total").mean(),
+                 pl.col("share_drafted").mean(),
+                 pl.col("moves").mean(),
+                 pl.col("points_per_move").mean())
+            .select("manager", "seasons", "drafted", "added", "total",
+                    "share_drafted", "moves", "points_per_move")
+            .sort("share_drafted", descending=True, nulls_last=True))
+
+
+#: Column order and labels for the acquisition tables, both the multi-season
+#: averages and one season on its own.
+ACQUISITION_COLUMNS: List[tuple] = [
+    ("manager", "Manager"),
+    ("seasons", "Seasons"),
+    ("total", "Points"),
+    ("drafted", "From the draft"),
+    ("added", "From the wire"),
+    ("share_drafted", "% drafted"),
+    ("moves", "Moves"),
+    ("points_per_move", "Pts / move"),
+]
+
+
+def acquisition_frame(summary: pl.DataFrame) -> pl.DataFrame:
+    """Select and rename the columns the acquisition tables show.
+
+    Args:
+        summary: :func:`acquisition_averages` or :func:`drafted_versus_added`
+            output. The latter carries no ``seasons`` column, which is skipped
+            rather than faked.
+
+    Returns:
+        pl.DataFrame: Renamed display columns, in :data:`ACQUISITION_COLUMNS`
+        order.
+    """
+    present = [(source, label) for source, label in ACQUISITION_COLUMNS
+               if source in summary.columns]
+    return summary.select([pl.col(source).alias(label)
+                           for source, label in present])
 
 
 def tendency_frame(tendencies: pl.DataFrame) -> pl.DataFrame:

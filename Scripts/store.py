@@ -60,6 +60,15 @@ ARTIFACTS = {
     "board": "board.parquet",
     "draft": "draft.parquet",
     "tendencies": "tendencies.parquet",
+    # What was actually scored, and nothing else -- no projections, no blend.
+    # `lineups` is the richer artifact and would be the obvious thing to read
+    # instead, except that it *cannot be built for a past season*: it carries
+    # FP_/PINNY_/BOL_ columns, and FantasyPros serves no season parameter, so
+    # those inputs no longer exist for any season nobody archived them in. This
+    # one needs only ESPN box scores, which are available from 2019. It is how
+    # any question about how a season actually went reaches years before the
+    # store existed. See docs/plans/25-results-backfill.md.
+    "results": "results.parquet",
 }
 
 META_FILENAME = "meta.json"
@@ -285,6 +294,7 @@ def write_league_store(
     board: Optional[pd.DataFrame] = None,
     draft: Optional[pd.DataFrame] = None,
     tendencies: Optional[pd.DataFrame] = None,
+    results: Optional[pd.DataFrame] = None,
     league=None,
     meta_extra: Optional[Dict[str, Any]] = None,
 ) -> Path:
@@ -305,6 +315,9 @@ def write_league_store(
         board: ``Scripts.draft.board.build_board`` output.
         draft: ``Scripts.draft.history.fetch_draft_history`` output.
         tendencies: ``Scripts.draft.tendencies.build_tendencies`` output.
+        results: ``get_ply_stats_by_matchup`` output, trimmed to what was
+            scored. The only artifact buildable for a season before the store
+            existed.
         league: The live ESPN ``League``, for metadata.
         meta_extra: Extra keys for ``meta.json``.
 
@@ -316,7 +329,7 @@ def write_league_store(
             contents would only serve to refresh ``built_at``.
     """
     candidates = {"lineups": lineups, "team_stats": team_stats, "board": board,
-                  "draft": draft, "tendencies": tendencies}
+                  "draft": draft, "tendencies": tendencies, "results": results}
     written = {name: df for name, df in candidates.items() if df is not None}
     if not written:
         raise ValueError(

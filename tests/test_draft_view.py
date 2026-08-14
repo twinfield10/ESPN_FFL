@@ -289,8 +289,9 @@ def _weeks(rows):
     return pl.DataFrame([{**defaults, **row} for row in rows])
 
 
-def _picks(rows):
-    defaults = {"team_name": "Team Tommy", "player_id": 1}
+def _picks(rows, season=2025):
+    defaults = {"team_name": "Team Tommy", "player_id": 1, "season": season,
+                "owner_id": "{GUID-TOMMY}"}
     return pl.DataFrame([{**defaults, **row} for row in rows])
 
 
@@ -298,6 +299,20 @@ def _picks(rows):
 #: thing as an empty picks frame, which means the draft is *unknown* — see
 #: test_a_season_with_no_draft_data_refuses_to_answer.
 NOBODY_RELEVANT = [{"team_name": "Team Tommy", "player_id": 9999}]
+
+
+def _averaged_row(manager, season, drafted, added, owner_id="{GUID-JACK}",
+                  moves=1, points_per_move=None):
+    """One row of what `drafted_versus_added` returns, for averaging tests."""
+    return pl.DataFrame([{
+        "owner": manager, "manager": manager, "owner_id": owner_id,
+        "drafted": drafted, "added": added, "total": drafted + added,
+        "share_drafted": 100 * drafted / (drafted + added) if drafted + added else None,
+        "moves": moves,
+        "points_per_move": points_per_move if points_per_move is not None
+        else (added / moves if moves else None),
+        "season": season,
+    }])
 
 
 def test_points_split_between_the_draft_and_the_wire():
@@ -403,6 +418,85 @@ def test_a_lineups_frame_missing_the_columns_is_empty_rather_than_raising():
 def test_a_team_that_only_fielded_its_bench_does_not_divide_by_zero():
     weeks = _weeks([{"slotPosition": "BE", "points": 30.0}])
     assert dv.drafted_versus_added(weeks, _picks(NOBODY_RELEVANT)).is_empty()
+
+
+# --- moves, and what a move is -------------------------------------------
+
+def test_a_move_counts_a_pickup_even_if_he_never_started():
+    """The denominator of points-per-move is players brought in, not players who
+    worked out. Counting only the ones who started would flatter a manager who
+    claimed twenty and got three right, which is what the ratio exists to expose."""
+    weeks = _weeks([{"player_id": 1, "slotPosition": "RB", "points": 20.0},
+                    {"player_id": 2, "slotPosition": "RB", "points": 30.0},
+                    {"player_id": 3, "slotPosition": "BE", "points": 99.0}])
+    out = dv.drafted_versus_added(weeks, _picks([{"player_id": 1}]))
+    assert out["moves"].to_list() == [2]          # players 2 and 3
+    assert out["added"].to_list() == [30.0]       # only player 2 started
+    assert out["points_per_move"].to_list() == [15.0]
+
+
+def test_the_same_player_added_twice_is_one_move():
+    """A floor on real transactions, and said to be one on the page."""
+    weeks = _weeks([{"player_id": 2, "week": 3, "points": 10.0},
+                    {"player_id": 2, "week": 9, "points": 12.0}])
+    out = dv.drafted_versus_added(weeks, _picks([{"player_id": 1}]))
+    assert out["moves"].to_list() == [1]
+    assert out["added"].to_list() == [22.0]
+
+
+def test_a_manager_who_never_touched_the_wire_has_no_points_per_move():
+    """Null, not zero — 0.0 would rank them with someone whose every pickup
+    failed."""
+    weeks = _weeks([{"player_id": 1, "points": 40.0}])
+    out = dv.drafted_versus_added(weeks, _picks([{"player_id": 1}]))
+    assert out["moves"].to_list() == [0]
+    assert out["points_per_move"].to_list() == [None]
+
+
+# --- across seasons -------------------------------------------------------
+
+def test_each_season_is_matched_against_its_own_draft():
+    """Team names drift between seasons: Jack's "Cococnut Crushers" became
+    "Coconut Crushers" in 2023. Matching a season against the wrong draft would
+    credit the wrong roster."""
+    history = dv.acquisition_history(
+        pl.concat([_picks([{"team_name": "Cococnut", "player_id": 1}], season=2022),
+                   _picks([{"team_name": "Coconut", "player_id": 2}], season=2023)]),
+        {2022: _weeks([{"team_name": "Cococnut", "player_id": 1, "points": 10.0}]),
+         2023: _weeks([{"team_name": "Coconut", "player_id": 2, "points": 20.0}])},
+    )
+    assert history["season"].to_list() == [2022, 2023]
+    assert history["drafted"].to_list() == [10.0, 20.0]
+    assert history["added"].to_list() == [0.0, 0.0]
+
+
+def test_a_manager_espn_renamed_is_still_one_manager():
+    """ESPN recorded Jack Winfield as "J W" for one season, which split him into a
+    separate manager with one season to his name. The owner GUID is stable and is
+    what the averages group on."""
+    history = pl.concat([
+        _averaged_row("Jack Winfield", 2024, 100.0, 0.0),
+        _averaged_row("J W", 2025, 200.0, 0.0),
+    ])
+    out = dv.acquisition_averages(history)
+    assert out.height == 1
+    assert out["seasons"].to_list() == [2]
+    # The name they go by now, not an arbitrary one from the earliest season.
+    assert out["manager"].to_list() == ["J W"]
+    assert out["drafted"].to_list() == [150.0]
+
+
+def test_averages_are_per_season_not_pooled():
+    """So a manager is not weighted by how many seasons they happened to play."""
+    history = pl.concat([_averaged_row("Solo", 2024, 100.0, 100.0),
+                         _averaged_row("Solo", 2025, 300.0, 100.0)])
+    out = dv.acquisition_averages(history)
+    assert out["drafted"].to_list() == [200.0]
+
+
+def test_no_seasons_is_empty_rather_than_raising():
+    assert dv.acquisition_history(pl.DataFrame(), {}).is_empty()
+    assert dv.acquisition_averages(pl.DataFrame()).is_empty()
 
 
 # --- colour --------------------------------------------------------------

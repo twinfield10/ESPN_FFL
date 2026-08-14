@@ -174,6 +174,30 @@ def load_lineups(season: int, league_key: str) -> pl.DataFrame:
     return _artifact(season, league_key, "lineups")
 
 
+def load_results(season: int, league_key: str) -> pl.DataFrame:
+    """What was actually scored in one league-season, with no projections in it.
+
+    The artifact that reaches back past the store. ``lineups`` is richer and
+    cannot be built for a finished season -- it carries FantasyPros columns and
+    FantasyPros serves no season parameter -- whereas this needs only ESPN box
+    scores, which exist from 2019.
+
+    Args:
+        season: Season year.
+        league_key: ``config.yaml`` league key.
+
+    Returns:
+        pl.DataFrame: One row per player-week: ``week``, ``team_owner``,
+        ``team_name``, ``player_id``, ``player_name``, ``slotPosition``,
+        ``primaryPosition``, ``points``. ``slotPosition`` matters -- ``BE`` and
+        ``IR`` points counted for nobody.
+
+    Raises:
+        FileNotFoundError: When this league-season has no results artifact.
+    """
+    return _artifact(season, league_key, "results")
+
+
 def load_team_stats(season: int, league_key: str) -> pl.DataFrame:
     """The team/matchup history for one league-season, when it has been built.
 

@@ -32,8 +32,9 @@ from Scripts.config_utils import build_lg_vars, get_season, resolve_league
 from Scripts.paths import REPO_ROOT
 
 #: Artifacts ``--what`` accepts. ``draft`` builds two of them -- the pick history
-#: and the owner tendencies read off it.
-WHAT_CHOICES = ("lineups", "team_stats", "board", "draft")
+#: and the owner tendencies read off it. ``results`` is the only one that can be
+#: built for a season in the past; see the block that builds it.
+WHAT_CHOICES = ("lineups", "team_stats", "board", "draft", "results")
 
 #: Built unless ``--what`` says otherwise. ``team_stats`` is excluded on purpose --
 #: see the module docstring. ``board`` is excluded because it is a pre-season
@@ -41,6 +42,14 @@ WHAT_CHOICES = ("lineups", "team_stats", "board", "draft")
 #: stronger version of the same reason: a finished draft never changes at all, so
 #: rebuilding it weekly re-reads ten seasons to write the same bytes.
 DEFAULT_WHAT = ("lineups",)
+
+#: The columns kept in ``results.parquet``. Deliberately narrow: the box-score
+#: frame arrives ~104 columns wide and the rest are per-stat detail the
+#: acquisition split does not read. ``slotPosition`` is load-bearing rather than
+#: descriptive -- ``BE`` and ``IR`` points were scored by nobody, and dropping it
+#: would silently answer a different question.
+RESULTS_COLUMNS = ("week", "team_owner", "team_name", "player_id", "player_name",
+                   "slotPosition", "primaryPosition", "points")
 
 
 def _log(msg: str) -> None:
@@ -94,6 +103,7 @@ def refresh_league(
     board = None
     draft = None
     tendencies = None
+    results = None
     league = None
 
     def _league():
@@ -135,6 +145,30 @@ def refresh_league(
         _log(f"  board       {board_summary(board)}")
         _log(f"  board       {board.shape[0]:>6} rows x {board.shape[1]:>4} cols "
              f"  {timings['board']:.2f}s")
+
+    if "results" in what:
+        # What was scored, with no projections anywhere near it. That is the whole
+        # reason this artifact exists: `lineups` carries FP_/PINNY_/BOL_ columns,
+        # FantasyPros serves no season parameter, and so a past season's blend
+        # inputs are simply gone -- `--what lineups --season 2024` fails on a
+        # missing FantasyPros file and always will. Box scores have no such
+        # problem, and espn_api serves them from 2019.
+        from Scripts.scrape_player_stats import get_ply_stats_by_matchup
+
+        start = time.time()
+        actuals = get_ply_stats_by_matchup(cfg["ID"], season, cfg["SWID"],
+                                           cfg["ESPN_S2"])
+        missing = [column for column in RESULTS_COLUMNS
+                   if column not in actuals.columns]
+        if missing:
+            raise RuntimeError(
+                f"results is missing {missing} for {season}; the box-score shape "
+                "changed and the acquisition split reads these columns."
+            )
+        results = actuals[list(RESULTS_COLUMNS)].copy()
+        timings["results"] = time.time() - start
+        _log(f"  results     {results.shape[0]:>6} rows x {results.shape[1]:>3} "
+             f"cols   {timings['results']:.2f}s")
 
     if "draft" in what:
         from Scripts.draft.history import fetch_draft_history, history_summary
@@ -185,7 +219,7 @@ def refresh_league(
                  f"({start_year}-{season})")
 
     if all(artifact is None for artifact in
-           (lineups, team_stats, board, draft, tendencies)):
+           (lineups, team_stats, board, draft, tendencies, results)):
         _log("  nothing to write")
         return timings
 
@@ -196,7 +230,7 @@ def refresh_league(
     directory = store.write_league_store(
         season, league_key,
         lineups=lineups, team_stats=team_stats, board=board, draft=draft,
-        tendencies=tendencies, league=league,
+        tendencies=tendencies, results=results, league=league,
         meta_extra={
             "display_name": cfg["display_name"],
             "primary_owner": cfg["primary_own"],
