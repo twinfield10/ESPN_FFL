@@ -28,10 +28,26 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 cp config.example.yaml config.yaml   # then fill in your ESPN cookies
+aws configure                        # then check: aws sts get-caller-identity
 ```
 
 `config.yaml` holds live ESPN session cookies and is gitignored — never commit
 it. `config.example.yaml` documents how to obtain each value.
+
+**AWS credentials are not optional for the app.** S3 is the system of record and
+the app reads it *by default*, so a fresh clone with no `~/.aws/credentials`
+fails at the first store read with `Unable to locate credentials`. Any of the
+standard boto3 sources work — `aws configure`, an `AWS_PROFILE`, or
+`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` in the environment; there is no
+project-specific variable and nothing is read from `config.yaml`. The bucket is
+`espn-ffl-data` in `us-east-2`, and the principal needs read plus
+`s3:PutObject` under it to run the nightly push.
+
+To work without AWS at all, run `ESPN_FFL_STORE_SOURCE=local` against a `Data/`
+you already have — but note a fresh clone's `Data/` is *empty*, since nothing
+under it is tracked in git, and populating it is itself a `--pull` from S3. So
+local-only is an offline escape hatch for a machine that has synced once, not a
+way to skip the setup.
 
 Google Sheets output additionally needs a GCP service-account key at
 `gs4creds.json` (also gitignored), with the target spreadsheets shared to the

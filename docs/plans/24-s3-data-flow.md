@@ -99,12 +99,21 @@ grew past 8 MB. `put_object` is single-part to 5 GB; the largest artifact is 2.5
 | `run_daily_refresh.sh` | Step 6: push, on a clean run only |
 | Bucket lifecycle | Noncurrent versions expire after 90d under `store/` and `nfl/` |
 
-**Objects:** 258, **77.5 MB**. 133 nfl, 59 projections, 45 store, 10 archive,
-9 snapshots, 2 scoring/injuries.
+**At the first push (2026-08-11):** 258 objects, 77.5 MB — 133 nfl, 59 projections,
+45 store, 10 archive, 9 snapshots, 2 scoring/injuries.
 
-**Verified:** 249 current-state files SHA-256 identical local against S3. The nine
-remaining objects are the dated board snapshots, which have no current-state
-counterpart to compare.
+That is a measurement of one morning, not a description of the bucket, and it is dated
+because it **cannot stay true**: the snapshot tier gains nine objects a night by
+design, so the total is supposed to climb. For the live answer,
+`python -m Scripts.catalogue --s3`, for the same reason
+[the catalogue carries no counts](../DATA_CATALOGUE.md) — a number in a doc about
+untracked data goes stale in no diff and reads exactly as authoritative as a right one.
+
+**Verified:** 249 current-state files SHA-256 identical local against S3, by
+`python -m Scripts.sync --verify`. That count *is* stable, and the arithmetic against
+the total is the invariant worth keeping rather than the totals themselves: everything
+S3 holds beyond those 249 is a dated board snapshot, which has no current-state
+counterpart to compare against.
 
 ## Reading it
 

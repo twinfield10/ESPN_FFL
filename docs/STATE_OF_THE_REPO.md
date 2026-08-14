@@ -1,12 +1,15 @@
 # State of the Repo
 
-**Last updated:** 2026-08-07, preparing for the 2026 season. Plans 07 (local data
+**Last updated:** 2026-08-14, preparing for the 2026 season. Plans 07 (local data
 store + app), 14 (Sheets reads the store) and 15 (draft boards) landed on the 5th;
 plan 16's data layer and its go/no-go gates on the 6th; plan 09's draft board page,
 plan 16's availability and feature layers, plan 18's season usage model with its
 rookie arm, and plan 21's depth-chart and coaching context on the 7th — and, later
 the same day, plan 18 steps 3 and 6: the usage model wired in as the blend's **fifth
-source** at weight 0.0, abstaining at quarterback.
+source** at weight 0.0, abstaining at quarterback. Plan 23's owner tendencies landed
+on the 10th, and **plan 24 on the 11th moved the data itself to S3** — the largest
+structural change here since plan 07, and the one that changes how you set the repo
+up on a new machine.
 
 A standing assessment of what works, what is broken, and what to do next. Update
 it as things change — particularly the *Known issues* table, which is the part
@@ -22,7 +25,12 @@ and a proposed fix.
 The weekly in-season pipeline is mature and ran all of 2025. It has strong,
 genuinely reusable bones: a league-aware scoring engine, a four-source
 projection blend, a Monte Carlo season simulator, a polished Sheets renderer,
-and now a local data store with a Streamlit app reading it.
+and a data store with a Streamlit app reading it.
+
+**That store now lives in S3 rather than on this laptop**, which is the one change
+here that alters how you set the repo up: `Data/` is no longer tracked in git and no
+longer authoritative, and the app needs AWS credentials by default. See *The data
+lives in S3* below.
 
 Both things that were true at the start of this cycle are now addressed:
 
@@ -200,7 +208,8 @@ Fixed this cycle:
   `python -m Scripts.refresh` writes `Data/Store/<season>/<league_key>/`, and
   `streamlit run app/main.py` reads it — 11ms against ~8s to rebuild pre-season
   and ~23s in season ([plan 07](plans/07-frontend-foundation.md)). Nothing in the
-  app's render path touches ESPN.
+  app's render path touches ESPN. *(Superseded in part by plan 24: the writer still
+  writes that path, but the app now reads the S3 copy of it by default.)*
 - **The blend survives a missing source.** `clean_pinny`/`clean_bol` read the
   season's weekly props unconditionally, so `clean_lineups` raised
   `FileNotFoundError` every pre-season, when those files do not exist yet. They
@@ -414,9 +423,50 @@ Fixed this cycle:
   so most of the apparent signal is separating reserves from starters rather than
   durable players from fragile ones.
 
+- **The data lives in S3.** `s3://espn-ffl-data` (`us-east-2`, versioning already
+  enabled) is the system of record; `Data/` is a writer's scratch pad plus a read
+  cache and is **no longer tracked in git at all**. `Scripts/s3_store.py` is the
+  boundary, `python -m Scripts.sync --push/--pull/--verify` moves bytes, and step 6
+  of `run_daily_refresh.sh` pushes on a clean run only, so S3 never receives stale
+  data wearing a fresh timestamp ([plan 24](plans/24-s3-data-flow.md)).
+
+  The durability problem it solves was specific, not general: the one artifact in
+  this repo that **cannot be rebuilt at any price** — the G2 counterfactual, which
+  exists because FantasyPros serves no season parameter, so a board is gone the
+  moment it stops being current — was durable only in the sense that it was
+  committed to git. It now sits under `archive/`, exempt from version expiry
+  forever, while `store/` and `nfl/` expire noncurrent versions after 90 days
+  because both regenerate.
+
+  **The unplanned win is the dated board snapshot.** Each night's push writes
+  `snapshots/board/season=/league=/date=/`, so nine boards a night accumulate
+  instead of being overwritten. That retires the entire class of problem `Data/G2/`
+  was hand-built to work around, and makes **ADP drift through camp** measurable at
+  daily resolution across nine leagues — something that was never available before
+  and improves with every night that passes.
+
+  Two consequences to know. **The app is network-dependent by default:** a cold S3
+  render is ~3× a local read and still sub-second (94 ms local, 231–342 ms cold S3,
+  58 ms on a Streamlit cache hit, since the parse is cached too), and
+  `ESPN_FFL_STORE_SOURCE=local` is the draft-morning escape hatch precisely because
+  a render path that needs a network can fail at the worst possible moment.
+  **Set-level atomicity is gone** — each PUT is atomic and `meta.json` still uploads
+  last as the sentinel, so a reader sees the old complete store or the new one, but
+  the five objects of one league's store are no longer written as a unit. That is
+  inherent to S3 and is written down rather than papered over.
+
+  Verified rather than assumed, re-checked 2026-08-14: `--verify` reports **249
+  current-state files SHA-256 identical** local against S3, the lifecycle rules are
+  live on the bucket, and the nightly push has run unattended every night since —
+  `snapshots/` holds a dated board for the 11th, 12th and 13th, which is the first
+  evidence that this works without anyone watching it.
+
 **Credentials have never been committed** — verified across all of history.
 `config.yaml` and `gs4creds.json` are gitignored and remain plaintext on disk,
 which is acceptable for a single-user repo but is the obvious hardening target.
+**AWS credentials are now load-bearing** and come from the standard boto3 chain
+(`~/.aws/credentials`, `AWS_PROFILE`, or the environment) — nothing project-specific,
+and nothing read from `config.yaml`.
 
 ### Still to do before the season
 
@@ -485,7 +535,7 @@ is meant to be used this way: every `<year>_<Team>_season` article carries
 
 | Issue | Location |
 |---|---|
-| Test coverage is thin in the places that matter most. `tests/` covers paths, config, season/week derivation, the scoring registry, per-slot scoring, the blend primitives, the store, the usage layer's leakage guarantee, the draft board page's derivations, the season usage head with both its arms, the fifth source's registration/join/abstention plumbing, the coaching table's Wikipedia parsing and the team-profile as-of boundary (489 tests, no network), including a guard that the notebook never re-defines the shared projection functions. Nothing covers the scrapers, the Sheets renderer, `analytic_utils`, `luck_index`, or `simulation_utils`. | `tests/` |
+| Test coverage is thin in the places that matter most. `tests/` covers paths, config, season/week derivation, the scoring registry, per-slot scoring, the blend primitives, the store, the usage layer's leakage guarantee, the draft board page's derivations, the season usage head with both its arms, the fifth source's registration/join/abstention plumbing, the coaching table's Wikipedia parsing, the team-profile as-of boundary, and the S3 layer — key mapping, checksummed upload, the `meta.json`-last *sequence*, sync's push/pull/verify and the app's three read modes, all against a stub so it still needs no network or credentials (722 tests), including a guard that the notebook never re-defines the shared projection functions. Nothing covers the scrapers, the Sheets renderer, `analytic_utils`, `luck_index`, or `simulation_utils`. | `tests/` |
 | No retry/backoff on any HTTP call. Four bare `except:` blocks remain — `populateGoogleSheet.py`'s is gone. A global `warnings.filterwarnings("ignore")` in `fetch_utils.py:16` silences every warning process-wide; `Scripts.scoring` and `Scripts.projection_utils` each force their own filter past it, which is a workaround rather than a fix. → [plan 06](plans/06-performance.md) | repo-wide |
 | `build_league_frame` calls `fetch_league`, then `get_ply_stats_by_matchup` calls it again — ~1s of duplicated ESPN round-trip per league, ~12% of a pre-season refresh. Fixing it means changing that function's signature from ids to a `League`. → [plan 06](plans/06-performance.md) | `equivalence.py`, `scrape_player_stats.py:463` |
 | `oauth2client==4.1.3` is end-of-life upstream and is only needed for Sheets auth. A Google auth change would mean migrating to `google-auth` mid-season, so it is worth doing before the season. → [plan 14](plans/14-thin-google-sheets.md) step 2.3 | `populateGoogleSheet.py`, `requirements.txt` |
