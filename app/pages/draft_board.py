@@ -364,7 +364,8 @@ st.dataframe(
 # --- who you are drafting against ---------------------------------------
 
 if store.has_artifact(selection.season, selection.league_key, "tendencies"):
-    tendencies = store.load_tendencies(selection.season, selection.league_key)
+    tendencies = dv.notes_for_board(
+        store.load_tendencies(selection.season, selection.league_key), board)
     picks = store.load_draft(selection.season, selection.league_key)
 
     st.subheader("Who you are drafting against")

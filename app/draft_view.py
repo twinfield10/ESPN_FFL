@@ -695,6 +695,79 @@ def acquisition_frame(summary: pl.DataFrame) -> pl.DataFrame:
                            for source, label in present])
 
 
+def notes_for_board(tendencies: pl.DataFrame,
+                    board: pl.DataFrame) -> pl.DataFrame:
+    """Drop the player clause from a note when that player is not draftable.
+
+    A manager's loyalty is measured over every draft on record, which is what
+    makes it a tendency and also what makes it go stale: three of the six
+    Winfield_Football notes cited Leonard Fournette, LeSean McCoy or T.Y. Hilton,
+    none of whom are on a 2026 board. True, and useless at a 2026 draft — it
+    spends a third of a note nobody has time to read on a player nobody can take.
+
+    Only the loyalty clause is filtered. Timing, team lean and rookie appetite are
+    statements about *how* a manager drafts and stay true whoever is available.
+
+    The clause is removed rather than replaced. The sentences a note is built from
+    are chosen under constraints this cannot see — at most two timing traits, one
+    per family — so promoting the next trait in the list could produce a note the
+    builder would never have written. A shorter note is the honest outcome.
+
+    Args:
+        tendencies: A stored tendencies frame, carrying ``traits``,
+            ``description`` and ``favourite_player``.
+        board: This season's board, for ``player_name``.
+
+    Returns:
+        pl.DataFrame: The same frame with ``description`` and ``traits`` rewritten
+        where the cited player is absent from the board, plus
+        ``favourite_player_draftable``. Unchanged when either input lacks the
+        columns to decide.
+    """
+    from Scripts.draft.tendencies import sentence_case
+
+    needed = {"traits", "description", "favourite_player", "seasons"}
+    if (tendencies.is_empty() or not needed <= set(tendencies.columns)
+            or "player_name" not in board.columns):
+        return tendencies
+
+    draftable = set(board["player_name"].to_list())
+
+    def _rewrite(row: dict) -> dict:
+        player = row["favourite_player"]
+        if not player or player in draftable:
+            return {"description": row["description"], "traits": row["traits"],
+                    "favourite_player_draftable": bool(player)}
+
+        # The traits that made it into the note, in the order they appear there.
+        # Matching on the trait text rather than splitting the description on
+        # sentences, because "T.Y. Hilton" is full of full stops.
+        text = (row["description"] or "").lower()
+        used = [trait for trait in (row["traits"] or [])
+                if trait and trait.lower() in text]
+        kept = [trait for trait in used if player.lower() not in trait.lower()]
+        seasons = row["seasons"]
+        if not kept:
+            rewritten = (f"{len(used)} of this manager's tendencies are about "
+                         f"players who are not on this year's board. "
+                         f"({seasons} drafts)")
+        else:
+            rewritten = (" ".join(sentence_case(trait) for trait in kept)
+                         + f" ({seasons} drafts)")
+        return {"description": rewritten,
+                "traits": [t for t in (row["traits"] or [])
+                           if player.lower() not in t.lower()],
+                "favourite_player_draftable": False}
+
+    rewritten = [_rewrite(row) for row in tendencies.iter_rows(named=True)]
+    return tendencies.with_columns(
+        pl.Series("description", [r["description"] for r in rewritten]),
+        pl.Series("traits", [r["traits"] for r in rewritten]),
+        pl.Series("favourite_player_draftable",
+                  [r["favourite_player_draftable"] for r in rewritten]),
+    )
+
+
 def tendency_frame(tendencies: pl.DataFrame) -> pl.DataFrame:
     """Select and rename the columns the tendency detail table shows.
 

@@ -494,7 +494,7 @@ def _pct(value: float) -> str:
     return f"{round(value * 100):.0f}%"
 
 
-def _sentence(text: str) -> str:
+def sentence_case(text: str) -> str:
     """Capitalise a clause's first letter without touching the rest.
 
     ``str.capitalize`` lowercases everything after the first character, which
@@ -739,7 +739,7 @@ def _compose(traits: List[dict], owner: str, seasons: int) -> str:
         if len(chosen) == MAX_TRAITS:
             break
 
-    sentences = [_sentence(trait["text"]) for trait in chosen]
+    sentences = [sentence_case(trait["text"]) for trait in chosen]
     return " ".join(sentences) + f" ({seasons} drafts)"
 
 
