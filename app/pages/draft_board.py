@@ -75,6 +75,36 @@ COLUMN_CONFIG = {
     ),
 }
 
+# The acquisition tables, which share a vocabulary with each other rather than with
+# the board: their unit is a manager-season, not a player.
+ACQUISITION_CONFIG = {
+    "Manager": st.column_config.TextColumn(),
+    "Seasons": st.column_config.NumberColumn(
+        format="%.0f", help="Finished seasons this manager has both a draft and "
+                            "played weeks for."),
+    "Points": st.column_config.NumberColumn(
+        format="%.0f", help="Points scored from a starting slot. Bench and IR are "
+                            "excluded — those counted for nobody."),
+    "From the draft": st.column_config.NumberColumn(
+        format="%.0f", help="Scored by players this manager drafted themselves."),
+    "From the wire": st.column_config.NumberColumn(
+        format="%.0f", help="Scored by everyone else they fielded — waiver claims, "
+                            "free agents, trade returns."),
+    "% drafted": st.column_config.NumberColumn(
+        format="%.1f%%", help="How much of what they scored their own draft "
+                              "supplied."),
+    "Moves": st.column_config.NumberColumn(
+        format="%.1f",
+        help="Distinct players brought in, bench included — claiming a player is a "
+             "move whether or not you ever start them. A floor on real "
+             "transactions: added, dropped and re-added counts once."),
+    "Pts / move": st.column_config.NumberColumn(
+        format="%.1f",
+        help="Wire points per player brought in. Blank for a manager who never "
+             "made a move, which is not the same as one whose moves returned "
+             "nothing."),
+}
+
 selection = render_sidebar()
 meta = selection.meta
 
@@ -436,37 +466,68 @@ if store.has_artifact(selection.season, selection.league_key, "tendencies"):
     # --- and how much of it the draft actually supplied --------------------
     #
     # Everything above this point is what managers *do*; this is the first thing
-    # on the page that touches how it went. It needs a finished season, so it
-    # looks back rather than at the season being drafted -- the most recent one
-    # this league has both a draft and a set of played weeks for.
-    played = next(
-        (past for past in sorted(picks["season"].unique().to_list(), reverse=True)
-         if past < selection.season
-         and store.has_artifact(past, selection.league_key, "lineups")),
-        None,
-    )
-    split = (dv.drafted_versus_added(
-                 store.load_lineups(played, selection.league_key),
-                 picks.filter(pl.col("season") == played))
-             if played is not None else dv.drafted_versus_added(
-                 pl.DataFrame(), pl.DataFrame()))
+    # on the page that touches how it went. It needs finished seasons, so it looks
+    # back rather than at the season being drafted, and it reads `results` rather
+    # than `lineups` because `lineups` cannot be built for a past season at all --
+    # it carries FantasyPros columns and FantasyPros serves no season parameter.
+    # `results` where it exists and `lineups` otherwise. The two carry the same
+    # five columns this needs, and preferring results is what reaches back past
+    # 2025 -- but a league that has only ever had lineups built still answers for
+    # the season it has, rather than losing the section because the newer artifact
+    # has not been backfilled for it yet.
+    def _played(season: int):
+        for artifact, load in (("results", store.load_results),
+                               ("lineups", store.load_lineups)):
+            if store.has_artifact(season, selection.league_key, artifact):
+                return load(season, selection.league_key)
+        return None
 
-    # A team whose name is not in that season's draft carries nulls rather than
-    # zeros, so it is named rather than drawn as a manager who drafted nobody.
-    unmatched = split.filter(pl.col("drafted").is_null())
-    split = split.filter(pl.col("drafted").is_not_null())
+    played = {season: frame
+              for season in sorted(picks["season"].unique().to_list())
+              if season < selection.season
+              for frame in [_played(season)] if frame is not None}
+    history = dv.acquisition_history(picks, played)
 
-    if not split.is_empty():
-        st.markdown(f"**Where the points came from — {played}**")
+    if not history.is_empty():
+        seasons = sorted(history["season"].unique().to_list())
+        st.markdown("**Where the points came from**")
         st.caption(
-            "Points scored **from a starting slot**, split by who put the player "
-            "on the roster. A player is drafted for whoever took them and added "
-            "for whoever picked them up later, so a mid-season pickup counts to "
-            "the manager who made the move. Bench points are excluded: they are "
-            "real but they never counted for anyone, and including them answers "
-            "how much talent you held rather than how much of what you *scored* "
-            "came from draft day."
+            f"Points scored **from a starting slot** — bench and IR excluded, "
+            f"because those counted for nobody — split by who put the player on "
+            f"the roster. {len(seasons)} finished season"
+            f"{'s' if len(seasons) != 1 else ''}, {seasons[0]}–{seasons[-1]}. "
+            "A player is drafted for whoever took them and added for whoever "
+            "picked them up afterwards, so a mid-season pickup counts to the "
+            "manager who made the move."
         )
+
+        averages = dv.acquisition_averages(history)
+        st.dataframe(dv.acquisition_frame(averages), width="stretch",
+                     hide_index=True, column_config=ACQUISITION_CONFIG)
+        st.caption(
+            "Per-season averages, so nobody is weighted by how many seasons they "
+            "happened to play. **Moves** counts the distinct players a manager "
+            "brought in — bench included, because claiming a player is a move "
+            "whether or not you ever start them — and **Pts / move** is what "
+            "those pickups returned from a starting slot. It is a floor on real "
+            "transactions: a player added, dropped and re-added counts once."
+        )
+
+        # --- one season at a time -----------------------------------------
+        st.markdown("**One season at a time**")
+        chosen = st.selectbox(
+            "Season", seasons, index=len(seasons) - 1,
+            help="Every finished season this league has both a draft and played "
+                 "weeks for. 2016–2018 are absent because ESPN serves no box "
+                 "scores before 2019.",
+        )
+        split = history.filter(pl.col("season") == chosen)
+
+        # A team whose name is not in that season's draft carries nulls rather
+        # than zeros, so it is named rather than drawn as having drafted nobody.
+        unmatched = split.filter(pl.col("drafted").is_null())
+        split = split.filter(pl.col("drafted").is_not_null())
+
         if not unmatched.is_empty():
             st.caption(
                 "⚠️ Left out, because their draft could not be matched to them: "
@@ -540,37 +601,12 @@ if store.has_artifact(selection.season, selection.league_key, "tendencies"):
         )
         st.caption(
             f"The number past each bar is the percentage that came from the "
-            f"draft. Range this season: "
-            f"{split['share_drafted'].min():.0f}%–"
+            f"draft. {chosen} range: {split['share_drafted'].min():.0f}%–"
             f"{split['share_drafted'].max():.0f}%."
         )
-
-    with st.expander("The measurements behind these descriptions"):
-        st.dataframe(
-            dv.tendency_frame(tendencies), width="stretch", hide_index=True,
-            column_config={
-                "Rds early": st.column_config.NumberColumn(format="%+.1f"),
-                "Rds late": st.column_config.NumberColumn(format="%+.1f"),
-                "Extra picks": st.column_config.NumberColumn(format="%+.1f"),
-                "Rookie %": st.column_config.NumberColumn(format="percent"),
-                "Auto %": st.column_config.NumberColumn(format="percent"),
-                "Top-3 $": st.column_config.NumberColumn(format="percent"),
-            },
-        )
-        st.markdown("""
-- **The baseline leaves the manager out.** In a six-team league a manager is a
-  sixth of the room, and including them shrinks their own deviation by 17% — in
-  exactly the leagues with the longest history.
-- **Nothing is pooled across eras.** Rookie appetite, positional shares and NFL-team
-  leans are each measured within a season first and averaged after, because these
-  leagues drafted 5 rookies in 2016 and 168 in 2025. Pooled, every long-serving
-  manager would read as rookie-averse purely from when they arrived.
-- **A tendency needs two drafts.** Managers with one are named and left alone.
-- **No outcome is measured.** Whether the kicker in round 5 was a mistake needs
-  every past season scored in this league's own rules, which the store does not
-  hold. Predictable is what a board can use; correct is a different question.
-""")
-
+        with st.expander(f"{chosen} in numbers"):
+            st.dataframe(dv.acquisition_frame(split), width="stretch",
+                         hide_index=True, column_config=ACQUISITION_CONFIG)
 
 # --- what these numbers do not say --------------------------------------
 
