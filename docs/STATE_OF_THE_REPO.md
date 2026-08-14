@@ -484,8 +484,14 @@ and nothing read from `config.yaml`.
       It took coverage 80.4% → 73.2%, and was lifted once the depth chart entered
       the veteran arm and quarterback ordering went positive (+0.0132 against the
       naive baseline). `season.ABSTAIN_POSITIONS` is `()`; coverage is **83.7%**.
-- [ ] Render the new `USG_` columns on the board page — they are in
-      `board.parquet` and nothing shows them yet.
+- [x] ~~Render the new `USG_` columns on the board page.~~ Done 2026-08-14. Four
+      columns after the market block on every table: `USG`, `Δrk`, `Exp G` and a
+      **Model evidence** column that resolves what an empty `USG` means, because it
+      meant three different things — the model does not cover the position (K, D/ST),
+      it declined a player whose expected games were too low, or the injury report
+      withdrew a price it had already made. All three rendered as the same blank
+      before, which read as agreement. Sorting by the model's dissent is offered in
+      both directions. Verified headless across all nine leagues.
       → [plan 09](plans/09-frontend-draft-views.md)
 
 The ordered list of everything outstanding lives in
@@ -535,7 +541,7 @@ is meant to be used this way: every `<year>_<Team>_season` article carries
 
 | Issue | Location |
 |---|---|
-| Test coverage is thin in the places that matter most. `tests/` covers paths, config, season/week derivation, the scoring registry, per-slot scoring, the blend primitives, the store, the usage layer's leakage guarantee, the draft board page's derivations, the season usage head with both its arms, the fifth source's registration/join/abstention plumbing, the coaching table's Wikipedia parsing, the team-profile as-of boundary, and the S3 layer — key mapping, checksummed upload, the `meta.json`-last *sequence*, sync's push/pull/verify and the app's three read modes, all against a stub so it still needs no network or credentials (722 tests), including a guard that the notebook never re-defines the shared projection functions. Nothing covers the scrapers, the Sheets renderer, `analytic_utils`, `luck_index`, or `simulation_utils`. | `tests/` |
+| Test coverage is thin in the places that matter most. `tests/` covers paths, config, season/week derivation, the scoring registry, per-slot scoring, the blend primitives, the store, the usage layer's leakage guarantee, the draft board page's derivations, the season usage head with both its arms, the fifth source's registration/join/abstention plumbing, the coaching table's Wikipedia parsing, the team-profile as-of boundary, and the S3 layer — key mapping, checksummed upload, the `meta.json`-last *sequence*, sync's push/pull/verify and the app's three read modes, all against a stub so it still needs no network or credentials, and the board page's model block including the three ways an empty `USG` has to be told apart (731 tests), including a guard that the notebook never re-defines the shared projection functions. Nothing covers the scrapers, the Sheets renderer, `analytic_utils`, `luck_index`, or `simulation_utils`. | `tests/` |
 | No retry/backoff on any HTTP call. Four bare `except:` blocks remain — `populateGoogleSheet.py`'s is gone. A global `warnings.filterwarnings("ignore")` in `fetch_utils.py:16` silences every warning process-wide; `Scripts.scoring` and `Scripts.projection_utils` each force their own filter past it, which is a workaround rather than a fix. → [plan 06](plans/06-performance.md) | repo-wide |
 | `build_league_frame` calls `fetch_league`, then `get_ply_stats_by_matchup` calls it again — ~1s of duplicated ESPN round-trip per league, ~12% of a pre-season refresh. Fixing it means changing that function's signature from ids to a `League`. → [plan 06](plans/06-performance.md) | `equivalence.py`, `scrape_player_stats.py:463` |
 | `oauth2client==4.1.3` is end-of-life upstream and is only needed for Sheets auth. A Google auth change would mean migrating to `google-auth` mid-season, so it is worth doing before the season. → [plan 14](plans/14-thin-google-sheets.md) step 2.3 | `populateGoogleSheet.py`, `requirements.txt` |
