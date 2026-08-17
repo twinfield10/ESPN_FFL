@@ -5,6 +5,7 @@ decision in it lives in ``app/draft_view.py`` and is covered here. No network, n
 store on disk -- the boards are synthesised to the shape ``build_board`` returns.
 """
 
+import re
 import sys
 from pathlib import Path
 
@@ -291,6 +292,50 @@ def test_value_targets_can_include_players_the_rosters_claim():
     assert dv.value_targets(board)["player_name"].to_list() == ["Free"]
     assert dv.value_targets(board, only_available=False)["player_name"].to_list() \
         == ["Carried", "Free"]
+
+
+# --- the glossary ---------------------------------------------------------
+
+def test_every_column_the_table_shows_is_in_the_glossary():
+    """A column added to the table and not the glossary is a silent gap — the
+    reader gets a number with no account of where it came from."""
+    shown = {label for _, label in dv.DISPLAY_COLUMNS}
+    assert shown - set(dv.COLUMN_GLOSSARY) == set()
+
+
+def test_the_glossary_describes_no_column_that_does_not_exist():
+    """The other direction, which nobody would ever notice: an entry for a column
+    that has been removed is documentation of something that is not there."""
+    shown = {label for _, label in dv.DISPLAY_COLUMNS}
+    assert set(dv.COLUMN_GLOSSARY) - shown == set()
+
+
+def test_the_glossary_is_scoped_to_the_columns_actually_rendered():
+    """A redraft league must not be told about keeper prices it does not have."""
+    md = dv.glossary_markdown(["Player", "VOR"])
+    assert "**Player**" in md and "**VOR**" in md
+    assert "Keeper" not in md and "USG" not in md
+
+
+def test_the_glossary_keeps_the_tables_column_order():
+    md = dv.glossary_markdown(["VOR", "Player", "ADP"])
+    assert md.index("**Player**") < md.index("**VOR**") < md.index("**ADP**")
+
+
+def test_dollar_amounts_are_escaped_so_streamlit_does_not_read_them_as_maths():
+    """Paired `$` is LaTeX to Streamlit, and a glossary about auction values is
+    full of them — unescaped, the middle of the table renders as equations."""
+    md = dv.glossary_markdown(["$", "Our $", "Keeper $"])
+    assert "$" in md and r"\$" in md
+    assert not re.search(r"(?<!\\)\$", md)
+
+
+def test_the_glossary_renders_a_markdown_table():
+    md = dv.glossary_markdown(["Player"])
+    lines = md.split("\n")
+    assert lines[0].startswith("| Column | Source |")
+    assert lines[1] == "|---|---|---|"
+    assert lines[2].count("|") == 4
 
 
 # --- the cash lens --------------------------------------------------------

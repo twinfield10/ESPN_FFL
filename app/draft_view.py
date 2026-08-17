@@ -209,6 +209,139 @@ def at_budget(board: pl.DataFrame, budget: float,
     )
 
 
+# --- the glossary ---------------------------------------------------------
+
+#: Every column the board can show: where the number comes from, and how it is made.
+#:
+#: Keyed by the display label in :data:`DISPLAY_COLUMNS`, and a test asserts the two
+#: agree **exactly** in both directions. That guard is the point of putting this here
+#: rather than writing the prose into the page: a column added to the table and not
+#: to the glossary is a silent gap, and a glossary entry for a column that no longer
+#: exists is a lie nobody would notice. Neither can survive the test.
+#:
+#: ``source`` is where the number originates, not where it is stored -- everything on
+#: the board is read out of one parquet file, which is not the useful answer.
+COLUMN_GLOSSARY: Dict[str, tuple] = {
+    "Player": ("ESPN", "The name as ESPN spells it, from `kona_player_info`."),
+    "Pos": ("ESPN", "Primary position. Replacement level and tiers are both computed "
+                    "*within* position, so this drives most of the table."),
+    "NFL": ("ESPN", "Pro team abbreviation."),
+    "Bye": ("NFL schedule",
+            "Derived rather than read — a bye is an absence, so it is the week in "
+            "which the team appears in neither the home nor the away column. Blank "
+            "when the schedule is missing or covers another season."),
+    "Tier": ("Board build",
+             "1-D KMeans on projected points within position, so the breaks land "
+             "where the gaps actually are rather than every N players. 1 is best."),
+    "Proj": ("Blend",
+             "ESPN, FantasyPros and the usage model in equal thirds — blended as a "
+             "**stat line**, then scored through this league's own rules, which is "
+             "what lets one pipeline serve nine leagues. Pinnacle and BetOnline are "
+             "weighted zero."),
+    "Floor": ("Blend",
+              "The lowest scored total among the sources that supplied a real, "
+              "non-imputed line. Fewer than two such sources means blank: one "
+              "source is not a confidence interval."),
+    "Ceil": ("Blend", "The highest of the same set. See Floor."),
+    "VOR": ("Board build",
+            "Projected points minus the projected points of the last startable "
+            "player at that position. Replacement rank is this league's own "
+            "starting slots × teams, which is why the same player is worth "
+            "different amounts in different leagues."),
+    "VOR Rk": ("Board build", "Rank of VOR across the whole pool. 1 is best."),
+    "Pos Rk": ("Board build", "Rank of projected points within position."),
+    "ADP": ("ESPN",
+            "`averageDraftPosition` — the average pick across real ESPN drafts, so "
+            "it is fractional. Everyone the market has no opinion on is parked on a "
+            "single plateau value."),
+    "Value": ("Board build",
+              "ADP rank minus VOR rank, both ranked over the same population — the "
+              "players the market has actually priced, excluding the streamed "
+              "positions. Positive means the room is letting them fall."),
+    "$": ("ESPN, rescaled",
+          "`auctionValueAverage`, the average winning bid across ESPN auctions, "
+          "falling back to ESPN's own suggested value. Rescaled from the $200 "
+          "budget ESPN publishes against to the budget set above."),
+    "Our $": ("Derived here",
+              "Our own valuation in dollars: every roster spot the room fills costs "
+              "at least $1, and what is left of the budget splits in proportion to "
+              "points above replacement. Blank outside the money, and for K and "
+              "D/ST."),
+    "Cash +/-": ("Derived here",
+                 "Our $ minus $. Positive means the room underpays. The auction "
+                 "answer to the question Value asks of a snake draft."),
+    "Keeper $": ("ESPN",
+                 "`keeperValue` — what the manager holding him paid to acquire him, "
+                 "floored at the $1 minimum for a player claimed off waivers, who "
+                 "has no winning bid to record. Blank means nobody holds him."),
+    "Keeper +/-": ("Derived here",
+                   "$ minus Keeper $. Positive means keeping him is cheaper than "
+                   "buying him back."),
+    "USG": ("Usage model",
+            "The model's own season projection: per-game production times the games "
+            "it expects him available for. **Not comparable to Proj**, which assumes "
+            "a healthy 17."),
+    "Δ Rk": ("Usage model",
+             "`TRUE_PosRank − USG_PosRank` — the blend's rank within position minus "
+             "the model's. Positive means the model likes him more than ESPN and "
+             "FantasyPros do. Being a rank, it survives the level mismatch that "
+             "makes USG and Proj incomparable."),
+    "Exp G": ("ESPN injury report",
+              "Games out of 17 the model expects him available for, from the "
+              "report's estimated return date. USG is already scaled by it."),
+    "Model Evidence": ("Derived here",
+                       "Why the model's number is thin, or which of the three ways "
+                       "it produced none — it does not cover the position, it "
+                       "declined to price him, or the injury report withdrew a price "
+                       "it had made."),
+    "Injury": ("ESPN", "Injury status as ESPN reports it."),
+    "Owner": ("ESPN",
+              "The fantasy team holding him. Before a keeper league's keepers are "
+              "declared this is **last season's** roster, not this year's."),
+}
+
+
+def _escape_dollars(text: str) -> str:
+    """Stop Streamlit reading a pair of dollar signs as LaTeX.
+
+    Markdown rendered by Streamlit treats ``$...$`` as maths, and a glossary about
+    auction values is full of dollar amounts -- unescaped, the middle of this table
+    renders as italic equations.
+
+    Args:
+        text: Markdown source.
+
+    Returns:
+        str: The same text with ``$`` escaped.
+    """
+    return text.replace("$", r"\$")
+
+
+def glossary_markdown(labels: Optional[Sequence[str]] = None) -> str:
+    """The glossary as a markdown table, for the columns actually on screen.
+
+    A markdown table rather than a dataframe on purpose: these are sentences, and
+    ``st.dataframe`` truncates a long cell to an ellipsis and makes the reader widen
+    a column to find out what a number means.
+
+    Args:
+        labels: Display labels to include, in :data:`DISPLAY_COLUMNS` order. None
+            includes every column the glossary knows.
+
+    Returns:
+        str: A three-column markdown table.
+    """
+    wanted = set(labels) if labels is not None else set(COLUMN_GLOSSARY)
+    rows = [(label, *COLUMN_GLOSSARY[label])
+            for _, label in DISPLAY_COLUMNS
+            if label in wanted and label in COLUMN_GLOSSARY]
+    lines = ["| Column | Source | How It Is Calculated |", "|---|---|---|"]
+    lines += [f"| **{_escape_dollars(label)}** | {_escape_dollars(source)} "
+              f"| {_escape_dollars(how)} |"
+              for label, source, how in rows]
+    return "\n".join(lines)
+
+
 def available_only(board: pl.DataFrame) -> pl.DataFrame:
     """Players nobody has drafted yet.
 

@@ -215,6 +215,10 @@ measured, not assumed: 130 of GOP's keeper prices are exactly their 2025 auction
 bid, and a player claimed off waivers has no winning bid to record, so he keeps for
 the $1 minimum. Being on a roster is what confers a price; only a free agent has none.
 
+Every column on the board has a **Glossary** entry under the table — its source and
+a one-line derivation — generated from the same list that builds the table, so the
+two cannot drift.
+
 **Two ways to measure value.** `ADP` is our VOR rank against the market's draft
 position, which is the right comparison when a pick is a place in a queue. `Cash` is
 our dollar valuation against ESPN's average auction price, which is the right one

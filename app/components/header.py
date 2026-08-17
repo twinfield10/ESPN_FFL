@@ -245,6 +245,17 @@ def _sticky_selectbox(label, state_key, options, default=None, format_func=str):
     corrected *before* the widget registers, which is the only point at which
     Streamlit allows the write.
 
+    **The write is unconditional, and that is the second half of the fix.**
+    Streamlit discards a widget's state when you navigate to a page that has not
+    rendered it, so on the first run of a newly-opened page the key is dropped and
+    the widget falls back to its first option -- even though ``session_state`` still
+    reads correctly at the top of the script. Writing only when the remembered value
+    was *invalid* therefore fixed nothing on navigation: the value was perfectly
+    valid, nothing touched the key, and opening the Draft Board from the Store
+    Overview silently moved you from Winfield_Football to GOP_Degenerates. Touching
+    the key every run is Streamlit's documented "keep" pattern and is what carries a
+    selection across pages.
+
     Args:
         label: Widget label.
         state_key: ``st.session_state`` key the widget stores its choice under.
@@ -257,8 +268,10 @@ def _sticky_selectbox(label, state_key, options, default=None, format_func=str):
         The selected value.
     """
     options = list(options)
-    if st.session_state.get(state_key) not in options:
-        st.session_state[state_key] = default if default in options else options[0]
+    remembered = st.session_state.get(state_key)
+    if remembered not in options:
+        remembered = default if default in options else options[0]
+    st.session_state[state_key] = remembered
 
     return st.selectbox(label, options, key=state_key, format_func=format_func)
 

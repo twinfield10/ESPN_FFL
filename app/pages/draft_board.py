@@ -114,11 +114,11 @@ COLUMN_CONFIG = {
     ),
     "Δ Rk": st.column_config.NumberColumn(
         format="%+.0f",
-        help="The model's rank within position minus the blend's. Positive means "
-             "the model likes the player more than ESPN and FantasyPros do, "
-             "negative less. Being a rank, it is immune to the level mismatch that "
-             "makes USG and Proj incomparable — which is why the model's dissent is "
-             "carried here rather than in Floor/Ceil.",
+        help="`TRUE_PosRank − USG_PosRank` — the blend's rank within position minus "
+             "the model's. Positive means the model likes the player more than ESPN "
+             "and FantasyPros do, negative less. Being a rank, it is immune to the "
+             "level mismatch that makes USG and Proj incomparable — which is why "
+             "the model's dissent is carried here rather than in Floor/Ceil.",
     ),
     "Exp G": st.column_config.NumberColumn(
         format="%.1f",
@@ -353,6 +353,22 @@ with board_tab:
             column_config=COLUMN_CONFIG,
         )
 
+    # --- what every column is ---------------------------------------------
+    #
+    # Scoped to the columns this league's board actually renders, so the IDP league
+    # is not told about a column it has and the redraft leagues are not told about
+    # keeper prices they do not have.
+
+    with st.expander("Glossary — Where Every Column Comes From"):
+        st.markdown(dv.glossary_markdown(dv.display_frame(board).columns))
+        st.caption(
+            "Source is where the number *originates*, not where it is stored — "
+            "every column on this page is read out of one parquet file, which is "
+            "not the useful answer. **Board build** is computed once by "
+            "`Scripts.refresh --what board`; **Derived here** is computed by the "
+            "page, because it depends on the budget you set above."
+        )
+
     # --- what these numbers do not say ------------------------------------
 
     priced = int(board["adp_is_priced"].sum()) if "adp_is_priced" in board.columns else 0
@@ -497,6 +513,11 @@ with values_tab:
             "unpriced by the market or streamed — see *What Is Missing From These "
             "Columns* on the Board tab."
         )
+        # The same columns as the board, so the same glossary. Repeated here rather
+        # than pointed at, because a column you cannot read is a question you have
+        # while looking at *this* table.
+        with st.expander("Glossary — Where Every Column Comes From"):
+            st.markdown(dv.glossary_markdown(dv.display_frame(targets).columns))
 
 # =========================================================================
 # League — what does not change during a draft

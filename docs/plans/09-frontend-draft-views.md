@@ -211,17 +211,63 @@ were Brenton Strange, Dalton Schultz and Juwan Johnson — backup tight ends wit
 Under Cash the same board leads with Jeremiah Love (+$71), Bijan Robinson (+$67)
 and Jahmyr Gibbs (+$65).
 
-### Two bugs this turned up
+### The glossary, 2026-08-17
 
-**Every second league change was being eaten.** `_sticky_selectbox` passed no
-`key=` and steered the widget with `index=`; a keyless widget's identity is derived
-from its arguments, `index` among them. Switching leagues changed the remembered
-value, which changed `index` on the next run, which minted a new widget id — and
-the selection just made was recorded against the old one and discarded. Winfield →
-GOP worked, GOP → Knights silently did not. Fixed by giving the widget its key and
-correcting an out-of-range remembered value *before* it registers, which is the
-only point Streamlit allows the write. Pre-existing, and nothing would have
-reported it.
+Twenty-four columns, several of which are computed three different ways from three
+different places, and the only account of any of them was a `help=` tooltip you had
+to know to hover. **Glossary — Where Every Column Comes From** sits under both
+tables as an expander, and gives each column a source and a one-line derivation.
+
+Two decisions worth recording:
+
+- **It is generated from `DISPLAY_COLUMNS`, and a test asserts the two agree in
+  both directions.** A column added to the table and not the glossary is a silent
+  gap; a glossary entry for a column that has been removed is documentation of
+  something that is not there, and nobody would ever notice either. Neither
+  survives the test.
+- **It is scoped to the columns actually rendered.** A redraft league is not told
+  about keeper prices it does not have — Winfield_Football gets 22 rows,
+  GOP_Degenerates 24.
+
+*Source* means where the number originates, not where it is stored: everything is
+read out of one parquet file, which is not the useful answer. The vocabulary is
+`ESPN`, `NFL schedule`, `Blend`, `Usage model`, `Board build` (computed once by
+`refresh --what board`) and `Derived here` (computed by the page, because it depends
+on the budget you set).
+
+Writing it turned up that the `Δ Rk` tooltip had the subtraction **backwards** — it
+said "the model's rank minus the blend's" where the code computes `TRUE_PosRank −
+USG_PosRank`. The conclusion it drew was right and the formula was inverted, which
+is the sort of thing only writing the derivation down catches.
+
+### Three bugs this turned up
+
+**`_sticky_selectbox` was broken in two opposite ways, and fixing one exposed the
+other.** Both were silent: the app rendered a real league's real board, just not
+the one you asked for.
+
+*Every second league change was eaten.* It passed no `key=` and steered the widget
+with `index=`; a keyless widget's identity is derived from its arguments, `index`
+among them. Switching leagues changed the remembered value, which changed `index`
+on the next run, which minted a new widget id — and the selection just made was
+recorded against the old one and discarded. Winfield → GOP worked, GOP → Knights
+silently did not. Pre-existing.
+
+*Then navigation moved the league.* Giving the widget its key fixed the above and
+broke something the keyless version had got right, which is presumably why it was
+written that way: **Streamlit discards a widget's state when you open a page that
+has not rendered it.** Correcting the key only when the remembered value was
+*invalid* therefore fixed nothing — on navigation the value is perfectly valid,
+nothing touches the key, and the widget falls back to its first option. Opening the
+Draft Board from the Store Overview moved you from Winfield_Football to
+GOP_Degenerates, and it took instrumenting the function to see it: session state
+read `winfield_football` on the line above the widget that returned
+`gop_degenerates`.
+
+The fix is both halves — the widget owns its key, *and* that key is re-written on
+every run whether or not it needed correcting, which is Streamlit's documented
+"keep" pattern. `tests/test_header_selection.py` pins both against a stubbed
+Streamlit, because the suite has to run with no store on disk.
 
 **Streamlit reads paired `$` as LaTeX.** The cash caption rendered as green
 monospace maths. Every dollar amount in a caption, markdown block or `help=` string
