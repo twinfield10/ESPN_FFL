@@ -2,7 +2,8 @@
 
 **Priority:** High (seasonal) · **Effort:** Large · **Status:** **Board done
 2026-08-07, model columns added 2026-08-14, split into three tabs 2026-08-14,
-keeper handling and the cash lens 2026-08-17**; Live not started; History unblocked
+keeper handling and the cash lens 2026-08-17, spanners and the ESPN comparison
+2026-08-17, Calibration tab 2026-08-17**; Live not started; History unblocked
 **Depends on:** [07 (foundation)](07-frontend-foundation.md), and the draft
 phases in [`../STATE_OF_THE_REPO.md`](../STATE_OF_THE_REPO.md#roadmap--draft-strategy)
 
@@ -35,6 +36,28 @@ What is still open:
   board builder touches today. Note the model is deliberately **not** a fourth input
   to this interval: it projects an expected value where the other sources project a
   healthy season, and mixing the two widened the median interval from 8.5% to 24.0%.
+- **The auction price level does not account for team count, and wants a plan of its
+  own.** Deliberately left alone on 2026-08-17 — it is a question about what a
+  valuation *means* rather than about how the table reads, and it kept dragging the
+  frontend work sideways. `at_budget` scales ESPN's published `auctionValueAverage`
+  by the budget ratio (`budget / 200`) and nothing else, so the market total lands
+  wrong in both directions:
+
+  | league | money on the table | ESPN's rescaled total | |
+  |---|---|---|---|
+  | GOP Degenerates, 16 × \$250 | \$4,000 | \$2,544 | understated 1.57× |
+  | Winfield Football, 6 × \$200 | \$1,200 | \$1,902 | overstated 0.63× |
+
+  The [auction budget](#the-auction-budget) section above reasons explicitly about
+  "the \$2,000 a ten-team \$200 auction puts on the table" and then never uses the
+  count. The obvious fix is to scale ESPN's values so they sum to `teams × budget`,
+  which touches the side that is actually wrong and leaves `Draft Metric | Us`
+  budget-relative — but it moves that column and its Δ in all nine leagues, so it
+  belongs with a decision about the whole cash lens rather than in a table-layout
+  change. Two things to settle when it is picked up: a real auction leaves a few
+  dollars unspent (ESPN's own values sum to ~94% of its assumed pool), and
+  `our_dollars` has no cap at one team's budget — it never binds on real data, where
+  the top of a \$250 board is \$145, but the construction permits it.
 
 ## The three tabs, 2026-08-14
 
@@ -48,6 +71,7 @@ was the one you had to scroll past two charts to reach.
 | **Board** (default) | the working surface | search, the four filters, the auction budget, the table, and the column caveats |
 | **Values** | where the room is wrong | *Falling past their price*, with its own position filter and a depth slider |
 | **League** | what does not change during a draft | toplines, the positional cliff, the tier runway, owner tendencies, acquisition history |
+| **Calibration** (added 2026-08-17) | whether the numbers the other three stand on are believable | our projection against ESPN's, faceted by position, with the biggest disagreements named |
 
 **Board now sorts by VOR, not by value.** Value-first was right when the page was
 one surface — it is the thing a board can tell you that the room cannot, and the
@@ -211,12 +235,169 @@ were Brenton Strange, Dalton Schultz and Juwan Johnson — backup tight ends wit
 Under Cash the same board leads with Jeremiah Love (+$71), Bijan Robinson (+$67)
 and Jahmyr Gibbs (+$65).
 
+### Spanners, and ESPN's opinion beside ours, 2026-08-17
+
+Twenty-four flat columns, several of them the same quantity computed by different
+people — `Proj` was the blend, `USG` the model, `ADP` and `$` the market — with
+nothing on screen grouping them, so the comparison the table exists for had to be
+done in the reader's head. The table now has **seven spanner groups**: identity,
+then four comparisons of our number against ESPN's (points, overall rank, positional
+rank, and the draft's own currency), then what it costs to keep a player, then what
+is wrong with him.
+
+**ESPN's half of three of those four comparisons was already on every stored board
+and shown nowhere.** `espn_draft_rank` — ESPN's published draft ranking, dense 1..N
+with no ties and populated for every row — was parsed by `adp.py` and referenced
+nowhere else in the repo. `ESPN_Points`, ESPN's line scored in *this league's* rules,
+was computed for the coverage report and never displayed. Only the positional rank
+had to be derived, and it is a rank of a rank: `espn_draft_rank` re-ranked within
+position, so it is ESPN's own ordering of the position rather than a re-ranking of
+its projections. The two ESPN quantities stay in their own lanes deliberately — points
+against points, a draft ranking against our draft ranking — because a difference that
+moves when either the projection *or* the ranking method changes gives no way to see
+which moved.
+
+Four decisions worth recording:
+
+- **One record per column, replacing three parallel structures.** `DISPLAY_COLUMNS`
+  here, `COLUMN_GLOSSARY` there and `column_config` in the page had to be kept in step
+  by a test; `dv.COLUMNS` makes that true by construction. The page's copy could not
+  be tested at all — Streamlit ignores config for a column a frame does not carry, so
+  a stale label stopped formatting in silence.
+- **`column_config` is keyed by integer position, not by name.** The leaf headers
+  repeat by design: `ESPN`, `Us` and `Δ` each appear in several groups. A name-keyed
+  config applies one format to all of them.
+- **Every difference is oriented the same way** — positive means we are higher on the
+  player than ESPN is; points ours-minus-theirs, ranks theirs-minus-ours. That is what
+  lets one colour scale serve all six difference columns, and it is the convention
+  `value` had already set.
+- **`vor_rank` appears twice in a snake league**, under `Ranks` and under
+  `Draft Metric`. Both comparisons want the same our-number and each group is meant to
+  read standalone. Two aliases of one source is legal; the alternative was a
+  cross-reference.
+
+**Colour, on the differences only.** The six difference columns diverge around zero --
+zero means we and ESPN agree -- with two fill steps per arm and bold. Thresholds are
+scaled per column to its own 90th percentile of |Δ|, because the units are not shared:
+points differences run in tens, rank differences in hundreds, cash in single dollars.
+Measured on the *unfiltered* board, so a colour does not move when a filter does.
+
+The raw points, ranks and prices were shaded too for about an hour, against the pool
+rather than against zero, and it was removed on sight. Seventeen shaded columns read as
+a heatmap: the columns carrying an opinion stopped being the ones that caught your eye,
+which is the entire job of the fill. The levels are the context you read a difference
+against, and context does not need paint. The machinery went with the decision rather
+than staying as an unused mode.
+
+### The news mark and the keeper comparison, same day
+
+Two follow-ups from reading the built table.
+
+**`Notes` became `News`, a one-icon column you click to read.** The note is
+a sentence; a column wide enough for one costs ~400px of 1,440 and truncated mid-clause
+anyway. So the cell carries a mark and the sentence renders under the table, with the
+player's status and estimated return beside it.
+
+*Clicking*, not hovering, and that is a platform limit rather than a choice.
+**Streamlit's grid has no per-cell tooltip** — `help=` on a column config is the
+*header* tooltip, and hovering a truncated cell produces nothing. Checked in the
+browser, because the obvious design here is an icon you hover and it does not exist.
+
+**The mark is a `st.column_config.ButtonColumn`, and the first attempt was row
+selection.** Row selection works, and it is worse in exactly the way it sounds:
+enabling `on_select` adds a checkbox column at the far left of a 26-column table, and
+the grid does not select on a plain cell click — so the thing you press ends up nowhere
+near the thing you are asking about. A button column makes the cell value the button's
+label, so the mark itself is the target. `key=` is what enables the click at all; a
+button column without one renders as inert buttons.
+
+Two things the click has to survive. The row number it reports is a position in the
+*sorted, filtered* frame, so it is resolved to a `player_id` immediately — held as a row
+index it would name a different player the moment the sort changed, silently. And
+Streamlit clears the click value on the *next* rerun, so a note read straight off it
+would vanish the first time anything else on the page moved. `remember_note_click`
+resolves and remembers; clicking the open player's mark again closes the panel, which is
+the only dismissal available without a second control. Scoped per league and per table:
+two widgets cannot share a key, and a note carried across a league change would point at
+a player the new board may not hold.
+
+**`Keepers | Value` now measures against our valuation, not ESPN's** -- what decides
+whether to keep a player is whether *we* rate him that highly; the room's price is a
+fact about other people's money. Both sides are in this league's real dollars: the
+keeper price is what the holder actually paid, ours is what we would spend of the same
+budget.
+
+**A normalisation was attempted here and reverted, which is worth recording because the
+reasoning was wrong in an instructive way.** Our dollars sit above ESPN's for most
+players inside the money -- we allocate the whole budget across the ~106 worth rostering
+where the market spreads it over the ~313 it prices -- so `cash_delta` came out positive
+for 89% of the priced pool and the keeper surplus for 68% of held players. Scaling our
+side onto the market's price level fixed that (56% and 42%) and it was the wrong fix: it
+destroyed the only property that makes the column actionable. **`Draft Metric | Us` is a
+bid you read off and make**, denominated in the budget you actually have; the top of a
+$250 board is $145 of $250. A tidier difference is not worth a valuation you cannot act
+on.
+
+The residual is not an artefact either. It is our valuation talking: if you believe the
+model, the players inside the money genuinely are underpriced by a room that spends a
+third of its money on depth. So the difference is read as an *ordering* -- who the room
+is most wrong about -- and the glossary says so rather than implying each row is a
+verdict.
+
+### Five bugs this turned up
+
+**`column_config`'s numerical positions count the hidden index.** Streamlit numbers
+every column it was handed, index first, and matches `_pos:N` against that;
+`hide_index=True` hides the index without renumbering what follows. Off by one is not
+a crash — every column silently wears its neighbour's format. It showed as `Tier`
+rendering `1.0`, `Ranks | Us` rendering `+1`, `VOR` losing its decimal, and the
+identity block splitting across the frozen boundary because the fifth pin landed on
+the sixth column. Only found by screenshotting the running app.
+
+**Streamlit prints the word "None" for a missing cell, and it takes two fixes.** The
+default placeholder is the literal string, so `Exp Return` asserted "None" on 998 of
+1,026 rows and every unpriced player's `Δ` did the same — columns whose blank means
+*nobody published a number*. The two column kinds need different halves, which is why
+fixing one looked like fixing it:
+
+- **Text**: `st.dataframe(placeholder="")` covers it, but a Styler also ships display
+  strings and Streamlit prefers those where `column_config` has no format of its own —
+  which is every text column. Pandas renders a missing value with `str` by default, so
+  `Styler.format(na_rep="")` is required as well.
+- **Number**: its Styler display string is deliberately *ignored* in favour of
+  `column_config`'s format, so only `placeholder=""` reaches it.
+
+The frame keeps its nulls either way. Filling them would make a free agent's keeper
+price a real `0`, and the blank there means nobody holds him.
+
+**The glossary described the auction league's `Δ` twice.** The two `Draft Metric`
+variants share their three headers, so scoping the glossary on `(group, label)` alone
+matched both — a dollar difference and an ADP rank difference under one heading, with
+no way to tell which the column above was. The lens is now passed, not inferred.
+
+**An all-null `injury_status` took the page down.** `replace_strict` against a Null
+dtype column tries to cast the map's string values into it and raises. A board where
+ESPN returned no status at all is not hypothetical — it is what an artifact built
+before the field existed looks like.
+
+**Not colour-coded by tier, still.** Eight ordinal steps cannot be given separable
+lightness; that decision from the original build stands and is now recorded in the
+`Tier` glossary entry rather than only in this document.
+
 ### The glossary, 2026-08-17
 
 Twenty-four columns, several of which are computed three different ways from three
 different places, and the only account of any of them was a `help=` tooltip you had
 to know to hover. **Glossary — Where Every Column Comes From** sits under both
 tables as an expander, and gives each column a source and a one-line derivation.
+
+*Superseded the same day by the section above: it now carries a fourth column, `What
+It Does Not Say`, and is split by spanner group. The separate "What Is Missing From
+These Columns, and Why" expander is gone — its per-column caveats moved into that
+fourth cell, and only what is not about a column (the shape of the pool, what the
+artifact as a whole cannot answer) stayed as prose beneath the table. Two accounts of
+the same twenty-odd columns was one too many, and a caveat is only useful next to the
+column it is about.*
 
 Two decisions worth recording:
 
@@ -272,6 +453,132 @@ Streamlit, because the suite has to run with no store on disk.
 **Streamlit reads paired `$` as LaTeX.** The cash caption rendered as green
 monospace maths. Every dollar amount in a caption, markdown block or `help=` string
 is escaped `\$`; the `format="$%.0f"` column specs are printf and are left alone.
+
+## Calibration, 2026-08-17
+
+A tab for the question none of the other three ask: **where do we disagree with
+ESPN, and is that disagreement a player or the model?** `Points | ESPN` and
+`Points | Us` have sat next to each other on the Board since the spanners landed,
+but a 2,500-row table is not how you notice that a whole position is offset.
+
+Both are scored through this league's own rules, so they are directly comparable.
+Everything the tab computes lives in `dv.agreement_frame`, `agreement_outliers`,
+`agreement_summary`, `with_outlier_flag` and `with_label_slots`.
+
+### The scatter had to be faceted, and the palette is why
+
+The obvious form is one scatter coloured by position. It is not available. The
+repo's categorical palette was validated for **adjacent** pairs, which is all a
+line chart or a grouped bar needs — their series sit in a fixed order, so only
+neighbours are ever compared. A scatter is an **all-pairs** form: any two dots can
+land next to each other. Re-running the validator in that mode fails it:
+
+| Pairing | ΔE | Verdict |
+|---|---|---|
+| `#eda100` ↔ `#eb6834` (TE/RB) | 13.7 normal vision | below the floor of 15 |
+| `#008300` ↔ `#eb6834` (D/ST/RB) | 3.2 protanopia | far below 8 |
+
+So: one panel per position, one colour in each. The panel header carries the
+identity and the colour is redundant with it, which is what keeps identity off
+colour alone. No legend — there is one series per panel.
+
+That redundancy also settles what to do when the palette runs out. `POSITION_HUES`
+stops at eight slots and GOP Degenerates starts cornerbacks, so **a position with no
+hue is drawn in muted ink** rather than given a generated ninth colour — which would
+be indistinguishable from an existing one under CVD. Nothing is lost: inside a panel
+the colour distinguishes the position from nothing. The alternative shipped first and
+was wrong — the chart filtered to hued positions while the tables below still scored
+and ranked every position, so 165 startable cornerbacks were in GOP's outlier
+population with no panel to appear in.
+
+The facets turned out to be the honest form anyway, because **the gap is strongly
+position-dependent** and one pooled cloud is six calibration regimes drawn on top of
+each other. On the 2026 Winfield board:
+
+| Pos | n | Mean Δ | Spread |
+|---|---|---|---|
+| QB | 65 | **+27.3** | 29.1 |
+| TE | 98 | +10.1 | 12.9 |
+| WR | 187 | +8.8 | 16.1 |
+| RB | 111 | +5.9 | 17.8 |
+| D/ST | 32 | +2.1 | 3.3 |
+| K | 32 | 0.0 | **0.0** |
+
+Pooled, the quarterbacks read as the model's headline problem and hide every other
+one.
+
+### Two views, because r = 0.982
+
+The scatter that was asked for — ESPN on x, us on y, a 45° line — is the default and
+is the right entry point. It is also nearly useless for spotting outliers on its own:
+the two columns correlate at **0.982** over a 0–360 range with a residual spread of
+~18, so every disagreement is squeezed onto the diagonal. *Disagreement* plots the
+gap itself against the midpoint of the two, with a solid rule at zero and a dashed
+one at the position's own mean. The distance between those two rules is the
+systematic half of the disagreement; the scatter around the dashed rule is the
+per-player half. Which of the two dominates is the whole question.
+
+### Scored within position, over what is currently shown
+
+`agreement_z` is a z-score of the gap **within position**, measured over the frame
+the filters produced rather than over the whole board. Both halves are load-bearing,
+and the second is the one that looks wrong until you measure it. Narrowed to the
+200 players the market actually prices, the direction of the bias **flips**:
+
+| Pos | Mean Δ, whole pool | Mean Δ, priced only |
+|---|---|---|
+| WR | +8.8 | **−3.4** |
+| RB | +5.9 | **−4.9** |
+| TE | +10.1 | **−2.1** |
+
+"We project above ESPN" is almost entirely deep players nobody drafts. Scored
+against the full board, every priced receiver would read as a negative outlier for
+the sole reason that it belongs to the priced half — so the *Market-Priced Only*
+toggle changes the answer, not the view, and its help text says so.
+
+### Two floors, and the kickers that forced the first one
+
+A position gets no score at all when its disagreement has under `AGREEMENT_MIN_SD`
+(0.5) of spread, or fewer than `AGREEMENT_MIN_PLAYERS` (8) rows left after the
+filters. The first floor is not defensive coding. **No source but ESPN projects a
+kicker**, so `TRUE_Points` for a K *is* `ESPN_Points`: every delta is float dust
+around 1e-14 and the standard deviation is 7e-15. Dividing by it ranked Wil Lutz
+and Andre Szmyt as the board's two biggest disagreements on a delta of
+−0.00000000000003. They are now reported as unscorable, which is the true answer,
+and the summary table says `Scored: no` rather than leaving a blank that would read
+as agreement.
+
+The floor turned out to cover more than kickers: **no source but ESPN projects any
+IDP position either**, so GOP's 165 cornerbacks and 124 linebackers are float dust
+on the same scale and are reported the same way.
+
+### Labels: staggered by the mark's vertical order, not by rank
+
+Vega-Lite has no collision solver for point labels, and three flagged marks in one
+panel are routinely on top of each other — the three flagged quarterbacks are deep
+backups within 15 points of each other. One text layer per slot at a fixed vertical
+offset fixes it, but **the slot has to be the mark's own y-order, not its rank by
+|z|**. By rank the offsets ran against the marks' spread — the lowest mark's label
+pushed up, the highest one's pushed down — and the three tight ends still landed on
+one line. Ordered by the y field, the marks' spread adds to the offsets instead.
+Since the two views put different columns on y, the slot cannot be decided when the
+flag is, which is `with_label_slots`' whole reason to exist separately.
+
+One consequence worth knowing: Vega-Lite will not facet a layered spec whose layers
+carry different data, so the highlighted marks are a `transform_filter` over one
+flagged dataset rather than a second frame drawn on top.
+
+### What the tab does not claim
+
+- **These are not two independent forecasts.** ESPN is one of the three equal thirds
+  inside `Us`. The gap is damped by construction and reads as *how far the blend
+  moved off ESPN*.
+- **Nothing here is scored against outcomes.** A big gap says the sources disagree,
+  not who is right. Grading needs finished seasons projected in advance, which the
+  store does not hold — see [25 (results backfill)](25-results-backfill.md).
+- **`USG_Points` is deliberately absent.** It prices availability where the other two
+  assume a healthy 17 games; subtracting mixes two quantities, which is the same
+  reason it has no Δ on the Board tab.
 
 ## The model columns, added 2026-08-14
 

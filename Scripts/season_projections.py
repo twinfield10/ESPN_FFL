@@ -683,8 +683,11 @@ def load_espn_injuries(season: int) -> pd.DataFrame:
         season: Season year.
 
     Returns:
-        pd.DataFrame: ``name_key``, ``status``, ``return_date``. Empty when absent --
-        a missing pull degrades to the status-only fallback rather than failing.
+        pd.DataFrame: every column the scraper writes, of which three are read
+        downstream -- ``name_key``, ``return_date`` (the availability scaling, see
+        :func:`_apply_injury_adjustment`) and ``comment`` (the note the board shows,
+        see :func:`_attach_injury_report`). Empty when absent -- a missing pull
+        degrades to the status-only fallback rather than failing.
     """
     from Scripts.scrape_espn_injuries import injuries_path
 
@@ -692,7 +695,9 @@ def load_espn_injuries(season: int) -> pd.DataFrame:
     if not path.exists():
         print(f"  ESPN injuries not pulled for {season}; falling back to fantasy "
               f"status alone. Run `python -m Scripts.scrape_espn_injuries`.")
-        return pd.DataFrame(columns=["name_key", "status", "return_date"])
+        # Named so a caller reading a column off an empty frame gets an empty
+        # column rather than a KeyError.
+        return pd.DataFrame(columns=["name_key", "status", "return_date", "comment"])
     frame = pd.read_parquet(path)
     return frame.dropna(subset=["name_key"]).drop_duplicates("name_key")
 
@@ -817,6 +822,57 @@ def _apply_injury_adjustment(base: pd.DataFrame, season: int) -> pd.DataFrame:
         print(f"  Usage: injury-adjusted {int(scaled.sum())} player(s) "
               f"({int(withdrawn.sum())} withdrawn outright, "
               f"{int(unknown_and_out.sum())} of those on fantasy status alone).")
+    return base
+
+
+def _attach_injury_report(base: pd.DataFrame, season: int) -> pd.DataFrame:
+    """Carry the injury report's return date and news blurb onto the frame.
+
+    Separate from :func:`_apply_injury_adjustment`, which reads the same file, because
+    the two do unrelated things: that one *scales a projection* and this one *carries
+    two fields through for display*. Folding them together would mean a function whose
+    return value nobody could describe in a sentence.
+
+    Both columns were already being read off disk daily and thrown away. The board's
+    ``Exp G`` is derived from ``return_date`` but does not show it, so a player showing
+    13.2 expected games gave no way to ask *back when?*; and ``comment`` is ESPN's own
+    one-line account of the injury, which is the only player news this repo has at all.
+
+    ``comment`` is populated for every row the report carries (800 of a ~2,500 player
+    pool in 2026) while ``return_date`` is set for ~116 -- ESPN publishes a date only
+    where it has an estimate, so a blank means "no estimate", not "no injury".
+
+    Args:
+        base: The merged frame, carrying ``join_key``.
+        season: Season being projected.
+
+    Returns:
+        pd.DataFrame: ``base`` with ``injury_return_date`` and ``injury_note`` added,
+        both null where the report says nothing about the player.
+    """
+    base["injury_return_date"] = pd.Series(pd.NaT, index=base.index,
+                                           dtype="datetime64[ns]")
+    base["injury_note"] = pd.Series(None, index=base.index, dtype="object")
+
+    report = load_espn_injuries(season)
+    if report.empty or "join_key" not in base.columns:
+        return base
+
+    indexed = report.set_index("name_key")
+    for column, field in (("injury_return_date", "return_date"),
+                          ("injury_note", "comment")):
+        if field in indexed.columns:
+            base[column] = base["join_key"].map(indexed[field].to_dict())
+
+    # `.map` over a column of `datetime.date` yields object dtype, which parquet
+    # writes as a string and the board would then have to parse back. Stated here
+    # so the column arrives typed rather than being coerced three layers later.
+    base["injury_return_date"] = pd.to_datetime(base["injury_return_date"],
+                                                errors="coerce")
+
+    noted = int(base["injury_note"].notna().sum())
+    dated = int(base["injury_return_date"].notna().sum())
+    print(f"  Injuries: {noted} player(s) carry a note, {dated} an estimated return.")
     return base
 
 
@@ -1002,6 +1058,8 @@ def build_season_projections(league, season: Optional[int] = None,
         base = _merge_usage(base, usage)
 
     base = _apply_injury_adjustment(base, season)
+    # Must precede the `join_key` drop below -- both functions join on it.
+    base = _attach_injury_report(base, season)
 
     base = base.drop(columns=["join_key"], errors="ignore")
 

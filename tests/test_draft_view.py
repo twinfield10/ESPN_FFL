@@ -7,6 +7,7 @@ store on disk -- the boards are synthesised to the shape ``build_board`` returns
 
 import re
 import sys
+from datetime import date
 from pathlib import Path
 
 import polars as pl
@@ -30,6 +31,12 @@ def _board(rows):
         "replacement_rank": 30, "tier": 1.0, "vor": 10.0, "value": 5.0,
         "adp": 20.0, "bye_week": 6.0, "floor": 90.0, "ceiling": 110.0,
         "injury_status": "ACTIVE", "auction_value_filled": 20.0, "vor_rank": 1.0,
+        # ESPN's half of the four comparison groups, and the differences against it.
+        # All from `build_board` -- see Scripts.draft.board._attach_espn_comparison.
+        "ESPN_Points": 95.0, "espn_draft_rank": 3, "espn_pos_rank": 2.0,
+        "points_delta": 5.0, "rank_delta": 2.0, "pos_rank_delta": 1.0,
+        # The injury report's own two columns, joined onto the board at build time.
+        "injury_return_date": None, "injury_note": None,
     }
     return pl.DataFrame([{**defaults, **row} for row in rows])
 
@@ -294,48 +301,134 @@ def test_value_targets_can_include_players_the_rosters_claim():
         == ["Carried", "Free"]
 
 
+# --- the column spec table -------------------------------------------------
+#
+# The old pair of tests here asserted that `DISPLAY_COLUMNS` and `COLUMN_GLOSSARY`
+# agreed in both directions. There is now one record per column carrying both, so
+# that particular drift is structurally impossible and there is nothing left to
+# assert about it. What can still go wrong is a record that is *incomplete*, which is
+# what these check instead.
+
+def test_every_column_carries_its_own_documentation():
+    """A column with no account of where it came from is a number the reader has to
+    guess at. Enforced on the record rather than across two collections, because
+    there is only one collection now."""
+    for column in dv.COLUMNS:
+        assert column.source and column.group and column.label, column
+        assert column.kind in ("text", "number", "button"), column
+        assert column.source_of, column.label
+        assert column.how, column.label
+
+
+def test_a_number_column_has_a_format_and_a_text_column_does_not():
+    """`st.column_config.TextColumn` takes no `format=`, so a text spec carrying one
+    is a TypeError at render time and not before."""
+    for column in dv.COLUMNS:
+        if column.kind == "number":
+            assert column.fmt, column.label
+        else:
+            assert column.fmt is None, column.label
+
+
+def test_every_difference_column_is_emphasised_and_signed():
+    """The colour scale and the bolding both key off `emphasis`, and the printed sign
+    is what makes the scale readable without telling green from red — so a Δ column
+    that lost its `%+` format would silently drop the second channel."""
+    for column in dv.COLUMNS:
+        if column.label.startswith("Δ") or (column.group == "Keepers"
+                                            and column.label == "Value"):
+            assert column.emphasis, column.label
+            assert column.fmt.startswith("%+"), (column.group, column.label, column.fmt)
+
+
+def test_no_two_specs_claim_the_same_header_in_the_same_lens():
+    """The labels repeat across groups on purpose — that is what the spanners are
+    for — but two specs under one `(group, label)` in one lens would render as
+    duplicate columns and make the positional config ambiguous."""
+    for lens in (dv.VALUE_LENS_ADP, dv.VALUE_LENS_CASH):
+        keys = [(c.group, c.label) for c in dv.COLUMNS if c.lens in ("", lens)]
+        assert len(keys) == len(set(keys)), lens
+
+
+def test_the_identity_block_is_the_frozen_one():
+    """Freezing is what makes 26 columns scrollable — lose the player's name off the
+    left edge and the row stops being about anybody."""
+    pinned = [(c.group, c.label) for c in dv.COLUMNS if c.pinned]
+    assert pinned == [("Player Info", label)
+                      for label in ("Player", "Pos", "NFL", "Bye", "Tier")]
+
+
 # --- the glossary ---------------------------------------------------------
-
-def test_every_column_the_table_shows_is_in_the_glossary():
-    """A column added to the table and not the glossary is a silent gap — the
-    reader gets a number with no account of where it came from."""
-    shown = {label for _, label in dv.DISPLAY_COLUMNS}
-    assert shown - set(dv.COLUMN_GLOSSARY) == set()
-
-
-def test_the_glossary_describes_no_column_that_does_not_exist():
-    """The other direction, which nobody would ever notice: an entry for a column
-    that has been removed is documentation of something that is not there."""
-    shown = {label for _, label in dv.DISPLAY_COLUMNS}
-    assert set(dv.COLUMN_GLOSSARY) - shown == set()
-
 
 def test_the_glossary_is_scoped_to_the_columns_actually_rendered():
     """A redraft league must not be told about keeper prices it does not have."""
-    md = dv.glossary_markdown(["Player", "VOR"])
+    md = dv.glossary_markdown([("Player Info", "Player"), ("Points", "VOR")])
     assert "**Player**" in md and "**VOR**" in md
     assert "Keeper" not in md and "USG" not in md
 
 
 def test_the_glossary_keeps_the_tables_column_order():
-    md = dv.glossary_markdown(["VOR", "Player", "ADP"])
-    assert md.index("**Player**") < md.index("**VOR**") < md.index("**ADP**")
+    md = dv.glossary_markdown([("Points", "VOR"), ("Player Info", "Player"),
+                               ("Draft Metric", "ESPN")])
+    assert md.index("**Player**") < md.index("**VOR**") < md.index("**ESPN**")
+
+
+def test_the_glossary_groups_by_spanner():
+    """It reads in the same shape as the table it sits under, which is the whole
+    reason to split it — `ESPN` means a different number in each group."""
+    md = dv.glossary_markdown([("Player Info", "Player"), ("Ranks", "ESPN")])
+    assert md.index("**Player Info**") < md.index("**Player**")
+    assert md.index("**Ranks**") < md.index("**ESPN**")
+    assert "**Points**" not in md
+
+
+def test_the_glossary_has_exactly_one_row_per_rendered_column():
+    """The two Draft Metric variants share their three headers, so selecting on
+    `(group, label)` alone matched both: an auction league's glossary described its `Δ`
+    twice, once as a dollar difference and once as an ADP rank difference, with no way
+    to tell which the column above it was."""
+    for lens in (dv.VALUE_LENS_ADP, dv.VALUE_LENS_CASH):
+        frame = dv.display_frame(_board([{}]), lens)
+        md = dv.glossary_markdown(frame.columns, lens)
+        assert md.count("\n| **") == frame.shape[1], (lens, md.count("\n| **"),
+                                                      frame.shape[1])
+
+
+def test_the_glossary_describes_the_lens_that_is_on_screen():
+    adp = dv.glossary_markdown([("Draft Metric", "ESPN")], dv.VALUE_LENS_ADP)
+    cash = dv.glossary_markdown([("Draft Metric", "ESPN")], dv.VALUE_LENS_CASH)
+    assert "averageDraftPosition" in adp and "auctionValueAverage" not in adp
+    assert "auctionValueAverage" in cash and "averageDraftPosition" not in cash
+
+
+def test_a_column_with_no_caveat_still_gets_a_cell():
+    """An empty fourth cell would read as a missing row rather than as nothing to
+    warn about."""
+    md = dv.glossary_markdown([("Player Info", "Player")])
+    assert md.rstrip().endswith("| — |")
 
 
 def test_dollar_amounts_are_escaped_so_streamlit_does_not_read_them_as_maths():
     """Paired `$` is LaTeX to Streamlit, and a glossary about auction values is
     full of them — unescaped, the middle of the table renders as equations."""
-    md = dv.glossary_markdown(["$", "Our $", "Keeper $"])
+    md = dv.glossary_markdown([("Draft Metric", "ESPN"), ("Draft Metric", "Us"),
+                               ("Keepers", "Price")])
     assert "$" in md and r"\$" in md
     assert not re.search(r"(?<!\\)\$", md)
 
 
-def test_the_glossary_renders_a_markdown_table():
-    md = dv.glossary_markdown(["Player"])
+def test_the_whole_glossary_escapes_every_dollar():
+    for lens in (dv.VALUE_LENS_ADP, dv.VALUE_LENS_CASH):
+        assert not re.search(r"(?<!\\)\$", dv.glossary_markdown(lens=lens)), lens
+
+
+def test_the_glossary_renders_a_four_column_markdown_table():
+    md = dv.glossary_markdown([("Player Info", "Player")])
     lines = md.split("\n")
-    assert lines[0].startswith("| Column | Source |")
-    assert lines[1] == "|---|---|---|"
-    assert lines[2].count("|") == 4
+    assert lines[0] == "**Player Info**"
+    assert lines[2].startswith("| Column | Source |")
+    assert lines[3] == "|---|---|---|---|"
+    assert lines[4].count("|") == 5
 
 
 # --- the cash lens --------------------------------------------------------
@@ -462,29 +555,120 @@ def test_a_board_without_the_roster_column_falls_back_to_the_price():
     assert dv.with_keeper_price(board, 2)["keeper_price"].to_list() == [None, 12.0]
 
 
-def test_the_surplus_is_the_market_price_less_what_keeping_costs():
-    """Both sides in the same currency: the keeper price is already in league
-    dollars, the market value is not until at_budget has run."""
-    board = dv.at_budget(_board([{"auction_value_filled": 80.0, "keeper_value": 40,
-                                  "on_team_id": 7}]),
-                         250)                       # 80/200 * 250 = $100 market
+#: A meta with enough shape for `with_cash_value` to price a pool.
+CASH_META = {"team_count": 10, "roster_slots": {"RB": 2, "BE": 4},
+             "starting_roster_slots": {"RB": 2}}
+
+
+def _priced(rows, budget=250):
+    """A board through the money chain, in the order the page runs it."""
+    board = dv.at_budget(_board(rows), budget)
+    return dv.with_cash_value(board, CASH_META, budget)
+
+
+def test_the_surplus_is_our_valuation_less_what_keeping_costs():
+    """**Our** valuation, not ESPN's, and that is the point of the column: what decides
+    whether to keep a player is whether *we* rate him that highly. The room's price is
+    a fact about other people's money."""
+    board = _priced([{"keeper_value": 40, "on_team_id": 7}])
     out = dv.with_keeper_price(board, 2)
-    assert out["keeper_surplus"].to_list() == [60.0]
+
+    ours = out["our_dollars"].to_list()[0]
+    assert ours is not None, "the fixture has to be inside the money"
+    assert out["keeper_surplus"].to_list() == [ours - 40.0]
 
 
-def test_the_surplus_is_blank_where_the_market_has_no_price():
-    board = dv.at_budget(_board([{"keeper_value": 40}]).with_columns(
-        pl.lit(None, dtype=pl.Float64).alias("auction_value_filled")), 250)
+def test_our_dollars_are_denominated_in_the_budget():
+    """The whole point of the column: the number is what to spend out of the money you
+    actually have, so it never allocates more than the room has. Scaling it onto the
+    market's price level was tried and reverted — it made the difference beside it
+    tidier and destroyed the only property that makes the column actionable."""
+    board = _priced([{"player_name": f"P{i}", "vor": float(50 - i)}
+                     for i in range(20)])
+    on_the_table = CASH_META["team_count"] * 250
+    total = board["our_dollars"].sum()
+    assert total <= on_the_table
+    # The shortfall is the $1 floor on the roster spots this shallow pool cannot fill,
+    # which is money the room would spend and our pool has nobody to spend it on.
+    assert total > on_the_table - dv.draftable_spots(CASH_META) * dv.MIN_BID
+
+
+def test_every_priced_player_clears_the_minimum_bid():
+    board = _priced([{"player_name": f"P{i}", "vor": float(50 - i)}
+                     for i in range(20)])
+    assert board["our_dollars"].drop_nulls().min() >= dv.MIN_BID
+
+
+def test_the_allocation_follows_our_own_ordering():
+    """Who we rate above whom is what the dollars encode — nothing else touches it."""
+    board = _priced([{"player_name": f"P{i}", "vor": float(50 - i)}
+                     for i in range(20)])
+    ours = board.sort("vor", descending=True)["our_dollars"].drop_nulls().to_list()
+    assert ours == sorted(ours, reverse=True)
+
+
+def test_the_cash_difference_reflects_our_rating_not_the_market_s_level():
+    """Two players the market prices identically: the one we rate higher reads more
+    positive. That ordering is what the column is for — it runs positive for most
+    players inside the money, because we allocate the whole budget across the players
+    worth rostering while the market spreads it over three times as many."""
+    board = _priced([
+        {"player_name": "We Like", "vor": 90.0, "auction_value_filled": 40.0},
+        {"player_name": "We Fade", "vor": 10.0, "auction_value_filled": 40.0},
+    ])
+    deltas = dict(zip(board["player_name"].to_list(), board["cash_delta"].to_list()))
+    assert deltas["We Like"] > deltas["We Fade"]
+
+
+def test_a_board_with_no_market_price_still_prices_our_side():
+    """Our valuation does not depend on ESPN's, so it survives a board ESPN never
+    priced. The difference beside it is null, which is honest: no market to differ
+    from."""
+    board = _board([{"keeper_value": 40, "on_team_id": 7}]).with_columns(
+        pl.lit(None, dtype=pl.Float64).alias("auction_value_filled"))
+    out = dv.with_cash_value(dv.at_budget(board, 250), CASH_META, 250)
+
+    raw = dv.MIN_BID + (CASH_META["team_count"] * 250
+                        - dv.draftable_spots(CASH_META) * dv.MIN_BID)
+    assert out["our_dollars"].to_list() == [float(raw)]   # the whole pool, unscaled
+    assert out["cash_delta"].to_list() == [None]
+
+
+def test_the_surplus_is_blank_where_we_publish_no_valuation():
+    """`our_dollars` is null outside the money and for the streamed positions, so the
+    surplus is blank there rather than claiming a bargain we cannot price. The old
+    market-based version could always produce a number, because ESPN prices everybody.
+    """
+    # A real back alongside the kicker, so there is a pool to price at all -- with
+    # only streamed players `with_cash_value` has no positive VOR to split and bails.
+    board = _priced([
+        {"player_name": "Back", "keeper_value": 40, "on_team_id": 7},
+        {"player_name": "Kicker", "primaryPosition": "K", "is_streamed": True,
+         "keeper_value": 40, "on_team_id": 7},
+    ])
     out = dv.with_keeper_price(board, 2)
-    assert out["keeper_surplus"].to_list() == [None]
+    assert out["our_dollars"].to_list()[1] is None
+    assert out["keeper_surplus"].to_list()[1] is None
+    assert out["keeper_surplus"].to_list()[0] is not None
 
 
-def test_the_keeper_columns_sit_with_the_market_block():
-    frame = dv.display_frame(dv.with_keeper_price(
-        dv.at_budget(_board([{"keeper_value": 40}]), 250), 2))
-    order = frame.columns
-    assert order.index("$") < order.index("Keeper $") < order.index("Keeper +/-")
-    assert order.index("Keeper +/-") < order.index("Injury")
+def test_there_is_no_surplus_column_before_the_cash_value_is_computed():
+    """`display_frame` then drops it, as it does for anything else the board cannot
+    support — rather than the page raising on a column that was never made."""
+    out = dv.with_keeper_price(dv.at_budget(_board([{"keeper_value": 40}]), 250), 2)
+    assert "keeper_surplus" not in out.columns
+    assert "keeper_price" in out.columns
+
+
+def test_the_keeper_columns_get_their_own_spanner():
+    frame = dv.display_frame(dv.with_injury_code(dv.with_keeper_price(
+        _priced([{"keeper_value": 40, "on_team_id": 7}]), 2)),
+        dv.VALUE_LENS_CASH)
+    order = list(frame.columns)
+    assert order.index(("Keepers", "Price")) < order.index(("Keepers", "Value"))
+    # After the money it is differenced against, and before the status block.
+    assert order.index(("Draft Metric", "ESPN")) < order.index(("Keepers", "Price"))
+    assert order.index(("Keepers", "Owner")) < order.index(("Notes", "Injury"))
 
 
 # --- the auction budget ---------------------------------------------------
@@ -525,8 +709,9 @@ def test_the_default_budget_leaves_the_share_alone_and_scales_the_dollars():
 
 def test_the_dollar_column_reads_the_rescaled_value_not_the_stored_one():
     frame = dv.display_frame(dv.at_budget(_board([{"auction_value_filled": 20.0}]),
-                                          400))
-    assert frame["$"].to_list() == [40.0]
+                                          400),
+                             dv.VALUE_LENS_CASH)
+    assert frame[("Draft Metric", "ESPN")].to_list() == [40.0]
 
 
 def test_a_board_with_no_auction_column_is_returned_untouched():
@@ -605,17 +790,415 @@ def test_value_targets_are_sorted_by_how_far_they_fall():
     assert dv.value_targets(board)["player_name"].to_list() == ["Big", "Small"]
 
 
+# --- the injury column ----------------------------------------------------
+
+@pytest.mark.parametrize("status,code", [
+    ("ACTIVE", "A"), ("QUESTIONABLE", "Q"), ("OUT", "O"),
+    ("INJURY_RESERVE", "IR"), ("SUSPENSION", "SUS"), ("DOUBTFUL", "D"),
+])
+def test_the_injury_status_is_abbreviated(status, code):
+    board = dv.with_injury_code(_board([{"injury_status": status}]))
+    assert board["injury_code"].to_list() == [code]
+
+
+def test_an_unknown_status_is_shown_in_full_rather_than_mangled():
+    """ESPN's enum is not published and this repo has observed five of it.
+    Abbreviating an unseen sixth to its first letter would collide with a real code —
+    a hypothetical `TRADED` would render as the `T` nothing else uses — and blanking
+    it would hide the player's status entirely. Ugly and correct beats tidy and wrong.
+    """
+    board = dv.with_injury_code(_board([{"injury_status": "PARENTAL_LEAVE"}]))
+    assert board["injury_code"].to_list() == ["PARENTAL_LEAVE"]
+
+
+def test_a_missing_status_stays_missing():
+    board = dv.with_injury_code(_board([{"injury_status": None}]))
+    assert board["injury_code"].to_list() == [None]
+
+
+def test_a_season_ending_return_date_reads_as_a_word_not_a_date():
+    """ESPN encodes "out for the year" as a return date past the end of the season,
+    so the raw value is a real date that means something other than a date. A reader
+    shown `2027-02-15` would have to know the convention to read it."""
+    board = dv.with_injury_code(_board([
+        {"player_name": "Gone", "injury_return_date": date(2027, 2, 15)},
+        {"player_name": "Back", "injury_return_date": date(2026, 10, 5)},
+        {"player_name": "Fine", "injury_return_date": None},
+    ]))
+    assert board["injury_return_date"].to_list() == [dv.RETURN_SEASON_ENDING,
+                                                    "Oct 05", None]
+
+
+def test_encoding_the_injury_twice_does_not_re_read_its_own_output():
+    """The return date is rewritten in place, so a second pass over the same frame
+    would try to parse `Oct 05` as a date. Streamlit reruns this function every
+    render."""
+    once = dv.with_injury_code(_board([{"injury_return_date": date(2026, 10, 5)}]))
+    twice = dv.with_injury_code(once)
+    assert twice["injury_return_date"].to_list() == ["Oct 05"]
+
+
+def test_a_board_carrying_none_of_the_injury_columns_is_returned_untouched():
+    board = _board([{}]).drop(["injury_status", "injury_return_date", "injury_note"])
+    assert dv.with_injury_code(board).columns == board.columns
+
+
+# --- the news mark, and the note behind it --------------------------------
+
+def test_a_player_with_a_note_gets_a_mark_and_one_without_gets_nothing():
+    """The column carries a mark rather than the sentence: a sentence needs 400px,
+    which on a 26-column table is a quarter of the width spent on a cell that
+    truncated mid-clause anyway."""
+    board = dv.with_injury_code(_board([
+        {"player_name": "Hurt", "injury_note": "Nabers (knee) isn't in uniform."},
+        {"player_name": "Fine", "injury_note": None},
+        {"player_name": "Blank", "injury_note": ""},
+    ]))
+    assert board["note_mark"].to_list() == [dv.NOTE_MARK, None, None]
+
+
+def test_the_note_reads_back_with_the_player_it_belongs_to():
+    board = dv.with_injury_code(_board([
+        {"player_name": "Malik Nabers", "primaryPosition": "WR", "pro_team": "NYG",
+         "injury_status": "QUESTIONABLE", "injury_return_date": date(2026, 8, 15),
+         "injury_note": "Nabers (knee) isn't in uniform for Saturday's practice."},
+    ]))
+    note = dv.player_note(board, 0)
+    assert "**Malik Nabers**" in note
+    assert "WR NYG" in note and "Questionable" in note and "back Aug 15" in note
+    assert "isn't in uniform" in note
+
+
+def test_a_player_with_no_note_renders_no_panel():
+    """None rather than an empty panel, so the caller shows nothing instead of a
+    bordered box with a name in it."""
+    board = dv.with_injury_code(_board([{"injury_note": None}]))
+    assert dv.player_note(board, 0) is None
+
+
+def test_an_out_of_range_selection_is_not_an_error():
+    """A selection survives a rerun that shortened the table — filter the board down
+    and the remembered row can point past the end."""
+    board = dv.with_injury_code(_board([{"injury_note": "Something."}]))
+    assert dv.player_note(board, 5) is None
+    assert dv.player_note(board, -1) is None
+
+
+def test_a_click_is_remembered_as_a_player_not_as_a_row():
+    """A row number is a position in the sorted frame on screen: the moment the sort
+    changes it names a different player, silently, which is the worst way to be wrong.
+    Resolving to a player id at click time is what survives a re-sort."""
+    board = dv.with_injury_code(_board([
+        {"player_id": 1, "player_name": "First", "vor": 1.0, "injury_note": "One."},
+        {"player_id": 2, "player_name": "Second", "vor": 99.0, "injury_note": "Two."},
+    ]))
+    by_vor = board.sort("vor", descending=True)          # Second is now row 0
+
+    state = {dv.NOTE_CLICK_KEY: {"row": 0}}
+    assert dv.remember_note_click(state, by_vor) == 2
+
+    # Re-sorted the other way, with no new click: still Second.
+    state.pop(dv.NOTE_CLICK_KEY)
+    assert dv.remember_note_click(state, board.sort("vor")) == 2
+    assert "Two." in dv.player_note_for(board, 2)
+
+
+def test_clicking_the_open_players_mark_closes_it():
+    """The only way to dismiss the panel without a second control."""
+    board = dv.with_injury_code(_board([{"player_id": 7, "injury_note": "Something."}]))
+    state = {dv.NOTE_CLICK_KEY: {"row": 0}}
+    assert dv.remember_note_click(state, board) == 7
+
+    state[dv.NOTE_CLICK_KEY] = {"row": 0}
+    assert dv.remember_note_click(state, board) is None
+
+
+def test_the_two_tables_remember_their_notes_separately():
+    """Two widgets cannot share a key, and opening a note on the Values tab should not
+    move the Board tab's."""
+    board = dv.with_injury_code(_board([
+        {"player_id": 1, "injury_note": "One."},
+        {"player_id": 2, "injury_note": "Two."},
+    ]))
+    state = {dv.NOTE_CLICK_KEY: {"row": 0},
+             dv.VALUES_NOTE_CLICK_KEY: {"row": 1}}
+    assert dv.remember_note_click(state, board) == 1
+    assert dv.remember_note_click(
+        state, board, click_key=dv.VALUES_NOTE_CLICK_KEY) == 2
+
+
+def test_a_note_is_remembered_per_league():
+    """A note carried across a league change would point at a player the new board may
+    not even hold — the reason the budget key is scoped the same way."""
+    board = dv.with_injury_code(_board([{"player_id": 5, "injury_note": "Here."}]))
+    state = {dv.NOTE_CLICK_KEY: {"row": 0}}
+    assert dv.remember_note_click(state, board, league_key="one") == 5
+    assert dv.remember_note_click(state, board, league_key="two") == 5
+    state.pop(dv.NOTE_CLICK_KEY)
+    assert dv.remember_note_click(state, board, league_key="three") is None
+
+
+def test_no_click_leaves_the_panel_shut():
+    board = dv.with_injury_code(_board([{"player_id": 1, "injury_note": "One."}]))
+    assert dv.remember_note_click({}, board) is None
+
+
+def test_a_stale_row_number_is_ignored():
+    """A click can arrive against a table a filter has since shortened."""
+    board = dv.with_injury_code(_board([{"player_id": 1, "injury_note": "One."}]))
+    assert dv.remember_note_click({dv.NOTE_CLICK_KEY: {"row": 99}}, board) is None
+
+
+def test_a_note_is_looked_up_on_the_whole_board_not_the_filtered_view():
+    """So the panel does not blink out when a filter drops the row it was opened from."""
+    board = dv.with_injury_code(_board([
+        {"player_id": 1, "primaryPosition": "RB", "injury_note": "About the back."},
+        {"player_id": 2, "primaryPosition": "WR", "injury_note": "About the wideout."},
+    ]))
+    assert "About the back" in dv.player_note_for(board, 1)
+    assert dv.player_note_for(board.filter(pl.col("player_id") == 2), 1) is None
+
+
+def test_the_news_mark_is_a_button_so_the_mark_itself_is_the_target():
+    """Row selection was tried first: enabling it adds a checkbox column at the far
+    left, so the thing you click is nowhere near the thing you are asking about."""
+    spec = next(c for c in dv.COLUMNS if c.source == "note_mark")
+    assert spec.kind == "button"
+    assert spec.fmt is None
+
+
+def test_the_note_is_indexed_against_the_sorted_frame_not_the_stored_board():
+    """A selection's row number is a position on screen. Indexed against the board it
+    would name whichever player happened to be stored there — silently, and wrongly."""
+    board = dv.with_injury_code(_board([
+        {"player_name": "First", "vor": 1.0, "injury_note": "About First."},
+        {"player_name": "Second", "vor": 99.0, "injury_note": "About Second."},
+    ]))
+    table = board.sort("vor", descending=True)
+    assert "About Second" in dv.player_note(table, 0)
+    assert "About First" in dv.player_note(table, 1)
+
+
+# --- the colour scale -----------------------------------------------------
+
+def test_only_a_shaded_column_gets_thresholds():
+    board = _board([{"vor": 10.0}, {"vor": 50.0}])
+    shaded = {(c.group, c.label) for c in dv.COLUMNS if c.shade}
+    assert set(dv.shade_scales(board)) <= shaded
+
+
+def test_only_the_differences_are_shaded():
+    """Colouring the raw points, ranks and prices too was built and removed: at
+    seventeen shaded columns the table read as a heatmap and the columns carrying an
+    opinion stopped being the ones that caught your eye."""
+    board = _board([{"points_delta": 5.0, "TRUE_Points": 100.0},
+                    {"points_delta": -5.0, "TRUE_Points": 300.0}])
+    scales = dv.shade_scales(board)
+    assert ("Points", "Δ") in scales
+    assert ("Points", "Us") not in scales
+    assert all(c.shade in ("", "delta") for c in dv.COLUMNS)
+
+
+def test_the_delta_scale_is_per_column_because_the_units_are_not_shared():
+    """Points differences run in tens, rank differences in hundreds. One absolute
+    threshold would paint every rank cell and no points cell."""
+    board = _board([{"points_delta": 5.0, "rank_delta": 400.0},
+                    {"points_delta": 10.0, "rank_delta": 800.0}])
+    scales = dv.shade_scales(board)
+    assert scales[("Points", "Δ")].scale < scales[("Ranks", "Δ")].scale
+
+
+def test_a_column_with_no_spread_is_not_painted():
+    """A league where we and ESPN agree exactly is not a league of neutral-grey
+    cells — it has nothing to say, so it says nothing."""
+    board = _board([{"points_delta": 0.0}, {"points_delta": 0.0}])
+    assert ("Points", "Δ") not in dv.shade_scales(board)
+
+
+@pytest.mark.parametrize("value,step", [
+    (100.0, 2), (30.0, 1), (5.0, 0), (0.0, 0),
+    (-5.0, 0), (-30.0, -1), (-100.0, -2),
+])
+def test_a_difference_step_is_symmetric_around_zero(value, step):
+    """Zero is the meaningful midpoint — it means we and ESPN agree — so the arms
+    have to be mirror images or the same disagreement reads bigger one way."""
+    assert dv.shade_step(value, dv.Shading(scale=100.0)) == step
+
+
+def test_a_missing_value_gets_no_fill():
+    shading = dv.Shading(scale=100.0)
+    assert dv.shade_step(None, shading) == 0
+    assert dv.shade_step(float("nan"), shading) == 0
+
+
+def test_green_is_positive_and_red_is_negative_in_both_themes():
+    """The one rule the whole scale rests on: positive means we are higher on the
+    player than ESPN is, and positive is green everywhere."""
+    for theme in ("light", "dark"):
+        fills = dv.DELTA_FILLS[theme]
+        assert fills[0] is None, theme
+        for step in (1, 2, -1, -2):
+            assert fills[step].startswith("#"), (theme, step)
+        # The strong step is further from neutral than the soft one, per arm.
+        assert fills[2] != fills[1] and fills[-2] != fills[-1]
+
+
+def test_the_styler_emits_only_the_three_properties_streamlit_honours():
+    """Streamlit's grid reads `color`, `background-color` and `font-weight` off a
+    Styler and silently drops everything else — so anything else here is a rule that
+    looks applied and is not."""
+    board = _board([{"points_delta": 50.0}, {"points_delta": -50.0},
+                    {"points_delta": 0.0}])
+    frame = dv.display_frame(board)
+    styled = dv.styled_frame(frame, dv.shade_scales(board), "light")
+
+    rendered = styled._compute().ctx
+    properties = {prop for styles in rendered.values() for prop, _ in styles}
+    assert properties <= {"color", "background-color", "font-weight"}
+    assert "font-weight" in properties
+
+
+def test_a_neutral_difference_cell_is_still_bold_but_not_filled():
+    """The emphasis says "this column is a judgement", which is true of the rows we
+    agree with ESPN on too."""
+    board = _board([{"points_delta": 0.0}, {"points_delta": 100.0}])
+    frame = dv.display_frame(board)
+    styled = dv.styled_frame(frame, dv.shade_scales(board), "light")
+
+    ctx = styled._compute().ctx
+    column = list(frame.columns).index(("Points", "Δ"))
+    assert dict(ctx[(0, column)]) == {"font-weight": "700"}
+    assert dict(ctx[(1, column)])["background-color"] == dv.DELTA_FILLS["light"][2]
+
+
+def test_a_missing_text_value_renders_blank_rather_than_the_word_none():
+    """Streamlit draws a missing cell as the literal word "None" unless something says
+    otherwise, and for a *text* column the something is the Styler: it ships display
+    strings beside the data, Streamlit prefers them where `column_config` has no format
+    of its own, and pandas renders a missing value with `str` by default. On
+    `Exp Return` that put "None" on 998 of 1,026 rows.
+
+    A number column takes the other path — its display string is ignored in favour of
+    `column_config`'s format — so its blank comes from `st.dataframe(placeholder="")`
+    in the page. Both halves are load-bearing; this covers the Styler's."""
+    board = dv.with_injury_code(_board([{"injury_return_date": None}]))
+    frame = dv.display_frame(board)
+    styled = dv.styled_frame(frame, dv.shade_scales(board), "light")
+
+    cells = styled._translate(sparse_index=False, sparse_cols=False)["body"][0]
+    values = [c["display_value"] for c in cells if c.get("type") == "td"]
+    for key in (("Notes", "Exp Return"), ("Notes", "News")):
+        assert values[list(frame.columns).index(key)] == "", key
+
+
+def test_the_frame_keeps_its_nulls_rather_than_faking_a_blank():
+    """The blank is a rendering concern and is fixed at render time. Filling the frame
+    would make a free agent's keeper price a real `0`, or a "" that no longer sorts
+    or aggregates — and `Keepers | Price` blank means nobody holds him."""
+    board = _board([{"player_name": "Held", "on_team_id": 3, "keeper_value": 40},
+                    {"player_name": "Free", "on_team_id": 0, "keeper_value": 0}])
+    frame = dv.display_frame(
+        dv.with_keeper_price(dv.at_budget(board, 250), 2), dv.VALUE_LENS_CASH)
+    prices = frame[("Keepers", "Price")]
+    assert prices.notna().iloc[0] and prices.isna().iloc[1]
+
+    text = dv.display_frame(dv.with_injury_code(_board([{"injury_note": None}])))
+    assert text[("Notes", "News")].isna().all()
+
+
+def test_an_unknown_theme_falls_back_rather_than_raising():
+    """A new Streamlit theme name should not take the page down."""
+    board = _board([{"points_delta": 50.0}])
+    frame = dv.display_frame(board)
+    assert dv.styled_frame(frame, dv.shade_scales(board), "sepia") is not None
+
+
+# --- the column config ----------------------------------------------------
+
+def test_the_config_is_keyed_by_position_because_the_labels_repeat():
+    """`ESPN`, `Us` and `Δ` each appear in several groups — that is what the spanners
+    are for — so a name-keyed config would format the rank columns like points."""
+    frame = dv.display_frame(_board([{}]))
+    config = dv.column_config_specs(frame)
+
+    offset = frame.index.nlevels
+    assert set(config) == set(range(offset, frame.shape[1] + offset))
+    for position, column in config.items():
+        assert frame.columns[position - offset] == (column.group, column.label)
+
+
+def test_the_positions_leave_room_for_the_hidden_index():
+    """Streamlit numbers every column it was handed, index first, and `hide_index`
+    hides the index without renumbering what follows. Off by one is not a crash —
+    every column silently wears its neighbour's format, which is how `Tier` came to
+    render as `1.0` and the fifth frozen column landed on the sixth."""
+    frame = dv.display_frame(_board([{}]))
+    config = dv.column_config_specs(frame)
+    assert min(config) == frame.index.nlevels == 1
+    assert config[1].label == "Player"
+
+
+def test_every_rendered_column_has_a_config_entry():
+    """A column with no entry renders unformatted, which for a difference column
+    means losing the sign the colour scale depends on."""
+    for lens in (dv.VALUE_LENS_ADP, dv.VALUE_LENS_CASH):
+        frame = dv.display_frame(_board([{}]), lens)
+        assert len(dv.column_config_specs(frame, lens)) == frame.shape[1]
+
+
 # --- display -------------------------------------------------------------
 
 def test_display_frame_renames_and_orders_columns():
     frame = dv.display_frame(_board([{}]))
-    assert frame.columns[:4] == ["Player", "Pos", "NFL", "Bye"]
+    assert list(frame.columns[:4]) == [("Player Info", "Player"),
+                                       ("Player Info", "Pos"),
+                                       ("Player Info", "NFL"),
+                                       ("Player Info", "Bye")]
+
+
+def test_display_frame_carries_two_header_levels():
+    """The spanners *are* the second level — Streamlit reads the last level as the
+    header and the ones above it as the group, so a flat frame silently loses them."""
+    frame = dv.display_frame(_board([{}]))
+    assert frame.columns.nlevels == 2
+    assert set(g for g, _ in frame.columns) <= set(dv.GROUPS)
 
 
 def test_display_frame_skips_columns_the_artifact_lacks():
-    board = _board([{}]).drop(["floor", "ceiling"])
+    """What lets one spec list serve a redraft league, a board built before the usage
+    model, and an artifact written before the ESPN comparison columns existed."""
+    board = _board([{}]).drop(["espn_draft_rank", "ESPN_Points"])
     frame = dv.display_frame(board)
-    assert "Floor" not in frame.columns and "Player" in frame.columns
+    assert ("Ranks", "ESPN") not in frame.columns
+    assert ("Points", "ESPN") not in frame.columns
+    assert ("Player Info", "Player") in frame.columns
+
+
+def test_the_draft_metric_group_switches_on_the_lens_not_on_presence():
+    """Both source columns exist in every league, so this group cannot be selected by
+    looking at the data — which currency it speaks is a fact about the draft."""
+    board = dv.with_cash_value(
+        dv.at_budget(_board([{"auction_value_filled": 20.0}]), 250),
+        {"team_count": 10, "roster_slots": {"RB": 2}}, 250)
+
+    adp = dv.display_frame(board, dv.VALUE_LENS_ADP)
+    cash = dv.display_frame(board, dv.VALUE_LENS_CASH)
+    metric = lambda f: [l for g, l in f.columns if g == "Draft Metric"]  # noqa: E731
+
+    assert metric(adp) == ["ESPN", "Us", "Δ"]
+    assert metric(cash) == ["ESPN", "Us", "Δ"]
+    # Same headers, different numbers underneath: ADP reads a pick, Cash a dollar.
+    assert adp[("Draft Metric", "ESPN")].to_list() == [20.0]        # `adp`
+    assert cash[("Draft Metric", "ESPN")].to_list() == [25.0]       # rescaled dollars
+
+
+def test_one_source_can_sit_under_two_headers():
+    """`vor_rank` is both our overall rank and our implied pick order, and each
+    comparison reads better with it than with a cross-reference. Polars will not
+    select a column twice under one name, so this is the alias path working."""
+    frame = dv.display_frame(_board([{"vor_rank": 7.0}]), dv.VALUE_LENS_ADP)
+    assert frame[("Ranks", "Us")].to_list() == [7.0]
+    assert frame[("Draft Metric", "Us")].to_list() == [7.0]
 
 
 # --- the model's own account of itself -----------------------------------
@@ -676,19 +1259,23 @@ def test_a_board_predating_the_model_is_returned_untouched():
 
 def test_the_model_block_is_dropped_from_a_board_that_predates_it():
     frame = dv.display_frame(dv.with_model_evidence(_board([{}])))
-    for label in ("USG", "Δ Rk", "Exp G", "Model Evidence"):
-        assert label not in frame.columns
+    for key in (("Points", "USG"), ("Position Ranks", "Δ USG"),
+                ("Notes", "Exp G"), ("Notes", "Model Evidence")):
+        assert key not in frame.columns
 
 
-def test_the_model_block_sits_between_the_market_and_the_status_columns():
-    # Through at_budget, because `$` is the budget-rescaled column now and the page
-    # renders nothing that has not been through it.
+def test_the_model_sits_with_the_quantity_it_is_an_opinion_about():
+    """`USG` beside the points it is a projection of, and its rank dissent beside the
+    positional ranks it dissents from — which is the arrangement that makes the level
+    mismatch visible instead of inviting the subtraction."""
     frame = dv.display_frame(
         dv.at_budget(dv.with_model_evidence(_modelled([{}])),
-                     dv.DEFAULT_AUCTION_BUDGET))
-    order = frame.columns
-    assert order.index("$") < order.index("USG")
-    assert order.index("Model Evidence") < order.index("Injury")
+                     dv.DEFAULT_AUCTION_BUDGET),
+        dv.VALUE_LENS_CASH)
+    order = list(frame.columns)
+    assert order.index(("Points", "Us")) < order.index(("Points", "USG"))
+    assert order.index(("Position Ranks", "Δ")) < order.index(("Position Ranks", "Δ USG"))
+    assert order.index(("Notes", "Exp G")) < order.index(("Notes", "Model Evidence"))
 
 
 # --- where the points came from ------------------------------------------
@@ -995,6 +1582,244 @@ def test_notes_without_the_columns_to_decide_are_left_alone():
     note = _note("Someone", [TIMING], "Waits on K. (10 drafts)").drop("traits")
     assert dv.notes_for_board(note, _board([{}]))["description"][0] == \
         "Waits on K. (10 drafts)"
+
+
+# --- calibration: us against ESPN ----------------------------------------
+
+def _pool(position, deltas, base=100.0, name=None, **extra):
+    """`len(deltas)` players at one position, each `delta` points off ESPN.
+
+    ``name`` overrides the player-name prefix, which two pools at the same position
+    need: names collide otherwise, and a test that looks a player up by name then
+    silently reads whichever of the two the sort happened to put first.
+    """
+    prefix = name or position
+    return [{"player_name": f"{prefix}{i}", "primaryPosition": position,
+             "ESPN_Points": base, "TRUE_Points": base + delta, **extra}
+            for i, delta in enumerate(deltas)]
+
+
+def test_a_player_espn_has_no_projection_for_is_not_a_disagreement():
+    board = _board([{"player_name": "Priced", "ESPN_Points": 90.0},
+                    {"player_name": "Unpriced", "ESPN_Points": None}])
+    frame = dv.agreement_frame(board)
+    assert frame["player_name"].to_list() == ["Priced"]
+
+
+def test_the_gap_is_recomputed_from_the_two_columns_actually_plotted():
+    """Not read from the board's stored `points_delta`, so a chart drawing all
+    three numbers cannot disagree with itself about what the third one is."""
+    board = _board([{"ESPN_Points": 100.0, "TRUE_Points": 130.0,
+                     "points_delta": -999.0}])
+    frame = dv.agreement_frame(board)
+    assert frame["points_delta"][0] == 30.0
+    assert frame["agreement_mean"][0] == 115.0
+
+
+def test_the_score_is_measured_within_position_not_across_the_pool():
+    """A 30-point gap is unremarkable for a quarterback and an outlier for a back,
+    and one pooled scale reports the quarterbacks as the model's whole problem.
+
+    Both positions get the same spread and different centres, so the only thing
+    separating the two players on 30 is which position they are measured against."""
+    # Eight apiece, which is dv.AGREEMENT_MIN_PLAYERS; the last of each is the
+    # player on +30. The quarterbacks centre on 30, the backs on ~4.
+    board = _board(
+        _pool("QB", [25.0, 27.0, 29.0, 31.0, 33.0, 35.0, 29.0, 30.0])
+        + _pool("RB", [-5.0, -3.0, -1.0, 1.0, 3.0, 5.0, -1.0, 30.0]))
+    frame = dv.agreement_frame(board)
+    scores = dict(zip(frame["player_name"], frame["agreement_z"]))
+    assert abs(scores["QB7"]) < 0.5
+    assert scores["RB7"] > 2.0
+
+
+def test_a_position_that_never_disagrees_is_scored_as_having_no_outliers():
+    """Kickers, and the reason the floor exists at all: no source but ESPN projects
+    one, so every delta is float dust around 1e-14 with a standard deviation of
+    7e-15. Dividing by it ranked two kickers as the board's biggest disagreements
+    on a delta of -0.00000000000003."""
+    board = _board(_pool("K", [0.0, -2.8e-14] * (dv.AGREEMENT_MIN_PLAYERS // 2),
+                         **{"startable": True}))
+    frame = dv.agreement_frame(board)
+    assert frame["agreement_z"].is_null().all()
+    assert dv.agreement_outliers(frame).is_empty()
+
+
+def test_a_position_with_too_few_players_left_carries_no_score():
+    """Its spread would describe the survivors of a filter rather than the
+    position."""
+    board = _board(_pool("TE", [1.0, 40.0, -20.0]))
+    assert dv.agreement_frame(board)["agreement_z"].is_null().all()
+
+
+def test_the_score_moves_with_the_filter_because_the_scoping_is_the_analysis():
+    """Narrowed to the players the market prices, the mean gap at WR moves from
+    +8.8 to -3.4 on the real board -- so scoring against the whole pool would mark
+    every priced receiver an outlier for belonging to the priced half."""
+    deep = _pool("WR", [40.0] * dv.AGREEMENT_MIN_PLAYERS, name="Deep",
+                 adp_is_priced=False)
+    priced = _pool("WR", [0.0] * (dv.AGREEMENT_MIN_PLAYERS - 1) + [12.0],
+                   name="Priced", adp_is_priced=True)
+    board = _board(deep + priced)
+
+    pooled = dv.agreement_frame(board)
+    narrowed = dv.agreement_frame(board.filter(pl.col("adp_is_priced")))
+
+    target = f"Priced{dv.AGREEMENT_MIN_PLAYERS - 1}"
+    pooled_z = dict(zip(pooled["player_name"], pooled["agreement_z"]))
+    narrow_z = dict(zip(narrowed["player_name"], narrowed["agreement_z"]))
+    # Same player, same two projections, different question.
+    assert pooled_z[target] < 0
+    assert narrow_z[target] > 2.0
+
+
+def test_outliers_come_back_biggest_first_from_both_tails():
+    board = _board(_pool("RB", [0.0] * (dv.AGREEMENT_MIN_PLAYERS - 2)
+                         + [60.0, -60.0]))
+    frame = dv.agreement_frame(board)
+    top = dv.agreement_outliers(frame, limit=2)
+    assert top.height == 2
+    assert sorted(top["points_delta"].to_list()) == [-60.0, 60.0]
+
+
+def test_per_position_outliers_do_not_let_one_position_take_every_slot():
+    """A pooled top ten lands eight labels in the WR facet and none in the rest."""
+    board = _board(_pool("WR", [0.0] * (dv.AGREEMENT_MIN_PLAYERS - 3)
+                         + [50.0, 45.0, 40.0])
+                   + _pool("TE", [0.0] * (dv.AGREEMENT_MIN_PLAYERS - 1) + [30.0]))
+    frame = dv.agreement_frame(board)
+    picked = dv.agreement_outliers(frame, limit=2, per_position=True)
+    counts = picked["primaryPosition"].value_counts().to_dict(as_series=False)
+    assert dict(zip(counts["primaryPosition"], counts["count"])) == {"WR": 2,
+                                                                    "TE": 2}
+
+
+def test_the_table_and_the_chart_marks_cannot_pick_different_players():
+    board = _board(_pool("RB", [0.0] * (dv.AGREEMENT_MIN_PLAYERS - 2)
+                         + [55.0, -48.0]))
+    frame = dv.agreement_frame(board)
+    flagged = dv.with_outlier_flag(frame, limit=2)
+    listed = dv.agreement_outliers(frame, limit=2)
+    assert (set(flagged.filter(pl.col(dv.AGREEMENT_FLAG))["player_name"])
+            == set(listed["player_name"]))
+
+
+def test_an_unscored_player_is_never_flagged():
+    board = _board(_pool("K", [0.0] * dv.AGREEMENT_MIN_PLAYERS))
+    flagged = dv.with_outlier_flag(dv.agreement_frame(board), limit=3)
+    assert not flagged[dv.AGREEMENT_FLAG].any()
+    assert flagged[dv.AGREEMENT_RANK].is_null().all()
+
+
+def test_label_slots_run_bottom_to_top_so_the_marks_own_spread_helps():
+    """By |z| rank the offsets ran *against* the marks' spread -- the lowest mark's
+    label was pushed up and the highest one's down, which collapsed three tight
+    ends onto one line."""
+    board = _board(_pool("TE", [0.0] * (dv.AGREEMENT_MIN_PLAYERS - 3)
+                         + [40.0, -35.0, 30.0]))
+    frame = dv.agreement_frame(board)
+    slotted = dv.with_label_slots(
+        dv.with_outlier_flag(frame, limit=3, per_position=True), "TRUE_Points")
+
+    marks = slotted.filter(pl.col(dv.AGREEMENT_FLAG)).sort(dv.AGREEMENT_SLOT)
+    assert marks[dv.AGREEMENT_SLOT].to_list() == [1, 2, 3]
+    # Slot order is the vertical order of the marks themselves.
+    assert marks["TRUE_Points"].to_list() == sorted(marks["TRUE_Points"].to_list())
+
+
+def test_label_slots_follow_the_axis_the_view_actually_uses():
+    """The two views put different columns on y, which is why the slot cannot be
+    decided when the flag is."""
+    board = _board(_pool("RB", [0.0] * (dv.AGREEMENT_MIN_PLAYERS - 2) + [50.0],
+                         base=10.0, name="Small")
+                   + _pool("RB", [-40.0], base=300.0, name="Big"))
+    frame = dv.agreement_frame(board)
+    flagged = dv.with_outlier_flag(frame, limit=2, per_position=True)
+
+    by_points = dv.with_label_slots(flagged, "TRUE_Points")
+    by_delta = dv.with_label_slots(flagged, "points_delta")
+
+    def slot_of(frame_, name):
+        row = frame_.filter(pl.col("player_name") == name)
+        assert row.height == 1
+        return row[dv.AGREEMENT_SLOT][0]
+
+    # "Big0" sits at 260 points and −40 off ESPN: the highest of the two flagged
+    # marks on the points axis and the lowest on the disagreement axis, so his slot
+    # has to flip with the view or the labels stagger the wrong way in one of them.
+    assert slot_of(by_points, "Big0") == 2
+    assert slot_of(by_delta, "Big0") == 1
+
+
+def test_unflagged_players_get_no_label_slot():
+    board = _board(_pool("WR", [0.0] * (dv.AGREEMENT_MIN_PLAYERS - 1) + [50.0]))
+    slotted = dv.with_label_slots(
+        dv.with_outlier_flag(dv.agreement_frame(board), limit=1), "TRUE_Points")
+    assert slotted.filter(~pl.col(dv.AGREEMENT_FLAG))[dv.AGREEMENT_SLOT] \
+        .is_null().all()
+
+
+def test_the_summary_separates_a_systematic_offset_from_a_player_argument():
+    board = _board(_pool("QB", [25.0] * dv.AGREEMENT_MIN_PLAYERS)
+                   + _pool("RB", [-40.0, 40.0] * (dv.AGREEMENT_MIN_PLAYERS // 2)))
+    summary = dv.agreement_summary(dv.agreement_frame(board))
+    rows = {row[0]: row for row in summary.iter_rows()}
+    qb, rb = rows["QB"], rows["RB"]
+    # A large mean with no spread is the blend offsetting the whole position.
+    assert qb[2] == pytest.approx(25.0) and qb[3] == pytest.approx(0.0)
+    # A zero mean with a wide spread is an argument about individuals.
+    assert rb[2] == pytest.approx(0.0) and rb[3] > 30.0
+    assert qb[4] == pytest.approx(100.0)
+
+
+def test_a_position_the_palette_has_no_hue_for_is_still_scored():
+    """GOP Degenerates starts cornerbacks and POSITION_HUES stops at eight slots.
+    The chart draws them in muted ink; what must not happen is the tables scoring
+    and ranking a position the chart then has no panel for."""
+    board = _board(_pool("CB", [0.0] * (dv.AGREEMENT_MIN_PLAYERS - 1) + [30.0]))
+    frame = dv.agreement_frame(board)
+    assert "CB" not in dv.POSITION_HUES
+    assert frame.height == dv.AGREEMENT_MIN_PLAYERS
+    assert dv.agreement_outliers(frame, 1)["primaryPosition"].to_list() == ["CB"]
+    assert dv.agreement_summary(frame)["primaryPosition"].to_list() == ["CB"]
+
+
+def test_the_summary_says_which_positions_carry_no_score():
+    board = _board(_pool("K", [0.0] * dv.AGREEMENT_MIN_PLAYERS)
+                   + _pool("RB", [0.0, 20.0] * (dv.AGREEMENT_MIN_PLAYERS // 2)))
+    summary = dv.agreement_summary(dv.agreement_frame(board))
+    scored = dict(zip(summary["primaryPosition"], summary["scored"]))
+    assert scored == {"K": False, "RB": True}
+
+
+def test_an_empty_selection_still_answers_with_the_right_columns():
+    """A filter that empties the tab must not raise -- see the K-only case."""
+    empty = dv.agreement_frame(_board([]).head(0))
+    assert set(dv.AGREEMENT_SCHEMA) <= set(empty.columns)
+    assert dv.agreement_summary(empty).is_empty()
+    assert dv.agreement_outliers(empty).is_empty()
+    assert not dv.with_outlier_flag(empty)[dv.AGREEMENT_FLAG].any()
+
+
+def test_a_board_without_espn_points_at_all_is_not_an_error():
+    plain = pl.DataFrame({"primaryPosition": ["RB"], "TRUE_Points": [10.0]})
+    assert dv.agreement_frame(plain).is_empty()
+    assert list(dv.agreement_frame(plain).columns) == list(dv.AGREEMENT_SCHEMA)
+
+
+def test_the_outlier_table_speaks_the_boards_own_vocabulary():
+    """`ESPN`, `Us` and Δ mean here what the `Points` spanner means by them, so a
+    reader arriving from the Board tab does not learn the columns twice."""
+    board = _board(_pool("RB", [0.0] * (dv.AGREEMENT_MIN_PLAYERS - 1) + [40.0]))
+    table = dv.agreement_table(dv.agreement_outliers(dv.agreement_frame(board), 1))
+    assert table.columns[:6] == ["Player", "Pos", "NFL", "ESPN", "Us", "Δ"]
+    assert table.height == 1
+
+
+def test_the_table_skips_columns_the_frame_does_not_carry():
+    frame = pl.DataFrame({"player_name": ["A"], "primaryPosition": ["RB"],
+                          "ESPN_Points": [1.0], "TRUE_Points": [2.0]})
+    assert dv.agreement_table(frame).columns == ["Player", "Pos", "ESPN", "Us"]
 
 
 # --- colour --------------------------------------------------------------

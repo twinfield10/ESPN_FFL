@@ -13,8 +13,9 @@ already cost this repo twice (12 projection functions, then
 
 import _bootstrap  # noqa: F401  -- must precede the Scripts imports
 
-from typing import Dict, List, Mapping, Optional, Sequence
+from typing import Dict, List, Mapping, NamedTuple, Optional, Sequence
 
+import pandas as pd
 import polars as pl
 
 from Scripts.draft.board import FLEX_SLOTS, NON_STARTING_SLOTS
@@ -80,46 +81,396 @@ EVIDENCE_WITHDRAWN_INJURY = "withdrawn (injury)"
 #: never modelled, plus anyone it had no usage history for.
 EVIDENCE_NOT_MODELLED = "not modelled"
 
-#: Column order for the board table, and the label each gets.
+#: ESPN's fantasy injury status, abbreviated to fit a column you scan rather than read.
 #:
-#: The model block sits after the market block and before the status columns, so the
-#: table reads left to right as: who they are, what we think, what the room thinks,
-#: what the model thinks, what is wrong with them.
+#: Five of these are observed in the 2026 pool (``ACTIVE`` 2,204, ``QUESTIONABLE`` 162,
+#: ``OUT`` 57, ``INJURY_RESERVE`` 22, ``SUSPENSION`` 1); the other three are ESPN's
+#: documented enum and cost nothing to carry. A status **not** in this map is rendered
+#: in full rather than shortened -- see :func:`with_injury_code`.
+INJURY_CODES: Dict[str, str] = {
+    "ACTIVE": "A",
+    "PROBABLE": "P",
+    "QUESTIONABLE": "Q",
+    "DOUBTFUL": "D",
+    "OUT": "O",
+    "INJURY_RESERVE": "IR",
+    "SUSPENSION": "SUS",
+    "DAY_TO_DAY": "DTD",
+}
+
+#: The mark that says "this player has an injury note", in place of the note itself.
 #:
-#: Labels are Title Case, which is the house style for every header on every page.
-#: They are also the keys of the page's ``column_config``, so the two move together
-#: or a format silently stops applying -- Streamlit ignores config for a column the
-#: frame does not carry rather than raising.
+#: The note is a sentence and a sentence needs 400px, which on a 26-column table is a
+#: quarter of the width spent on a cell that truncated mid-clause anyway. So the column
+#: carries a mark you click.
 #:
-#: ``$`` reads :func:`at_budget`'s output rather than the stored
-#: ``auction_value_filled``, so the column shows this league's budget instead of the
-#: $200 one ESPN publishes against.
-DISPLAY_COLUMNS: List[tuple] = [
-    ("player_name", "Player"),
-    ("primaryPosition", "Pos"),
-    ("pro_team", "NFL"),
-    ("bye_week", "Bye"),
-    ("tier", "Tier"),
-    ("TRUE_Points", "Proj"),
-    ("floor", "Floor"),
-    ("ceiling", "Ceil"),
-    ("vor", "VOR"),
-    ("vor_rank", "VOR Rk"),
-    ("pos_rank", "Pos Rk"),
-    ("adp", "ADP"),
-    ("value", "Value"),
-    ("auction_dollars", "$"),
-    ("our_dollars", "Our $"),
-    ("cash_delta", "Cash +/-"),
-    ("keeper_price", "Keeper $"),
-    ("keeper_surplus", "Keeper +/-"),
-    ("USG_Points", "USG"),
-    ("USG_PosRankDelta", "Δ Rk"),
-    ("usg_expected_games", "Exp G"),
-    ("usg_evidence_label", "Model Evidence"),
-    ("injury_status", "Injury"),
-    ("team_owner", "Owner"),
+#: It is the value of a ``st.column_config.ButtonColumn`` cell, which is what makes the
+#: mark itself the target -- the button's label *is* the cell value. Row selection was
+#: tried first and is worse in exactly the way it sounds: enabling it adds a checkbox
+#: column at the far left of the table, and the thing you click is nowhere near the
+#: thing you are asking about.
+#:
+#: Click, not hover, and not by choice: Streamlit's grid has no per-cell tooltip.
+#: ``help=`` on a column config is the *header* tooltip, and hovering a truncated cell
+#: produces nothing -- checked in the browser rather than assumed, because the obvious
+#: design here is an icon you hover and it does not exist.
+NOTE_MARK = ":material/sticky_note_2:"
+
+#: Session-state key the news-mark button writes its click into.
+#:
+#: Streamlit puts ``{"row": n, "label": s}`` here on the rerun a click triggers, and
+#: clears it on the next one -- so it is read once and resolved to something durable.
+NOTE_CLICK_KEY = "note_click"
+
+#: The Values tab's own, because two widgets cannot share a key. Its table renders the
+#: same `News` column, and a table where the mark did nothing would be worse than no
+#: mark -- the alternative was special-casing the column out of that frame.
+VALUES_NOTE_CLICK_KEY = "values_note_click"
+
+#: Prefix for where the *resolved* player is remembered. Per-league, for the reason
+#: :func:`budget_key` is: a note carried across a league change would point at a player
+#: the new board may not hold.
+NOTE_HELD_KEY = "note_open"
+
+#: What ``Exp Return`` says where ESPN's estimate is past the end of the season.
+#:
+#: The report encodes a season-ending injury as a return date in February, so the raw
+#: value is a real date that means something other than a date. Rendering it as a word
+#: is the difference between a reader knowing that and having to.
+RETURN_SEASON_ENDING = "Season"
+
+#: The diverging fill for the difference columns: green where we are higher on a
+#: player than ESPN, red where we are lower, nothing in the middle.
+#:
+#: Two steps per arm, so magnitude reads as well as sign. Keyed by signed step, and
+#: the neutral middle is ``None`` rather than a grey -- a table where two thirds of
+#: the cells are painted has no emphasis left to spend.
+#:
+#: **Green/red is the requested pairing and it is CVD-marginal**, which is worth
+#: recording rather than discovering later. Measured with the dataviz validator, the
+#: two arms separate at ΔE 6.9 under deuteranopia (the 6-8 floor band, legal only with
+#: a second channel) against 31.3 under normal vision. The second channel here is not
+#: decoration: every one of these columns is formatted ``%+`` so the sign is printed
+#: in the cell, and a reader who cannot see the hue reads the number. Swapping the red
+#: arm for the palette's blue would clear the check outright and is a change to this
+#: dict and nothing else.
+#:
+#: The soft steps are deliberately not near-white tints. The first attempt used
+#: ``#d7f0e5``/``#fadbda``, which the validator caught at ΔE 6.4 under *normal*
+#: vision -- a "soft green" and "soft red" nobody could tell apart, which is worse
+#: than no fill at all because it looks like information.
+DELTA_FILLS: Dict[str, Dict[int, Optional[str]]] = {
+    "light": {-2: "#e34948", -1: "#f4a3a2", 0: None, 1: "#9ddcc2", 2: "#1baf7a"},
+    "dark":  {-2: "#b62b2b", -1: "#8a3a38", 0: None, 1: "#1f6b4f", 2: "#0f7a55"},
+}
+
+#: Ink for a filled cell. One colour per theme across all four fills, so a column
+#: does not switch text colour partway down. Every pairing clears 4.5:1 -- the
+#: tightest is light strong red at 4.98.
+DELTA_INK: Dict[str, str] = {"light": "#0b0b0b", "dark": "#ffffff"}
+
+#: Where a difference column's fill steps up, as a fraction of that column's own
+#: 90th-percentile magnitude.
+#:
+#: Scaled per column because the difference columns are not in the same units --
+#: points differences run in tens, rank differences in hundreds, cash in single
+#: dollars. A shared absolute threshold would paint every rank cell and no cash cell.
+#: The 90th percentile rather than the maximum because these columns have long tails:
+#: one player 1,600 ranks off ESPN would otherwise flatten everybody else to neutral.
+DELTA_STRONG_AT = 0.5
+DELTA_SOFT_AT = 0.15
+
+#: How to measure "the room is wrong about this player".
+#:
+#: Two different questions, and which one is right is a property of the draft
+#: rather than a preference. In a snake draft a pick is a place in a queue, so the
+#: comparison is rank against rank. In an auction there is no queue -- there is a
+#: price -- and being four places underrated tells you nothing about whether to bid
+#: $41 or $46.
+#:
+#: Declared above :data:`COLUMNS` because the ``Draft Metric`` block is gated on it:
+#: the same three headers read ADP in one lens and dollars in the other.
+VALUE_LENS_ADP = "ADP"
+VALUE_LENS_CASH = "Cash"
+
+
+class Column(NamedTuple):
+    """One column of the board table: how to find it, format it and explain it.
+
+    One record per column rather than three parallel structures keyed on the label.
+    The previous shape was a ``(source, label)`` list here, a glossary dict there and
+    a ``column_config`` dict in the page, and keeping three keyed collections in step
+    needed a test to enforce what a single record makes true by construction. The
+    page's copy could not even be tested: Streamlit ignores config for a column the
+    frame does not carry, so a stale label there stopped formatting in silence.
+
+    Attributes:
+        source: Board column to read. Two specs may share one source -- ``vor_rank``
+            is both our overall rank and our implied pick order, and each comparison
+            reads better with it than with a cross-reference.
+        group: Spanner header. Rendered as the upper level of the frame's column
+            MultiIndex, which Streamlit draws as a group above the leaf headers.
+        label: Leaf header. **Not unique** -- ``ESPN``, ``Us`` and ``Δ`` each repeat
+            across groups, which is the whole point of the spanners and the reason
+            ``column_config`` is keyed by position rather than by name.
+        kind: ``text``, ``number``, or ``button`` for a cell that is itself the
+            control -- see :data:`NOTE_MARK`.
+        fmt: printf format for a number column. Left as printf rather than escaped,
+            because ``column_config`` formats are not markdown.
+        source_of: Glossary: where the number originates.
+        how: Glossary: how it is computed.
+        caveat: Glossary: what it does not say. Empty where there is nothing to warn
+            about, which is most of the identity block.
+        pinned: Freeze the column against horizontal scrolling.
+        emphasis: Bold. Set on the difference columns, which are the judgements.
+        shade: ``delta`` to fill the cell on the diverging scale, ``""`` not to.
+            Only the difference columns are filled -- see :class:`Shading`.
+        lens: ``""`` to always render, else the :data:`VALUE_LENS_ADP` or
+            :data:`VALUE_LENS_CASH` this spec belongs to.
+        width: Streamlit width hint, for the one column holding a sentence.
+    """
+
+    source: str
+    group: str
+    label: str
+    kind: str
+    source_of: str
+    how: str
+    fmt: Optional[str] = None
+    caveat: str = ""
+    pinned: bool = False
+    emphasis: bool = False
+    shade: str = ""
+    lens: str = ""
+    width: Optional[str] = None
+
+
+#: Every column the board can show, in render order.
+#:
+#: The table reads left to right as: who they are, then four comparisons of *our*
+#: number against *ESPN's* -- points, overall rank, positional rank, and the draft's
+#: own currency -- then what it costs to keep them, then what is wrong with them.
+#:
+#: **The comparison groups all use the same three headers, and the difference in each
+#: is oriented the same way.** ``Δ`` is positive wherever we are higher on a player
+#: than ESPN is: points differenced ours-minus-theirs, ranks theirs-minus-ours. That
+#: single rule is what lets one colour scale serve every difference column, and it is
+#: the convention ``value`` already set before any of this was grouped.
+#:
+#: A spec whose source the board does not carry drops out silently -- see
+#: :func:`display_frame`. That is what makes one table serve a redraft league with no
+#: keeper prices and a board built before the usage model existed.
+COLUMNS: List[Column] = [
+    # --- who they are ---------------------------------------------------
+    Column("player_name", "Player Info", "Player", "text", pinned=True,
+           source_of="ESPN",
+           how="The name as ESPN spells it, from `kona_player_info`."),
+    Column("primaryPosition", "Player Info", "Pos", "text", pinned=True,
+           source_of="ESPN",
+           how="Primary position. Replacement level and tiers are both computed "
+               "*within* position, so this drives most of the table."),
+    Column("pro_team", "Player Info", "NFL", "text", pinned=True,
+           source_of="ESPN", how="Pro team abbreviation."),
+    Column("bye_week", "Player Info", "Bye", "number", fmt="%.0f", pinned=True,
+           source_of="NFL schedule",
+           how="Derived rather than read — a bye is an absence, so it is the week in "
+               "which the team appears in neither the home nor the away column.",
+           caveat="Blank when the schedule is missing or covers another season."),
+    Column("tier", "Player Info", "Tier", "number", fmt="%.0f", pinned=True,
+           source_of="Board build",
+           how="1-D KMeans on projected points within position, so the breaks land "
+               "where the gaps actually are rather than every N players. 1 is best.",
+           caveat="Not colour-coded, deliberately: eight ordinal steps cannot be "
+                  "given separable lightness, so the ramp would read as decoration."),
+
+    # --- points ---------------------------------------------------------
+    Column("ESPN_Points", "Points", "ESPN", "number", fmt="%.1f",
+           source_of="ESPN",
+           how="ESPN's own projected stat line, scored through **this league's** "
+               "rules rather than ESPN's — so it is comparable to the column beside "
+               "it, and differs from what ESPN's site shows you.",
+           caveat="Blank for the players ESPN projects no line for at all — about "
+                  "one in eight of the pool that has a projection."),
+    Column("TRUE_Points", "Points", "Us", "number", fmt="%.1f",
+           source_of="Blend",
+           how="ESPN, FantasyPros and the usage model in equal thirds — blended as a "
+               "**stat line**, then scored through this league's own rules, which is "
+               "what lets one pipeline serve nine leagues. Pinnacle and BetOnline are "
+               "weighted zero.",
+           caveat="Every rank, tier and VOR on this table is built from this column, "
+                  "so an error here moves everything except the ESPN columns."),
+    Column("USG_Points", "Points", "USG", "number", fmt="%.1f",
+           source_of="Usage model",
+           how="The model's own season projection: per-game production times the "
+               "games it expects him available for.",
+           caveat="**Not comparable to the two columns on its left**, which assume a "
+                  "healthy 17 games. Deliberately given no Δ for that reason — the "
+                  "comparison that survives is `Position Ranks | Δ USG`."),
+    Column("points_delta", "Points", "Δ", "number", fmt="%+.1f", emphasis=True,
+           shade="delta",
+           source_of="Board build",
+           how="`Us − ESPN`. Positive means we project more points than ESPN does.",
+           caveat="Damped, because ESPN is one of the three thirds inside `Us`. It "
+                  "reads as *how far the blend moved off ESPN*, not as two "
+                  "independent opinions. Blank wherever `ESPN` is."),
+    Column("vor", "Points", "VOR", "number", fmt="%.1f",
+           source_of="Board build",
+           how="Projected points minus the projected points of the last startable "
+               "player at that position. Replacement rank is this league's own "
+               "starting slots × teams, which is why the same player is worth "
+               "different amounts in different leagues.",
+           caveat="The table's default sort, and the one number here that already "
+                  "accounts for positional scarcity."),
+
+    # --- overall rank ---------------------------------------------------
+    Column("espn_draft_rank", "Ranks", "ESPN", "number", fmt="%.0f",
+           source_of="ESPN",
+           how="`draftRanksByRankType` — ESPN's published draft ranking. Dense and "
+               "complete: 1 to N, no ties, every player.",
+           caveat="ESPN's editorial opinion, not the room's. What the room actually "
+                  "does is `Draft Metric`, and the two disagree often."),
+    Column("vor_rank", "Ranks", "Us", "number", fmt="%.0f",
+           source_of="Board build", how="Rank of VOR across the whole pool. 1 is best."),
+    Column("rank_delta", "Ranks", "Δ", "number", fmt="%+.0f", emphasis=True,
+           shade="delta",
+           source_of="Board build",
+           how="`ESPN − Us`. Positive means ESPN ranks him later than we do.",
+           caveat="Ranked over the whole pool, so the tails are dominated by deep "
+                  "players whose ranks nobody has thought hard about."),
+
+    # --- positional rank ------------------------------------------------
+    Column("espn_pos_rank", "Position Ranks", "ESPN", "number", fmt="%.0f",
+           source_of="Board build",
+           how="ESPN's draft ranking ranked again within position — so it is ESPN's "
+               "own ordering of the position, not a re-ranking of its projections."),
+    Column("pos_rank", "Position Ranks", "Us", "number", fmt="%.0f",
+           source_of="Board build", how="Rank of projected points within position."),
+    Column("pos_rank_delta", "Position Ranks", "Δ", "number", fmt="%+.0f",
+           emphasis=True, shade="delta", source_of="Board build",
+           how="`ESPN − Us`. Positive means ESPN ranks him later within his position "
+               "than we do.",
+           caveat="More useful than the overall Δ beside it, because a positional "
+                  "rank is what you are actually choosing between on the clock."),
+    Column("USG_PosRankDelta", "Position Ranks", "Δ USG", "number", fmt="%+.0f",
+           emphasis=True, shade="delta", source_of="Usage model",
+           how="`Us − USG` within position — our rank minus the usage model's. "
+               "Positive means the model likes him more than ESPN and FantasyPros do.",
+           caveat="Not an outside opinion: the model is one of the three voices "
+                  "already inside `Us`, shown separately so you can see it pull. "
+                  "Being a rank, it survives the level mismatch that denies `USG` a Δ."),
+
+    # --- the draft's own currency ---------------------------------------
+    Column("adp", "Draft Metric", "ESPN", "number", fmt="%.1f", lens=VALUE_LENS_ADP,
+           source_of="ESPN",
+           how="`averageDraftPosition` — the average pick across real ESPN drafts, so "
+               "it is fractional. This is the room, not ESPN's editors.",
+           caveat="Everyone the market has no opinion on is parked on a single "
+                  "plateau value — 758 of 1,000 players shared 170.0 in 2026 — and "
+                  "ranking inside that plateau is noise."),
+    Column("vor_rank", "Draft Metric", "Us", "number", fmt="%.0f", lens=VALUE_LENS_ADP,
+           source_of="Board build",
+           how="Our VOR rank again, as an implied pick order. Repeated from `Ranks` "
+               "on purpose, so this comparison reads without cross-referencing."),
+    Column("value", "Draft Metric", "Δ", "number", fmt="%+.0f", emphasis=True,
+           shade="delta", lens=VALUE_LENS_ADP, source_of="Board build",
+           how="ADP rank minus VOR rank, **both re-ranked over the players the market "
+               "has actually priced**, excluding the streamed positions. Positive "
+               "means the room is letting him fall.",
+           caveat="Because of that re-ranking it will not equal `ESPN − Us` "
+                  "arithmetically. Blank wherever the market set no price, and for K "
+                  "and D/ST — season-total VOR assumes you hold one all season, and "
+                  "you stream them. The first version of this board scored eight team "
+                  "defences as the league's best values on exactly that mistake."),
+    Column("auction_dollars", "Draft Metric", "ESPN", "number", fmt="$%.0f",
+           lens=VALUE_LENS_CASH, source_of="ESPN, rescaled",
+           how="`auctionValueAverage`, the average winning bid across ESPN auctions, "
+               "falling back to ESPN's own suggested value. Rescaled from the $200 "
+               "budget ESPN publishes against to the budget set above.",
+           caveat="A rescale, not a valuation. A real auction's minimum bid does not "
+                  "scale with the budget, so the top of the board is worth slightly "
+                  "more than the multiple says — and nothing here knows what your "
+                  "room actually pays for a quarterback."),
+    Column("our_dollars", "Draft Metric", "Us", "number", fmt="$%.0f",
+           lens=VALUE_LENS_CASH, source_of="Derived here",
+           how="Our own valuation in dollars, **out of the budget you actually have**: "
+               "every roster spot the room fills costs at least $1, and what is left "
+               "splits in proportion to points above replacement. Read it off and bid "
+               "it — the top of a $250 board comes out around $145.",
+           caveat="Aggressive by construction: it spends the whole budget on the ~106 "
+                  "players worth rostering, where the market spreads the same money "
+                  "over ~313. So it sits above ESPN's price for most players inside "
+                  "the money, and the Δ beside it is best read as an ordering — who "
+                  "the room is *most* wrong about — rather than a verdict on each row. "
+                  "Blank outside the money, and for K and D/ST."),
+    Column("cash_delta", "Draft Metric", "Δ", "number", fmt="%+.0f", emphasis=True,
+           shade="delta", lens=VALUE_LENS_CASH, source_of="Derived here",
+           how="`Us − ESPN`. Positive means the room underpays. The auction answer to "
+               "the question `value` asks of a snake draft."),
+
+    # --- what it costs to keep them -------------------------------------
+    Column("keeper_price", "Keepers", "Price", "number", fmt="$%.0f",
+           source_of="ESPN",
+           how="`keeperValue` — what the manager holding him paid to acquire him, "
+               "floored at the $1 minimum for a player claimed off waivers, who has "
+               "no winning bid to record.",
+           caveat="Blank means nobody holds him, which is not the same as free."),
+    Column("keeper_surplus", "Keepers", "Value", "number", fmt="%+.0f", emphasis=True,
+           shade="delta", source_of="Derived here",
+           how="**Our** dollar valuation minus the keeper price. Positive means he is "
+               "worth more to us than keeping him costs.",
+           caveat="Against our valuation rather than the market's, because what "
+                  "decides whether to keep a player is whether *we* rate him that "
+                  "highly — the room's price is a fact about other people's money. "
+                  "Both sides are in this league's real dollars: the keeper price is "
+                  "what the holder actually paid, ours is what we would spend of the "
+                  "same budget. Blank outside the money and for K and D/ST, where we "
+                  "publish no dollar valuation at all."),
+    Column("team_owner", "Keepers", "Owner", "text", source_of="ESPN",
+           how="The fantasy team holding him.",
+           caveat="Before a keeper league's keepers are declared this is **last "
+                  "season's** roster, not this year's. In a redraft league it is the "
+                  "only column in this group."),
+
+    # --- what is wrong with them ----------------------------------------
+    Column("injury_code", "Notes", "Injury", "text", source_of="ESPN injury report",
+           how="ESPN's fantasy status, abbreviated: **A**ctive, **P**robable, "
+               "**Q**uestionable, **D**oubtful, **O**ut, **IR** injured reserve, "
+               "**SUS**pension.",
+           caveat="A status ESPN has not used before is shown in full rather than "
+                  "abbreviated, so a new one is visible instead of silently mangled."),
+    Column("injury_return_date", "Notes", "Exp Return", "text",
+           source_of="ESPN injury report",
+           how="ESPN's estimated return date. `Season` where the estimate is past the "
+               "season's end, which is how the report encodes a season-ending injury.",
+           caveat="Blank means no estimate published, not no injury — ESPN dates only "
+                  "about one in seven of the players it lists. `IR` alone does not "
+                  "mean out for the year; this column is what answers that."),
+    Column("usg_expected_games", "Notes", "Exp G", "number", fmt="%.1f",
+           source_of="ESPN injury report",
+           how="Games out of 17 the model expects him available for, derived from the "
+               "estimated return date. `USG` is already scaled by it.",
+           caveat="Only present for players the usage model covers."),
+    Column("usg_evidence_label", "Notes", "Model Evidence", "text",
+           source_of="Derived here",
+           how="Why the model's number is thin, or which of the three ways it "
+               "produced none — it does not cover the position, it declined to price "
+               "him, or the injury report withdrew a price it had made.",
+           caveat="Exists because an empty `USG` meant three different things and all "
+                  "three rendered as the same blank cell, which reads as agreement."),
+    Column("note_mark", "Notes", "News", "button", width="small",
+           source_of="ESPN injury report",
+           how="A mark where ESPN's injury report carries a note about him. **Click it "
+               "to read the note** — the note is a sentence, and a column wide enough "
+               "for one costs a quarter of the table and truncated it anyway.",
+           caveat="Click rather than hover because Streamlit's grid has no per-cell "
+                  "tooltip. Injury news only — this repo fetches no general player "
+                  "news, and ESPN's free-text `seasonOutlook` was rejected as "
+                  "unparseable. So a blank means he is not on the injury report, not "
+                  "that nothing has happened to him."),
 ]
+
+#: Group order, derived so it cannot disagree with :data:`COLUMNS`.
+GROUPS: List[str] = list(dict.fromkeys(column.group for column in COLUMNS))
 
 
 # --- the auction budget ---------------------------------------------------
@@ -159,8 +510,8 @@ def budget_key(league_key: str) -> str:
     Named here rather than in the page so the page can read the current budget
     *before* the widget that sets it is drawn -- Streamlit reruns top to bottom
     with session state already updated, so reading the key is what makes the
-    ``$`` column right on the same run in which it changed, and on the tabs that
-    render before the input.
+    ``Draft Metric | ESPN`` column right on the same run in which it changed, and
+    on the tabs that render before the input.
 
     Args:
         league_key: ``config.yaml`` league key.
@@ -196,9 +547,9 @@ def at_budget(board: pl.DataFrame, budget: float,
 
     Returns:
         pl.DataFrame: The board with ``auction_share`` and ``auction_dollars``
-        added, or unchanged when it carries no auction column -- the ``$`` column
-        then drops out of :func:`display_frame` exactly as any other absent column
-        does.
+        added, or unchanged when it carries no auction column -- the ``Draft Metric``
+        dollars then drop out of :func:`display_frame` exactly as any other absent
+        column does.
     """
     if "auction_value_filled" not in board.columns or not base:
         return board
@@ -211,102 +562,17 @@ def at_budget(board: pl.DataFrame, budget: float,
 
 # --- the glossary ---------------------------------------------------------
 
-#: Every column the board can show: where the number comes from, and how it is made.
-#:
-#: Keyed by the display label in :data:`DISPLAY_COLUMNS`, and a test asserts the two
-#: agree **exactly** in both directions. That guard is the point of putting this here
-#: rather than writing the prose into the page: a column added to the table and not
-#: to the glossary is a silent gap, and a glossary entry for a column that no longer
-#: exists is a lie nobody would notice. Neither can survive the test.
-#:
-#: ``source`` is where the number originates, not where it is stored -- everything on
-#: the board is read out of one parquet file, which is not the useful answer.
-COLUMN_GLOSSARY: Dict[str, tuple] = {
-    "Player": ("ESPN", "The name as ESPN spells it, from `kona_player_info`."),
-    "Pos": ("ESPN", "Primary position. Replacement level and tiers are both computed "
-                    "*within* position, so this drives most of the table."),
-    "NFL": ("ESPN", "Pro team abbreviation."),
-    "Bye": ("NFL schedule",
-            "Derived rather than read — a bye is an absence, so it is the week in "
-            "which the team appears in neither the home nor the away column. Blank "
-            "when the schedule is missing or covers another season."),
-    "Tier": ("Board build",
-             "1-D KMeans on projected points within position, so the breaks land "
-             "where the gaps actually are rather than every N players. 1 is best."),
-    "Proj": ("Blend",
-             "ESPN, FantasyPros and the usage model in equal thirds — blended as a "
-             "**stat line**, then scored through this league's own rules, which is "
-             "what lets one pipeline serve nine leagues. Pinnacle and BetOnline are "
-             "weighted zero."),
-    "Floor": ("Blend",
-              "The lowest scored total among the sources that supplied a real, "
-              "non-imputed line. Fewer than two such sources means blank: one "
-              "source is not a confidence interval."),
-    "Ceil": ("Blend", "The highest of the same set. See Floor."),
-    "VOR": ("Board build",
-            "Projected points minus the projected points of the last startable "
-            "player at that position. Replacement rank is this league's own "
-            "starting slots × teams, which is why the same player is worth "
-            "different amounts in different leagues."),
-    "VOR Rk": ("Board build", "Rank of VOR across the whole pool. 1 is best."),
-    "Pos Rk": ("Board build", "Rank of projected points within position."),
-    "ADP": ("ESPN",
-            "`averageDraftPosition` — the average pick across real ESPN drafts, so "
-            "it is fractional. Everyone the market has no opinion on is parked on a "
-            "single plateau value."),
-    "Value": ("Board build",
-              "ADP rank minus VOR rank, both ranked over the same population — the "
-              "players the market has actually priced, excluding the streamed "
-              "positions. Positive means the room is letting them fall."),
-    "$": ("ESPN, rescaled",
-          "`auctionValueAverage`, the average winning bid across ESPN auctions, "
-          "falling back to ESPN's own suggested value. Rescaled from the $200 "
-          "budget ESPN publishes against to the budget set above."),
-    "Our $": ("Derived here",
-              "Our own valuation in dollars: every roster spot the room fills costs "
-              "at least $1, and what is left of the budget splits in proportion to "
-              "points above replacement. Blank outside the money, and for K and "
-              "D/ST."),
-    "Cash +/-": ("Derived here",
-                 "Our $ minus $. Positive means the room underpays. The auction "
-                 "answer to the question Value asks of a snake draft."),
-    "Keeper $": ("ESPN",
-                 "`keeperValue` — what the manager holding him paid to acquire him, "
-                 "floored at the $1 minimum for a player claimed off waivers, who "
-                 "has no winning bid to record. Blank means nobody holds him."),
-    "Keeper +/-": ("Derived here",
-                   "$ minus Keeper $. Positive means keeping him is cheaper than "
-                   "buying him back."),
-    "USG": ("Usage model",
-            "The model's own season projection: per-game production times the games "
-            "it expects him available for. **Not comparable to Proj**, which assumes "
-            "a healthy 17."),
-    "Δ Rk": ("Usage model",
-             "`TRUE_PosRank − USG_PosRank` — the blend's rank within position minus "
-             "the model's. Positive means the model likes him more than ESPN and "
-             "FantasyPros do. Being a rank, it survives the level mismatch that "
-             "makes USG and Proj incomparable."),
-    "Exp G": ("ESPN injury report",
-              "Games out of 17 the model expects him available for, from the "
-              "report's estimated return date. USG is already scaled by it."),
-    "Model Evidence": ("Derived here",
-                       "Why the model's number is thin, or which of the three ways "
-                       "it produced none — it does not cover the position, it "
-                       "declined to price him, or the injury report withdrew a price "
-                       "it had made."),
-    "Injury": ("ESPN", "Injury status as ESPN reports it."),
-    "Owner": ("ESPN",
-              "The fantasy team holding him. Before a keeper league's keepers are "
-              "declared this is **last season's** roster, not this year's."),
-}
 
-
-def _escape_dollars(text: str) -> str:
+def escape_dollars(text: str) -> str:
     """Stop Streamlit reading a pair of dollar signs as LaTeX.
 
     Markdown rendered by Streamlit treats ``$...$`` as maths, and a glossary about
     auction values is full of dollar amounts -- unescaped, the middle of this table
     renders as italic equations.
+
+    Public because the page needs it too: a ``help=`` tooltip is markdown and is
+    built from the same prose as the glossary. The ``format=`` specs are printf and
+    must **not** go through this.
 
     Args:
         text: Markdown source.
@@ -317,29 +583,67 @@ def _escape_dollars(text: str) -> str:
     return text.replace("$", r"\$")
 
 
-def glossary_markdown(labels: Optional[Sequence[str]] = None) -> str:
-    """The glossary as a markdown table, for the columns actually on screen.
+def glossary_markdown(columns: Optional[Sequence[tuple]] = None,
+                      lens: str = VALUE_LENS_ADP) -> str:
+    """The glossary as one markdown table per spanner, for the columns on screen.
 
-    A markdown table rather than a dataframe on purpose: these are sentences, and
-    ``st.dataframe`` truncates a long cell to an ellipsis and makes the reader widen
-    a column to find out what a number means.
+    Markdown rather than a dataframe on purpose: these are sentences, and
+    ``st.dataframe`` truncates a long cell to an ellipsis, which makes the reader
+    widen a column to find out what a number means.
+
+    Split by group with a subheading each, so the glossary reads in the same order
+    and the same shape as the table it sits under. Twenty-eight rows in one
+    undifferentiated list is a worse reference than seven short ones, and the group
+    is half the answer anyway -- ``ESPN`` means a different number under ``Points``
+    than under ``Ranks``.
+
+    *Source* is where the number originates, not where it is stored: everything here
+    is read out of one parquet file, which is not the useful answer.
+
+    **The lens has to be passed, not inferred from the columns.** The two Draft Metric
+    variants share their three headers, so selecting on ``(group, label)`` alone
+    matched both and an auction league's glossary described its ``Δ`` twice -- once as
+    a dollar difference and once as an ADP rank difference, with no way to tell which
+    the column above was.
 
     Args:
-        labels: Display labels to include, in :data:`DISPLAY_COLUMNS` order. None
-            includes every column the glossary knows.
+        columns: ``(group, label)`` pairs to include -- pass a rendered frame's
+            ``.columns`` directly. None includes every column this lens renders.
+        lens: Which of the two ``Draft Metric`` variants is on screen.
 
     Returns:
-        str: A three-column markdown table.
+        str: Markdown: a bolded group heading and a four-column table per group,
+        in :data:`COLUMNS` order. Groups with no column on screen are omitted
+        entirely rather than left as an empty heading.
     """
-    wanted = set(labels) if labels is not None else set(COLUMN_GLOSSARY)
-    rows = [(label, *COLUMN_GLOSSARY[label])
-            for _, label in DISPLAY_COLUMNS
-            if label in wanted and label in COLUMN_GLOSSARY]
-    lines = ["| Column | Source | How It Is Calculated |", "|---|---|---|"]
-    lines += [f"| **{_escape_dollars(label)}** | {_escape_dollars(source)} "
-              f"| {_escape_dollars(how)} |"
-              for label, source, how in rows]
-    return "\n".join(lines)
+    wanted = None if columns is None else {tuple(column) for column in columns}
+
+    lensed, seen = [], set()
+    for column in COLUMNS:
+        key = (column.group, column.label)
+        if column.lens in ("", lens) and key not in seen:
+            seen.add(key)
+            lensed.append(column)
+
+    blocks = []
+    for group in GROUPS:
+        rows = [column for column in lensed
+                if column.group == group
+                and (wanted is None or (column.group, column.label) in wanted)]
+        if not rows:
+            continue
+        lines = [f"**{escape_dollars(group)}**", "",
+                 "| Column | Source | How It Is Calculated | What It Does Not Say |",
+                 "|---|---|---|---|"]
+        lines += [
+            f"| **{escape_dollars(column.label)}** "
+            f"| {escape_dollars(column.source_of)} "
+            f"| {escape_dollars(column.how)} "
+            f"| {escape_dollars(column.caveat) if column.caveat else '—'} |"
+            for column in rows
+        ]
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
 
 
 def available_only(board: pl.DataFrame) -> pl.DataFrame:
@@ -500,8 +804,21 @@ def with_cash_value(board: pl.DataFrame, meta: Mapping, budget: float,
     ``value``: a season-total VOR does not describe a position you stream, and
     including them once had eight team defences priced as the league's best buys.
 
+    **It stays denominated in your budget, and that is the whole point of the column.**
+    The number is what to spend out of the money you actually have -- read it off and
+    bid it. Scaling it onto some other price level was tried and reverted: it made the
+    difference beside it tidier and destroyed the only property that makes the column
+    actionable. Where the two sides need to be comparable, the fix belongs on the side
+    that is wrong, which is :func:`at_budget` -- see the team-count note there.
+
     ``cash_delta`` is our price minus the market's, both in this league's dollars.
     Positive means the room is underpaying.
+
+    It runs positive for most players inside the money, and that is our valuation
+    talking rather than an artefact: we allocate the whole budget across the ~106
+    players worth rostering while the market spreads it over the ~313 it prices, so
+    against anyone in the money we will usually be higher. Read the column as an
+    ordering -- who the room is *most* wrong about -- not as a verdict on each row.
 
     Args:
         board: A stored draft board, already through :func:`at_budget` so the
@@ -579,11 +896,27 @@ def with_keeper_price(board: pl.DataFrame, keepers: Optional[int],
     none. That the two signals agree is checked rather than assumed: no free agent
     on any of the nine boards carries a non-zero ``keeper_value``.
 
-    ``keeper_surplus`` is the market price minus that cost -- positive means the
-    keeper is cheaper than the room would pay, which is the only question a keeper
-    price is actually asked. It needs :func:`at_budget` to have run, because both
-    sides have to be in the same currency: the keeper price is in this league's
-    real dollars while the raw market value is in ESPN's $200 default.
+    ``keeper_surplus`` is **our** valuation minus that cost -- positive means the
+    player is worth more to us than keeping him costs, which is the only question a
+    keeper price is actually asked.
+
+    It was ESPN's market price minus the cost until 2026-08-17, and ours is the better
+    comparison for the decision it informs. The market price says whether the *room*
+    would pay more than the keeper price, which is a fact about other people's money;
+    what decides whether to keep a player is whether *we* think he is worth it. The two
+    disagree exactly where it matters -- on the players we rate differently from the
+    market, which is the entire subject of this table.
+
+    Both fall back honestly. ``our_dollars`` is null outside the money and for the
+    streamed positions, so the surplus is blank there rather than claiming a player is
+    a bargain we have no valuation for; the previous version could always produce a
+    number because ESPN prices everybody. Where :func:`with_cash_value` has not run at
+    all -- a board with no ``vor``, or a store with no roster shape -- there is no
+    surplus column and :func:`display_frame` drops it.
+
+    It needs :func:`at_budget` and :func:`with_cash_value` to have run, because both
+    sides have to be in the same currency: the keeper price is in this league's real
+    dollars, and ``our_dollars`` is denominated in the budget set on the page.
 
     **Only in a keeper league.** Every board carries ``keeper_value``, including
     the eight redraft leagues, where it is a small round number ESPN publishes for
@@ -616,9 +949,9 @@ def with_keeper_price(board: pl.DataFrame, keepers: Optional[int],
              .then(pl.max_horizontal(cost, pl.lit(float(min_bid))))
              .otherwise(None))
     out = board.with_columns(price.alias("keeper_price"))
-    if "auction_dollars" in out.columns:
+    if "our_dollars" in out.columns:
         out = out.with_columns(
-            (pl.col("auction_dollars") - pl.col("keeper_price")).alias("keeper_surplus"))
+            (pl.col("our_dollars") - pl.col("keeper_price")).alias("keeper_surplus"))
     return out
 
 
@@ -892,20 +1225,314 @@ def tier_runway(board: pl.DataFrame, positions: Sequence[str],
     )
 
 
-#: How to measure "the room is wrong about this player".
-#:
-#: Two different questions, and which one is right is a property of the draft
-#: rather than a preference. In a snake draft a pick is a place in a queue, so the
-#: comparison is rank against rank. In an auction there is no queue -- there is a
-#: price -- and being four places underrated tells you nothing about whether to bid
-#: $41 or $46.
-VALUE_LENS_ADP = "ADP"
-VALUE_LENS_CASH = "Cash"
+# =========================================================================
+# Calibration -- our projection against ESPN's
+# =========================================================================
 
-#: Lens to the column it reads and the label that column wears.
+#: A position whose two projections never disagree has no outliers, and scoring one
+#: divides by that non-disagreement. Kickers are the real case rather than a
+#: hypothetical: no source but ESPN projects a kicker, so ``TRUE_Points`` for a K
+#: *is* ``ESPN_Points``, every delta is float dust around 1e-14, and the standard
+#: deviation is 7e-15. Dividing by it ranked two kickers as the board's two biggest
+#: disagreements on a delta of -0.00000000000003. Below this floor a position is
+#: reported as having no outliers, which is the true answer.
+AGREEMENT_MIN_SD = 0.5
+
+#: Fewest players a position needs before its own mean and spread mean anything. A
+#: position left with four rows by a filter has a standard deviation that describes
+#: those four players rather than the position.
+AGREEMENT_MIN_PLAYERS = 8
+
+#: The two ways to read the same two columns. Points plots them against each other
+#: and asks where we sit off the diagonal; Disagreement plots the gap itself against
+#: how big the player is, which is the only one of the two that separates anything
+#: once the correlation is 0.98.
+AGREEMENT_VIEW_POINTS = "Projected Points"
+AGREEMENT_VIEW_DELTA = "Disagreement"
+
+#: Schema for an agreement frame with nothing in it, so a caller can read
+#: ``.columns`` off an empty result rather than special-casing it.
+AGREEMENT_SCHEMA = {
+    "primaryPosition": pl.String,
+    "ESPN_Points": pl.Float64,
+    "TRUE_Points": pl.Float64,
+    "points_delta": pl.Float64,
+    "agreement_mean": pl.Float64,
+    "agreement_z": pl.Float64,
+}
+
+
+def agreement_frame(board: pl.DataFrame) -> pl.DataFrame:
+    """Our projection against ESPN's, each disagreement scored within its position.
+
+    Keeps only players who have both projections. ESPN projects no stat line at all
+    for part of the pool, and a missing projection is not a disagreement -- on the
+    2026 Winfield board that is 173 of the 698 startable, projected players.
+
+    **The score is a z within position, measured over the frame you pass in.** Both
+    halves of that are deliberate:
+
+    - *Within position*, because the positions disagree by different amounts and in
+      different directions. The mean gap is **+27.3** points at QB against **+5.9**
+      at RB, so a 30-point gap is unremarkable for a quarterback and a real outlier
+      for a back. A single pooled scale reports the quarterbacks as the model's
+      problem and buries every other one.
+    - *Over the frame passed in*, rather than over the whole board, because the
+      scoping is the analysis. Narrowed to the 200 players the market actually
+      prices, the mean gap at WR moves from +8.8 to **-3.4**: the "we project more
+      than ESPN" bias is almost entirely deep players nobody drafts. Scored against
+      the full board instead, every priced receiver would read as a negative outlier
+      for the sole reason that it belongs to the priced half.
+
+    **This is not two independent opinions.** ESPN is one of the three equal thirds
+    inside ``TRUE_Points``, so the gap is damped by construction and reads as *how
+    far the blend moved off ESPN*, not as a forecaster disagreeing with another. A
+    player we and ESPN are far apart on is one FantasyPros and the usage model
+    dragged, which is what makes the tails worth reading.
+
+    Args:
+        board: A stored draft board, filtered however the page is filtered.
+
+    Returns:
+        pl.DataFrame: One row per player carrying both projections, plus
+        ``points_delta`` (``Us - ESPN``), ``agreement_mean`` (the midpoint of the
+        two, which is what the gap is read against) and ``agreement_z``. The z is
+        null wherever the position has too few players or too little disagreement
+        to support one -- see :data:`AGREEMENT_MIN_PLAYERS` and
+        :data:`AGREEMENT_MIN_SD` -- rather than being faked at zero, because "we
+        never disagree here" and "we agree about this player" are different facts.
+    """
+    required = ("primaryPosition", "ESPN_Points", "TRUE_Points")
+    if not all(column in board.columns for column in required):
+        return pl.DataFrame(schema=AGREEMENT_SCHEMA)
+
+    carried = [column for column in
+               ("player_name", "pro_team", "bye_week", "tier", "adp",
+                "adp_is_priced", "vor", "pos_rank", "team_owner")
+               if column in board.columns]
+    pool = board.filter(
+        pl.col("ESPN_Points").is_not_null() & pl.col("TRUE_Points").is_not_null()
+    ).select([*required, *carried]).with_columns(
+        # Recomputed from the two columns actually plotted rather than read from the
+        # board's stored `points_delta`, which is the same subtraction. A chart that
+        # draws three numbers should not be able to disagree with itself about
+        # whether the third is the difference of the other two.
+        (pl.col("TRUE_Points") - pl.col("ESPN_Points")).alias("points_delta"),
+        ((pl.col("TRUE_Points") + pl.col("ESPN_Points")) / 2).alias("agreement_mean"),
+    )
+    if pool.is_empty():
+        return pool.with_columns(pl.lit(None, pl.Float64).alias("agreement_z"))
+
+    # `fill_null(0.0)`: a position holding one row has a null standard deviation,
+    # which would make the whole condition null and fall through to the `otherwise`
+    # by accident rather than by the rule stated above it.
+    spread = pl.col("points_delta").std().over("primaryPosition").fill_null(0.0)
+    scorable = ((pl.len().over("primaryPosition") >= AGREEMENT_MIN_PLAYERS)
+                & (spread >= AGREEMENT_MIN_SD))
+    return pool.with_columns(
+        pl.when(scorable)
+        .then((pl.col("points_delta")
+               - pl.col("points_delta").mean().over("primaryPosition")) / spread)
+        .otherwise(None)
+        .alias("agreement_z")
+    ).sort(["primaryPosition", "ESPN_Points"], descending=[False, True])
+
+
+#: Columns :func:`with_outlier_flag` writes: whether a player is one of the biggest
+#: disagreements, and where he places among them.
+AGREEMENT_FLAG = "agreement_flagged"
+AGREEMENT_RANK = "agreement_rank"
+
+
+def with_outlier_flag(frame: pl.DataFrame, limit: int = 3,
+                      per_position: bool = False) -> pl.DataFrame:
+    """Mark the biggest disagreements in place rather than splitting them out.
+
+    A separate frame of outliers is the obvious shape and the wrong one for the
+    chart: Vega-Lite will not facet a layered spec whose layers carry different
+    data, so highlighting a subset has to be a filter over one dataset rather than
+    a second dataset drawn on top. Flagging in place is what lets the cloud, the
+    highlighted marks and their labels all be layers over the same rows.
+
+    The rank comes back with it because two outliers in one panel are routinely on
+    top of each other -- the three flagged quarterbacks on the 2026 Winfield board
+    are all deep backups within 15 points of each other -- and a caller that knows
+    which of the three a mark is can stagger its label by a fixed offset instead of
+    printing three names in the same place. Vega-Lite has no label-collision solver
+    for point marks, so the separation has to be built rather than asked for.
+
+    Args:
+        frame: An :func:`agreement_frame` result.
+        limit: How many to flag. Applied within each position when
+            ``per_position``, otherwise across the whole frame.
+        per_position: Rank inside each position rather than across all of them.
+            The chart labels want this -- a pooled top ten lands eight labels in
+            one facet and none in the rest.
+
+    Returns:
+        pl.DataFrame: The frame plus :data:`AGREEMENT_FLAG` (boolean) and
+        :data:`AGREEMENT_RANK` (1 is the biggest disagreement, null where not
+        flagged). Players with no score are never flagged.
+    """
+    if frame.is_empty() or limit <= 0:
+        return frame.with_columns(
+            pl.lit(False, pl.Boolean).alias(AGREEMENT_FLAG),
+            pl.lit(None, pl.UInt32).alias(AGREEMENT_RANK))
+
+    # `fill_null(-1.0)` rather than letting the rank see nulls: an unscored player
+    # must sort last, and a null magnitude ranking anywhere else would flag a
+    # kicker whose disagreement is not measurable as one of the biggest.
+    placed = pl.col("agreement_z").abs().fill_null(-1.0).rank(
+        "ordinal", descending=True)
+    if per_position:
+        placed = placed.over("primaryPosition")
+
+    flagged = pl.col("agreement_z").is_not_null() & (placed <= limit)
+    return frame.with_columns(
+        flagged.alias(AGREEMENT_FLAG),
+        pl.when(flagged).then(placed.cast(pl.UInt32)).otherwise(None)
+        .alias(AGREEMENT_RANK))
+
+
+#: Column :func:`with_label_slots` writes.
+AGREEMENT_SLOT = "label_slot"
+
+
+def with_label_slots(frame: pl.DataFrame, y_field: str) -> pl.DataFrame:
+    """Order each position's flagged marks bottom-to-top, for staggering labels.
+
+    Vega-Lite has no collision solver for point labels, so a caller draws one text
+    layer per slot at a fixed vertical offset. **The slot has to be the mark's own
+    vertical order, not its rank by disagreement**, and getting that backwards is
+    worse than not staggering at all: the three flagged tight ends sit within 30
+    screen pixels of each other, and offsetting them by |z| rank pushed the lowest
+    mark's label up and the highest mark's label down, collapsing three names onto
+    one line. Ordered by ``y_field`` instead, the marks' own spread adds to the
+    offsets rather than cancelling them.
+
+    Args:
+        frame: A :func:`with_outlier_flag` result.
+        y_field: The column the chart puts on its y axis. It differs by view --
+            ``TRUE_Points`` against ESPN's, ``points_delta`` against zero -- which
+            is why the slot cannot be decided when the flag is.
+
+    Returns:
+        pl.DataFrame: The frame plus :data:`AGREEMENT_SLOT`, 1 for the lowest
+        flagged mark in each position, null for everything unflagged.
+    """
+    if frame.is_empty() or AGREEMENT_FLAG not in frame.columns:
+        return frame.with_columns(pl.lit(None, pl.UInt32).alias(AGREEMENT_SLOT))
+
+    # Grouped by position *and* the flag, so the ranking happens inside each
+    # position's flagged marks. The unflagged rows rank among themselves and the
+    # `when` throws that away.
+    return frame.with_columns(
+        pl.when(pl.col(AGREEMENT_FLAG))
+        .then(pl.col(y_field).rank("ordinal")
+              .over(["primaryPosition", AGREEMENT_FLAG]).cast(pl.UInt32))
+        .otherwise(None)
+        .alias(AGREEMENT_SLOT))
+
+
+def agreement_outliers(frame: pl.DataFrame, limit: int = 12,
+                       per_position: bool = False) -> pl.DataFrame:
+    """The biggest disagreements, furthest from its own position's first.
+
+    The list form of :func:`with_outlier_flag`, and built on it so the table and
+    the marks on the chart cannot pick different players.
+
+    Args:
+        frame: An :func:`agreement_frame` result.
+        limit: How many to return. Applied per position when ``per_position``,
+            otherwise across the whole frame.
+        per_position: Rank inside each position rather than across all of them.
+
+    Returns:
+        pl.DataFrame: The frame's own columns, ordered by ``|agreement_z|``
+        descending. Empty when nothing carries a score, which is not the same as
+        everything agreeing.
+    """
+    flagged = with_outlier_flag(frame, limit=limit, per_position=per_position)
+    return (flagged.filter(pl.col(AGREEMENT_FLAG))
+            .drop(AGREEMENT_FLAG, AGREEMENT_RANK)
+            .with_columns(pl.col("agreement_z").abs().alias("_magnitude"))
+            .sort("_magnitude", descending=True).drop("_magnitude"))
+
+
+def agreement_summary(frame: pl.DataFrame) -> pl.DataFrame:
+    """Per position: how far the blend sits off ESPN, and how consistently.
+
+    The table the outlier hunt is read against. A position whose mean gap is large
+    and whose spread is small is a *systematic* offset -- something the blend does
+    to every player at that position, which is a model question. A small mean with
+    a wide spread is the opposite: we agree on the position and disagree about
+    individuals, which is a player question.
+
+    Args:
+        frame: An :func:`agreement_frame` result.
+
+    Returns:
+        pl.DataFrame: ``primaryPosition``, ``players``, ``mean_delta``,
+        ``sd_delta``, ``share_above`` (the fraction we project higher on, 0-100)
+        and ``scored`` -- whether this position's players carry a z at all.
+    """
+    schema = {"primaryPosition": pl.String, "players": pl.UInt32,
+              "mean_delta": pl.Float64, "sd_delta": pl.Float64,
+              "share_above": pl.Float64, "scored": pl.Boolean}
+    if frame.is_empty():
+        return pl.DataFrame(schema=schema)
+
+    return (
+        frame.group_by("primaryPosition")
+        .agg(pl.len().alias("players"),
+             pl.col("points_delta").mean().alias("mean_delta"),
+             pl.col("points_delta").std().alias("sd_delta"),
+             (pl.col("points_delta") > 0).mean().mul(100).alias("share_above"),
+             pl.col("agreement_z").is_not_null().any().alias("scored"))
+        .sort("players", descending=True)
+    )
+
+
+#: Source column to display label for the outlier table, in render order. Its
+#: vocabulary is the board's -- `ESPN`, `Us` and a Δ mean here exactly what the
+#: `Points` spanner means by them -- so a reader arriving from the Board tab does
+#: not have to learn the columns twice.
+AGREEMENT_COLUMNS = (
+    ("player_name", "Player"),
+    ("primaryPosition", "Pos"),
+    ("pro_team", "NFL"),
+    ("ESPN_Points", "ESPN"),
+    ("TRUE_Points", "Us"),
+    ("points_delta", "Δ"),
+    ("agreement_z", "σ vs Position"),
+    ("adp", "ADP"),
+    ("tier", "Tier"),
+)
+
+
+def agreement_table(frame: pl.DataFrame) -> pl.DataFrame:
+    """Select and rename the columns the outlier table shows.
+
+    Args:
+        frame: An :func:`agreement_frame` or :func:`agreement_outliers` result.
+
+    Returns:
+        pl.DataFrame: Renamed display columns in :data:`AGREEMENT_COLUMNS` order,
+        skipping any the frame does not carry.
+    """
+    present = [(source, label) for source, label in AGREEMENT_COLUMNS
+               if source in frame.columns]
+    return frame.select([pl.col(source).alias(label) for source, label in present])
+
+
+#: Lens to the board column it sorts and filters on.
+#:
+#: The label half of this mapping was dropped when the table grew spanners: both
+#: lenses now render under the same ``Draft Metric | Δ`` header, and which column is
+#: behind it is :data:`COLUMNS`' business rather than this one's.
 VALUE_LENS_COLUMNS = {
-    VALUE_LENS_ADP: ("value", "Value"),
-    VALUE_LENS_CASH: ("cash_delta", "Cash +/-"),
+    VALUE_LENS_ADP: "value",
+    VALUE_LENS_CASH: "cash_delta",
 }
 
 
@@ -948,7 +1575,7 @@ def value_targets(board: pl.DataFrame, limit: int = 12,
         pl.DataFrame: The top ``limit`` by the lens's column, available players
         only. Empty when the board does not carry that column.
     """
-    column, _ = VALUE_LENS_COLUMNS.get(lens, VALUE_LENS_COLUMNS[VALUE_LENS_ADP])
+    column = VALUE_LENS_COLUMNS.get(lens, VALUE_LENS_COLUMNS[VALUE_LENS_ADP])
     if column not in board.columns:
         return board.head(0)
     return (
@@ -1462,16 +2089,397 @@ def with_model_evidence(board: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def display_frame(board: pl.DataFrame) -> pl.DataFrame:
-    """Select and rename the columns the table shows.
+def with_injury_code(board: pl.DataFrame) -> pl.DataFrame:
+    """Add ``injury_code``: ESPN's fantasy status, abbreviated, and a readable return.
+
+    Two derivations rather than one because they answer the same question together and
+    neither is much use alone. ``ACTIVE`` for 2,204 rows of 2,503 is a column of noise
+    until the exceptions are short enough to scan, and ``IR`` does not say whether a
+    player is back in November or gone for the year -- only the return date does.
+
+    **An unmapped status passes through in full.** ESPN's enum is not published and
+    this repo has observed five of it; abbreviating an unknown sixth to its first
+    letter would collide with a real code, and blanking it would hide a player's
+    status entirely. Showing ``DAY_TO_DAY`` in a narrow column is ugly and correct.
+
+    The return date is rendered here rather than formatted in the page because the
+    season-ending sentinel is a *value*, not a format: ESPN encodes "out for the year"
+    as a date past the end of the season, and a reader shown ``2027-02-01`` would have
+    to know that to read it. See ``SEASON_ENDING_AFTER`` in
+    :mod:`Scripts.scrape_espn_injuries`, which is where the same convention is decoded
+    for the availability scaling.
+
+    Args:
+        board: A stored draft board.
+
+    Returns:
+        pl.DataFrame: The board with ``injury_code`` added where it carries
+        ``injury_status``, and ``injury_return_date`` rewritten as display text where
+        it carries that. Unchanged for a board that has neither.
+    """
+    # Deferred so the render path does not import `requests` to read one date. The
+    # sentinel is imported rather than restated because two copies of it would drift,
+    # and the availability scaling in `season_projections` decodes the same convention.
+    from Scripts.scrape_espn_injuries import SEASON_ENDING_AFTER
+
+    if "injury_status" in board.columns:
+        # Cast first: a board on which ESPN returned no status at all carries the
+        # column as Null dtype, and `replace_strict` then tries to cast the map's
+        # string values into it and raises.
+        status = pl.col("injury_status").cast(pl.String)
+        board = board.with_columns(
+            status.replace_strict(INJURY_CODES, default=status).alias("injury_code")
+        )
+
+    if "injury_note" in board.columns:
+        board = board.with_columns(
+            pl.when(pl.col("injury_note").cast(pl.String).fill_null("") != "")
+            .then(pl.lit(NOTE_MARK))
+            .otherwise(pl.lit(None, dtype=pl.String))
+            .alias("note_mark")
+        )
+
+    # Guarded on the dtype rather than on presence: this rewrites a date column into
+    # text in place, so running twice on the same frame would re-parse its own output.
+    dates = board.schema.get("injury_return_date")
+    if dates in (pl.Date, pl.Datetime, pl.Datetime("ns"), pl.Datetime("us")):
+        as_date = pl.col("injury_return_date").cast(pl.Date)
+        board = board.with_columns(
+            pl.when(as_date.is_null()).then(pl.lit(None, dtype=pl.String))
+            .when(as_date > SEASON_ENDING_AFTER).then(pl.lit(RETURN_SEASON_ENDING))
+            .otherwise(as_date.dt.to_string("%b %d"))
+            .alias("injury_return_date")
+        )
+    return board
+
+
+def player_note(table: pl.DataFrame, row: int) -> Optional[str]:
+    """The selected player's injury note as markdown, or None if there is nothing.
+
+    The other half of the ``News`` column: the table carries a mark, this renders the
+    sentence behind it. Reached by selecting the row, because Streamlit's grid has no
+    per-cell tooltip -- see :data:`NOTE_MARK`.
+
+    Given the *sorted, filtered* frame the table was built from, because the row index
+    a selection reports is a position in what is on screen and means nothing against
+    the stored board.
+
+    Args:
+        table: The frame passed to :func:`display_frame`, in the same order.
+        row: Zero-based row position from ``st.dataframe``'s selection.
+
+    Returns:
+        str | None: Markdown -- the player's name, position and team, whatever the
+        report says about his status and return, then the note itself. None when the
+        row is out of range or carries no note, so the caller renders nothing rather
+        than an empty panel.
+    """
+    if row < 0 or row >= table.height:
+        return None
+
+    player = table.row(row, named=True)
+    note = (player.get("injury_note") or "").strip()
+    if not note:
+        return None
+
+    where = " ".join(str(player[key]) for key in ("primaryPosition", "pro_team")
+                     if player.get(key))
+    status = player.get("injury_status") or ""
+    back = player.get("injury_return_date") or ""
+
+    facts = [bit for bit in (where, status.title().replace("_", " ") if status else "",
+                             f"back {back}" if back else "") if bit]
+    heading = f"**{player.get('player_name', 'Unknown')}**"
+    if facts:
+        heading += " · " + " · ".join(facts)
+    return f"{heading}\n\n{note}"
+
+
+def player_note_for(board: pl.DataFrame, player_id) -> Optional[str]:
+    """The note for one player, found by id rather than by position.
+
+    The lookup half of :func:`remember_note_click`. Given the whole board, so a note
+    stays readable after a filter that would have dropped the row it was clicked on.
+
+    Args:
+        board: Any frame carrying ``player_id``, before or after filtering.
+        player_id: The id remembered from the click.
+
+    Returns:
+        str | None: Markdown from :func:`player_note`, or None where the player is not
+        in this frame or carries no note.
+    """
+    if player_id is None or "player_id" not in board.columns:
+        return None
+    match = board.filter(pl.col("player_id") == player_id)
+    return player_note(match, 0) if not match.is_empty() else None
+
+
+def remember_note_click(state, table: pl.DataFrame, league_key: str = "",
+                        click_key: str = NOTE_CLICK_KEY):
+    """Resolve a news-mark click to a player and remember which, clicking again to close.
+
+    **A click reports a row number, and a row number goes stale.** It is a position in
+    the sorted, filtered frame on screen, so the moment the sort changes it names a
+    different player -- silently, which is the worst way for it to be wrong. Streamlit
+    also clears the click value on the *next* rerun, so a note read off it alone would
+    vanish the first time anything else on the page moved. Resolving to a ``player_id``
+    at click time and remembering that solves both.
+
+    Toggles: clicking the mark of the player already open closes the panel, which is
+    the only way to dismiss it without a second control.
+
+    Args:
+        state: ``st.session_state``, passed in so this stays testable with a plain
+            dict and the module keeps its no-Streamlit-import rule.
+        table: The frame the table was rendered from, in the same order.
+        league_key: Scopes the memory per league, so switching leagues does not carry
+            a note across to a board that may not even hold that player. Same reason
+            :func:`budget_key` is scoped.
+        click_key: Which button column's click to read. Each table needs its own --
+            see :data:`VALUES_NOTE_CLICK_KEY`.
+
+    Returns:
+        The remembered ``player_id``, or None when nothing is open.
+    """
+    held_key = f"{NOTE_HELD_KEY}::{click_key}::{league_key}"
+    click = state.get(click_key)
+
+    row = None
+    if click is not None:
+        row = click.get("row") if hasattr(click, "get") else getattr(click, "row", None)
+
+    if row is not None and 0 <= row < table.height and "player_id" in table.columns:
+        clicked = table.row(row, named=True).get("player_id")
+        state[held_key] = None if state.get(held_key) == clicked else clicked
+
+    return state.get(held_key)
+
+
+def shown_columns(board: pl.DataFrame, lens: str = VALUE_LENS_ADP) -> List[Column]:
+    """The specs that will actually render, for this board and this lens.
+
+    The single place the "which columns exist here" question is answered, so the
+    frame, the column config and the glossary cannot disagree about it.
+
+    Args:
+        board: A board, at whatever stage of derivation the page has reached.
+        lens: :data:`VALUE_LENS_ADP` or :data:`VALUE_LENS_CASH` -- which currency the
+            ``Draft Metric`` group speaks. Unlike every other group this one cannot
+            be selected on column presence: ``adp`` and ``auction_dollars`` are both
+            present in every league, so choosing between them is a decision about the
+            draft rather than an observation about the data.
+
+    Returns:
+        List[Column]: In :data:`COLUMNS` order.
+    """
+    return [column for column in COLUMNS
+            if column.source in board.columns
+            and column.lens in ("", lens)]
+
+
+def display_frame(board: pl.DataFrame,
+                  lens: str = VALUE_LENS_ADP) -> "pd.DataFrame":
+    """Select and rename the columns the table shows, under spanner headers.
+
+    Returns **pandas**, not Polars, and that is load-bearing rather than a
+    preference. Two of the three things this table now does are pandas-only in
+    Streamlit: grouped headers come from a ``MultiIndex`` on the columns, and cell
+    colouring comes from a ``Styler``. Everything upstream of here stays Polars.
+
+    A spec whose source column is absent drops out silently, which is what lets one
+    spec list serve a redraft league with no keeper prices, a board built before the
+    usage model existed, and an artifact written before the ESPN comparison columns
+    were added.
 
     Args:
         board: A filtered board.
+        lens: See :func:`shown_columns`.
 
     Returns:
-        pl.DataFrame: Renamed display columns, in :data:`DISPLAY_COLUMNS` order,
-        skipping any the artifact does not carry.
+        pd.DataFrame: One column per rendered spec, in :data:`COLUMNS` order, with a
+        two-level column index of ``(group, label)``.
     """
-    present = [(source, label) for source, label in DISPLAY_COLUMNS
-               if source in board.columns]
-    return board.select([pl.col(source).alias(label) for source, label in present])
+    present = shown_columns(board, lens)
+    # Selected under positional aliases, then renamed. Two specs may share a source
+    # (`vor_rank` is both our overall rank and our implied pick order) and Polars will
+    # not select one column twice under one name; the group and label cannot be joined
+    # into the alias either, because Arrow field names may not contain a separator
+    # exotic enough to be safe -- a NUL byte panics the conversion.
+    frame = board.select(
+        [pl.col(column.source).alias(f"_c{position}")
+         for position, column in enumerate(present)]
+    ).to_pandas()
+    frame.columns = pd.MultiIndex.from_tuples(
+        [(column.group, column.label) for column in present])
+
+    return frame
+
+
+class Shading(NamedTuple):
+    """The threshold one difference column's fill is decided against.
+
+    Only the differences are shaded. Colouring the raw points, ranks and prices too was
+    built and then removed: at seventeen shaded columns the table read as a heatmap, and
+    the columns carrying an opinion stopped being the ones that caught your eye. A level
+    also has no midpoint to diverge around -- 340 projected points is not the opposite
+    of anything -- so the fill had to be measured against the pool, which meant a second
+    set of rules for half the table. The differences are the judgement; everything else
+    is the context you read it against, and context does not need paint.
+
+    Attributes:
+        scale: The 90th percentile of the column's magnitude, which the two fill steps
+            per arm are fractions of.
+    """
+
+    scale: float
+
+
+def shade_scales(board: pl.DataFrame,
+                 lens: str = VALUE_LENS_ADP) -> Dict[tuple, Shading]:
+    """The fill threshold for every difference column, measured against this league.
+
+    **Computed from the unfiltered board on purpose.** Scaling to whatever survives
+    the current filters would repaint the table every time a position is deselected,
+    so the same +14 would read as strong in one view and neutral in the next. A
+    colour that moves when you filter is not encoding the number.
+
+    Args:
+        board: The league's whole board, before :func:`filter_board`.
+        lens: See :func:`shown_columns`.
+
+    Returns:
+        Dict[tuple, Shading]: ``(group, label)`` to its threshold. A column with no
+        measurable spread is omitted, which :func:`styled_frame` reads as "do not
+        paint this one" -- a league where we and ESPN agree exactly has nothing to
+        say, so it says nothing rather than painting a column of neutral grey.
+    """
+    scales = {}
+    for column in shown_columns(board, lens):
+        if column.shade != "delta":
+            continue
+        spread = board[column.source].abs().quantile(0.9)
+        if spread:
+            scales[(column.group, column.label)] = Shading(scale=float(spread))
+    return scales
+
+
+def shade_step(value: float, shading: Shading) -> int:
+    """Which of the five diverging steps a difference falls in.
+
+    Args:
+        value: The difference.
+        shading: That column's threshold, from :func:`shade_scales`.
+
+    Returns:
+        int: -2 to 2. Positive means we are higher on the player than ESPN is, which
+        is the orientation every difference column is built to -- see :data:`COLUMNS`.
+    """
+    if value is None or pd.isna(value) or shading.scale <= 0:
+        return 0
+    share = abs(value) / shading.scale
+    if share < DELTA_SOFT_AT:
+        return 0
+    step = 2 if share >= DELTA_STRONG_AT else 1
+    return step if value > 0 else -step
+
+
+def styled_frame(frame: "pd.DataFrame", scales: Mapping[tuple, Shading],
+                 theme: str = "light"):
+    """Fill the shaded columns, and bold the ones that carry a judgement.
+
+    A ``Styler`` rather than ``column_config`` because Streamlit's grid takes cell
+    colour only this way. It honours exactly three CSS properties -- ``color``,
+    ``background-color`` and ``font-weight`` -- so this emits those and nothing else;
+    borders, alignment and font-size in a Styler are silently dropped.
+
+    **Only the difference columns are painted, and they are the only ones bolded.**
+    Colouring the raw points, ranks and prices too was built and then removed: at
+    seventeen shaded columns the table read as a heatmap and the columns carrying an
+    opinion stopped being the ones that caught your eye.
+
+    Args:
+        frame: A :func:`display_frame` result.
+        scales: From :func:`shade_scales`, computed on the *unfiltered* board.
+        theme: ``light`` or ``dark``, from ``st.context.theme.type``. An unknown
+            theme falls back to light rather than raising -- a new Streamlit theme
+            name should not take the page down.
+
+    Returns:
+        pandas.io.formats.style.Styler: Ready to hand to ``st.dataframe``.
+    """
+    fills = DELTA_FILLS.get(theme, DELTA_FILLS["light"])
+    ink = DELTA_INK.get(theme, DELTA_INK["light"])
+    bold = {(column.group, column.label) for column in COLUMNS if column.emphasis}
+
+    # `na_rep=""` and nothing else, and it covers exactly half the problem.
+    #
+    # A missing cell is drawn as the literal word "None" unless something says
+    # otherwise, and for a *text* column the something has to be here: a Styler ships
+    # display strings alongside the data, Streamlit prefers them wherever
+    # ``column_config`` has no format of its own, and pandas renders a missing value
+    # with ``str`` by default. A *number* column takes the other path -- its display
+    # string is deliberately ignored in favour of ``column_config``'s format -- so the
+    # blank there comes from ``st.dataframe(placeholder="")`` in the page.
+    #
+    # Both halves are load-bearing. Missing one of them put "None" on 998 of 1,026
+    # rows of `Exp Return`, and on every unpriced player's `Δ`: columns whose blank
+    # means "nobody published a number" instead asserting an answer.
+    styler = frame.style.format(na_rep="")
+
+    for key, shading in scales.items():
+        if key not in frame.columns:
+            continue
+
+        def paint(value, shading=shading, weight="font-weight: 700"
+                  if key in bold else ""):
+            fill = fills[shade_step(value, shading)]
+            # Bold regardless of fill: the emphasis says "this column is a
+            # judgement", which is true of the rows we agree with ESPN on too.
+            colour = f"background-color: {fill}; color: {ink}" if fill else ""
+            return "; ".join(part for part in (colour, weight) if part)
+
+        styler = styler.map(paint, subset=[key])
+    return styler
+
+
+#: Streamlit ``column_config`` kind to the spec fields the page needs to build it.
+#:
+#: Kept as data here, and turned into ``st.column_config`` objects by the page. This
+#: module does not import Streamlit -- it is the half of the draft board that is
+#: testable without a runtime, and the tests import it with no Streamlit at all.
+def column_config_specs(frame: "pd.DataFrame",
+                        lens: str = VALUE_LENS_ADP) -> Dict[int, Column]:
+    """The spec behind each rendered column, keyed by its position in the frame.
+
+    **Positional, and it has to be.** ``column_config`` accepts a column name or a
+    numerical position, and the names here are not unique: ``ESPN``, ``Us`` and ``Δ``
+    each repeat across groups, so a name-keyed config would apply the points format to
+    the rank columns. Positions also close a silent failure the old hand-written dict
+    had -- Streamlit ignores config for a column the frame does not carry, so a label
+    that stopped existing stopped formatting without anybody being told.
+
+    **The index counts as a column in that numbering, even hidden.** Streamlit's grid
+    numbers every column it was handed, index first, and matches ``_pos:N`` against
+    that; ``hide_index=True`` hides the index without renumbering what follows it. So
+    the offset is the frame's index depth, and getting it wrong is not a crash -- every
+    column silently wears its neighbour's format. It showed up as ``Tier`` rendering
+    ``1.0``, ``Ranks | Us`` rendering ``+1``, and the identity block splitting across
+    the frozen boundary because the fifth pin landed on the sixth column.
+
+    Args:
+        frame: A :func:`display_frame` result. Read rather than recomputed, so the
+            positions cannot drift from the frame they describe.
+        lens: See :func:`shown_columns`.
+
+    Returns:
+        Dict[int, Column]: Streamlit column position to its spec.
+    """
+    by_key = {}
+    for column in COLUMNS:
+        if column.lens in ("", lens):
+            by_key.setdefault((column.group, column.label), column)
+    offset = frame.index.nlevels
+    return {position + offset: by_key[key]
+            for position, key in enumerate(frame.columns)
+            if key in by_key}

@@ -387,9 +387,10 @@ def build_board(
     Returns:
         pd.DataFrame: One row per player, sorted by ``vor`` descending, with
         ``vor``, ``vor_rank``, ``pos_rank``, ``tier``, ``adp``, ``adp_rank``,
-        ``value``, ``adp_is_priced``, ``replacement_rank``, ``bye_week`` and the
-        market columns. ``value`` is NaN wherever the market has not priced the
-        player -- see :func:`adp_plateau`.
+        ``value``, ``adp_is_priced``, ``replacement_rank``, ``bye_week``, the four
+        ESPN comparison columns of :func:`_attach_espn_comparison` and the market
+        columns. ``value`` is NaN wherever the market has not priced the player --
+        see :func:`adp_plateau`.
 
     Raises:
         KeyError: If ``projections`` lacks ``player_id`` or ``points_column``.
@@ -456,6 +457,8 @@ def build_board(
     # player is its own signal, one plan 09 should show rather than score -- or the
     # position is streamed and the comparison would not mean anything.
     board["value"] = board["value_rank_adp"] - board["value_rank_vor"]
+
+    board = _attach_espn_comparison(board, points_column)
 
     board["tier"] = (
         board.groupby("primaryPosition")[points_column]
@@ -542,6 +545,62 @@ def build_board(
     # interaction; it is the wrong default for a stored artifact.
     return board.sort_values("vor", ascending=False, na_position="last").reset_index(
         drop=True)
+
+
+def _attach_espn_comparison(board: pd.DataFrame, points_column: str) -> pd.DataFrame:
+    """Rank ESPN's own board within position, and difference it against ours.
+
+    Four columns, all of which are ESPN's opinion set beside ours. ESPN's half was
+    already on every stored board and shown nowhere: ``ESPN_Points`` is ESPN's stat
+    line scored in *this league's* rules, and ``espn_draft_rank`` is ESPN's published
+    draft ranking, which is dense (1..N, no ties, no plateau) and populated for every
+    row -- unlike ``adp``, where 758 of 1,000 players shared a single filler value in
+    2026.
+
+    **The two ESPN quantities are kept in their own lanes on purpose.** Points are
+    compared against points and a draft ranking against our draft ranking; ESPN's rank
+    is not re-derived from ``ESPN_Points`` and our rank is not re-derived from ours.
+    Mixing them would produce a difference that moves when either the projection or
+    the ranking method changes, and there would be no way to see which.
+
+    Every difference here is oriented so that **positive means we are higher on the
+    player than ESPN is** -- points differenced ours-minus-theirs because more points
+    is better, ranks theirs-minus-ours because a lower rank is better. That matches
+    the convention ``value`` already set (ADP rank minus VOR rank, positive where the
+    room lets a player fall) and is what lets the page colour every difference column
+    on one rule instead of five.
+
+    Args:
+        board: The merged frame, after ``pos_rank`` and ``vor_rank`` are computed.
+        points_column: Our blended projection, for the points difference.
+
+    Returns:
+        pd.DataFrame: ``board`` with ``espn_pos_rank``, ``points_delta``,
+        ``rank_delta`` and ``pos_rank_delta`` added. Any whose inputs are absent is
+        NaN rather than missing, so the board's shape does not depend on which
+        columns ESPN happened to return.
+    """
+    espn_points = "ESPN_Points"
+    missing = pd.Series(np.nan, index=board.index)
+
+    # Ranked ascending: `espn_draft_rank` is already a rank, so 1 is best and the
+    # within-position ordering is a rank of a rank.
+    board["espn_pos_rank"] = (
+        board.groupby("primaryPosition")["espn_draft_rank"].rank(
+            ascending=True, method="min")
+        if "espn_draft_rank" in board.columns else missing
+    )
+
+    board["points_delta"] = (
+        board[points_column] - board[espn_points]
+        if espn_points in board.columns else missing
+    )
+    board["rank_delta"] = (
+        board["espn_draft_rank"] - board["vor_rank"]
+        if "espn_draft_rank" in board.columns else missing
+    )
+    board["pos_rank_delta"] = board["espn_pos_rank"] - board["pos_rank"]
+    return board
 
 
 def _value_over_replacement(
