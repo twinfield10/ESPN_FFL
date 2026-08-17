@@ -390,16 +390,38 @@ def test_the_keeper_price_is_shown_only_where_the_league_has_keepers():
     assert "keeper_price" in dv.with_keeper_price(board, 2).columns
 
 
-def test_an_unpriced_player_has_no_keeper_price_rather_than_a_free_one():
-    """"Costs nothing to keep" and "is not anybody's keeper" must not be one cell."""
-    out = dv.with_keeper_price(_board([{"keeper_value": 0}, {"keeper_value": 12}]), 2)
-    assert out["keeper_price"].to_list() == [None, 12.0]
+def test_a_waiver_pickup_keeps_for_the_minimum_bid_not_for_nothing():
+    """ESPN reports keeperValue 0 for a player claimed off waivers -- there was no
+    winning bid to record -- and shows $1 in its own UI. 65 of GOP's 252 held
+    players are in that state; reading the zero as "no keeper price" blanked a
+    quarter of the league's keepers, Malik Nabers among them."""
+    out = dv.with_keeper_price(_board([
+        {"player_name": "Waiver", "keeper_value": 0, "on_team_id": 7},
+        {"player_name": "Auction", "keeper_value": 12, "on_team_id": 7},
+    ]), 2)
+    assert out["keeper_price"].to_list() == [1.0, 12.0]
+
+
+def test_only_a_free_agent_has_no_keeper_price():
+    """Being on a roster is what confers one. A blank says "nobody can keep him"."""
+    out = dv.with_keeper_price(_board([
+        {"player_name": "Rostered", "keeper_value": 0, "on_team_id": 7},
+        {"player_name": "Free", "keeper_value": 0, "on_team_id": 0},
+    ]), 2)
+    assert out["keeper_price"].to_list() == [1.0, None]
+
+
+def test_a_board_without_the_roster_column_falls_back_to_the_price():
+    """Loses the waiver pickups rather than inventing keepers out of free agents."""
+    board = _board([{"keeper_value": 0}, {"keeper_value": 12}]).drop("on_team_id")
+    assert dv.with_keeper_price(board, 2)["keeper_price"].to_list() == [None, 12.0]
 
 
 def test_the_surplus_is_the_market_price_less_what_keeping_costs():
     """Both sides in the same currency: the keeper price is already in league
     dollars, the market value is not until at_budget has run."""
-    board = dv.at_budget(_board([{"auction_value_filled": 80.0, "keeper_value": 40}]),
+    board = dv.at_budget(_board([{"auction_value_filled": 80.0, "keeper_value": 40,
+                                  "on_team_id": 7}]),
                          250)                       # 80/200 * 250 = $100 market
     out = dv.with_keeper_price(board, 2)
     assert out["keeper_surplus"].to_list() == [60.0]

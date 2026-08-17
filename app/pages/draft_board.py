@@ -89,10 +89,12 @@ COLUMN_CONFIG = {
         format="$%.0f",
         help="What it costs the manager holding this player to keep him — which is "
              "what **they** paid to acquire him, not what the draft paid. Measured: "
-             "130 of GOP's 187 priced keepers carry exactly their 2025 auction bid, "
-             "29 were never drafted and price at \\$1–\\$5, and 28 changed hands, where "
-             "the price follows the current holder (Jayden Daniels went for \\$46 and "
-             "keeps for \\$1). Blank means nobody holds him.",
+             "130 of GOP's keepers carry exactly their 2025 auction bid, and where "
+             "a player changed hands the price follows the current holder — Jayden "
+             "Daniels went for \\$46 and keeps for \\$1. A player claimed off "
+             "waivers has no winning bid to record, so ESPN reports 0 and he keeps "
+             "for the \\$1 minimum. **Blank means nobody holds him**, which is the "
+             "only reason there is no price.",
     ),
     "Keeper +/-": st.column_config.NumberColumn(
         format="%+.0f",

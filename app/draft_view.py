@@ -420,8 +420,8 @@ def with_cash_value(board: pl.DataFrame, meta: Mapping, budget: float,
     return out.drop(["_bid_vor", "_bid_rank"])
 
 
-def with_keeper_price(board: pl.DataFrame,
-                      keepers: Optional[int]) -> pl.DataFrame:
+def with_keeper_price(board: pl.DataFrame, keepers: Optional[int],
+                      min_bid: int = MIN_BID) -> pl.DataFrame:
     """Surface what it costs each holder to keep a player, and whether that is a bargain.
 
     **`keeper_value` is what the current holder paid to acquire the player**, and
@@ -431,6 +431,20 @@ def with_keeper_price(board: pl.DataFrame,
     never drafted in 2025 and price at $1-$5, and 28 differ because the player
     changed hands: Jayden Daniels went for $46 in the auction and keeps for $1 for
     the manager who later claimed him. The holder's cost, not the draft's.
+
+    **A rostered player with no cost keeps for the minimum bid, not for nothing.**
+    ESPN reports ``keeperValue: 0`` for a player picked up off waivers or free
+    agency -- there was no winning bid to record -- and its own UI shows those at
+    $1. 65 of GOP's 252 held players are in that state, and only 18 of the 65
+    appear in the 2025 draft at all, so they are overwhelmingly in-season
+    acquisitions exactly as the zero implies. Reading the zero as "no keeper price"
+    blanked a quarter of the league's keepers, Malik Nabers among them, and a blank
+    there says "nobody can keep him", which is the opposite of true.
+
+    So **being on a roster is what confers a keeper price**, and the dollar figure
+    is the acquisition cost floored at ``min_bid``. Only a genuine free agent has
+    none. That the two signals agree is checked rather than assumed: no free agent
+    on any of the nine boards carries a non-zero ``keeper_value``.
 
     ``keeper_surplus`` is the market price minus that cost -- positive means the
     keeper is cheaper than the room would pay, which is the only question a keeper
@@ -446,6 +460,7 @@ def with_keeper_price(board: pl.DataFrame,
     Args:
         board: A stored draft board, ideally already through :func:`at_budget`.
         keepers: :func:`keeper_count`. 0 or None leaves the board untouched.
+        min_bid: Floor on the price, for a player acquired without a bid.
 
     Returns:
         pl.DataFrame: The board with ``keeper_price`` and -- where the market has
@@ -455,11 +470,17 @@ def with_keeper_price(board: pl.DataFrame,
     if not keepers or "keeper_value" not in board.columns:
         return board
 
-    # Null rather than 0 for an unpriced player: "costs nothing to keep" and "is
-    # not somebody's keeper" would otherwise be the same cell, and the first is a
-    # claim no league makes.
-    price = (pl.when(pl.col("keeper_value").fill_null(0) > 0)
-             .then(pl.col("keeper_value").cast(pl.Float64))
+    cost = pl.col("keeper_value").fill_null(0).cast(pl.Float64)
+    # Who can be kept: anyone on a roster. Falls back to the price itself where the
+    # board predates `on_team_id`, which is the best available reading -- it loses
+    # the waiver pickups rather than inventing keepers.
+    if "on_team_id" in board.columns:
+        rostered = pl.col("on_team_id").fill_null(0) != 0
+    else:
+        rostered = cost > 0
+
+    price = (pl.when(rostered)
+             .then(pl.max_horizontal(cost, pl.lit(float(min_bid))))
              .otherwise(None))
     out = board.with_columns(price.alias("keeper_price"))
     if "auction_dollars" in out.columns:

@@ -211,8 +211,9 @@ anyone declares, so GOP's board arrives with 252 players held against a keeper l
 of 2. A roster bigger than the limit cannot be a list of keepers, so the board treats
 everyone as available and says so, and turns the filter back on by itself once
 rosters shrink. `Keeper $` is what it costs the current holder to keep a player —
-measured, not assumed: 130 of GOP's 187 keeper prices are exactly their 2025 auction
-bid.
+measured, not assumed: 130 of GOP's keeper prices are exactly their 2025 auction
+bid, and a player claimed off waivers has no winning bid to record, so he keeps for
+the $1 minimum. Being on a roster is what confers a price; only a free agent has none.
 
 **Two ways to measure value.** `ADP` is our VOR rank against the market's draft
 position, which is the right comparison when a pick is a place in a queue. `Cash` is

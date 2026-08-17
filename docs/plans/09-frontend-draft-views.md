@@ -154,15 +154,35 @@ negative hides players who are available, on the morning you are drafting them.
 `keeper_value` has been pulled and stored since the board was built, and never
 shown. What it *is* was established by measurement rather than read off the field
 name: of GOP's 187 priced keepers, **130 carry exactly their 2025 auction bid** —
-CeeDee Lamb $90, Gibbs $87, Chase $84, to the dollar — 29 were never drafted in
-2025 and price at $1–$5, and 28 differ because the player changed hands, where the
-price follows the *current* holder (Jayden Daniels went for $46 and keeps for $1
-for the manager who later claimed him).
+CeeDee Lamb $90, Gibbs $87, Chase $84, to the dollar — and where a player changed
+hands the price follows the *current* holder: Jayden Daniels went for $46 in the
+auction and keeps for $1 for the manager who later claimed him.
 
 So: **what it costs the manager holding him to keep him.** Shown as `Keeper $`,
 with `Keeper +/-` against the market price and a `Keeper Bargain` sort, and only in
 a league whose keeper count is non-zero — every board carries the column, and in
 the eight redraft leagues it is a small number ESPN publishes for nobody's benefit.
+
+#### A zero is a waiver claim, not the absence of a price
+
+The first version of this read `keeper_value == 0` as "no keeper price" and left
+the cell blank. That blanked **65 of GOP's 252 held players**, Malik Nabers among
+them — and a blank in that column says *nobody can keep him*, which is the opposite
+of true. ESPN's own UI shows Nabers at $1.
+
+Probing the raw entry settles it: ESPN returns `keeperValue: 0` with
+`status: ONTEAM`, and `keeperValueFuture` is 0 for everybody including Lamb, so the
+number is not hiding in another field. A player claimed off waivers or free agency
+simply has **no winning bid to record**, and the keeper cost falls to the $1 minimum.
+The data agrees: only 18 of those 65 appear in the 2025 draft at all, so they are
+overwhelmingly in-season acquisitions, exactly as a zero implies.
+
+**Being on a roster is what confers a keeper price**, and the figure is the
+acquisition cost floored at the minimum bid. Only a genuine free agent has none.
+That the two signals agree was checked rather than assumed: no free agent on any of
+the nine boards carries a non-zero `keeper_value`. All 252 of GOP's held players are
+now priced, and Nabers comes out the league's **second-largest keeper bargain** —
+$1 against a $29 market price — which was invisible while the cell was empty.
 
 ### Cash: the auction answer to a question ADP cannot ask
 
