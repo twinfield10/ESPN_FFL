@@ -109,6 +109,10 @@ DISPLAY_COLUMNS: List[tuple] = [
     ("adp", "ADP"),
     ("value", "Value"),
     ("auction_dollars", "$"),
+    ("our_dollars", "Our $"),
+    ("cash_delta", "Cash +/-"),
+    ("keeper_price", "Keeper $"),
+    ("keeper_surplus", "Keeper +/-"),
     ("USG_Points", "USG"),
     ("USG_PosRankDelta", "Δ Rk"),
     ("usg_expected_games", "Exp G"),
@@ -132,12 +136,39 @@ BASE_AUCTION_BUDGET = 200.0
 #: What the budget input starts at.
 DEFAULT_AUCTION_BUDGET = 250
 
-#: ``st.session_state`` key the budget input owns. Named here rather than in the
-#: page so the page can read the current budget *before* the widget that sets it is
-#: drawn -- Streamlit reruns top to bottom with session state already updated, so
-#: reading the key is what makes the ``$`` column right on the same run in which it
-#: changed, and on tabs that render before the input.
+#: Prefix for the ``st.session_state`` key the budget input owns. See
+#: :func:`budget_key` -- the key is per-league, which is the whole point.
 AUCTION_BUDGET_KEY = "auction_budget"
+
+
+def budget_key(league_key: str) -> str:
+    """The session-state key the budget input owns, for one league.
+
+    **Per-league, and that is load-bearing.** A single shared key is remembered
+    across a league change, and because a keyed widget ignores its ``value=``
+    once the key exists, GOP Degenerates' $250 auction rendered at Winfield's
+    $200 -- every price on the board 20% light, with nothing on screen saying so.
+    Clearing the key on a league change was tried first and is the fragile
+    version of this: it depends on the pop landing before the widget registers,
+    and it throws away a budget you deliberately set.
+
+    Scoping the key instead fixes the bug and is better behaviour besides: each
+    league remembers its own number, so overriding GOP to $300 and coming back to
+    it still says $300.
+
+    Named here rather than in the page so the page can read the current budget
+    *before* the widget that sets it is drawn -- Streamlit reruns top to bottom
+    with session state already updated, so reading the key is what makes the
+    ``$`` column right on the same run in which it changed, and on the tabs that
+    render before the input.
+
+    Args:
+        league_key: ``config.yaml`` league key.
+
+    Returns:
+        str: The session-state key.
+    """
+    return f"{AUCTION_BUDGET_KEY}::{league_key}"
 
 
 def at_budget(board: pl.DataFrame, budget: float,
@@ -183,7 +214,11 @@ def available_only(board: pl.DataFrame) -> pl.DataFrame:
 
     ``on_team_id`` is 0 for a free agent and the fantasy team's id once someone
     holds them, so it works pre-draft (where everyone is free) and mid-draft
-    alike.
+    alike -- **except in a keeper league before keepers are declared**, where the
+    column says who was on the roster last season and nothing about who is
+    available. :func:`keepers_pending` is how the page tells those apart; this
+    function is not the place, because "who does the store say holds this player"
+    is a different question from "should I believe it".
 
     Args:
         board: A stored draft board.
@@ -195,6 +230,278 @@ def available_only(board: pl.DataFrame) -> pl.DataFrame:
     if "on_team_id" not in board.columns:
         return board
     return board.filter(pl.col("on_team_id").fill_null(0) == 0)
+
+
+def keeper_count(meta: Mapping) -> Optional[int]:
+    """How many players this league lets a manager keep.
+
+    Args:
+        meta: The store's ``meta.json``.
+
+    Returns:
+        int | None: The count, 0 for a redraft league, or None when the store
+        predates ``draft_settings`` being recorded. None is not 0 -- see
+        :func:`keepers_pending`, where the two lead to opposite answers.
+    """
+    settings = meta.get("draft_settings") or {}
+    value = settings.get("keeper_count")
+    return None if value is None else int(value)
+
+
+def league_auction_budget(meta: Mapping,
+                          default: Optional[int] = None) -> int:
+    """What one team has to spend in this league's auction.
+
+    Read from ESPN rather than assumed, because it genuinely varies: GOP
+    Degenerates plays for $250 and the other eight leagues for $200, while the
+    market values on every board are denominated in ESPN's own $200 default
+    regardless. Defaulting all nine to one number silently mispriced eight of
+    them by 25%.
+
+    Args:
+        meta: The store's ``meta.json``.
+        default: What to use when the store does not record one. Defaults to
+            :data:`DEFAULT_AUCTION_BUDGET`.
+
+    Returns:
+        int: The budget.
+    """
+    fallback = DEFAULT_AUCTION_BUDGET if default is None else default
+    settings = meta.get("draft_settings") or {}
+    budget = settings.get("auction_budget")
+    try:
+        return int(budget) if budget else fallback
+    except (TypeError, ValueError):
+        return fallback
+
+
+def rostered_counts(board: pl.DataFrame) -> Dict[int, int]:
+    """How many players each fantasy team currently holds on this board.
+
+    Args:
+        board: A stored draft board.
+
+    Returns:
+        dict: ``{on_team_id: players held}``, free agents excluded. Empty when
+        the board carries no ``on_team_id``.
+    """
+    if "on_team_id" not in board.columns:
+        return {}
+    held = (board.filter(pl.col("on_team_id").fill_null(0) != 0)
+            .group_by("on_team_id").agg(pl.len().alias("n")))
+    return {int(row["on_team_id"]): int(row["n"])
+            for row in held.iter_rows(named=True)}
+
+
+#: Slots you cannot draft into. ``BE`` is drafted (a bench player costs at least a
+#: dollar); ``IR`` is not, so counting it would invent money the room never spends.
+UNDRAFTABLE_SLOTS = {"IR", "", " "}
+
+#: The floor on any winning bid in an ESPN auction.
+MIN_BID = 1
+
+
+def draft_type(meta: Mapping) -> str:
+    """``"AUCTION"`` or ``"SNAKE"``, from ESPN.
+
+    Args:
+        meta: The store's ``meta.json``.
+
+    Returns:
+        str: The draft type, or ``""`` when the store predates draft settings.
+    """
+    return str((meta.get("draft_settings") or {}).get("type") or "")
+
+
+def is_auction(meta: Mapping) -> bool:
+    """Whether this league drafts by auction.
+
+    Args:
+        meta: The store's ``meta.json``.
+
+    Returns:
+        bool: True for an auction league.
+    """
+    return draft_type(meta).upper() == "AUCTION"
+
+
+def draftable_spots(meta: Mapping) -> int:
+    """Roster spots the room will actually buy: teams times draftable slots.
+
+    Args:
+        meta: The store's ``meta.json``.
+
+    Returns:
+        int: Total spots, 0 when the store records no roster shape.
+    """
+    slots = meta.get("roster_slots") or {}
+    per_team = sum(int(n) for slot, n in slots.items()
+                   if slot not in UNDRAFTABLE_SLOTS)
+    return per_team * int(meta.get("team_count") or 0)
+
+
+def with_cash_value(board: pl.DataFrame, meta: Mapping, budget: float,
+                    min_bid: int = MIN_BID) -> pl.DataFrame:
+    """Price our own valuation in dollars, to set against what the room pays.
+
+    **Why this exists.** ``value`` compares our VOR *rank* to the market's ADP
+    *rank*, which is the right comparison in a snake draft, where a pick is a
+    position in a queue. In an auction there is no queue — there is a price, and
+    the only question is whether a player costs less than he is worth. Ranks
+    cannot answer that: being four places underrated tells you nothing about
+    whether to bid $41 or $46.
+
+    **The conversion is the standard auction one.** Every spot the room fills
+    costs at least ``min_bid``, so that money is committed before anyone bids on
+    anyone; what remains is discretionary and is split across players in
+    proportion to the points they return above replacement. A player worth no
+    more than replacement is worth exactly the minimum, which is the correct
+    answer rather than a rounding of one.
+
+        discretionary = teams x budget  -  spots x min_bid
+        our $         = min_bid + discretionary x (this VOR / all positive VOR)
+
+    Only players above replacement share the discretionary pool, and only as many
+    of them as there are spots to fill — money the room does not have cannot be
+    allocated. K and D/ST are excluded for the reason they are excluded from
+    ``value``: a season-total VOR does not describe a position you stream, and
+    including them once had eight team defences priced as the league's best buys.
+
+    ``cash_delta`` is our price minus the market's, both in this league's dollars.
+    Positive means the room is underpaying.
+
+    Args:
+        board: A stored draft board, already through :func:`at_budget` so the
+            market side is in league dollars rather than ESPN's $200 default.
+        meta: The store's ``meta.json``, for team count and roster shape.
+        budget: Per-team budget.
+        min_bid: The floor on a winning bid.
+
+    Returns:
+        pl.DataFrame: The board with ``our_dollars`` and ``cash_delta`` added.
+        Unchanged when it has no ``vor``, or when the store records no roster
+        shape to derive the pool from -- :func:`display_frame` then drops both
+        columns, as it does for anything else the artifact cannot support.
+    """
+    spots = draftable_spots(meta)
+    teams = int(meta.get("team_count") or 0)
+    if "vor" not in board.columns or not spots or not teams:
+        return board
+
+    discretionary = max(teams * float(budget) - spots * min_bid, 0.0)
+
+    eligible = pl.col("vor").is_not_null() & (pl.col("vor") > 0)
+    if "is_streamed" in board.columns:
+        eligible = eligible & ~pl.col("is_streamed").fill_null(False)
+    if "startable" in board.columns:
+        eligible = eligible & pl.col("startable").fill_null(True)
+    if "projection_missing" in board.columns:
+        eligible = eligible & ~pl.col("projection_missing").fill_null(False)
+
+    # Rank within the eligible population, so "as many as there are spots" counts
+    # the players who could actually absorb the money rather than the whole pool.
+    ranked = board.with_columns(
+        pl.when(eligible).then(pl.col("vor")).otherwise(None).alias("_bid_vor"))
+    ranked = ranked.with_columns(
+        pl.col("_bid_vor").rank("min", descending=True).alias("_bid_rank"))
+    inside = pl.col("_bid_rank").is_not_null() & (pl.col("_bid_rank") <= spots)
+
+    total_vor = (ranked.filter(inside)["_bid_vor"].sum() or 0.0)
+    if total_vor <= 0:
+        return board.drop([c for c in ("_bid_vor", "_bid_rank") if c in board.columns])
+
+    priced = (pl.when(inside)
+              .then(min_bid + discretionary * pl.col("_bid_vor") / total_vor)
+              .otherwise(None))
+    out = ranked.with_columns(priced.alias("our_dollars"))
+    if "auction_dollars" in out.columns:
+        out = out.with_columns(
+            (pl.col("our_dollars") - pl.col("auction_dollars")).alias("cash_delta"))
+    return out.drop(["_bid_vor", "_bid_rank"])
+
+
+def with_keeper_price(board: pl.DataFrame,
+                      keepers: Optional[int]) -> pl.DataFrame:
+    """Surface what it costs each holder to keep a player, and whether that is a bargain.
+
+    **`keeper_value` is what the current holder paid to acquire the player**, and
+    that was established by measurement rather than read off a field name. Of GOP
+    Degenerates' 187 priced keepers, 130 carry *exactly* their 2025 auction bid --
+    CeeDee Lamb $90, Gibbs $87, Chase $84, to the dollar. Of the rest, 29 were
+    never drafted in 2025 and price at $1-$5, and 28 differ because the player
+    changed hands: Jayden Daniels went for $46 in the auction and keeps for $1 for
+    the manager who later claimed him. The holder's cost, not the draft's.
+
+    ``keeper_surplus`` is the market price minus that cost -- positive means the
+    keeper is cheaper than the room would pay, which is the only question a keeper
+    price is actually asked. It needs :func:`at_budget` to have run, because both
+    sides have to be in the same currency: the keeper price is in this league's
+    real dollars while the raw market value is in ESPN's $200 default.
+
+    **Only in a keeper league.** Every board carries ``keeper_value``, including
+    the eight redraft leagues, where it is a small round number ESPN publishes for
+    nobody's benefit -- 1 to 14, on free agents, in leagues whose keeper count is
+    zero. Showing it there would invent a rule the league does not play by.
+
+    Args:
+        board: A stored draft board, ideally already through :func:`at_budget`.
+        keepers: :func:`keeper_count`. 0 or None leaves the board untouched.
+
+    Returns:
+        pl.DataFrame: The board with ``keeper_price`` and -- where the market has
+        priced the player -- ``keeper_surplus``. Unchanged in a redraft league, so
+        :func:`display_frame` drops both columns there.
+    """
+    if not keepers or "keeper_value" not in board.columns:
+        return board
+
+    # Null rather than 0 for an unpriced player: "costs nothing to keep" and "is
+    # not somebody's keeper" would otherwise be the same cell, and the first is a
+    # claim no league makes.
+    price = (pl.when(pl.col("keeper_value").fill_null(0) > 0)
+             .then(pl.col("keeper_value").cast(pl.Float64))
+             .otherwise(None))
+    out = board.with_columns(price.alias("keeper_price"))
+    if "auction_dollars" in out.columns:
+        out = out.with_columns(
+            (pl.col("auction_dollars") - pl.col("keeper_price")).alias("keeper_surplus"))
+    return out
+
+
+def keepers_pending(board: pl.DataFrame, keepers: Optional[int]) -> bool:
+    """Whether this league's rosters are last season's rather than this year's keepers.
+
+    **The problem.** ESPN carries a keeper league's rosters into the new season
+    before anyone has declared a keeper. GOP Degenerates' 2026 board arrives with
+    252 players held across 16 teams -- 15 to 17 each -- against a
+    ``keeper_count`` of **2**. None of those 252 has been kept; they were on that
+    roster in 2025. Filtering them out as "unavailable" hides a tenth of the pool
+    and every one of the league's best players, which is the opposite of what a
+    pre-draft board is for.
+
+    **The test.** A roster holding more players than the league allows keepers
+    cannot be a list of keepers. That is a fact about arithmetic rather than a
+    guess about ESPN's behaviour, and it resolves itself: the day rosters shrink
+    to the keeper limit, this returns False and the board starts filtering again
+    with no flag to remember to flip.
+
+    It fails in the safe direction. A false positive shows a few players who are
+    genuinely gone; a false negative hides players who are genuinely available,
+    on the morning you are drafting them.
+
+    Args:
+        board: A stored draft board.
+        keepers: :func:`keeper_count`. None -- a store built before draft settings
+            were recorded -- returns False, preserving the behaviour that store was
+            written under rather than silently changing what an old board means.
+
+    Returns:
+        bool: True when ``on_team_id`` should not be read as "unavailable".
+    """
+    if not keepers:
+        return False
+    counts = rostered_counts(board)
+    return any(held > keepers for held in counts.values())
 
 
 def roster_needs(starting_slots: Dict[str, int],
@@ -397,7 +704,8 @@ def scarcity_curve(board: pl.DataFrame, positions: Sequence[str],
     return curve.select(keep).sort(["primaryPosition", "pos_rank"])
 
 
-def tier_runway(board: pl.DataFrame, positions: Sequence[str]) -> pl.DataFrame:
+def tier_runway(board: pl.DataFrame, positions: Sequence[str],
+                only_available: bool = True) -> pl.DataFrame:
     """How many players are left in each tier, per position.
 
     The question a board is actually read to answer: not "is this player one spot
@@ -407,12 +715,15 @@ def tier_runway(board: pl.DataFrame, positions: Sequence[str]) -> pl.DataFrame:
     Args:
         board: A stored draft board.
         positions: Positions to include.
+        only_available: Count only players nobody holds. Pass False in a keeper
+            league before keepers are declared -- "three left in tier 1" is a lie
+            if it excluded eleven players last season's rosters happen to list.
 
     Returns:
         pl.DataFrame: ``primaryPosition``, ``tier``, ``remaining``, ``best_points``,
         sorted by position then tier.
     """
-    pool = filter_board(board, positions, only_available=True,
+    pool = filter_board(board, positions, only_available=only_available,
                         hide_unstartable=True, hide_unprojected=True)
     if pool.is_empty() or "tier" not in pool.columns:
         return pl.DataFrame(schema={"primaryPosition": pl.String, "tier": pl.Float64,
@@ -427,28 +738,70 @@ def tier_runway(board: pl.DataFrame, positions: Sequence[str]) -> pl.DataFrame:
     )
 
 
-def value_targets(board: pl.DataFrame, limit: int = 12) -> pl.DataFrame:
-    """The players the room is letting fall furthest past our valuation.
+#: How to measure "the room is wrong about this player".
+#:
+#: Two different questions, and which one is right is a property of the draft
+#: rather than a preference. In a snake draft a pick is a place in a queue, so the
+#: comparison is rank against rank. In an auction there is no queue -- there is a
+#: price -- and being four places underrated tells you nothing about whether to bid
+#: $41 or $46.
+VALUE_LENS_ADP = "ADP"
+VALUE_LENS_CASH = "Cash"
 
-    ``value`` is NaN for the 84% of the pool the market has not priced and for the
-    streamed positions, where a season-total VOR does not describe how the position
-    is used. Both are excluded here rather than sorted to the bottom, because a
-    "best values" list is worthless if most of its rows are nulls.
+#: Lens to the column it reads and the label that column wears.
+VALUE_LENS_COLUMNS = {
+    VALUE_LENS_ADP: ("value", "Value"),
+    VALUE_LENS_CASH: ("cash_delta", "Cash +/-"),
+}
+
+
+def default_value_lens(meta: Mapping) -> str:
+    """Which lens this league should open on.
 
     Args:
-        board: A stored draft board.
-        limit: Rows to return.
+        meta: The store's ``meta.json``.
 
     Returns:
-        pl.DataFrame: The top ``limit`` by ``value``, available players only.
+        str: :data:`VALUE_LENS_CASH` for an auction league, :data:`VALUE_LENS_ADP`
+        otherwise. Both remain selectable -- an auction manager still benefits from
+        knowing the room drafts a player two rounds late.
     """
-    if "value" not in board.columns:
+    return VALUE_LENS_CASH if is_auction(meta) else VALUE_LENS_ADP
+
+
+def value_targets(board: pl.DataFrame, limit: int = 12,
+                  only_available: bool = True,
+                  lens: str = VALUE_LENS_ADP) -> pl.DataFrame:
+    """The players the room is letting fall furthest past our valuation.
+
+    Under :data:`VALUE_LENS_ADP`, ``value`` is NaN for the 84% of the pool the
+    market has not priced and for the streamed positions, where a season-total VOR
+    does not describe how the position is used. Under :data:`VALUE_LENS_CASH` it is
+    ``cash_delta``, which is null wherever either side of the subtraction is --
+    a player the market has not priced, or one outside the money. Either way the
+    nulls are excluded rather than sorted to the bottom, because a "best values"
+    list is worthless if most of its rows are blank.
+
+    Args:
+        board: A stored draft board. For the cash lens it must already have been
+            through :func:`at_budget` and :func:`with_cash_value`.
+        limit: Rows to return.
+        only_available: Drop players somebody holds. Pass False in a keeper league
+            before keepers are declared, where nobody is held yet.
+        lens: A :data:`VALUE_LENS_COLUMNS` key.
+
+    Returns:
+        pl.DataFrame: The top ``limit`` by the lens's column, available players
+        only. Empty when the board does not carry that column.
+    """
+    column, _ = VALUE_LENS_COLUMNS.get(lens, VALUE_LENS_COLUMNS[VALUE_LENS_ADP])
+    if column not in board.columns:
         return board.head(0)
     return (
-        filter_board(board, None, only_available=True, hide_unstartable=True,
-                     hide_unprojected=True)
-        .filter(pl.col("value").is_not_null())
-        .sort("value", descending=True)
+        filter_board(board, None, only_available=only_available,
+                     hide_unstartable=True, hide_unprojected=True)
+        .filter(pl.col(column).is_not_null())
+        .sort(column, descending=True)
         .head(limit)
     )
 

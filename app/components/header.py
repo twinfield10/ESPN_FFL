@@ -229,16 +229,25 @@ def _run_refresh(display_name: str, season: int) -> None:
 def _sticky_selectbox(label, state_key, options, default=None, format_func=str):
     """A selectbox whose value survives page navigation and changing options.
 
-    Session state is managed here rather than handed to the widget via ``key=``
-    because these selectors are dependent: the league list depends on the season
-    and the week list depends on the league. A widget key holding a value that is
-    no longer in ``options`` -- last week's week 14 after switching to a league
-    that only has week 1 -- is exactly the case that misbehaves. Falling back to
-    the default keeps navigation predictable.
+    **The widget owns ``state_key``.** That is the fix for a bug that ate every
+    second league change: the previous version passed no ``key=`` and steered the
+    widget with ``index=``, and a keyless widget's identity is derived from its
+    arguments -- ``index`` among them. Switching leagues changed the remembered
+    value, which changed ``index`` on the next run, which minted a *new* widget id;
+    the selection the user had just made was recorded against the old id and thrown
+    away. Winfield → GOP worked, GOP → Knights silently did not, and the sidebar
+    showed the league you had left.
+
+    What that version was defending against is real and is still handled, just
+    earlier: these selectors are dependent -- the league list depends on the season,
+    the week list on the league -- so a remembered value can stop being offered, and
+    a widget key holding a value that is not in ``options`` is what misbehaves. It is
+    corrected *before* the widget registers, which is the only point at which
+    Streamlit allows the write.
 
     Args:
         label: Widget label.
-        state_key: ``st.session_state`` key to persist the choice under.
+        state_key: ``st.session_state`` key the widget stores its choice under.
         options: Selectable values. Must be non-empty.
         default: Value to select when nothing valid is remembered. Defaults to
             the first option.
@@ -248,14 +257,10 @@ def _sticky_selectbox(label, state_key, options, default=None, format_func=str):
         The selected value.
     """
     options = list(options)
-    remembered = st.session_state.get(state_key)
-    if remembered not in options:
-        remembered = default if default in options else options[0]
+    if st.session_state.get(state_key) not in options:
+        st.session_state[state_key] = default if default in options else options[0]
 
-    chosen = st.selectbox(label, options, index=options.index(remembered),
-                          format_func=format_func)
-    st.session_state[state_key] = chosen
-    return chosen
+    return st.selectbox(label, options, key=state_key, format_func=format_func)
 
 
 def render_sidebar() -> Selection:

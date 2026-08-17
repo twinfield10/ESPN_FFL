@@ -202,8 +202,22 @@ who you are drafting against.
 
 The auction budget matters more than it looks. ESPN publishes its market auction
 values against **its own $200 budget**, so the `$` column was denominated in
-somebody else's money; the input rescales it (default $250) and the board carries
-the value as a share of a budget so the dollars are portable.
+somebody else's money. The board now carries the value as a share of a budget and
+shows it at the league's own — read from ESPN, because it varies: GOP Degenerates
+plays for $250 and the other eight for $200.
+
+**Keeper leagues.** ESPN carries last season's rosters into a keeper league before
+anyone declares, so GOP's board arrives with 252 players held against a keeper limit
+of 2. A roster bigger than the limit cannot be a list of keepers, so the board treats
+everyone as available and says so, and turns the filter back on by itself once
+rosters shrink. `Keeper $` is what it costs the current holder to keep a player —
+measured, not assumed: 130 of GOP's 187 keeper prices are exactly their 2025 auction
+bid.
+
+**Two ways to measure value.** `ADP` is our VOR rank against the market's draft
+position, which is the right comparison when a pick is a place in a queue. `Cash` is
+our dollar valuation against ESPN's average auction price, which is the right one
+when there is no queue, only a price. Auction leagues open on Cash.
 
 ### Who the app is for
 

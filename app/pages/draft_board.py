@@ -63,10 +63,42 @@ COLUMN_CONFIG = {
     "Value": st.column_config.NumberColumn(format="%+.0f"),
     "$": st.column_config.NumberColumn(
         format="$%.0f",
-        help="ESPN's market auction value, rescaled from the $200 budget it is "
+        help="ESPN's market auction value, rescaled from the \\$200 budget it is "
              "published against to the one set on the Board tab. It is a straight "
-             "proportion of a budget, so it does not model the $1 minimum bid that "
+             "proportion of a budget, so it does not model the \\$1 minimum bid that "
              "does not scale with one.",
+    ),
+    "Our $": st.column_config.NumberColumn(
+        format="$%.0f",
+        help="What this player is worth out of one team's budget on our own "
+             "numbers: every roster spot the room fills costs at least \\$1, and "
+             "what is left over is split in proportion to points above "
+             "replacement. Blank for players outside the money, and for K and "
+             "D/ST, where a season-total VOR does not describe a streamed "
+             "position.",
+    ),
+    "Cash +/-": st.column_config.NumberColumn(
+        format="%+.0f",
+        help="Our price minus ESPN's average auction price, both in this "
+             "league's dollars. Positive means the room underpays. This is the "
+             "auction answer to the same question `Value` asks of a snake draft — "
+             "being four places underrated does not tell you whether to bid \\$41 "
+             "or \\$46.",
+    ),
+    "Keeper $": st.column_config.NumberColumn(
+        format="$%.0f",
+        help="What it costs the manager holding this player to keep him — which is "
+             "what **they** paid to acquire him, not what the draft paid. Measured: "
+             "130 of GOP's 187 priced keepers carry exactly their 2025 auction bid, "
+             "29 were never drafted and price at \\$1–\\$5, and 28 changed hands, where "
+             "the price follows the current holder (Jayden Daniels went for \\$46 and "
+             "keeps for \\$1). Blank means nobody holds him.",
+    ),
+    "Keeper +/-": st.column_config.NumberColumn(
+        format="%+.0f",
+        help="Market price minus keeper price, in this league's dollars. Positive "
+             "means keeping him is cheaper than buying him back — the only question "
+             "a keeper price is asked. Blank where the market has not priced him.",
     ),
     "Bye": st.column_config.NumberColumn(format="%.0f"),
     "Tier": st.column_config.NumberColumn(format="%.0f"),
@@ -148,25 +180,52 @@ if not store.has_artifact(selection.season, selection.league_key, "board"):
     )
     st.stop()
 
+# This league's own budget, from ESPN, as the input's starting value. It really does
+# vary -- GOP Degenerates plays for $250 and the other eight for $200 -- while the
+# market values on every board are denominated in ESPN's $200 default regardless.
+default_budget = dv.league_auction_budget(meta)
+
+# Per-league key: a shared one is remembered across a league change, and a keyed
+# widget ignores its `value=` once the key exists -- so GOP's $250 auction rendered
+# at Winfield's $200. See dv.budget_key.
+#
 # Read before the widget that sets it is drawn. Streamlit reruns the whole script
 # with session state already updated, so this is the budget the user just typed --
 # which is what lets the Values tab price at it even though the input lives on the
 # Board tab, and what keeps the $ column right on the same run rather than one late.
-budget = int(st.session_state.get(dv.AUCTION_BUDGET_KEY, dv.DEFAULT_AUCTION_BUDGET))
+budget_state_key = dv.budget_key(selection.league_key)
+budget = int(st.session_state.get(budget_state_key, default_budget))
+
+keepers = dv.keeper_count(meta)
 
 board = dv.at_budget(
     dv.with_model_evidence(store.load_board(selection.season, selection.league_key)),
     budget,
 )
+# Both of these subtract from the market price, so both come after the rescale that
+# puts the market price in this league's dollars.
+board = dv.with_cash_value(board, meta, budget)
+board = dv.with_keeper_price(board, keepers)
 theme = getattr(getattr(st.context, "theme", None), "type", "light") or "light"
 colors = dv.SERIES_COLORS[theme]
 ink = dv.CHART_INK[theme]
 
+# Whether `on_team_id` means anything yet. In a keeper league ESPN carries last
+# season's rosters into the new season, so before keepers are declared the column
+# says who was on that roster in 2025 -- 252 players across GOP's 16 teams, against
+# a keeper limit of 2. Everyone is available until those 2 are named.
+pending = dv.keepers_pending(board, keepers)
+held_now = sum(dv.rostered_counts(board).values())
+
 starting_slots = meta.get("starting_slots") or {}
 my_owner = meta.get("primary_owner")
+# Empty while keepers are pending, and for the same reason the availability filter
+# is off: those 15 players are last season's roster, not this year's team. Counting
+# them as filled slots reports every position as covered and quietly turns the
+# roster-needs toggle into a no-op.
 my_roster = board.filter(
     pl.col("team_owner").fill_null("") == (my_owner or "\0")
-) if "team_owner" in board.columns else board.head(0)
+) if "team_owner" in board.columns and not pending else board.head(0)
 needed = dv.positions_needed(starting_slots, my_roster["primaryPosition"].to_list())
 
 all_positions = dv.board_positions(board)
@@ -208,18 +267,39 @@ with board_tab:
         bottom = st.columns([2, 2, 2])
         bottom[0].number_input(
             "Auction Budget", min_value=1, max_value=10_000,
-            value=dv.DEFAULT_AUCTION_BUDGET, step=25, key=dv.AUCTION_BUDGET_KEY,
-            help=f"What each team has to spend. The stored auction values are "
-                 f"ESPN's market averages against its own "
-                 f"${dv.BASE_AUCTION_BUDGET:.0f} budget; the $ column rescales "
-                 f"them to this one.",
+            value=default_budget, step=25, key=budget_state_key,
+            help=f"What each team has to spend — {selection.display_name} plays "
+                 f"for \\${default_budget} according to ESPN. The stored auction "
+                 f"values are market averages against ESPN's own "
+                 f"\\${dv.BASE_AUCTION_BUDGET:.0f} default, and the \\$ column "
+                 f"rescales them to this.",
         )
-        only_available = bottom[1].toggle("Available Only", value=True)
+        # Off by default while keepers are undeclared, because the thing it filters
+        # on is not yet a fact. Still offered rather than hidden: "who was on a
+        # roster last year" is a question worth being able to ask, it is just not
+        # the same question as "who can I draft".
+        only_available = bottom[1].toggle(
+            "Available Only", value=not pending,
+            help=("Hides players a team already holds. Off by default here: "
+                  "keepers are not declared yet, so nobody is held."
+                  if pending else
+                  "Hides players a team already holds."),
+        )
         only_need = bottom[2].toggle(
             "Roster Needs Only", value=False,
             help=("Filters to positions that would fill a starting slot you have "
                   "not filled yet. Pre-draft that is every position, so it does "
                   "nothing until you own players."),
+        )
+
+    if pending:
+        st.caption(
+            f"⚠️ **Keepers are not final.** ESPN carries last season's rosters "
+            f"into a keeper league, so this board arrives with **{held_now:,} "
+            f"players** shown as held across teams that may each keep only "
+            f"**{keepers}**. None of them has been kept yet, so every one is "
+            f"still available and *Available Only* is off. It turns itself back "
+            f"on once rosters shrink to the keeper limit."
         )
 
     if only_need and needed:
@@ -239,6 +319,8 @@ with board_tab:
         sort_options = {
             "VOR": ("vor", True),
             "Value (Market vs Us)": ("value", True),
+            # The auction equivalent of the row above it, and next to it on purpose.
+            "Cash (Market vs Us)": ("cash_delta", True),
             "Projected Points": ("TRUE_Points", True),
             "ADP": ("adp", False),
             "Auction Value": ("auction_dollars", True),
@@ -249,6 +331,11 @@ with board_tab:
         if "USG_PosRankDelta" in shown.columns:
             sort_options["Model Highest Above Us"] = ("USG_PosRankDelta", True)
             sort_options["Model Lowest Below Us"] = ("USG_PosRankDelta", False)
+        # Only in a keeper league, where the column exists at all. "Which keepers
+        # are underpriced" is the question the price is looked up to answer, and
+        # sorting is the whole way to ask it of 187 rows.
+        if "keeper_surplus" in shown.columns:
+            sort_options["Keeper Bargain"] = ("keeper_surplus", True)
 
         sort_options = {label: pair for label, pair in sort_options.items()
                         if pair[0] in shown.columns}
@@ -281,7 +368,7 @@ with board_tab:
   You do not; you stream them. The first version of this board scored eight team
   defences as the league's best values on exactly that mistake.
 - **`$` is a rescale, not a valuation.** It is ESPN's market average moved from its
-  ${dv.BASE_AUCTION_BUDGET:.0f} budget to this league's, in straight proportion. A
+  \\${dv.BASE_AUCTION_BUDGET:.0f} budget to this league's, in straight proportion. A
   real auction's minimum bid does not scale with the budget, so the top of the board
   is worth slightly more than the multiple says — and nothing here knows what your
   room actually pays for a quarterback.
@@ -340,10 +427,39 @@ with board_tab:
 
 with values_tab:
     st.subheader("Falling Past Their Price")
-    st.caption(
-        "`value` is our VOR rank against the market's ADP rank, both ranked over "
-        "the same population. Positive means the room is letting them fall."
+
+    # Which question "value" means, and it is a property of the draft rather than a
+    # preference: a snake pick is a place in a queue, so rank-against-rank is the
+    # comparison; an auction has no queue, only a price. Auction leagues open on
+    # Cash. Both stay available -- an auction manager still benefits from knowing
+    # the room takes a player two rounds late.
+    lenses = [dv.VALUE_LENS_ADP, dv.VALUE_LENS_CASH]
+    available_lenses = [l for l in lenses
+                        if dv.VALUE_LENS_COLUMNS[l][0] in board.columns]
+    preferred = dv.default_value_lens(meta)
+    lens = st.radio(
+        "Measure Value By", available_lenses or lenses,
+        index=(available_lenses.index(preferred)
+               if preferred in available_lenses else 0),
+        horizontal=True, key="value_lens",
+        help="ADP compares our VOR rank to the market's draft position. Cash "
+             "compares our dollar valuation to what the room actually pays.",
     )
+
+    if lens == dv.VALUE_LENS_CASH:
+        st.caption(
+            f"Our dollar valuation against ESPN's average auction price, both at "
+            f"**\\${budget}**. We split what the room has left after every one of "
+            f"its {dv.draftable_spots(meta):,} roster spots costs at least "
+            f"\\$1, in proportion to points above replacement. Positive means the "
+            f"market is underpaying."
+        )
+    else:
+        st.caption(
+            "`value` is our VOR rank against the market's ADP rank, both ranked "
+            "over the same population. Positive means the room is letting them "
+            "fall."
+        )
 
     value_positions = st.multiselect(
         "Positions", all_positions, default=default_positions or all_positions,
@@ -359,13 +475,15 @@ with values_tab:
         board.filter(pl.col("primaryPosition").is_in(value_positions))
         if value_positions else board,
         limit=depth,
+        only_available=not pending,
+        lens=lens,
     )
 
     if targets.is_empty():
         st.info(
-            "Nothing to show. `value` needs an ADP the market actually set, and it "
-            "is not computed for the positions you stream — so a selection of only "
-            "K and D/ST has no rows by construction, not by accident."
+            "Nothing to show. Both lenses need a price the market actually set, and "
+            "neither is computed for the positions you stream — so a selection of "
+            "only K and D/ST has no rows by construction, not by accident."
         )
     else:
         st.dataframe(
@@ -426,7 +544,8 @@ with league_tab:
         "this league's replacement level for that position."
     )
 
-    curve = dv.scarcity_curve(dv.filter_board(board, charted), charted)
+    curve = dv.scarcity_curve(
+        dv.filter_board(board, charted, only_available=not pending), charted)
 
     if curve.is_empty():
         st.info("No projected players in this selection to chart.")
@@ -506,7 +625,8 @@ with league_tab:
 
     # --- tier runway -----------------------------------------------------
 
-    runway = dv.tier_runway(board, charted or league_positions)
+    runway = dv.tier_runway(board, charted or league_positions,
+                            only_available=not pending)
     if not runway.is_empty():
         st.subheader("How Many Are Left in Each Tier")
         st.caption(

@@ -272,6 +272,11 @@ def build_meta(
         # recomputed or checked from the store without the team count.
         meta["starting_slots"] = roster_settings.get("starting_roster_slots", {})
         meta["team_count"] = len(getattr(league, "teams", []) or [])
+        # Draft type, keeper count and this league's own auction budget. The board
+        # cannot be read correctly without the keeper count -- ESPN carries last
+        # season's rosters into a keeper league, so `on_team_id` means "was on this
+        # roster last year", not "is unavailable", until keepers are declared.
+        meta["draft_settings"] = getattr(league, "draft_settings", {}) or {}
 
     if "lineups" in written:
         meta["coverage"] = coverage_summary(written["lineups"])

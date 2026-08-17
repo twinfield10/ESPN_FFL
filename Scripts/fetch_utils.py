@@ -36,12 +36,35 @@ def set_league_endpoint(league: League) -> None:
         league.endpoint = f"{FANTASY_BASE_ENDPOINT}ffl/leagueHistory/{league.league_id}?seasonId={league.year}&"
 
 
+#: ``draftSettings`` keys worth carrying into the store, and what to call them.
+#:
+#: ``keeperCount`` is the one that changes how a board must be *read*: in a keeper
+#: league ESPN carries last season's full roster into the new season, so
+#: ``on_team_id`` is a leftover rather than a draft result until keepers are
+#: declared. Nothing downstream could tell the two apart without this number.
+#:
+#: ``auctionBudget`` is per-league and really does differ -- GOP_Degenerates plays
+#: for $250 and the other eight for $200 -- which matters because the market auction
+#: values ESPN publishes are denominated in *its* $200 default regardless.
+DRAFT_SETTING_KEYS = {
+    "type": "type",
+    "keeperCount": "keeper_count",
+    "keeperCountFuture": "keeper_count_future",
+    "auctionBudget": "auction_budget",
+    "date": "date",
+}
+
+
 def get_roster_settings(league: League) -> None:
     """This grabs the roster and starting lineup settings for the league
     - Grabs the dictionary containing the number of players of each position a roster contains
     - Creates a dictionary roster_slots{} that only inlcludes slotIds that have a non-zero number of players on the roster
     - Creates a dictionary starting_roster_slots{} that is a subset of roster_slots{} and only includes slotIds that are on the starting roster
     - Add roster_slots{} and starting_roster_slots{} to the League attribute League.rosterSettings
+    - Adds League.draft_settings from the same response -- draft type, keeper count
+      and auction budget. Read here rather than in its own fetch because
+      ``view=mSettings`` already carries it; a second request for a field sitting in
+      a response we have parsed would be a round-trip for nothing.
     """
 
     # This dictionary maps each slotId to the position it represents
@@ -98,6 +121,15 @@ def get_roster_settings(league: League) -> None:
     league.roster_settings = {
         "roster_slots": roster_slots,
         "starting_roster_slots": starting_roster_slots,
+    }
+
+    # Draft settings, from the same payload. Absent keys are left out rather than
+    # defaulted: a league whose settings ESPN does not report keeper_count for is
+    # not the same as one with no keepers, and the board's "is this roster real"
+    # decision has to be able to tell those apart.
+    draft = settings.get("draftSettings") or {}
+    league.draft_settings = {
+        name: draft[key] for key, name in DRAFT_SETTING_KEYS.items() if key in draft
     }
     return
 

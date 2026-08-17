@@ -1,8 +1,8 @@
 # 09 — Local frontend: draft views
 
 **Priority:** High (seasonal) · **Effort:** Large · **Status:** **Board done
-2026-08-07, model columns added 2026-08-14, split into three tabs 2026-08-14**;
-Live not started; History unblocked
+2026-08-07, model columns added 2026-08-14, split into three tabs 2026-08-14,
+keeper handling and the cash lens 2026-08-17**; Live not started; History unblocked
 **Depends on:** [07 (foundation)](07-frontend-foundation.md), and the draft
 phases in [`../STATE_OF_THE_REPO.md`](../STATE_OF_THE_REPO.md#roadmap--draft-strategy)
 
@@ -104,6 +104,108 @@ not given.
 
 Verified headless through `AppTest` across all four of the viewer's leagues: Puka
 Nacua prices at $57.76 on ESPN's budget, $72.20 at 250 and $144.40 at 500.
+
+## Keepers and the cash lens, 2026-08-17
+
+Both came out of the same discovery: **ESPN publishes a league's draft settings and
+we were not reading them.** `view=mSettings` — a response `get_roster_settings`
+already fetches and parses — carries `draftSettings`, and three of its fields
+change what a board means:
+
+| | GOP Degenerates | The other eight |
+|---|---|---|
+| `type` | `AUCTION` | `SNAKE` (plus Washed_Up_Fijians, auction) |
+| `keeperCount` | **2** | 0 |
+| `auctionBudget` | **250** | 200 |
+
+They now land in `meta.json` as `draft_settings`, at no extra round-trip.
+
+### Keepers: everyone is available until they are not
+
+GOP's 2026 board arrives with **252 players held across 16 teams** — 15 to 17
+each — against a keeper limit of **2**. ESPN carries last season's rosters into a
+keeper league before anyone declares. The `Available Only` filter was reading
+`on_team_id` as "unavailable" and hiding all 252, which pre-draft is a tenth of the
+pool and most of the league's best players.
+
+`adp.py` had known this since it was written — *"ESPN pre-fills rosters before a
+draft, so pre-draft this is not evidence of being drafted"* — but nothing
+downstream could act on it, because telling a carried-over roster from a declared
+keeper needs the keeper count.
+
+**The test is arithmetic, not a flag.** A roster holding more players than the
+league allows keepers cannot be a list of keepers. So `keepers_pending` is true
+while any team is over the limit, and:
+
+- `Available Only` defaults **off**, with a caption saying why. It stays offered —
+  "who was on a roster last year" is a fair question, just not "who can I draft".
+- the tier runway, the scarcity curve and the value table all count the full pool,
+  because "three left in tier 1" is a lie if it excluded eleven nobody has kept
+- roster-needs treats your team as empty, since 15 carried players otherwise report
+  every slot filled and turn the toggle into a no-op
+
+It resolves itself. The day rosters shrink to the limit, this returns false and the
+board filters again with no flag anyone has to remember to flip. It also fails in
+the safe direction: a false positive shows a few players who are gone, a false
+negative hides players who are available, on the morning you are drafting them.
+
+### The keeper price was already in the store
+
+`keeper_value` has been pulled and stored since the board was built, and never
+shown. What it *is* was established by measurement rather than read off the field
+name: of GOP's 187 priced keepers, **130 carry exactly their 2025 auction bid** —
+CeeDee Lamb $90, Gibbs $87, Chase $84, to the dollar — 29 were never drafted in
+2025 and price at $1–$5, and 28 differ because the player changed hands, where the
+price follows the *current* holder (Jayden Daniels went for $46 and keeps for $1
+for the manager who later claimed him).
+
+So: **what it costs the manager holding him to keep him.** Shown as `Keeper $`,
+with `Keeper +/-` against the market price and a `Keeper Bargain` sort, and only in
+a league whose keeper count is non-zero — every board carries the column, and in
+the eight redraft leagues it is a small number ESPN publishes for nobody's benefit.
+
+### Cash: the auction answer to a question ADP cannot ask
+
+`value` compares our VOR *rank* to the market's ADP *rank*. That is the right
+comparison in a snake draft, where a pick is a place in a queue. In an auction
+there is no queue — there is a price — and being four places underrated does not
+tell you whether to bid $41 or $46.
+
+The Values tab now carries a **Measure Value By: ADP / Cash** switch, defaulting to
+Cash in an auction league. Cash converts our own valuation into dollars the standard
+way:
+
+```
+discretionary = teams x budget  -  draftable spots x $1
+our $         = $1 + discretionary x (this VOR / all positive VOR in the money)
+```
+
+with K and D/ST excluded for the same reason they are excluded from `value`, and IR
+excluded from the spot count because you do not draft into it. A test asserts the
+whole budget is allocated and no more: 120 priced players summing to exactly $2,000
+for a ten-team $200 league.
+
+**It fixes the complaint that prompted it.** Under the ADP lens GOP's "best values"
+were Brenton Strange, Dalton Schultz and Juwan Johnson — backup tight ends with
+*negative* VOR, scoring high because the market ranks them even lower than we do.
+Under Cash the same board leads with Jeremiah Love (+$71), Bijan Robinson (+$67)
+and Jahmyr Gibbs (+$65).
+
+### Two bugs this turned up
+
+**Every second league change was being eaten.** `_sticky_selectbox` passed no
+`key=` and steered the widget with `index=`; a keyless widget's identity is derived
+from its arguments, `index` among them. Switching leagues changed the remembered
+value, which changed `index` on the next run, which minted a new widget id — and
+the selection just made was recorded against the old one and discarded. Winfield →
+GOP worked, GOP → Knights silently did not. Fixed by giving the widget its key and
+correcting an out-of-range remembered value *before* it registers, which is the
+only point Streamlit allows the write. Pre-existing, and nothing would have
+reported it.
+
+**Streamlit reads paired `$` as LaTeX.** The cash caption rendered as green
+monospace maths. Every dollar amount in a caption, markdown block or `help=` string
+is escaped `\$`; the `format="$%.0f"` column specs are printf and are left alone.
 
 ## The model columns, added 2026-08-14
 

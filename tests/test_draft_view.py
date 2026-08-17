@@ -207,7 +207,240 @@ def test_a_board_with_no_byes_offers_no_bye_filter_rather_than_raising():
     assert dv.board_byes(board) == [] and dv.board_teams(board) == []
 
 
+# --- keepers --------------------------------------------------------------
+#
+# ESPN carries a keeper league's rosters into the new season before anyone has
+# declared a keeper, so `on_team_id` means "was here last year" rather than
+# "unavailable". GOP Degenerates' 2026 board arrives with 252 players held across
+# 16 teams against a keeper limit of 2.
+
+def _keeper_board(per_team, keepers_named=None):
+    """A board where each team holds `per_team` players."""
+    rows = []
+    for team in (1, 2, 3):
+        held = keepers_named if keepers_named is not None else per_team
+        for i in range(held):
+            rows.append({"player_name": f"T{team}P{i}", "on_team_id": team,
+                         "team_owner": f"Owner {team}"})
+    rows += [{"player_name": f"FA{i}"} for i in range(20)]
+    return _board(rows)
+
+
+def test_a_roster_bigger_than_the_keeper_limit_cannot_be_a_list_of_keepers():
+    board = _keeper_board(15)
+    assert dv.keepers_pending(board, keepers=2) is True
+
+
+def test_rosters_at_the_keeper_limit_are_believed():
+    """The day rosters shrink to the limit the board starts filtering again, with
+    no flag anyone has to remember to flip."""
+    board = _keeper_board(2)
+    assert dv.keepers_pending(board, keepers=2) is False
+
+
+def test_one_team_still_holding_a_full_roster_holds_the_whole_league_open():
+    """Half-declared is not declared. Hiding the other fifteen managers' players
+    on the strength of one having tidied up is the harmful direction."""
+    board = _board(
+        [{"player_name": f"A{i}", "on_team_id": 1} for i in range(2)]
+        + [{"player_name": f"B{i}", "on_team_id": 2} for i in range(15)])
+    assert dv.keepers_pending(board, keepers=2) is True
+
+
+def test_a_redraft_league_is_never_pending():
+    assert dv.keepers_pending(_keeper_board(15), keepers=0) is False
+
+
+def test_a_store_predating_draft_settings_keeps_its_old_behaviour():
+    """None is not zero. An old board should not silently change meaning."""
+    assert dv.keepers_pending(_keeper_board(15), keepers=None) is False
+    assert dv.keeper_count({}) is None
+    assert dv.keeper_count({"draft_settings": {"keeper_count": 0}}) == 0
+    assert dv.keeper_count({"draft_settings": {"keeper_count": 2}}) == 2
+
+
+def test_rostered_counts_ignores_free_agents():
+    counts = dv.rostered_counts(_keeper_board(3))
+    assert counts == {1: 3, 2: 3, 3: 3}
+
+
+def test_a_board_with_no_roster_column_is_not_pending():
+    board = _board([{}]).drop("on_team_id")
+    assert dv.rostered_counts(board) == {}
+    assert dv.keepers_pending(board, keepers=2) is False
+
+
+def test_the_tier_runway_can_count_players_the_rosters_claim():
+    """"Three left in tier 1" is a lie if it excluded players nobody has kept."""
+    board = _board([
+        {"player_name": "Free", "tier": 1.0, "TRUE_Points": 300.0},
+        {"player_name": "Carried", "tier": 1.0, "TRUE_Points": 290.0,
+         "on_team_id": 4, "team_owner": "Someone"},
+    ])
+    assert dv.tier_runway(board, ["RB"])["remaining"].to_list() == [1]
+    assert dv.tier_runway(board, ["RB"], only_available=False)["remaining"] \
+        .to_list() == [2]
+
+
+def test_value_targets_can_include_players_the_rosters_claim():
+    board = _board([
+        {"player_name": "Free", "value": 5.0},
+        {"player_name": "Carried", "value": 40.0, "on_team_id": 4,
+         "team_owner": "Someone"},
+    ])
+    assert dv.value_targets(board)["player_name"].to_list() == ["Free"]
+    assert dv.value_targets(board, only_available=False)["player_name"].to_list() \
+        == ["Carried", "Free"]
+
+
+# --- the cash lens --------------------------------------------------------
+#
+# `value` compares ranks, which is the right comparison in a snake draft and the
+# wrong one in an auction: being four places underrated does not say whether to bid
+# $41 or $46.
+
+AUCTION_META = {"team_count": 10, "roster_slots": {"QB": 1, "RB": 2, "WR": 2,
+                                                   "TE": 1, "BE": 6, "IR": 2},
+                "draft_settings": {"type": "AUCTION", "auction_budget": 200}}
+
+
+def test_ir_slots_are_not_roster_spots_the_room_buys():
+    """12 draftable slots x 10 teams. Counting IR would invent money nobody spends."""
+    assert dv.draftable_spots(AUCTION_META) == 120
+
+
+def test_the_whole_budget_is_allocated_and_no_more():
+    """Ten teams at $200 is $2,000, and the priced players plus the $1 floors on
+    every other spot must come to exactly that."""
+    rows = [{"player_name": f"P{i}", "vor": float(200 - i)} for i in range(150)]
+    board = dv.with_cash_value(_board(rows), AUCTION_META, 200)
+    priced = board.filter(pl.col("our_dollars").is_not_null())
+    assert priced.height == 120                       # one per spot, no more
+    spent = priced["our_dollars"].sum()
+    assert abs(spent - 2000.0) < 1e-6
+
+
+def test_a_replacement_level_player_is_worth_the_minimum_bid():
+    board = dv.with_cash_value(
+        _board([{"player_name": "Star", "vor": 100.0},
+                {"player_name": "Filler", "vor": 0.0}]), AUCTION_META, 200)
+    prices = dict(zip(board["player_name"], board["our_dollars"]))
+    assert prices["Filler"] is None                   # outside the money entirely
+    assert prices["Star"] > 1
+
+
+def test_streamed_positions_get_no_auction_money():
+    """The mistake that once priced eight team defences as the league's best buys."""
+    board = _board([{"player_name": "Back", "vor": 50.0, "is_streamed": False},
+                    {"player_name": "Kicker", "primaryPosition": "K", "vor": 60.0,
+                     "is_streamed": True}])
+    out = dv.with_cash_value(board, AUCTION_META, 200)
+    prices = dict(zip(out["player_name"], out["our_dollars"]))
+    assert prices["Kicker"] is None and prices["Back"] is not None
+
+
+def test_cash_delta_is_our_price_less_the_markets_in_the_same_currency():
+    board = dv.at_budget(_board([{"vor": 100.0, "auction_value_filled": 40.0}]), 200)
+    out = dv.with_cash_value(board, AUCTION_META, 200)
+    assert out["auction_dollars"].to_list() == [40.0]
+    assert abs(out["cash_delta"][0] - (out["our_dollars"][0] - 40.0)) < 1e-9
+
+
+def test_a_board_with_no_roster_shape_is_returned_untouched():
+    board = _board([{"vor": 100.0}])
+    assert dv.with_cash_value(board, {}, 200).columns == board.columns
+    assert "Our $" not in dv.display_frame(dv.with_cash_value(board, {}, 200)).columns
+
+
+def test_auction_leagues_open_on_cash_and_snake_leagues_on_adp():
+    assert dv.default_value_lens(AUCTION_META) == dv.VALUE_LENS_CASH
+    assert dv.default_value_lens(
+        {"draft_settings": {"type": "SNAKE"}}) == dv.VALUE_LENS_ADP
+    assert dv.default_value_lens({}) == dv.VALUE_LENS_ADP
+
+
+def test_the_lens_chooses_which_column_the_value_table_ranks_on():
+    board = dv.at_budget(_board([
+        {"player_name": "AdpFall", "value": 90.0, "vor": 10.0,
+         "auction_value_filled": 1.0},
+        {"player_name": "CashFall", "value": 1.0, "vor": 300.0,
+         "auction_value_filled": 1.0},
+    ]), 200)
+    board = dv.with_cash_value(board, AUCTION_META, 200)
+    assert dv.value_targets(board, lens=dv.VALUE_LENS_ADP)["player_name"][0] \
+        == "AdpFall"
+    assert dv.value_targets(board, lens=dv.VALUE_LENS_CASH)["player_name"][0] \
+        == "CashFall"
+
+
+def test_the_cash_lens_is_empty_rather_than_wrong_on_a_board_without_it():
+    board = _board([{"value": 10.0}])
+    assert dv.value_targets(board, lens=dv.VALUE_LENS_CASH).is_empty()
+    assert not dv.value_targets(board, lens=dv.VALUE_LENS_ADP).is_empty()
+
+
+# --- the keeper price -----------------------------------------------------
+
+def test_the_keeper_price_is_shown_only_where_the_league_has_keepers():
+    """Every board carries keeper_value, including the eight redraft leagues, where
+    it is a number ESPN publishes for nobody's benefit."""
+    board = _board([{"keeper_value": 90}])
+    assert "keeper_price" not in dv.with_keeper_price(board, 0).columns
+    assert "keeper_price" not in dv.with_keeper_price(board, None).columns
+    assert "keeper_price" in dv.with_keeper_price(board, 2).columns
+
+
+def test_an_unpriced_player_has_no_keeper_price_rather_than_a_free_one():
+    """"Costs nothing to keep" and "is not anybody's keeper" must not be one cell."""
+    out = dv.with_keeper_price(_board([{"keeper_value": 0}, {"keeper_value": 12}]), 2)
+    assert out["keeper_price"].to_list() == [None, 12.0]
+
+
+def test_the_surplus_is_the_market_price_less_what_keeping_costs():
+    """Both sides in the same currency: the keeper price is already in league
+    dollars, the market value is not until at_budget has run."""
+    board = dv.at_budget(_board([{"auction_value_filled": 80.0, "keeper_value": 40}]),
+                         250)                       # 80/200 * 250 = $100 market
+    out = dv.with_keeper_price(board, 2)
+    assert out["keeper_surplus"].to_list() == [60.0]
+
+
+def test_the_surplus_is_blank_where_the_market_has_no_price():
+    board = dv.at_budget(_board([{"keeper_value": 40}]).with_columns(
+        pl.lit(None, dtype=pl.Float64).alias("auction_value_filled")), 250)
+    out = dv.with_keeper_price(board, 2)
+    assert out["keeper_surplus"].to_list() == [None]
+
+
+def test_the_keeper_columns_sit_with_the_market_block():
+    frame = dv.display_frame(dv.with_keeper_price(
+        dv.at_budget(_board([{"keeper_value": 40}]), 250), 2))
+    order = frame.columns
+    assert order.index("$") < order.index("Keeper $") < order.index("Keeper +/-")
+    assert order.index("Keeper +/-") < order.index("Injury")
+
+
 # --- the auction budget ---------------------------------------------------
+
+def test_the_budget_is_remembered_per_league_not_globally():
+    """A shared key outlives a league change, and a keyed widget ignores its
+    default once the key exists -- which rendered GOP's $250 auction at $200."""
+    assert dv.budget_key("gop_degenerates") != dv.budget_key("winfield_football")
+    assert dv.budget_key("gop_degenerates").startswith(dv.AUCTION_BUDGET_KEY)
+
+
+def test_the_budget_comes_from_the_league_not_a_constant():
+    """GOP Degenerates plays for $250 and the other eight for $200. Defaulting all
+    nine to one number mispriced eight of them by 25%."""
+    assert dv.league_auction_budget({"draft_settings": {"auction_budget": 250}}) == 250
+    assert dv.league_auction_budget({"draft_settings": {"auction_budget": 200}}) == 200
+
+
+def test_a_store_with_no_recorded_budget_falls_back():
+    assert dv.league_auction_budget({}) == dv.DEFAULT_AUCTION_BUDGET
+    assert dv.league_auction_budget({"draft_settings": {}}, default=300) == 300
+    assert dv.league_auction_budget(
+        {"draft_settings": {"auction_budget": None}}) == dv.DEFAULT_AUCTION_BUDGET
 
 def test_auction_values_are_rescaled_from_espns_budget_to_this_leagues():
     """The stored number is a market average in ESPN's own $200 auction, so a
