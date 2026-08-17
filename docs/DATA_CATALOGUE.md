@@ -81,6 +81,23 @@ agreement, and these flags are the defence against it.
 `usg_arm` says which arm produced the estimate, `usg_expected_games` its availability
 term, `usg_evidence` how much history it rested on.
 
+It also carries **ESPN's own opinion beside ours**, so the two can be differenced:
+`espn_draft_rank` is ESPN's published draft ranking (dense 1..N, no ties, every row),
+`espn_pos_rank` is that ranking re-ranked within position, and `points_delta`,
+`rank_delta` and `pos_rank_delta` are the differences against `TRUE_Points`,
+`vor_rank` and `pos_rank`. **Every one is oriented so positive means we rate the
+player higher than ESPN does** — points ours-minus-theirs, ranks theirs-minus-ours —
+which is the convention `value` already set and what lets the page colour all of them
+on one scale.
+
+`injury_return_date` and `injury_note` come off ESPN's injury report
+(`Data/Injuries/<season>/espn_injuries.parquet`) rather than `kona_player_info`. The
+note is ESPN's own one-line account of the injury and is the only player news this
+repo holds; both are null for the ~two thirds of the pool the report does not list, and
+the date is null for most of the rest, because ESPN publishes an estimate only where it
+has one. A date past `SEASON_ENDING_AFTER` is its season-ending sentinel, not an
+estimate.
+
 `lineups` adds the week's actuals: `points`, `projPoints`, the raw stat columns,
 `slotPosition`, `team_owner`.
 

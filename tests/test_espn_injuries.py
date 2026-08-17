@@ -168,3 +168,75 @@ def test_a_missing_pull_degrades_to_the_status_rule(monkeypatch):
     monkeypatch.setattr(sp, "_week_one", lambda season: None)
     out = sp._apply_injury_adjustment(frame_with("OUT", "X"), 2026)
     assert pd.isna(out["USG_receivingYards"].iloc[0])
+
+
+# --- the two fields the board shows ---------------------------------------
+#
+# Separate from the adjustment above, which reads the same file. That one scales a
+# projection; this one carries two fields through for display. Both were already
+# being read off disk daily and thrown away.
+
+def _report(**overrides):
+    base = {"name_key": ["X"], "status": ["Out"],
+            "return_date": [datetime.date(2026, 10, 5)],
+            "comment": ["Reported to be weeks away."]}
+    return pd.DataFrame({**base, **overrides})
+
+
+def test_the_return_date_and_the_note_are_carried_onto_the_frame(monkeypatch):
+    monkeypatch.setattr(sp, "load_espn_injuries", lambda season: _report())
+    out = sp._attach_injury_report(pd.DataFrame({"join_key": ["X"]}), 2026)
+    assert out["injury_return_date"].iloc[0] == pd.Timestamp("2026-10-05")
+    assert out["injury_note"].iloc[0] == "Reported to be weeks away."
+
+
+def test_the_return_date_arrives_typed_rather_than_as_an_object(monkeypatch):
+    """`.map` over a column of `datetime.date` yields object dtype, which parquet
+    writes as a string and the board would then have to parse back."""
+    monkeypatch.setattr(sp, "load_espn_injuries", lambda season: _report())
+    out = sp._attach_injury_report(pd.DataFrame({"join_key": ["X"]}), 2026)
+    assert out["injury_return_date"].dtype == "datetime64[ns]"
+
+
+def test_a_player_the_report_says_nothing_about_gets_neither(monkeypatch):
+    """Two thirds of the pool. A blank note means he is not on the injury report,
+    not that nothing has happened to him."""
+    monkeypatch.setattr(sp, "load_espn_injuries", lambda season: _report())
+    out = sp._attach_injury_report(pd.DataFrame({"join_key": ["SOMEBODY ELSE"]}), 2026)
+    assert pd.isna(out["injury_return_date"].iloc[0])
+    assert pd.isna(out["injury_note"].iloc[0])
+
+
+def test_a_note_without_a_return_date_still_lands(monkeypatch):
+    """ESPN dates only about one in seven of the players it lists, but comments all
+    of them -- so the two fields have to be independent of each other."""
+    monkeypatch.setattr(sp, "load_espn_injuries",
+                        lambda season: _report(return_date=[None]))
+    out = sp._attach_injury_report(pd.DataFrame({"join_key": ["X"]}), 2026)
+    assert pd.isna(out["injury_return_date"].iloc[0])
+    assert out["injury_note"].iloc[0] == "Reported to be weeks away."
+
+
+def test_both_columns_exist_even_when_the_pull_is_missing(monkeypatch):
+    """`build_board` hands the frame to a page that decides what to render from what
+    is present, so a missing pull has to mean empty columns rather than absent ones."""
+    monkeypatch.setattr(sp, "load_espn_injuries",
+                        lambda season: pd.DataFrame(
+                            columns=["name_key", "status", "return_date", "comment"]))
+    out = sp._attach_injury_report(pd.DataFrame({"join_key": ["X"]}), 2026)
+    assert out["injury_return_date"].isna().all()
+    assert out["injury_note"].isna().all()
+
+
+def test_a_frame_with_no_join_key_gets_the_columns_anyway(monkeypatch):
+    monkeypatch.setattr(sp, "load_espn_injuries", lambda season: _report())
+    out = sp._attach_injury_report(pd.DataFrame({"player_id": [1]}), 2026)
+    assert {"injury_return_date", "injury_note"} <= set(out.columns)
+
+
+def test_the_loader_names_comment_in_its_empty_frame(monkeypatch, tmp_path):
+    """The fallback frame's columns are what a caller reads off it, so a column the
+    loader forgets to name is a KeyError only on the day the pull fails."""
+    monkeypatch.setattr("Scripts.scrape_espn_injuries.injuries_path",
+                        lambda season: tmp_path / "absent.parquet")
+    assert "comment" in sp.load_espn_injuries(2026).columns

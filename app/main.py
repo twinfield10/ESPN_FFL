@@ -10,6 +10,13 @@ on interaction would make the UI unusable.
 
 Pages are registered below. Plans 08 and 09 add to this list; the navigation and
 the sidebar do not change as they do.
+
+Every title, header and column label in this app is **Title Case** -- one house
+style, applied to labels rather than to prose. Captions and explanatory paragraphs
+stay sentence case, because they are sentences.
+
+Which leagues a page may open is decided in :mod:`auth`, not here. There is no login
+yet; that module is the seam one lands in.
 """
 
 import _bootstrap  # noqa: F401  -- must precede the Scripts imports
@@ -26,8 +33,8 @@ st.set_page_config(
 #: Every page. Each script calls ``components.header.render_sidebar()`` itself, so
 #: the league/season/week selection is identical wherever you are.
 PAGES = [
-    st.Page("pages/overview.py", title="Store overview", icon="📦", default=True),
-    st.Page("pages/draft_board.py", title="Draft board", icon="📋"),
+    st.Page("pages/overview.py", title="Store Overview", icon="📦", default=True),
+    st.Page("pages/draft_board.py", title="Draft Board", icon="📋"),
     # Plan 08: My Matchup, League Slate, Free Agents, Player Explorer,
     #          Projection Accuracy, Playoff Odds, Standings, History
     # Plan 09: Live Draft (needs the ESPN draft endpoint in the render path),

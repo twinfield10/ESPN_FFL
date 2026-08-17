@@ -283,9 +283,67 @@ def test_board_has_the_columns_plan_09_renders(pool):
     board = bd.build_board(league, pool, _market_for(pool), crosswalk_warn_below=None)
     for column in ("vor", "vor_rank", "pos_rank", "tier", "adp", "adp_rank",
                    "value", "replacement_rank", "startable", "is_streamed",
-                   "adp_is_priced", "teams"):
+                   "adp_is_priced", "teams",
+                   # ESPN's side of the four comparison groups, and the differences.
+                   "espn_pos_rank", "points_delta", "rank_delta", "pos_rank_delta"):
         assert column in board.columns, column
     assert board["teams"].iloc[0] == 12
+
+
+# --- ESPN's opinion beside ours -------------------------------------------
+#
+# The sign convention is the load-bearing part: the page paints every difference
+# column on one scale, so all of them have to mean the same thing by "positive".
+
+def test_espn_positional_rank_is_dense_within_each_position():
+    """A rank of a rank: ESPN's draft ranking re-ranked inside the position, so it is
+    ESPN's own ordering of that position rather than a re-ranking of its points."""
+    board = pd.DataFrame({
+        "primaryPosition": ["RB", "RB", "RB", "WR", "WR"],
+        "espn_draft_rank": [40, 2, 17, 8, 3],
+        "TRUE_Points": [1.0] * 5, "ESPN_Points": [1.0] * 5,
+        "vor_rank": [1.0] * 5, "pos_rank": [1.0] * 5,
+    })
+    out = bd._attach_espn_comparison(board, "TRUE_Points")
+    assert out["espn_pos_rank"].tolist() == [3.0, 1.0, 2.0, 2.0, 1.0]
+
+
+def test_a_difference_is_positive_where_we_are_higher_on_the_player():
+    """One rule for all four groups, because one colour scale serves all of them:
+    positive means we like him more than ESPN does. Points subtract ours-minus-theirs
+    because more points is better; ranks subtract theirs-minus-ours because a lower
+    rank is better."""
+    board = pd.DataFrame({
+        "primaryPosition": ["RB", "RB"],
+        "player_name": ["We Like Him", "ESPN Likes Him"],
+        # We project more, and rank him better, than ESPN on the first row.
+        "TRUE_Points": [200.0, 100.0],
+        "ESPN_Points": [150.0, 180.0],
+        "espn_draft_rank": [30, 4],
+        "vor_rank": [5.0, 25.0],
+        "pos_rank": [1.0, 9.0],
+    })
+    out = bd._attach_espn_comparison(board, "TRUE_Points")
+
+    liked = out.iloc[0]
+    assert liked["points_delta"] > 0 and liked["rank_delta"] > 0
+    assert liked["pos_rank_delta"] > 0
+    faded = out.iloc[1]
+    assert faded["points_delta"] < 0 and faded["rank_delta"] < 0
+    assert faded["pos_rank_delta"] < 0
+
+
+def test_a_board_without_espn_columns_still_gets_all_four(pool):
+    """Boards are read by a page that decides what to render from what is present, so
+    a missing input has to mean an empty column rather than an absent one."""
+    board = pd.DataFrame({
+        "primaryPosition": ["RB"], "TRUE_Points": [100.0],
+        "vor_rank": [1.0], "pos_rank": [1.0],
+    })
+    out = bd._attach_espn_comparison(board, "TRUE_Points")
+    for column in ("espn_pos_rank", "points_delta", "rank_delta", "pos_rank_delta"):
+        assert column in out.columns, column
+        assert out[column].isna().all(), column
 
 
 def test_value_is_positive_when_the_room_lets_a_player_fall(pool):
