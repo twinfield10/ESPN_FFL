@@ -66,9 +66,15 @@ source:
 | `FP_` | FantasyPros |
 | `PINNY_` | Pinnacle |
 | `BOL_` | BetOnline |
-| `USG_` | The usage model — the blend's fifth source, currently at weight 0.0 |
+| `USG_` | The usage model — the blend's fifth source, at weight 0.25 |
 | `MEAN_` | The unweighted cross-source mean |
 | `TRUE_` | **The blend.** This is what the board ranks on and what lineups score |
+
+`WEIGHTS` is an equal quarter each to `ESPN`, `FP`, `BOL` and `USG`, with `PINNY` at
+zero. Read that alongside the coverage numbers rather than on its own: FantasyPros
+publishes 60 season projections and is **5.8% real** on a board, so for most players
+the blend renormalises down to ESPN and the usage model, and for the ~500 players no
+other source prices, to ESPN alone.
 
 Every source also carries `*_is_imputed` flags per stat. That is the mechanism by
 which a broken source shows up as a measured number rather than being quietly
@@ -280,9 +286,24 @@ Team D/ST units match no id in any provider and join on name alone.
 
 - **Never compare points across leagues.** Everything in the store is scored in its
   own league's rules. Ranks compare; points do not.
-- **`USG_Points` and `TRUE_Points` are not on the same footing.** The usage model is
-  injury-adjusted and the blend is not, so compare `USG_PosRank` against `pos_rank`
-  rather than the point values.
+- **`USG_Points` and `TRUE_Points` *are* on the same footing**, since 2026-08-07 —
+  `to_full_slate` divides each player's own `expected_games` back out and puts the
+  model on a full 17-game slate before the blend, so it carries no availability
+  discount at all. `usg_expected_games` travels beside the line rather than inside it.
+  Ranks are still the better comparison, because the model shrinks toward positional
+  baselines where ESPN extrapolates.
+- **`TRUE_` is reconciled to team totals; the source columns are not.** A completed
+  pass is one team's passing yard and one of its receivers' receiving yards, so those
+  two sums must match — and player-by-player projections have nothing holding them
+  together. Before `reconcile_team_totals`, `receiving/passing` ran 0.80 to 1.23 across
+  the league. ESPN holds all three identities at exactly 1.000, which is how we knew
+  they reconcile and we did not. Each side is scaled to the **midpoint** of the two, so
+  ranks within a team are unchanged and only the level moves.
+- **`usg_expected_games` carries role as well as health.** It is fitted from prior
+  availability, snap share, reserve status and age, so a low number on a backup means
+  buried, not fragile. That is why the board build withdraws the model's line where
+  the depth chart says backup *and* ESPN has priced the player out, rather than
+  trusting a starter's slate for him.
 - **ESPN injuries carry no id**, so they join on normalised name only. It is the most
   fragile join in the repo, and suffixes (Jr./Sr./II/III) are the usual failure.
 - **Check `*_is_imputed` before trusting a source column.** A source can be present in

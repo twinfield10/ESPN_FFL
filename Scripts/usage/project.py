@@ -287,6 +287,50 @@ def to_full_slate(frame: pl.DataFrame, columns: Sequence[str],
     should be applied if one is wanted, and applied to the *whole* blend rather than
     to one third of it.
 
+    **Dividing out each player's own ``expected_games`` is the right mechanism, and
+    it was tested against the alternative rather than assumed.** The obvious worry is
+    that ``17/expected_games`` is an unbounded multiplier -- x1.17 at 14.5 games,
+    x5.97 at 3.0. It is not amplifying error: it exactly inverts the multiplication
+    :meth:`predict` just performed, recovering per-game production, which is estimated
+    independently of the games term. What it does do is flatten every player onto 17
+    games, which is correct for a starter and wrong for a man who will not play.
+
+    Scaling by a per-position constant instead -- lifting the expected-value line so a
+    typical starter lands on a full slate -- was built and measured on the 2026
+    Knights board. Median ``USG_Points / ESPN_Points`` by ADP band, over players the
+    role gate keeps:
+
+    ========================  =====  ======  =======  =======
+    basis                      1-50  50-100  100-150  150-200
+    ========================  =====  ======  =======  =======
+    per-player (this)          0.94    0.95     1.03     1.27
+    per-position constant      0.94    0.94     1.00     1.11
+    ========================  =====  ======  =======  =======
+
+    **It was rejected despite the better tail**, because of what it costs at the top.
+    Retaining the availability term in the line means applying it, and the
+    availability head is this model's weak arm -- plan 18 measures prior-season games
+    against next season at r = +0.343. On the 2026 board it took Jayden Daniels from
+    286.7 to 214.1 and Joe Burrow from 276.2 to 214.1: a 25% haircut on two top-six
+    quarterbacks, sourced from the least trustworthy thing the model reports, for no
+    gain in the first hundred picks. ``TRUE_Points`` is meant to be differenceable
+    against ESPN, and ESPN applies no such discount.
+
+    So the availability estimate stays out of the line and travels as
+    ``usg_expected_games`` instead, where it can be applied deliberately and to the
+    *whole* blend rather than to one quarter of it.
+
+    The 0.94 at the top is not an error to tune away either. The model shrinks toward
+    positional baselines while ESPN extrapolates, and draftable players are selected
+    on being top-of-pool, so it is genuinely below ESPN there.
+
+    **What this function cannot fix is the tail**, and that is not a units problem:
+    ESPN prices depth-chart role and had Mac Jones at 8.3 points against a usage line
+    of 169.6. ``_withdraw_usage_on_role`` in :mod:`Scripts.season_projections` handles
+    it by withdrawing the source outright for backups ESPN has priced out. With that
+    gate in place the 150-200 band lands at 1.00 across every position, K and D/ST
+    included.
+
     Args:
         frame: Prediction frame carrying ``expected_games`` and the columns to scale.
         columns: Stat and interval columns to rescale.
@@ -422,6 +466,9 @@ def write(season: int, frame: pl.DataFrame):
     frame.write_parquet(path)
 
     meta = sn.SeasonUsageModel.default_path()
+    # `slate` is recorded because "USG_receivingYards" is meaningless without it: the
+    # stat lines are an if-healthy season, not the expected value the model predicts,
+    # and a reader comparing two artifacts needs to know which.
     (path.parent / "meta.json").write_text(json.dumps({
         "season": season,
         "rows": frame.height,
@@ -429,6 +476,7 @@ def write(season: int, frame: pl.DataFrame):
         "model_version": sn.MODEL_VERSION,
         "model_file": meta.name,
         "abstain_positions": list(sn.ABSTAIN_POSITIONS),
+        "slate": sn.DEFAULT_TARGET_SLATE,
     }, indent=2, sort_keys=True))
     print(f"  wrote {path}")
     return path

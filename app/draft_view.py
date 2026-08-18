@@ -77,6 +77,19 @@ EVIDENCE_CLEAR = "—"
 EVIDENCE_WITHDRAWN_AVAILABILITY = "withdrawn (availability)"
 EVIDENCE_WITHDRAWN_INJURY = "withdrawn (injury)"
 
+#: And a third: the depth chart says he is a backup and ESPN has priced him out, so
+#: the board build withdrew a line that was only high because the model puts everyone
+#: on a starter's slate. Distinct from the injury withdrawal because the remedy is
+#: different -- an injured starter comes back, a backup needs someone ahead of him to
+#: get hurt.
+EVIDENCE_WITHDRAWN_ROLE = "withdrawn (backup)"
+
+#: The marker ``Scripts.season_projections.ROLE_WITHDRAWN_EVIDENCE`` writes. Duplicated
+#: rather than imported: this module is loaded by a process that only reads parquet,
+#: and importing the board builder would drag in the ESPN and scoring stack with it.
+#: ``test_draft_view`` pins the two equal.
+EVIDENCE_ROLE_MARKER = "withdrawn: backup"
+
 #: And when the model does not cover the position at all -- K and D/ST, which it has
 #: never modelled, plus anyone it had no usage history for.
 EVIDENCE_NOT_MODELLED = "not modelled"
@@ -293,26 +306,32 @@ COLUMNS: List[Column] = [
                   "one in eight of the pool that has a projection."),
     Column("TRUE_Points", "Points", "Us", "number", fmt="%.1f",
            source_of="Blend",
-           how="ESPN, FantasyPros and the usage model in equal thirds — blended as a "
-               "**stat line**, then scored through this league's own rules, which is "
-               "what lets one pipeline serve nine leagues. Pinnacle and BetOnline are "
+           how="ESPN, FantasyPros, BetOnline and the usage model in equal quarters — "
+               "blended as a **stat line**, then scored through this league's own "
+               "rules, which is what lets one pipeline serve nine leagues. Pinnacle is "
                "weighted zero.",
-           caveat="Every rank, tier and VOR on this table is built from this column, "
-                  "so an error here moves everything except the ESPN columns."),
+           caveat="A source with no line for a player is dropped and the rest "
+                  "reweighted, so most players are really an ESPN/usage blend — "
+                  "FantasyPros publishes only 60 season projections. Every rank, tier "
+                  "and VOR on this table is built from this column."),
     Column("USG_Points", "Points", "USG", "number", fmt="%.1f",
            source_of="Usage model",
-           how="The model's own season projection: per-game production times the "
-               "games it expects him available for.",
-           caveat="**Not comparable to the two columns on its left**, which assume a "
-                  "healthy 17 games. Deliberately given no Δ for that reason — the "
-                  "comparison that survives is `Position Ranks | Δ USG`."),
+           how="The model's own season projection, on a full healthy 17 games so it "
+               "means the same thing as the columns beside it — its availability "
+               "estimate is divided back out, not baked in.",
+           caveat="Runs a few percent below `ESPN` at the top of the board because the "
+                  "model shrinks toward positional baselines while ESPN extrapolates. "
+                  "That is disagreement about players, not a scale difference — but "
+                  "`Position Ranks | Δ USG` is still the cleaner read, since a rank "
+                  "cannot be moved by it at all."),
     Column("points_delta", "Points", "Δ", "number", fmt="%+.1f", emphasis=True,
            shade="delta",
            source_of="Board build",
            how="`Us − ESPN`. Positive means we project more points than ESPN does.",
-           caveat="Damped, because ESPN is one of the three thirds inside `Us`. It "
-                  "reads as *how far the blend moved off ESPN*, not as two "
-                  "independent opinions. Blank wherever `ESPN` is."),
+           caveat="Damped, because ESPN is one of the quarters inside `Us` — and on a "
+                  "player only ESPN and the model price, a full half of it. It reads "
+                  "as *how far the blend moved off ESPN*, not as two independent "
+                  "opinions. Blank wherever `ESPN` is."),
     Column("vor", "Points", "VOR", "number", fmt="%.1f",
            source_of="Board build",
            how="Projected points minus the projected points of the last startable "
@@ -446,15 +465,21 @@ COLUMNS: List[Column] = [
                   "about one in seven of the players it lists. `IR` alone does not "
                   "mean out for the year; this column is what answers that."),
     Column("usg_expected_games", "Notes", "Exp G", "number", fmt="%.1f",
-           source_of="ESPN injury report",
-           how="Games out of 17 the model expects him available for, derived from the "
-               "estimated return date. `USG` is already scaled by it.",
-           caveat="Only present for players the usage model covers."),
+           source_of="Usage model",
+           how="Games out of 17 the model expects him to play — its own estimate, "
+               "fitted from prior availability, snap share and age.",
+           caveat="**`USG` is not scaled by this**, and deliberately so: the column to "
+                  "its left is a healthy-slate line, on ESPN's footing. This is the "
+                  "availability view, kept separate so you can apply it yourself. It "
+                  "carries role as well as health, so a low number on a backup means "
+                  "*buried*, not *fragile*. Only present for players the model "
+                  "covers."),
     Column("usg_evidence_label", "Notes", "Model Evidence", "text",
            source_of="Derived here",
-           how="Why the model's number is thin, or which of the three ways it "
+           how="Why the model's number is thin, or which of the four ways it "
                "produced none — it does not cover the position, it declined to price "
-               "him, or the injury report withdrew a price it had made.",
+               "him, the injury report withdrew a price it had made, or he is a "
+               "backup ESPN has priced out.",
            caveat="Exists because an empty `USG` meant three different things and all "
                   "three rendered as the same blank cell, which reads as agreement."),
     Column("note_mark", "Notes", "News", "button", width="small",
@@ -2042,16 +2067,19 @@ def with_model_evidence(board: pl.DataFrame) -> pl.DataFrame:
     """Add ``usg_evidence_label``: why the model's number is thin, or missing.
 
     The board carries the model's self-assessment across four columns, and an empty
-    ``USG`` cell can mean three different things that matter differently at a draft:
+    ``USG`` cell can mean four different things that matter differently at a draft:
     the model does not cover the position, the model declined to price a player it
-    could see, or the injury report withdrew a price it had already made. Collapsing
-    those into one blank throws away the distinction; this resolves them into one
-    readable string instead.
+    could see, the injury report withdrew a price it had already made, or the board
+    build withdrew one because the depth chart says he is a backup ESPN has priced
+    out. Collapsing those into one blank throws away the distinction; this resolves
+    them into one readable string instead.
 
     Order matters and is not arbitrary. A withdrawal is checked before the evidence
     text because a player can carry both -- the model flagged its evidence *and* then
     produced nothing -- and "there is no number here" is the more useful fact than
-    why the number that does not exist would have been shaky.
+    why the number that does not exist would have been shaky. Within the withdrawals,
+    role is checked before injury, because a role withdrawal nulls the same column and
+    would otherwise report a healthy backup as hurt.
 
     ``usg_evidence`` arrives as an empty string when the model ran and flagged
     nothing, and as null when the model never ran. Those are different facts and both
@@ -2080,6 +2108,11 @@ def with_model_evidence(board: pl.DataFrame) -> pl.DataFrame:
         .then(pl.lit(EVIDENCE_NOT_MODELLED))
         .when(pl.col("usg_arm") == "abstain")
         .then(pl.lit(EVIDENCE_WITHDRAWN_AVAILABILITY))
+        # Before the injury branch: a role withdrawal also nulls `USG_Points`, so
+        # without this it would render as "withdrawn (injury)" and tell a drafter
+        # the player is hurt when he is merely third on the depth chart.
+        .when(points.is_null() & (evidence == EVIDENCE_ROLE_MARKER))
+        .then(pl.lit(EVIDENCE_WITHDRAWN_ROLE))
         .when(points.is_null())
         .then(pl.lit(EVIDENCE_WITHDRAWN_INJURY))
         .when(evidence.fill_null("") != "")

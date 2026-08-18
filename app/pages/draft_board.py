@@ -466,26 +466,30 @@ with board_tab:
         if "usg_evidence_label" in board.columns:
             label = board["usg_evidence_label"]
             not_modelled = int(label.eq(dv.EVIDENCE_NOT_MODELLED).sum())
-            withdrawn = int(label.is_in([dv.EVIDENCE_WITHDRAWN_AVAILABILITY,
-                                         dv.EVIDENCE_WITHDRAWN_INJURY]).sum())
+            withdrawals = [dv.EVIDENCE_WITHDRAWN_AVAILABILITY,
+                           dv.EVIDENCE_WITHDRAWN_INJURY,
+                           dv.EVIDENCE_WITHDRAWN_ROLE]
+            withdrawn = int(label.is_in(withdrawals).sum())
+            backups = int(label.eq(dv.EVIDENCE_WITHDRAWN_ROLE).sum())
             flagged = int(label.is_in([dv.EVIDENCE_CLEAR, dv.EVIDENCE_NOT_MODELLED,
-                                       dv.EVIDENCE_WITHDRAWN_AVAILABILITY,
-                                       dv.EVIDENCE_WITHDRAWN_INJURY]).not_().sum())
+                                       *withdrawals]).not_().sum())
             st.markdown(f"""
-- **`Points | USG` has no Δ, and that is not an omission.** The model projects an
-  expected value — per-game production times the games it expects the player to
-  actually be available for, which `Exp G` shows. The two columns to its left project
-  a healthy 17-game season, because ESPN and FantasyPros do. Subtracting mixes two
-  quantities and the result means nothing. **`Position Ranks | Δ USG` is the
-  comparison that survives**, being a rank; it is the same reason the model is kept
-  out of the floor/ceiling spread, where it once widened the median disagreement
-  interval from 8.5% to 24.0% by sitting below all four other sources for half the
-  pool.
+- **`Points | USG` is on the same footing as the columns beside it**, and has been
+  since 2026-08-07: the model's line is put on a full healthy slate before it is
+  blended, so all of them describe a 17-game season. `Exp G` shows the availability
+  view separately rather than being baked in. **`Position Ranks | Δ USG` is still the
+  cleaner comparison**, because the model shrinks toward positional baselines while
+  ESPN extrapolates — so it reads a few percent low at the top of the board, which is
+  disagreement about players and not about units. It is the same residual that keeps
+  the model out of the floor/ceiling spread, where it still sits below all four other
+  sources for 47% of draftable players.
 - **The model says nothing about {not_modelled:,} of {board.height:,} players, and
-  withdrew on {withdrawn:,} more.** It has never modelled K or D/ST, and it declines
-  a player whose expected games are too low to price or whose injury report withdraws
-  them outright. An empty `USG` is one of those three, and `Model Evidence` says
-  which — a blank there would read as agreement.
+  withdrew on {withdrawn:,} more — {backups:,} of those as backups.** It has never
+  modelled K or D/ST; it declines a player whose expected games are too low to price
+  or whose injury report withdraws them outright; and the board build withdraws it
+  where the depth chart says backup *and* ESPN has priced him out, because a starter's
+  slate is the wrong basis for a man who will not play. An empty `USG` is one of those
+  four, and `Model Evidence` says which — a blank there would read as agreement.
 - **{flagged:,} players carry a thin-evidence flag,** and the flags were chosen by
   measurement rather than intuition: a prior season under 8 games raises rank error
   42%, a team change 32%, bottom-quartile prior volume 23%. Two plausible candidates

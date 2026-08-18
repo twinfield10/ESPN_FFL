@@ -1199,13 +1199,101 @@ decomposes into volume × efficiency × games — see §Where the variance shoul
 from. Meanwhile the model's dissent is carried by `USG_PosRankDelta`, which is a rank
 and therefore cannot be contaminated by the level mismatch at all.
 
-### `USG_Points` is not on the same scale as `TRUE_Points`
+### The tail was a role problem, not a units problem — 2026-08-17
 
-Worth stating plainly, because side-by-side columns invite the wrong reading.
-`USG_Points` is an **expected value** — per-game production × *expected games*, which
-for a rostered starter is about 13.5. ESPN and FantasyPros project a **healthy
-17-game season**. So `USG_Points` sits roughly 20% below `TRUE_Points` for nearly
-everyone, and that gap is an injury discount, not bearishness.
+The if-healthy rescale fixed the level at the top of the board and left it badly wrong
+below. Median `TRUE_Points / ESPN_Points` on the 2026 Knights board, by ADP band:
+
+| | 0–50 | 50–100 | 100–150 | 150–200 |
+|---|---|---|---|---|
+| QB | 0.98 | 1.00 | 1.03 | **4.64** |
+| RB | 0.97 | 0.95 | 0.98 | **1.51** |
+| WR | 0.96 | 0.95 | 1.02 | **1.46** |
+| K, D/ST | — | 1.00 | 1.00 | 1.00 |
+
+K and D/ST sitting at exactly 1.00 while the skill positions ran 1.4–4.6× is the same
+cross-position distortion the rescale was introduced to remove, an order of magnitude
+larger and one band lower.
+
+**The obvious diagnosis was wrong and was measured before being acted on.** The suspect
+was `17/expected_games` as an unbounded multiplier — ×1.17 at 14.5 games, ×5.97 at 3.0.
+Scaling by a per-position constant instead (the 85th percentile of veteran
+`expected_games`: QB 13.8, RB 13.5, TE 13.3, WR 13.5, which independently reproduces
+this plan's 13.2 ± 0.77 for the draftable pool) was built and measured. On players the
+role gate keeps, median `USG_Points / ESPN_Points`:
+
+| basis | 0–50 | 50–100 | 100–150 | 150–200 |
+|---|---|---|---|---|
+| per-player `17/expG` (kept) | 0.94 | 0.95 | 1.03 | 1.27 |
+| per-position constant (rejected) | 0.94 | 0.94 | 1.00 | 1.11 |
+
+**Rejected despite the better tail.** Retaining the availability term in the line means
+applying it, and the availability head is the weak arm — prior-season games against
+next season at r = +0.343. It took **Jayden Daniels from 286.7 to 214.1 and Joe Burrow
+from 276.2 to 214.1**, a 25% haircut on two top-six quarterbacks drawn from the least
+trustworthy thing the model reports, for no gain in the first hundred picks. `TRUE_` is
+meant to be differenceable against ESPN and ESPN applies no such discount. The
+unbounded multiplier is also not amplifying error: it exactly inverts the
+multiplication `predict` just performed, and per-game production is estimated
+independently of the games term.
+
+The real cause is that **ESPN prices depth-chart role and the model does not.** ESPN had
+Mac Jones at 8.3 points and Spencer Rattler at 8.6 against usage lines of 169.6 and
+161.5. No basis reaches that. `_withdraw_usage_on_role` in
+`Scripts/season_projections.py` withdraws the model where the current depth chart says
+backup **and** ESPN projects below 15% of that position's starter level. Both halves are
+needed: depth rank alone withdraws every handcuff, and TreVeyon Henderson, Rico Dowdle,
+Rachaad White and RJ Harvey are exactly the players a drafter wants the model on.
+
+It withdrew 304 of 608 covered players on the Knights board, **none of them above ADP
+150**, and put every position's 150–200 band at 1.00 — K and D/ST included.
+
+**A second route in, added after a team-level rollup found the first one leaky.**
+Detroit projected 5,256 passing yards against a 2025 league maximum of 4,735, and 832
+of that was Teddy Bridgewater — who escaped the gate because he is not on the depth
+chart at all, so `depth_rank` was null and the conjunction never evaluated. Absence
+from the chart cannot convict alone (it is as likely a failed `espn_id` join), but
+paired with ESPN publishing a hard **zero** it can: that is ESPN declining to price the
+player rather than pricing him cheaply. Note `ESPN_projected_total` is never null —
+`_parse_entry` coerces a missing projection to 0.0 — so the test is `<= 0`, and a gate
+written against `isna()` is dead code. It catches 13 more players, all at the undrafted
+ADP floor, and keeps the eleven fullbacks ESPN does price (Juszczyk, Luepke, Ingold).
+Detroit fell to 4,423 against its own 2025 actual of 4,567.
+
+### Team totals reconcile to the identities — 2026-08-17
+
+Player-by-player projections have nothing holding a roster together, so the two ends of
+the same event drift apart. Measured on the 2026 boards, `receiving/passing` ran
+**0.80 to 1.23**; ESPN holds it at exactly 1.000 on all 32 teams, and so do the 2025
+actuals, necessarily. `reconcile_team_totals` in `Scripts/season_projections.py`
+enforces all three pairs — yards, touchdowns, receptions/completions — between the
+blend and the scoring.
+
+Which side to trust was measured against 2025 realised team passing yards, not assumed:
+
+| side | MAE | corr | team wins |
+|---|---|---|---|
+| QB room | 321 | .439 | 14/30 |
+| receivers | 263 | .659 | 16/30 |
+| **midpoint** | **262** | .639 | — |
+
+The receiver sum is the better single estimator — its errors partly cancel across six
+players where the QB room rides on one — but 16–14 is too thin to declare it right and
+scale quarterbacks alone by up to 20%. The midpoint takes the best MAE and asserts
+nothing. It is a level correction only: shares within a team are preserved, so
+`pos_rank` inside a position is untouched by it.
+
+`Scripts.lab.g2.blend` had to gain the same call. A variant built without it is not the
+blend this repo ships, which would make the archived counterfactual a comparison
+against a straw man; `test_lab_g2` caught it at up to 20.6 points.
+
+### `USG_Points` was not on the same scale as `TRUE_Points` — fixed 2026-08-07
+
+Kept because the reasoning is still why the model is excluded from the floor/ceiling
+spread. `USG_Points` **was** an expected value — per-game production × *expected
+games*, about 13.5 for a rostered starter — where ESPN and FantasyPros project a
+healthy 17-game season, so it sat roughly 20% below `TRUE_Points` for nearly everyone
+and that gap was an injury discount rather than bearishness.
 
 Among the top 60 players a board actually ranks, `expected_games` is **13.2 ± 0.77** —
 near-constant, so the deflation is close to uniform and the *ordering* is what carries

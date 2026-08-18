@@ -158,23 +158,29 @@ at ρ ≈ 0.63 where a guess carrying no such information manages ~0.
 [Plan 22](22-feature-research.md) then tried eleven things on top of it and merged
 none of them. The running record is [`docs/model_lab.html`](../model_lab.html).
 
-**It is the fifth source, at weight 0.0.** As of 2026-08-07 `USG_` is registered in
-`WEIGHTS`, scored by `proj_to_score`, counted as an independent opinion in the
-floor/ceiling spread, and present on all nine boards — while contributing exactly
-nothing to `TRUE_Points`, verified at max difference 0.0 across all 45 `TRUE_`
-columns over 1,026 rows.
+**It is the fifth source, at weight 0.25.** Registered in `WEIGHTS` at 0.0 on
+2026-08-07 and turned on the same day; `WEIGHTS` is now an equal quarter each to
+`ESPN`, `FP`, `BOL` and `USG`. It is scored by `proj_to_score`, present on all nine
+boards, and deliberately *excluded* from the floor/ceiling spread — that column needs
+sources measuring the same quantity and the model still sits below all four for 47% of
+draftable players.
 
-That is not timidity, it is the gate: G0 (independence) passed at +0.832 against
-FantasyPros' +0.988; G1 failed on the crude baseline and located the whole deficit in
-not knowing who plays; **G2 cannot be measured on history at all**, because no
-historical pre-season blend survives to compare against. The 2026 board is the first
-chance, and that means after the season is played. Turning it on is one number in
-`Scripts/projection_utils.py`.
+Turning it on was an assertion, not a measurement, and remains one: G0 (independence)
+passed at +0.832 against FantasyPros' +0.988; G1 failed on the crude baseline and
+located the whole deficit in not knowing who plays; **G2 cannot be measured on history
+at all**, because no historical pre-season blend survives to compare against. The 2026
+board is the first chance, and that means after the season is played — the
+counterfactual is frozen in `Data/G2/2026/`.
 
-Worth knowing before reading the column: `USG_Points` is an expected value (× ~13.5
-expected games) where ESPN and FantasyPros project a healthy 17, so it sits ~20% low
-for everyone. Compare `USG_PosRank`, not points. `python -m Scripts.usage.backtest`
-reproduces every number above; `python -m Scripts.usage.project` builds the artifact.
+Worth knowing before reading the column: `USG_Points` is on the **same footing** as
+`TRUE_Points` and `ESPN_Points` — a full healthy 17-game slate, with each player's own
+expected games divided back out, so it carries no availability discount.
+`usg_expected_games` travels beside it rather than inside it, and carries depth-chart
+role as well as health — which is why the board build withdraws the model's line for
+backups ESPN has priced out rather than trying to scale it down. Compare
+`USG_PosRank` rather than points anyway: the model shrinks toward positional baselines
+where the other sources extrapolate. `python -m Scripts.usage.backtest` reproduces
+every number above; `python -m Scripts.usage.project` builds the artifact.
 
 Three things were measured and rejected rather than assumed, and are recorded in code
 so they are not rediscovered: the coach prior in the veteran arm, the coach prior in

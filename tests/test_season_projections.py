@@ -356,3 +356,75 @@ def test_a_structural_zero_is_not_an_opinion():
     out = sp.attach_source_spread(frame, ["madeExtraPoints", "passingYards"])
     assert out["sources_real"].iloc[0] == 1     # ESPN only
     assert pd.isna(out["floor"].iloc[0])
+
+
+# --- team identities -------------------------------------------------------
+#
+# A completed pass is one team's passing yard and one of its receivers' receiving
+# yards. Projections built player-by-player have nothing holding that together, and
+# before `reconcile_team_totals` the ratio ran 0.80 to 1.23 across the league.
+
+
+def _two_team_frame():
+    """One team throwing more than it catches, one catching more than it throws."""
+    return pd.DataFrame({
+        "pro_team": ["ATL", "ATL", "ATL", "NYG", "NYG", "NYG"],
+        "TRUE_passingYards": [5000.0, 47.0, 0.0, 3600.0, 2.0, 0.0],
+        "TRUE_receivingYards": [0.0, 2000.0, 2100.0, 0.0, 2200.0, 2120.0],
+    })
+
+
+def test_the_identity_holds_after_reconciliation():
+    out = sp.reconcile_team_totals(_two_team_frame())
+    totals = out.groupby("pro_team")[
+        ["TRUE_passingYards", "TRUE_receivingYards"]].sum()
+    for team in ("ATL", "NYG"):
+        assert totals.loc[team, "TRUE_passingYards"] == pytest.approx(
+            totals.loc[team, "TRUE_receivingYards"])
+
+
+def test_both_sides_move_by_half_the_gap():
+    """The midpoint, not one side or the other. Measured against 2025 realised team
+    passing yards, the receiver sum is the better single estimator (MAE 263 vs 321,
+    corr .659 vs .439) but wins only 16 of 30 teams -- too thin to declare it right
+    and scale quarterbacks alone by up to 20%."""
+    out = sp.reconcile_team_totals(_two_team_frame())
+    atl = out[out["pro_team"] == "ATL"]
+    # 5047 passing and 4100 receiving both converge on 4573.5.
+    assert atl["TRUE_passingYards"].sum() == pytest.approx(4573.5)
+    assert atl["TRUE_receivingYards"].sum() == pytest.approx(4573.5)
+
+
+def test_reconciliation_preserves_shares_within_a_team():
+    """It is a level correction, not a reallocation. Two receivers who split a team's
+    yards 60/40 still split them 60/40 afterwards."""
+    frame = pd.DataFrame({
+        "pro_team": ["KC", "KC", "KC"],
+        "TRUE_passingYards": [4000.0, 0.0, 0.0],
+        "TRUE_receivingYards": [0.0, 1800.0, 1200.0],
+    })
+    out = sp.reconcile_team_totals(frame)
+    receivers = out["TRUE_receivingYards"]
+    assert receivers[1] / receivers[2] == pytest.approx(1.5)
+
+
+def test_the_source_columns_are_left_alone():
+    """Only `TRUE_` is reconciled, so `points_delta` against ESPN stays a real
+    comparison and the provenance flags keep meaning what they say."""
+    frame = _two_team_frame()
+    frame["ESPN_passingYards"] = [5000.0, 47.0, 0.0, 3600.0, 2.0, 0.0]
+    before = frame["ESPN_passingYards"].tolist()
+    out = sp.reconcile_team_totals(frame)
+    assert out["ESPN_passingYards"].tolist() == before
+
+
+def test_a_team_with_nothing_on_one_side_is_left_alone():
+    """Scaling by a zero denominator would wipe the other side out. A team whose
+    quarterback is not in this league's player pool must not lose its receivers."""
+    frame = pd.DataFrame({
+        "pro_team": ["FA", "FA"],
+        "TRUE_passingYards": [0.0, 0.0],
+        "TRUE_receivingYards": [170.0, 60.0],
+    })
+    out = sp.reconcile_team_totals(frame)
+    assert out["TRUE_receivingYards"].tolist() == [170.0, 60.0]

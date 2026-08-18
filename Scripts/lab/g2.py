@@ -122,10 +122,16 @@ def blend(board: pd.DataFrame, league_key: str, season: int,
           weights: Dict[str, float]) -> pd.DataFrame:
     """Re-blend a board's source columns under one weighting, and score it.
 
-    The same two calls ``build_season_projections`` makes, on a frame that already
-    carries every source and its imputation flags. Renormalisation is left on, so a
-    source that abstained on a player still contributes nothing rather than a
-    filled-in value wearing a real one's weight.
+    The same calls ``build_season_projections`` makes, on a frame that already carries
+    every source and its imputation flags. Renormalisation is left on, so a source
+    that abstained on a player still contributes nothing rather than a filled-in value
+    wearing a real one's weight.
+
+    **The team reconciliation runs here too, and has to.** It sits between the blend
+    and the scoring in the real pipeline, so a variant built without it is not the
+    blend this repo ships -- it would be a counterfactual against a straw man, and the
+    archive's whole value is that the comparison is honest. ``test_lab_g2`` caught
+    exactly that: re-blending without it missed the shipped board by up to 20.6 points.
 
     Args:
         board: A league's ``board.parquet`` as pandas.
@@ -137,10 +143,13 @@ def blend(board: pd.DataFrame, league_key: str, season: int,
         pd.DataFrame: ``board`` plus recomputed ``TRUE_<stat>`` and
         ``<prefix>_Points`` columns.
     """
+    from Scripts.season_projections import reconcile_team_totals
+
     scoring = scoring_table(league_key, season, SLOT_BASE)
     stats = [c for c in scoring["colName"].dropna().unique()]
     out = compute_weighted_stats(df=board.copy(), stats_list=stats,
                                  weights_dict={"default": weights})
+    out = reconcile_team_totals(out)
     return score_offline(out, league_key, season)
 
 

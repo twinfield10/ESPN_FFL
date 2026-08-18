@@ -222,6 +222,81 @@ def coverage_summary(lineups: pd.DataFrame) -> Dict[str, Any]:
             "key_stats": key_stats}
 
 
+#: ADP bands the ESPN calibration is broken out over.
+#:
+#: A single per-position number is not enough, and that is the whole finding this
+#: exists to record: on the 2026 boards ``TRUE_/ESPN`` runs 0.96 in the first hundred
+#: picks and 1.24 in the second, so a pooled mean lands near 1.0 and reports agreement
+#: where there is a sign flip. The upper bound is exclusive.
+ADP_BANDS = ((0.0, 50.0), (50.0, 100.0), (100.0, 150.0), (150.0, 200.0),
+             (200.0, float("inf")))
+
+
+def calibration_summary(board: pd.DataFrame) -> Dict[str, Any]:
+    """How far the blend sits off ESPN, per position and depth of board.
+
+    The persisted form of what :func:`app.draft_view.agreement_summary` shows in the
+    Disagreement tab. That one runs in the UI, on whichever league is selected, and is
+    never written down -- so drift between nightly builds is invisible and there is
+    nothing for a threshold to be tuned against. This writes the same comparison into
+    ``meta.json`` beside :func:`coverage_summary`.
+
+    Read it the way that function's docstring says to: **a large mean with a small
+    spread is a systematic offset** -- something the blend does to every player at
+    that position, which is a model question -- while a small mean with a wide spread
+    is per-player disagreement, which is a player question. The band split is what
+    keeps the first from hiding inside the second.
+
+    Args:
+        board: A built board, carrying ``TRUE_Points``, ``ESPN_Points``,
+            ``primaryPosition`` and ``adp``.
+
+    Returns:
+        dict: ``{position: {band: {n, mean_delta, sd_delta, share_above,
+        median_ratio}}}``. Empty when the board carries no ESPN comparison.
+    """
+    needed = {"TRUE_Points", "ESPN_Points", "primaryPosition"}
+    if board is None or board.empty or not needed <= set(board.columns):
+        return {}
+
+    ours = pd.to_numeric(board["TRUE_Points"], errors="coerce")
+    theirs = pd.to_numeric(board["ESPN_Points"], errors="coerce")
+    adp = (pd.to_numeric(board["adp"], errors="coerce")
+           if "adp" in board.columns else pd.Series(float("nan"),
+                                                    index=board.index))
+
+    # Both sides real, and ESPN's non-zero: the ratio is the headline number and a
+    # player ESPN has not projected at all would divide by nothing. Those rows are
+    # not disagreement, they are absence, and `coverage` is where absence is counted.
+    usable = ours.notna() & theirs.notna() & (theirs > 0)
+    if not usable.any():
+        return {}
+
+    delta = ours - theirs
+    ratio = ours / theirs
+
+    out: Dict[str, Any] = {}
+    for position, rows in board.loc[usable].groupby("primaryPosition"):
+        bands: Dict[str, Any] = {}
+        for low, high in ADP_BANDS:
+            in_band = rows.index[(adp[rows.index] > low)
+                                 & (adp[rows.index] <= high)]
+            if len(in_band) == 0:
+                continue
+            label = f"{low:.0f}-{high:.0f}" if high != float("inf") else f"{low:.0f}+"
+            bands[label] = {
+                "n": int(len(in_band)),
+                "mean_delta": round(float(delta[in_band].mean()), 2),
+                "sd_delta": round(float(delta[in_band].std()), 2)
+                if len(in_band) > 1 else None,
+                "share_above": round(float((delta[in_band] > 0).mean() * 100), 1),
+                "median_ratio": round(float(ratio[in_band].median()), 3),
+            }
+        if bands:
+            out[str(position)] = bands
+    return out
+
+
 def build_meta(
     season: int,
     league_key: str,
@@ -277,6 +352,9 @@ def build_meta(
         # season's rosters into a keeper league, so `on_team_id` means "was on this
         # roster last year", not "is unavailable", until keepers are declared.
         meta["draft_settings"] = getattr(league, "draft_settings", {}) or {}
+
+    if "board" in written:
+        meta["espn_calibration"] = calibration_summary(written["board"])
 
     if "lineups" in written:
         meta["coverage"] = coverage_summary(written["lineups"])
