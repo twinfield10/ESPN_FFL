@@ -246,3 +246,55 @@ def test_meta_json_is_valid_json_on_disk(lineups, redirect_store):
     store.write_league_store(2026, "knights_ffl", lineups=lineups)
     raw = (redirect_store / "2026" / "knights_ffl" / "meta.json").read_text()
     assert json.loads(raw)["league_key"] == "knights_ffl"
+
+
+# --- ESPN calibration ------------------------------------------------------
+
+
+def _calibration_board(rows):
+    """A board carrying just the four columns the calibration reads."""
+    return pd.DataFrame(rows, columns=["primaryPosition", "adp",
+                                       "ESPN_Points", "TRUE_Points"])
+
+
+def test_the_calibration_splits_by_adp_band():
+    """The reason it is not one number per position.
+
+    On the 2026 boards `TRUE_/ESPN` runs 0.96 in the first hundred picks and 1.24 in
+    the second. Pooled, those average to something near agreement and report the
+    opposite of what is happening.
+    """
+    board = _calibration_board(
+        [("WR", 10.0, 200.0, 192.0), ("WR", 40.0, 180.0, 172.0)]
+        + [("WR", 160.0 + i, 20.0, 30.0) for i in range(5)])
+
+    summary = store.calibration_summary(board)["WR"]
+    assert summary["0-50"]["median_ratio"] < 1.0
+    assert summary["150-200"]["median_ratio"] > 1.0
+    assert summary["0-50"]["n"] == 2 and summary["150-200"]["n"] == 5
+
+
+def test_the_calibration_ignores_players_espn_has_not_projected():
+    """A zero ESPN line would divide the headline ratio by nothing, and it is not
+    disagreement anyway -- it is absence, which `coverage` is what counts."""
+    board = _calibration_board([("RB", 20.0, 0.0, 50.0),
+                                ("RB", 30.0, 100.0, 90.0)])
+    bands = store.calibration_summary(board)["RB"]
+    assert bands["0-50"]["n"] == 1
+    assert bands["0-50"]["median_ratio"] == pytest.approx(0.9)
+
+
+def test_the_calibration_is_absent_rather_than_wrong_without_a_comparison():
+    """A board with no ESPN column gets no calibration key, not a table of nulls."""
+    board = pd.DataFrame({"primaryPosition": ["WR"], "adp": [10.0],
+                          "TRUE_Points": [100.0]})
+    assert store.calibration_summary(board) == {}
+
+
+def test_meta_carries_the_calibration_when_a_board_is_written(redirect_store):
+    board = _calibration_board([("WR", float(i), 100.0, 90.0)
+                                for i in range(1, 12)])
+    store.write_league_store(2026, "knights_ffl", board=board)
+    meta = json.loads(
+        (redirect_store / "2026" / "knights_ffl" / "meta.json").read_text())
+    assert meta["espn_calibration"]["WR"]["0-50"]["share_above"] == 0.0

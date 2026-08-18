@@ -1846,3 +1846,24 @@ def test_tier_is_not_colour_encoded():
 @pytest.mark.parametrize("theme", ["light", "dark"])
 def test_the_palette_covers_every_hue_slot(theme):
     assert set(dv.POSITION_HUES.values()) <= set(dv.SERIES_COLORS[theme])
+
+
+def test_the_role_withdrawal_marker_matches_its_producer():
+    """`draft_view` duplicates the string rather than importing the board builder,
+    which would drag the ESPN and scoring stack into a process that only reads
+    parquet. Duplication is fine; silent divergence is not."""
+    from Scripts.season_projections import ROLE_WITHDRAWN_EVIDENCE
+
+    assert dv.EVIDENCE_ROLE_MARKER == ROLE_WITHDRAWN_EVIDENCE
+
+
+def test_a_backup_withdrawal_does_not_read_as_an_injury():
+    """Both null `USG_Points`, and they mean different things to a drafter: an
+    injured starter comes back, a backup needs someone ahead of him to get hurt."""
+    board = pl.DataFrame({
+        "usg_arm": ["veteran", "veteran"],
+        "usg_evidence": [dv.EVIDENCE_ROLE_MARKER, ""],
+        "USG_Points": [None, None],
+    })
+    labels = dv.with_model_evidence(board)["usg_evidence_label"].to_list()
+    assert labels == [dv.EVIDENCE_WITHDRAWN_ROLE, dv.EVIDENCE_WITHDRAWN_INJURY]

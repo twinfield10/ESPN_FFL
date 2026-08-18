@@ -825,6 +825,297 @@ def _apply_injury_adjustment(base: pd.DataFrame, season: int) -> pd.DataFrame:
     return base
 
 
+#: Players a 12-team league starts at each position, used to locate the level a
+#: *starter* at that position is projected at. Not a scoring rule and not read from
+#: any league's settings -- it only has to pick out the population that holds a job,
+#: and the baseline is a median over it rather than its boundary.
+STARTER_COUNT = {"QB": 12, "RB": 24, "WR": 36, "TE": 12}
+
+#: What :func:`_withdraw_usage_on_role` writes into ``usg_evidence``.
+#:
+#: Read back by ``app.draft_view.with_model_evidence`` to tell a role withdrawal from
+#: an injury one -- both null ``USG_Points``, and a drafter should not read "buried on
+#: the depth chart" as "hurt". The app cannot import this module (it would pull the
+#: whole ESPN and scoring stack into a process that only reads parquet), so the string
+#: is duplicated there and pinned equal by a test.
+ROLE_WITHDRAWN_EVIDENCE = "withdrawn: backup"
+
+#: Share of that starter baseline below which ESPN has said a player will not play.
+#:
+#: Measured on the 2026 Knights board: the players this catches have a **median
+#: ``ESPN_projected_total`` of 0.0** and a maximum of 39.8, against a median
+#: ``USG_Points`` of 46.4. The cut is a share rather than a point value because
+#: ``ESPN_projected_total`` arrives scored in each league's own rules, so a fixed
+#: number would mean different things in the IDP league and the superflex one.
+PRICED_OUT_SHARE = 0.15
+
+
+def _current_depth_ranks(season: int) -> pd.DataFrame:
+    """Each player's depth-chart rank on the most recent snapshot.
+
+    Joins on ``espn_id``, which the post-2024 depth chart carries natively and which
+    is this pipeline's ``player_id`` -- so no crosswalk is involved and the most
+    fragile join in the repo is avoided entirely.
+
+    Deliberately the **latest** snapshot rather than
+    :data:`Scripts.usage.context.PRESEASON_CUTOFF`. The model reads the pre-season
+    one because it is building a training feature and must not see the future; this
+    is describing who is a backup today, and camp resolves position battles daily.
+
+    Args:
+        season: Season year.
+
+    Returns:
+        pd.DataFrame: ``player_id`` and ``depth_rank``, one row per player, empty
+        when the pull has not happened or predates the ``espn_id`` schema.
+    """
+    from Scripts.usage.context import STARTERS_BY_POSITION, artifact_path
+
+    path = artifact_path(season, "depth_charts")
+    if not path.is_file():
+        return pd.DataFrame(columns=["player_id", "depth_rank"])
+
+    frame = pl.read_parquet(path)
+    if not {"espn_id", "pos_abb", "pos_rank", "dt"} <= set(frame.columns):
+        # The 2016-2024 schema carries neither `espn_id` nor `pos_rank`. Nothing to
+        # do rather than something wrong: this gate only ever asks about today.
+        return pd.DataFrame(columns=["player_id", "depth_rank"])
+
+    latest = frame.filter(pl.col("dt") == pl.col("dt").max())
+    starters = pl.col("pos_abb").replace_strict(
+        STARTERS_BY_POSITION, default=1, return_dtype=pl.Int32)
+    ranked = (
+        latest.filter(pl.col("pos_abb").is_in(list(STARTERS_BY_POSITION)))
+        .with_columns(
+            pl.col("espn_id").cast(pl.Int64, strict=False).alias("player_id"),
+            # Shifted onto "is he a starter" exactly as the model's own loader does:
+            # rank 1 is a starter, 2 is the first man off the bench.
+            (pl.col("pos_rank").cast(pl.Int32) - starters + 1)
+            .clip(lower_bound=1).alias("depth_rank"))
+        .drop_nulls("player_id")
+        # A player listed at two positions keeps his best rank, so a gadget player
+        # is not withdrawn on the strength of the chart he is buried on.
+        .group_by("player_id").agg(pl.col("depth_rank").min())
+    )
+    return ranked.to_pandas()
+
+
+def _withdraw_usage_on_role(base: pd.DataFrame, season: int) -> pd.DataFrame:
+    """Withdraw the usage model where it has projected a backup as a starter.
+
+    **This is the half of the level problem that a rescale cannot reach.**
+    :func:`Scripts.usage.project.to_full_slate` puts the model's line on a full
+    healthy slate so it is the same quantity ESPN and FantasyPros carry. That is the
+    right basis for a starter and the wrong one for a man who will not play: the
+    model's ``expected_games`` is fitted from prior availability, snap share, reserve
+    status and age, so it encodes *depth-chart role* as well as health, and putting
+    the line on a starter's slate quietly promotes him.
+
+    ESPN prices role and prices it hard. On the 2026 Knights board it had Mac Jones
+    at **8.3** points and Spencer Rattler at **8.6**, against usage lines of 169.6 and
+    161.5 -- and because the blend renormalises over whichever sources are real, and
+    FantasyPros is real for 5.8% of the board, ``TRUE_Points`` came out near the
+    midpoint of the two. The board ranked a backup quarterback as an 89-point player.
+
+    The gate is a **conjunction**, and both halves earn their place:
+
+    - the depth chart says he is not the starter, **and**
+    - ESPN projects him below :data:`PRICED_OUT_SHARE` of what it projects a starter
+      at that position.
+
+    Plus a second route for players the chart does not list at all, who are otherwise
+    unreachable: **off the chart entirely and ESPN projecting a hard zero.** Absence
+    from the chart cannot convict alone, but a zero is ESPN declining to price the
+    player rather than pricing him cheaply, and the two together are two independent
+    role signals agreeing.
+
+    Either alone is wrong. Depth rank alone withdraws every handcuff, which are
+    exactly the players a drafter wants the model's opinion on -- TreVeyon Henderson,
+    Rico Dowdle, Rachaad White and RJ Harvey all sit at depth rank 2 with real ESPN
+    lines and all keep their usage projection under this rule. A points cut alone
+    would fire on a starter ESPN happens to dislike.
+
+    Withdrawal is null-and-flag, not a scale-down, because that is how this pipeline
+    already says "this source has no opinion here": ``compute_weighted_stats`` drops
+    the weight and renormalises the rest, ``sources_real`` counts it honestly, and the
+    board's Model Evidence column can explain the gap. Silently shrinking the line
+    instead would put a number nobody stands behind into the blend -- the absent
+    source reading as agreement, which is the failure mode ``*_is_imputed`` exists to
+    prevent.
+
+    Args:
+        base: The merged frame, after the usage source has been joined.
+        season: Season being projected.
+
+    Returns:
+        pd.DataFrame: ``base`` with the offending rows' ``USG_`` columns withdrawn,
+        their flags set, and ``usg_evidence`` recording why.
+    """
+    columns = [c for c in base.columns
+               if c.startswith("USG_") and not c.endswith(IMPUTED_SUFFIX)]
+    needed = {"player_id", "primaryPosition", "ESPN_projected_total"}
+    if not columns or not needed <= set(base.columns):
+        return base
+
+    depth = _current_depth_ranks(season)
+    if depth.empty:
+        print("  Usage: no current depth chart; role gate skipped.")
+        return base
+
+    ranks = base["player_id"].map(
+        depth.set_index("player_id")["depth_rank"].to_dict())
+    espn = pd.to_numeric(base["ESPN_projected_total"], errors="coerce")
+
+    # The starter level, per position, read off this league's own board. A median
+    # over the starting population rather than its worst member, so one busted
+    # projection cannot move the threshold.
+    baselines = {}
+    for position, count in STARTER_COUNT.items():
+        at_position = espn[base["primaryPosition"] == position]
+        if at_position.notna().sum() >= count:
+            baselines[position] = float(
+                at_position.nlargest(count).median())
+    if not baselines:
+        return base
+
+    floor = base["primaryPosition"].map(baselines) * PRICED_OUT_SHARE
+    is_backup = (ranks >= 2).fillna(False)
+    priced_out = (espn < floor).fillna(False)
+
+    # The second route in, for players the depth chart does not list at all.
+    #
+    # Absence from the chart is ambiguous on its own -- as likely a failed `espn_id`
+    # join as a benched player -- so it cannot convict by itself. Paired with ESPN
+    # publishing a hard **zero**, it can: that is categorically different from a low
+    # number, and it is ESPN declining to price the player rather than pricing him
+    # cheaply. Two independent role signals both saying "not a contributor".
+    #
+    # Note `ESPN_projected_total` is never null -- `Scripts.draft.adp._parse_entry`
+    # coerces a missing projection to 0.0 -- so the test has to be `<= 0` and not
+    # `isna()`. It caught Teddy Bridgewater at 832 projected passing yards inside
+    # Detroit's 5,256 team total, against a 2025 league maximum of 4,735, plus twelve
+    # more fullbacks and fringe veterans. The eleven fullbacks ESPN *does* price --
+    # Juszczyk, Luepke, Ingold -- keep their line, which is the point of requiring
+    # the zero.
+    off_chart = ranks.isna()
+    declined = (espn <= 0).fillna(False)
+    # "Any stat" rather than a representative one: the model's columns are sparse by
+    # position, so testing a single column asks whether the player is a *receiver*
+    # rather than whether the model spoke. Keyed on `USG_receivingYards` it withdrew
+    # 255 backups and not one quarterback -- and the quarterbacks were the worst
+    # offenders on the board.
+    speaks = base[columns].notna().any(axis=1)
+    withdrawn = speaks & ((is_backup & priced_out) | (off_chart & declined))
+
+    if not withdrawn.any():
+        return base
+
+    for column in columns:
+        base.loc[withdrawn, column] = float("nan")
+        flag = f"{column}{IMPUTED_SUFFIX}"
+        if flag in base.columns:
+            base.loc[withdrawn, flag] = True
+
+    if "usg_evidence" in base.columns:
+        base.loc[withdrawn, "usg_evidence"] = ROLE_WITHDRAWN_EVIDENCE
+
+    counts = base.loc[withdrawn, "primaryPosition"].value_counts().to_dict()
+    shown = " ".join(f"{k}={v}" for k, v in sorted(counts.items()))
+    print(f"  Usage: withdrew {int(withdrawn.sum())} backup(s) ESPN has priced "
+          f"out ({shown}).")
+    return base
+
+
+#: Stat pairs that are the *same event* counted from each end, and must therefore sum
+#: to the same team total. A completed pass is one team's passing yard and one of its
+#: receivers' receiving yards; there is no third possibility.
+#:
+#: In the 2025 actuals each pair matches exactly on all 32 teams, by construction.
+#: ESPN holds all three exactly on its own projections too -- their ratio is 1.000 on
+#: every team, minimum and maximum -- which is how we know they reconcile to team
+#: totals and we did not.
+TEAM_IDENTITIES = (
+    ("passingYards", "receivingYards"),
+    ("passingTouchdowns", "receivingTouchdowns"),
+    ("passingCompletions", "receivingReceptions"),
+)
+
+
+def reconcile_team_totals(df: pd.DataFrame,
+                          prefix: str = "TRUE_") -> pd.DataFrame:
+    """Force each team's passing and receiving lines to describe the same season.
+
+    **A team cannot throw for 5,047 yards and catch 4,106.** Every projection here is
+    built player-by-player with nothing holding the roster together, so the two ends
+    of the same event drift apart: before this, ``receiving/passing`` ran 0.80 to 1.23
+    across the league, and three teams projected more passing yards than any real team
+    managed in 2025.
+
+    Each side is scaled to the **midpoint** of the two, so both move by half the
+    discrepancy and neither position group absorbs the whole correction. Which side to
+    trust was measured rather than assumed, against 2025 realised team passing yards:
+
+    ==========  =====  ====  ==========
+    side          MAE  corr  team wins
+    ==========  =====  ====  ==========
+    QB room       321  .439      14/30
+    receivers     263  .659      16/30
+    midpoint      262  .639         --
+    ==========  =====  ====  ==========
+
+    The receiver sum is the better single estimator -- its errors partly cancel across
+    six players where the QB room rides on one -- but a 16-14 head-to-head is too thin
+    to declare it right and scale quarterbacks alone by up to 20%. The midpoint takes
+    the best MAE of the three and asserts nothing.
+
+    Only ``TRUE_`` is reconciled. The source columns keep whatever their owners
+    published, so ``points_delta`` against ESPN stays a real comparison and the
+    ``*_is_imputed`` provenance is untouched.
+
+    Args:
+        df: Blended frame carrying ``pro_team`` and ``<prefix><stat>`` columns.
+        prefix: Column prefix to reconcile. The blend, not a source.
+
+    Returns:
+        pd.DataFrame: ``df`` with the reconciled columns scaled in place.
+    """
+    if "pro_team" not in df.columns:
+        return df
+
+    teams = df["pro_team"]
+    moved = []
+
+    for passing, receiving in TEAM_IDENTITIES:
+        left, right = f"{prefix}{passing}", f"{prefix}{receiving}"
+        if left not in df.columns or right not in df.columns:
+            continue
+
+        values = {c: pd.to_numeric(df[c], errors="coerce") for c in (left, right)}
+        totals = {c: v.groupby(teams).transform("sum") for c, v in values.items()}
+        target = (totals[left] + totals[right]) / 2.0
+
+        # **Both** sides must be non-empty, not just the one being scaled. A team
+        # with nothing on one side has no identity to enforce -- its midpoint is half
+        # the side that does exist, which would halve that side while leaving the
+        # empty one at zero. That is not a reconciliation, it is a deletion, and it
+        # would hit the free-agent group hardest since `pro_team` there is a bucket
+        # rather than a team.
+        usable = (totals[left] > 0) & (totals[right] > 0)
+
+        for column in (left, right):
+            ratio = (target / totals[column]).where(usable)
+            df[column] = values[column] * ratio.fillna(1.0)
+
+        gap = (totals[left] - totals[right]).abs()
+        moved.append((passing, float(gap.max()) if len(gap) else 0.0))
+
+    if moved:
+        worst = " ".join(f"{stat}={gap:.0f}" for stat, gap in moved)
+        print(f"  Team totals: reconciled {len(moved)} identity pair(s); "
+              f"largest gap closed {worst}.")
+    return df
+
+
 def _attach_injury_report(base: pd.DataFrame, season: int) -> pd.DataFrame:
     """Carry the injury report's return date and news blurb onto the frame.
 
@@ -876,7 +1167,7 @@ def _attach_injury_report(base: pd.DataFrame, season: int) -> pd.DataFrame:
     return base
 
 
-#: The sources that hold an independent opinion, for the floor/ceiling spread.#: The sources that hold an independent opinion, for the floor/ceiling spread.
+#: The sources that hold an independent opinion, for the floor/ceiling spread.
 #:
 #: ``MEAN`` is excluded because it is not an opinion -- it is the ESPN/FantasyPros
 #: average, and including it would pull the spread toward the middle of two sources
@@ -886,20 +1177,21 @@ def _attach_injury_report(base: pd.DataFrame, season: int) -> pd.DataFrame:
 #: adding it was that plan 16's G0 measured it as the most independent source in the
 #: set (+0.832 residual correlation with ESPN against FantasyPros' +0.988). That is a
 #: statement about *information content*, and this function needs a different
-#: property: that the sources are answering the same question. They are not.
-#: ``USG_Points`` is an expected value -- per-game production times ~13.5 expected
-#: games -- while ESPN and FantasyPros project a healthy 17-game season. So it does
-#: not disagree with them so much as measure something else, and it sat below all
-#: four for **51.7% of the players it covered**, taking the median floor-to-ceiling
-#: width on Winfield Football's draftable pool from 8.5% to 24.0%.
+#: property: that the sources are answering the same question. They were not: when
+#: this was written ``USG_Points`` was an expected value -- per-game production times
+#: ~13.5 expected games -- while ESPN and FantasyPros projected a healthy 17-game
+#: season. It sat below all four for **51.7% of the players it covered**, taking the
+#: median floor-to-ceiling width on Winfield Football's draftable pool from 8.5% to
+#: 24.0%.
 #:
-#: Rescaling it to a common if-healthy basis (per-game x 17) was measured too, and is
-#: better but still wrong: the width lands at 13.6% and ``USG`` is still the minimum
-#: for 47% of draftable players. That residual is not a units problem, it is the
-#: model shrinking toward positional baselines while the other sources extrapolate,
-#: and draftable players are by definition the top of the pool. Real disagreement --
-#: but it makes the interval asymmetric, so it reads as "the model is bearish" rather
-#: than "here is the uncertainty".
+#: **The units mismatch is now fixed and the exclusion still stands**, which is the
+#: part worth keeping. Rescaling to a common if-healthy basis was measured before
+#: :func:`Scripts.usage.project.to_full_slate` shipped it: the width lands at 13.6%
+#: and ``USG`` is still the minimum for 47% of draftable players. That residual is not
+#: a units problem, it is the model shrinking toward positional baselines while the
+#: other sources extrapolate, and draftable players are by definition the top of the
+#: pool. Real disagreement -- but it makes the interval asymmetric, so it reads as
+#: "the model is bearish" rather than "here is the uncertainty".
 #:
 #: Those are two different quantities and this column should only ever hold one of
 #: them. Disagreement *between* forecasters belongs here; uncertainty *within* a
@@ -1058,6 +1350,11 @@ def build_season_projections(league, season: Optional[int] = None,
         base = _merge_usage(base, usage)
 
     base = _apply_injury_adjustment(base, season)
+    # After the injury adjustment and before the imputation chain: this is the last
+    # point where role information can still reach the blend, and the two are
+    # deliberately separate passes. That one asks "is he hurt right now"; this asks
+    # "does he hold the job at all", which no injury report can answer.
+    base = _withdraw_usage_on_role(base, season)
     # Must precede the `join_key` drop below -- both functions join on it.
     base = _attach_injury_report(base, season)
 
@@ -1102,6 +1399,12 @@ def build_season_projections(league, season: Optional[int] = None,
     print_coverage_report(base, weights_dict=weights)
     final = compute_weighted_stats(df=base, stats_list=stats, weights_dict=weights)
 
+    # After the blend and before scoring, so the points a league sees are computed
+    # from a stat line a real team could actually produce. Blending first is what
+    # makes this possible at all: the identities are team-level and no single source
+    # is complete enough to hold them on its own.
+    final = reconcile_team_totals(final)
+
     # Score every source's line, so they can be compared, not just the blend.
     #
     # Through proj_to_score rather than a local loop over one scoring table, so
@@ -1126,14 +1429,17 @@ def build_season_projections(league, season: Optional[int] = None,
 
     # The usage model's own ordering, and its disagreement with the consensus.
     #
-    # Ordering is the only thing worth comparing between these two columns, because
-    # they are not the same quantity. `USG_Points` is an expected value -- per-game
-    # production times *expected games*, which for a rostered starter is around 13.5
-    # -- while ESPN and FantasyPros project a healthy 17-game season. So `USG_Points`
-    # sits roughly 20% below `TRUE_Points` for almost everyone, and reading that gap
-    # as bearishness would be reading the injury discount as an opinion about talent.
+    # `USG_Points` and `TRUE_Points` are on the same footing as of 2026-08-07:
+    # `to_full_slate` puts the model's line on a full healthy slate before the blend
+    # sees it, so both describe a 17-game season and the ~20% deflation this comment
+    # used to warn about is gone. Among the top 100 by ADP the two now sit within a
+    # few percent of each other.
     #
-    # Rank removes the level. Measured on Knights_FFL's 2026 draftable pool, the two
+    # Rank is still the better comparison, for a different reason: the model shrinks
+    # toward positional baselines while the other sources extrapolate, so it reads
+    # slightly low exactly where the pool is strongest. That is real disagreement
+    # about players rather than a units mismatch, and a rank carries it without the
+    # level. Measured on Knights_FFL's 2026 draftable pool, the two
     # orderings agree at Spearman 0.78 (RB), 0.70 (WR) and 0.44 (TE), so the column
     # carries real information rather than restating the blend.
     #

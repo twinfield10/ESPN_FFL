@@ -170,9 +170,10 @@ IMPUTED_SUFFIX = "_is_imputed"
 #: whatever subset is real, so a set summing to 1.0 is conventional rather than
 #: required.
 #:
-#: **Set 2026-08-07 to an equal three-way split of ESPN, FantasyPros and the usage
-#: model, with Pinnacle and BetOnline at zero.** This is an owner decision, not a
-#: fitted result, and the two halves of it deserve separate notes.
+#: **An equal split across the four sources that can speak** -- ESPN, FantasyPros,
+#: BetOnline and the usage model -- with Pinnacle at zero. Set three-way on
+#: 2026-08-07 and widened to four on 2026-08-17. This is an owner decision, not a
+#: fitted result, and its parts deserve separate notes.
 #:
 #: **On ``USG`` moving off 0.0.** Plan 18 gated a non-zero weight on G2 -- the blend
 #: with and without the model, scored against realised results -- which cannot be run
@@ -194,11 +195,22 @@ IMPUTED_SUFFIX = "_is_imputed"
 #: sat at exactly 1.000. That is 11% of cross-position distortion in a blend whose job
 #: is to be comparable across positions. Rescaled, the same ratios are 0.974-1.012.
 #:
-#: **On Pinnacle and BetOnline going to zero.** Note this drops the better-covered of
-#: the two market sources: BetOnline's season endpoint works and resolves **273
-#: players with 13 stat columns including IDP tackles and sacks**, against
-#: FantasyPros' 60 players. Only the *weekly* BetOnline endpoint is blocked, and that
-#: is a different host which never fed this path. Reinstating it is one number here.
+#: **On BetOnline coming back off zero, 2026-08-17.** It went to zero alongside
+#: Pinnacle and that was the wrong half to drop. BetOnline's season endpoint works
+#: and resolves **273 players with 13 stat columns including IDP tackles and sacks**,
+#: against FantasyPros' 60 -- only the *weekly* endpoint is blocked, on a different
+#: host which never fed this path. Meanwhile the nominal three-way split is not one:
+#: FantasyPros is **5.8% real** on the 2026 board, so ``TRUE_`` is
+#: ``(ESPN + USG)/2`` wherever the usage model speaks and ``ESPN`` alone elsewhere.
+#:
+#: The four-way split below is **additive rather than a re-tune**, which is what makes
+#: it safe to ship beside a change to the usage basis. Because
+#: :func:`compute_weighted_stats` renormalises over the sources that are *real*, a
+#: player with no BetOnline line gets ESPN/FP/USG at 0.25 each, which renormalises to
+#: exactly the 1/3 each he had before -- byte-identical output. The weight can only
+#: bite on the 273 players BetOnline actually covers.
+#:
+#: Pinnacle stays at zero: 76 props, offence only, and 94-100% imputed on the board.
 #:
 #: The previous hand-tuned table, for the record and for plan 03 step 3's re-tune:
 #:
@@ -213,7 +225,7 @@ IMPUTED_SUFFIX = "_is_imputed"
 #: rather than a structure. :func:`compute_weighted_stats` reads ``default`` for any
 #: stat without its own entry, so re-adding one is a single line.
 WEIGHTS = {
-    'default': {'ESPN': 1 / 3, 'FP': 1 / 3, 'PINNY': 0.0, 'BOL': 0.0, 'USG': 1 / 3},
+    'default': {'ESPN': 0.25, 'FP': 0.25, 'PINNY': 0.0, 'BOL': 0.25, 'USG': 0.25},
 }
 
 

@@ -50,19 +50,45 @@ def test_usg_is_registered_in_the_blend_weights():
         assert "USG" in entry, f"{stat} has no USG entry"
 
 
-def test_the_blend_is_an_equal_three_way_split():
-    """Set deliberately on 2026-08-07, replacing the hand-tuned four-source table.
+def test_the_blend_is_an_equal_split_across_the_sources_that_speak():
+    """Set three-way on 2026-08-07 and widened to four on 2026-08-17.
 
-    ESPN, FantasyPros and the usage model at a third each; Pinnacle and BetOnline at
-    zero. G2 is still unanswered -- it needs the blend scored with and without the
-    model against realised results, and no historical pre-season blend survives -- so
-    this is an assertion rather than a measurement. It is an assertion with a
-    seven-fold walk-forward behind it, and it is recorded as a decision rather than
-    inherited as a default."""
+    ESPN, FantasyPros, BetOnline and the usage model at a quarter each; Pinnacle at
+    zero on 76 offence-only props. G2 is still unanswered -- it needs the blend scored
+    with and without the model against realised results, and no historical pre-season
+    blend survives -- so this is an assertion rather than a measurement. It is an
+    assertion with a seven-fold walk-forward behind it, recorded as a decision rather
+    than inherited as a default."""
     entry = pu.WEIGHTS["default"]
-    assert entry["ESPN"] == entry["FP"] == entry["USG"] == pytest.approx(1 / 3)
+    assert (entry["ESPN"] == entry["FP"] == entry["BOL"] == entry["USG"]
+            == pytest.approx(0.25))
     assert entry["PINNY"] == 0.0
-    assert entry["BOL"] == 0.0
+
+
+def test_widening_the_blend_to_betonline_is_additive():
+    """The property that makes the fourth weight safe to ship beside a change to the
+    usage basis: it can only bite where BetOnline actually has a line.
+
+    ``compute_weighted_stats`` renormalises over the sources that are *real*, so a
+    player BetOnline has no line for gets ESPN/FP/USG at 0.25 each, which renormalises
+    to exactly the 1/3 each the three-way split gave him."""
+    three_way = {"default": {"ESPN": 1 / 3, "FP": 1 / 3, "PINNY": 0.0,
+                             "BOL": 0.0, "USG": 1 / 3}}
+    frame = pd.DataFrame({
+        "ESPN_x": [100.0, 100.0], "FP_x": [110.0, 110.0],
+        "PINNY_x": [90.0, 90.0], "BOL_x": [200.0, 200.0],
+        "USG_x": [120.0, 120.0],
+        "FP_x_is_imputed": [False, False],
+        "PINNY_x_is_imputed": [True, True],
+        "USG_x_is_imputed": [False, False],
+        # Only the second player has a real BetOnline line.
+        "BOL_x_is_imputed": [True, False],
+    })
+    before = pu.compute_weighted_stats(frame.copy(), ["x"], three_way)["TRUE_x"]
+    after = pu.compute_weighted_stats(frame.copy(), ["x"], pu.WEIGHTS)["TRUE_x"]
+
+    assert after[0] == pytest.approx(before[0])       # no BOL line, untouched
+    assert after[1] != pytest.approx(before[1])       # real BOL line, counted
 
 
 def test_every_source_still_has_an_entry():
@@ -300,7 +326,11 @@ def test_the_blend_receives_an_if_healthy_line():
     """The model predicts expected value; the blend needs the same quantity its other
     sources carry. Mixing them distorted cross-position comparison by ~11%, because
     the usage model covers QB/RB/WR/TE and not K or D/ST -- so skill positions took an
-    availability discount that kickers and defences did not."""
+    availability discount that kickers and defences did not.
+
+    Each player's own ``expected_games`` is divided out, which flattens everyone onto
+    the same 17-game basis -- so the line answers "what if he plays" and carries no
+    availability discount at all."""
     frame = pl.DataFrame({
         "expected_games": [13.6, 17.0, None],
         "USG_receivingYards": [1000.0, 1000.0, None],
@@ -310,6 +340,25 @@ def test_the_blend_receives_an_if_healthy_line():
     assert got[0] == pytest.approx(1000.0 * 17.0 / 13.6)
     assert got[1] == pytest.approx(1000.0)          # already a full slate
     assert got[2] is None                            # an abstention stays absent
+
+
+def test_the_availability_estimate_stays_out_of_the_line():
+    """Measured and rejected: scaling by a per-position constant instead retains the
+    availability term, and applying it means applying the model's *weak* arm -- plan
+    18 puts prior-season games against next season at r = +0.343. On the 2026 board it
+    took Jayden Daniels from 286.7 to 214.1 and Joe Burrow from 276.2 to 214.1, a 25%
+    haircut on two top-six quarterbacks, for no gain in the first hundred picks.
+
+    So two players at the same position with different expected games come out on the
+    same footing, and `usg_expected_games` carries the availability view separately."""
+    frame = pl.DataFrame({
+        "expected_games": [13.6, 6.8],
+        "USG_passingYards": [2720.0, 1360.0],       # the same 200 yards per game
+    })
+    out = pj.to_full_slate(frame, ["USG_passingYards"], slate=17.0)
+    got = out["USG_passingYards"].to_list()
+    assert got[0] == pytest.approx(got[1])
+    assert got[0] == pytest.approx(3400.0)          # 200 x 17, both of them
 
 
 def test_rescaling_cannot_divide_by_no_games():
@@ -339,3 +388,144 @@ def test_the_injury_fallback_is_still_reachable():
     them."""
     assert sp.INJURY_ABSTAIN_STATUSES == ("OUT", "INJURY_RESERVE")
     assert "QUESTIONABLE" not in sp.INJURY_ABSTAIN_STATUSES
+
+
+# --- role ------------------------------------------------------------------
+#
+# The rescale in `to_full_slate` puts the model on a starter's slate. For a man who
+# will not play that is the wrong basis, and no availability estimate fixes it,
+# because `expected_games` is itself part of what encodes the role.
+
+
+def _role_frame(extra_rows):
+    """Twelve real quarterbacks plus whatever the test is about.
+
+    The baseline is a median over ``STARTER_COUNT[position]`` players, so a fixture
+    thinner than that has no starter level to measure against and the gate correctly
+    declines to fire at all.
+    """
+    rows = [{"player_id": 1000 + i, "primaryPosition": "QB",
+             "ESPN_projected_total": 300.0 - i, "USG_passingYards": 4000.0,
+             "USG_receivingYards": None, "usg_evidence": ""}
+            for i in range(12)]
+    return pd.DataFrame(rows + extra_rows)
+
+
+def _ranks(monkeypatch, mapping):
+    frame = pd.DataFrame({"player_id": list(mapping),
+                          "depth_rank": list(mapping.values())})
+    monkeypatch.setattr(sp, "_current_depth_ranks", lambda season: frame)
+
+
+def test_a_priced_out_backup_loses_its_usage_line(monkeypatch):
+    """Mac Jones: ESPN 8.3, usage 169.6, and a blend that renormalises over the two
+    real sources put the board's answer near the midpoint."""
+    frame = _role_frame([{"player_id": 55, "primaryPosition": "QB",
+                          "ESPN_projected_total": 8.3,
+                          "USG_passingYards": 2450.0,
+                          "USG_receivingYards": None, "usg_evidence": ""}])
+    _ranks(monkeypatch, {55: 2})
+
+    out = sp._withdraw_usage_on_role(frame, 2026)
+    row = out[out["player_id"] == 55].iloc[0]
+    assert pd.isna(row["USG_passingYards"])
+    assert row["usg_evidence"] == "withdrawn: backup"
+
+
+def test_a_handcuff_keeps_its_usage_line(monkeypatch):
+    """Both halves of the conjunction earn their place. Depth rank alone would
+    withdraw TreVeyon Henderson, Rico Dowdle, Rachaad White and RJ Harvey -- all at
+    depth rank 2 with real ESPN lines, and all players a drafter specifically wants
+    the model's opinion on."""
+    frame = _role_frame([{"player_id": 66, "primaryPosition": "QB",
+                          "ESPN_projected_total": 187.0,
+                          "USG_passingYards": 3300.0,
+                          "USG_receivingYards": None, "usg_evidence": ""}])
+    _ranks(monkeypatch, {66: 2})
+
+    out = sp._withdraw_usage_on_role(frame, 2026)
+    assert out[out["player_id"] == 66].iloc[0]["USG_passingYards"] == 3300.0
+
+
+def test_a_starter_espn_dislikes_keeps_its_usage_line(monkeypatch):
+    """The other half. A points cut alone would fire on a starter ESPN happens to be
+    low on, which is precisely the disagreement the model exists to voice."""
+    frame = _role_frame([{"player_id": 77, "primaryPosition": "QB",
+                          "ESPN_projected_total": 5.0,
+                          "USG_passingYards": 3100.0,
+                          "USG_receivingYards": None, "usg_evidence": ""}])
+    _ranks(monkeypatch, {77: 1})
+
+    out = sp._withdraw_usage_on_role(frame, 2026)
+    assert out[out["player_id"] == 77].iloc[0]["USG_passingYards"] == 3100.0
+
+
+def test_the_gate_reads_every_stat_not_a_representative_one(monkeypatch):
+    """The model's columns are sparse by position, so asking whether one named stat
+    is present asks whether the player is a *receiver*. Keyed on
+    ``USG_receivingYards`` this withdrew 255 backups on the 2026 Knights board and
+    not one quarterback -- and the quarterbacks were the worst offenders."""
+    frame = _role_frame([{"player_id": 88, "primaryPosition": "QB",
+                          "ESPN_projected_total": 9.5,
+                          "USG_passingYards": 2200.0,
+                          "USG_receivingYards": None, "usg_evidence": ""}])
+    _ranks(monkeypatch, {88: 3})
+
+    out = sp._withdraw_usage_on_role(frame, 2026)
+    assert pd.isna(out[out["player_id"] == 88].iloc[0]["USG_passingYards"])
+
+
+def test_a_missing_depth_chart_entry_is_not_evidence(monkeypatch):
+    """The gate fires on positive evidence of a backup role and never on a failed
+    join. A player the chart does not list keeps his line."""
+    frame = _role_frame([{"player_id": 99, "primaryPosition": "QB",
+                          "ESPN_projected_total": 8.0,
+                          "USG_passingYards": 2400.0,
+                          "USG_receivingYards": None, "usg_evidence": ""}])
+    _ranks(monkeypatch, {55: 2})          # 99 is absent
+
+    out = sp._withdraw_usage_on_role(frame, 2026)
+    assert out[out["player_id"] == 99].iloc[0]["USG_passingYards"] == 2400.0
+
+
+def test_an_off_chart_player_espn_prices_at_zero_is_withdrawn(monkeypatch):
+    """The second route in, for players the depth chart does not list at all.
+
+    A hard zero is ESPN declining to price the player rather than pricing him
+    cheaply, and paired with absence from the chart that is two independent role
+    signals agreeing. It caught Teddy Bridgewater at 832 projected passing yards
+    inside Detroit's 5,256 team total, against a 2025 league maximum of 4,735."""
+    frame = _role_frame([{"player_id": 44, "primaryPosition": "QB",
+                          "ESPN_projected_total": 0.0,
+                          "USG_passingYards": 1665.0,
+                          "USG_receivingYards": None, "usg_evidence": ""}])
+    _ranks(monkeypatch, {55: 2})          # 44 is absent from the chart
+
+    out = sp._withdraw_usage_on_role(frame, 2026)
+    row = out[out["player_id"] == 44].iloc[0]
+    assert pd.isna(row["USG_passingYards"])
+    assert row["usg_evidence"] == sp.ROLE_WITHDRAWN_EVIDENCE
+
+
+def test_an_off_chart_player_espn_does_price_keeps_its_line(monkeypatch):
+    """Why the zero is required rather than just absence from the chart. The eleven
+    fullbacks ESPN actually prices — Juszczyk, Luepke, Ingold — are off the chart at
+    RB and would all be withdrawn on absence alone."""
+    frame = _role_frame([{"player_id": 45, "primaryPosition": "QB",
+                          "ESPN_projected_total": 44.9,
+                          "USG_passingYards": 900.0,
+                          "USG_receivingYards": None, "usg_evidence": ""}])
+    _ranks(monkeypatch, {55: 2})          # 45 is absent from the chart
+
+    out = sp._withdraw_usage_on_role(frame, 2026)
+    assert out[out["player_id"] == 45].iloc[0]["USG_passingYards"] == 900.0
+
+
+def test_espn_projected_total_is_never_null():
+    """The test above has to key on `<= 0` rather than `isna()`, and this is why:
+    `_parse_entry` coerces a missing projection to 0.0. A gate written against
+    `isna()` is dead code that silently never fires."""
+    import inspect
+    from Scripts.draft import adp
+    body = inspect.getsource(adp._parse_entry)
+    assert 'float(projected.get("projected_points") or 0.0)' in body
