@@ -225,7 +225,14 @@ IMPUTED_SUFFIX = "_is_imputed"
 #: rather than a structure. :func:`compute_weighted_stats` reads ``default`` for any
 #: stat without its own entry, so re-adding one is a single line.
 WEIGHTS = {
-    'default': {'ESPN': 0.25, 'FP': 0.25, 'PINNY': 0.0, 'BOL': 0.25, 'USG': 0.25},
+    # `KIK` and `DST` are registered at 0.0 deliberately, the same way `USG` was on
+    # 2026-08-07: the columns reach all nine boards and `TRUE_Points` is provably
+    # unmoved, so turning either on later is one number rather than a build. They cover
+    # only kickers and team defences respectively; every other position sees no `KIK_` or
+    # `DST_` column at all, so `compute_weighted_stats` drops their weight and
+    # renormalises. See docs/plans/29-kicker-model.md and 30-dst-model.md.
+    'default': {'ESPN': 0.25, 'FP': 0.25, 'PINNY': 0.0, 'BOL': 0.25, 'USG': 0.25,
+                'KIK': 0.0, 'DST': 0.0},
 }
 
 
@@ -796,7 +803,7 @@ def _apply_scoring(df, s_df, col_pfix_list):
 
 
 def proj_to_score(proj_df, s_league, col_pfix_list=['ESPN', 'FP', 'MEAN', 'PINNY',
-                                                    'BOL', 'USG', 'TRUE']):
+                                                    'BOL', 'USG', 'KIK', 'DST', 'TRUE']):
     """Score projected stat lines with a league's rules, per lineup slot.
 
     ESPN prices the same rule differently depending on the slot a player occupies
