@@ -297,6 +297,7 @@ the same answer is waste. Once, after the season:
 ```bash
 Rscript R/GetUsage.R <season> <season>
 Rscript R/GetContext.R <season> <season>
+Rscript R/GetAdvanced.R <season> <season>
 python -m Scripts.injury.episodes --rebuild
 python -m Scripts.injury.model --fit
 python -m Scripts.injury.backtest --write
@@ -306,6 +307,54 @@ python -m Scripts.sync --push
 
 You do not have to remember: the board build compares the model's own `train_seasons`
 against the season being projected and prints those commands when it is behind.
+
+### The play-by-play archive
+
+`R/GetPBP.R` runs **nightly for the current season** as part of
+`run_daily_refresh.sh`, so there is nothing recurring to remember here. What is
+worth knowing is when it does *not* cover you.
+
+It writes six files per season under `Data/NFL/<season>/` — `pbp.parquet` plus
+`participation`, `ftn_charting` and three `pfr_*` tables — and the last four start
+later than play-by-play does:
+
+| pull | from | why it matters |
+|---|---|---|
+| `pbp` | **1999** | every play, all 372 columns |
+| `participation` | 2016 | who was on the field; upstream's own start |
+| `pfr_pass` / `pfr_rush` / `pfr_rec` | 2018 | pressures, blitzes, yards before contact |
+| `ftn_charting` | 2022 | manual charting |
+
+A model trained from 2016 therefore sees pressure data for part of its window and
+not the rest. That is a coverage fact to gate on, not a bug to fix.
+
+Check what is on disk with:
+
+```bash
+python -c "
+from Scripts.usage import nflverse as nv
+for n in ('pbp','participation','ftn_charting','pfr_pass','pfr_rush','pfr_rec'):
+    s = nv.pbp_seasons_available(range(1999, 2027), n)
+    print(f'{n:<14} {len(s):>2} seasons  {min(s) if s else 0}-{max(s) if s else 0}')"
+```
+
+**Backfilling is a one-off**, and only needed on a fresh clone or a new machine —
+completed seasons do not change:
+
+```bash
+Rscript R/GetPBP.R 1999 2025     # ~540 MB, ~20 minutes cold
+```
+
+The archive is unfiltered on disk — post-season included — and
+`Scripts.usage.nflverse.load_pbp` filters to regular-season weeks 1–18 by default,
+so every existing caller sees what it saw before. Pass `season_type=None` for the
+rest.
+
+Two consequences worth knowing. `R/GetAdvanced.R` now **reads this archive** instead
+of re-downloading play-by-play, so run `GetPBP.R` first if you are running both. And
+`Data/NFL` went from ~40 MB to ~540 MB, which is why `Scripts.sync --push` now skips
+mirror files whose S3 object already has the same SHA-256 — without it the nightly
+would upload half a gigabyte to arrive at identical objects.
 
 ### What used to be manual
 
