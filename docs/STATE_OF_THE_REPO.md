@@ -107,9 +107,16 @@ rescales before blending and the residual is now 1-3%. The model itself is uncha
 and the backtest is untouched -- only the artifact the blend consumes is rescaled, and
 the availability estimate travels beside it as `usg_expected_games`.
 
-**The blend is an equal quarter each to ESPN, FantasyPros, BetOnline and the usage
-model**, with **Pinnacle** at zero — plus a **position-scoped fifth**, `DST` at 0.25 on
-team defences only, since 2026-08-24. `projection_utils.WEIGHTS` is
+**The blend is one equal vote per source that has an opinion.** Five sources carry the
+same nominal weight — ESPN, FantasyPros, BetOnline, **Pinnacle** (which rejoined on
+2026-08-24) and **TOMCAT**, our own model — plus TOMCAT's position-scoped arms, `DST` at
+0.25 on team defences and `KIK` held at 0.0. Because the nominal weights are equal,
+renormalisation makes the rule literal: four real sources weight 0.25 each, three weight
+0.333, two weight 0.5.
+
+**TOMCAT** is **T**ouches · **O**pportunity · **M**arket · **C**ontext · **A**vailability
+· **T**iers, named 2026-08-24. Its columns keep the `USG_` prefix because renaming them
+would orphan the frozen G2 archive — see `Scripts/usage/__init__.py`. `projection_utils.WEIGHTS` is
 `{'ESPN': 0.25, 'FP': 0.25, 'PINNY': 0.0, 'BOL': 0.25, 'USG': 0.25, 'KIK': 0.0, 'DST': 0.25}`.
 That table deliberately sums to 1.25 rather than 1.0: `KIK` and `DST` carry a column on
 one position each, so `compute_weighted_stats` drops them everywhere else and
@@ -332,7 +339,14 @@ Fixed this cycle:
   means "nothing here" is indistinguishable from one that means "zero", and any
   count built on `notna()` reads the first as the second.**
 
-- **There is a season usage model, and it is measured.**
+> **Naming.** The model is called **TOMCAT** — Touches · Opportunity · Market · Context ·
+> Availability · Tiers — as of 2026-08-24. Earlier entries in this file call it "the usage
+> model" and are left as written, because they are dated records of what was true when
+> they were written rather than descriptions of the present. Where this file describes the
+> *current* state, TOMCAT is the name; `USG_` is still the column prefix, and
+> `Scripts/usage/__init__.py` says why.
+
+- **There is a season model, TOMCAT, and it is measured.**
   `Rscript R/GetContext.R` pulls availability and role data (2016–2025 backfilled,
   2026 as far as upstream allows); `Scripts/usage/features.py` builds season features
   with an as-of guarantee; `Scripts/usage/season.py` fits volume × efficiency ×

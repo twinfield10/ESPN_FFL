@@ -262,10 +262,10 @@
             <text x="28" y="118">BetOnline</text>  <text x="156" y="118" text-anchor="end">.25</text>
             <text x="28" y="152">Pinnacle</text>   <text x="156" y="152" text-anchor="end">.25</text>
 
-            <text x="16" y="190" font-size="10.5" fill="var(--brass)" letter-spacing="1.6">INTERNAL MODEL</text>
+            <text x="16" y="190" font-size="10.5" fill="var(--brass)" letter-spacing="1.6">OURS · TOMCAT</text>
             <rect x="16" y="200" width="152" height="112" rx="3"
                   fill="var(--brass-bg)" stroke="var(--brass)" stroke-width="1.5"/>
-            <text x="28" y="221" fill="var(--brass)" font-weight="700">Ours</text>
+            <text x="28" y="221" fill="var(--brass)" font-weight="700">TOMCAT</text>
             <text x="156" y="221" text-anchor="end" fill="var(--brass)" font-weight="700">.25</text>
             <line x1="28" y1="230" x2="156" y2="230" stroke="var(--brass)" stroke-width=".6" opacity=".5"/>
             <text x="34" y="250" font-size="10.5" fill="var(--ink-soft)">usage arm · QB RB WR TE</text>
@@ -423,8 +423,8 @@
             <td class="note">Thinnest source here, and weighted equally since 2026-08-24. It had been zeroed for thin coverage, which double-counted an objection the flags already handle</td>
           </tr>
           <tr class="internal">
-            <td class="src">USG</td>
-            <td><strong>Our internal model.</strong> One source, one vote, three backends</td>
+            <td class="src">TOMCAT</td>
+            <td><strong>Our model.</strong> One source, one vote, three backends</td>
             <td class="num"><span class="pill pill-live">0.25</span></td>
             <td class="num">256 / 105 / 34</td>
             <td class="note">The only source built from observed usage rather than from other people's projections</td>
@@ -455,7 +455,18 @@
     </div>
 
     <div class="measure">
-      <h3>Why the internal model is one source and not three</h3>
+      <h3>TOMCAT, and why it is one source and not three</h3>
+      <p><strong>T</strong>ouches · <strong>O</strong>pportunity · <strong>M</strong>arket ·
+        <strong>C</strong>ontext · <strong>A</strong>vailability · <strong>T</strong>iers.
+        The six words are the model's feature families rather than a decoration:
+        <em>touches</em> is raw volume; <em>opportunity</em> is expected rather than
+        realised production, which beats actual at predicting next week (R² 0.2907 against
+        0.2702); <em>market</em> is implied totals, implied points allowed and the spread;
+        <em>context</em> is depth chart, scheme, play-caller and red-zone role — the depth
+        chart being the only feature that has ever moved this model; <em>availability</em>
+        is expected games, carried beside the projection rather than inside it; and
+        <em>tiers</em> are the non-linear scoring ladders, integrated over a weekly
+        distribution rather than evaluated at the season mean.</p>
       <p>A kicker and a team defence are positions like any other — they start every week and
         they need a projection. That they are modelled differently underneath is an
         implementation detail: the usage arm reads snap share, the defence arm reads implied
@@ -465,6 +476,12 @@
         and is kept out of the blend until its field-goal channel clears the bar it was
         pre-registered against. One model, three arms, and the arms mature at different
         rates.</p>
+      <p style="font-size:.9rem;color:var(--ink-soft)">The column prefix underneath is still
+        <span class="mono">USG_</span>. Renaming it would orphan
+        <span class="mono">Data/G2/2026/</span> — the pre-season counterfactual archived to
+        answer gate G2 after the season is played, and the one artifact here that cannot be
+        rebuilt. So the prefix rename needs a compatibility shim on that read rather than a
+        find-and-replace, and it is not worth doing before a draft.</p>
     </div>
   </section>
 
@@ -481,7 +498,7 @@
     <div class="tablewrap">
       <table>
         <thead><tr><th>Stat</th><th class="num">ESPN</th><th class="num">FP</th>
-          <th class="num">BOL</th><th class="num">USG</th><th class="num">Nominal</th></tr></thead>
+          <th class="num">BOL</th><th class="num">TOM</th><th class="num">Nominal</th></tr></thead>
         <tbody>
           <tr><td class="src">passingYards</td><td class="num">0.31</td><td class="num">0.49</td>
               <td class="num">0.08</td><td class="num">0.12</td><td class="num">0.25 each</td></tr>
@@ -554,7 +571,7 @@
       <div class="card"><h4>Points</h4><div class="cols">
         <span class="col-chip hi">ESPN</span><span class="col-chip hi">FP</span>
         <span class="col-chip hi">BOL</span><span class="col-chip hi">PIN</span>
-        <span class="col-chip hi">Us</span><span class="col-chip hi">USG</span>
+        <span class="col-chip hi">Us</span><span class="col-chip hi">TOM</span>
         <span class="col-chip hi">DST</span>
         <span class="col-chip">Δ</span><span class="col-chip">VOR</span></div></div>
       <div class="card"><h4>Ranks</h4><div class="cols">
@@ -562,7 +579,7 @@
         <span class="col-chip">Δ</span></div></div>
       <div class="card"><h4>Position Ranks</h4><div class="cols">
         <span class="col-chip">ESPN</span><span class="col-chip">Us</span>
-        <span class="col-chip">Δ</span><span class="col-chip">Δ USG</span></div></div>
+        <span class="col-chip">Δ</span><span class="col-chip">Δ TOM</span></div></div>
       <div class="card"><h4>Draft Metric</h4><div class="cols">
         <span class="col-chip">ESPN</span><span class="col-chip">Us</span>
         <span class="col-chip">Δ</span></div></div>
@@ -577,7 +594,7 @@
         VOR on the table is built from it. <strong>DST</strong> renders only when defences are
         in view; a team defence's projection is not <em>missing</em> from a receiver's row, it
         is a question never asked of him.</p>
-      <p>Compare <span class="mono">USG</span> by <em>rank</em> rather than points.
+      <p>Compare <span class="mono">TOM</span> by <em>rank</em> rather than points.
         <span class="mono">USG_Points</span> is injury-adjusted and
         <span class="mono">TRUE_Points</span> is not, so the rank delta is the comparison that
         survives.</p>
@@ -597,7 +614,7 @@
           <tr><td>Publish to S3</td><td class="src">python -m Scripts.sync --push</td></tr>
           <tr><td>Who needs a hand-written injury severity?</td><td class="src">python -m Scripts.injury.review</td></tr>
           <tr><td>Does the defence arm earn its weight?</td><td class="src">python -m Scripts.dst.gates</td></tr>
-          <tr><td>Rebuild the usage arm's evidence</td><td class="src">python -m Scripts.usage.backtest</td></tr>
+          <tr><td>Rebuild TOMCAT's usage-arm evidence</td><td class="src">python -m Scripts.usage.backtest</td></tr>
         </tbody>
       </table>
     </div>
