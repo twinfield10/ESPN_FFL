@@ -13,7 +13,7 @@ already cost this repo twice (12 projection functions, then
 
 import _bootstrap  # noqa: F401  -- must precede the Scripts imports
 
-from typing import Dict, List, Mapping, NamedTuple, Optional, Sequence
+from typing import Dict, List, Mapping, NamedTuple, Optional, Sequence, Tuple
 
 import pandas as pd
 import polars as pl
@@ -256,6 +256,14 @@ class Column(NamedTuple):
             Only the difference columns are filled -- see :class:`Shading`.
         lens: ``""`` to always render, else the :data:`VALUE_LENS_ADP` or
             :data:`VALUE_LENS_CASH` this spec belongs to.
+        positions: ``()`` to always render, else the positions this column can hold a
+            value for. A source that models **one** position -- the D/ST model, the
+            kicker model -- is null on every other row, and a column of blanks is not
+            a neutral thing to show: it reads as missing data about the player rather
+            than as a question that was never asked of him. So it is dropped entirely
+            unless the frame on screen actually contains one of these positions.
+            Presence in the frame is not enough on its own, because the board carries
+            the column for all 2,504 rows and only 32 of them are defences.
         width: Streamlit width hint, for the one column holding a sentence.
     """
 
@@ -271,6 +279,7 @@ class Column(NamedTuple):
     emphasis: bool = False
     shade: str = ""
     lens: str = ""
+    positions: Tuple[str, ...] = ()
     width: Optional[str] = None
 
 
@@ -365,6 +374,7 @@ COLUMNS: List[Column] = [
                   "`Position Ranks | Δ USG` is still the cleaner read, since a rank "
                   "cannot be moved by it at all."),
     Column("DST_Points", "Points", "DST", "number", fmt="%.1f",
+           positions=("D/ST",),
            source_of="D/ST model",
            how="Team defence projected from the **betting market** rather than from "
                "last season: implied points allowed beats prior season on seven of "
@@ -2463,7 +2473,14 @@ def shown_columns(board: pl.DataFrame, lens: str = VALUE_LENS_ADP) -> List[Colum
     Args:
         board: A board, at whatever stage of derivation the page has reached.
         lens: :data:`VALUE_LENS_ADP` or :data:`VALUE_LENS_CASH` -- which currency the
-            ``Draft Metric`` group speaks. Unlike every other group this one cannot
+            ``Draft Metric`` group speaks.
+
+            A spec carrying ``positions`` is dropped unless ``board`` holds one of
+            them, so the ``DST`` column disappears on a running-back view rather than
+            rendering 200 blanks. Unlike the lens this *is* an observation about the
+            data: a team defence's projection is not missing from a receiver's row,
+            it is a category error. A board with no ``primaryPosition`` column keeps
+            every spec, since there is then nothing to filter on. Unlike every other group this one cannot
             be selected on column presence: ``adp`` and ``auction_dollars`` are both
             present in every league, so choosing between them is a decision about the
             draft rather than an observation about the data.
@@ -2471,9 +2488,16 @@ def shown_columns(board: pl.DataFrame, lens: str = VALUE_LENS_ADP) -> List[Colum
     Returns:
         List[Column]: In :data:`COLUMNS` order.
     """
+    available = set()
+    if "primaryPosition" in board.columns:
+        available = set(board["primaryPosition"].drop_nulls().unique().to_list())
+
     return [column for column in COLUMNS
             if column.source in board.columns
-            and column.lens in ("", lens)]
+            and column.lens in ("", lens)
+            and (not column.positions
+                 or not available
+                 or bool(available & set(column.positions)))]
 
 
 def display_frame(board: pl.DataFrame,
