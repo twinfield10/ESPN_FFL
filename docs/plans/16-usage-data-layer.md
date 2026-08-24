@@ -450,6 +450,24 @@ the app's coverage panel shows it at 0%.
 
 ## Step 0 — the gates, measured 2026-08-06
 
+> **The independence matrix in this section is stale as of 2026-08-24 and must be
+> re-run before anything else is built on it.** It was computed on **non-imputed cells
+> only**, and FantasyPros was real for just 60 players — ten per position, all it served
+> without an account — so the sample was the top ten at each position and nobody else,
+> which is exactly the band where every source agrees. FantasyPros now reaches 592, and
+> its disagreement with ESPN runs 6.0% inside ADP 50 against **31.6%** outside ADP 150.
+>
+> **Every row is affected, not just FantasyPros'.** Each source's "residual correlation
+> with the rest" was scored against a *rest* in which FantasyPros was largely ESPN
+> imputed through the mean — so the matrix partly measured ESPN's correlation with
+> itself. G0's *conclusion* (the usage model is the most independent source, +0.090)
+> is likely to survive re-measurement and may even strengthen, since the comparison set
+> was more collinear than it appeared. But it is unverified until re-run.
+>
+> This retired [plan 20](20-consensus-sources.md), which was built on the matrix.
+> Frozen until after the 2026 drafts: it moves `TRUE_Points`.
+
+
 **Done.** `python -m Scripts.usage.gates --season 2025` regenerates every number
 below in **2.5s**, read-only and offline — which is the point of the extraction
 layer writing parquet: the measurement is cheap enough to re-run after every
@@ -593,9 +611,16 @@ And the gate itself, across all three populations:
 | played | 2,926 | +0.924 | +0.988 | +0.748 | +0.979 |
 
 **Verdict: pass, and not marginally.** Usage residuals share far less with ESPN's
-than FantasyPros' do, on every population and both statistics. FantasyPros is the
-*least* independent thing in the blend — 0.027 of marginal value against the usage
-baseline's 0.090 — which is the plan-03 finding arriving from a second direction.
+than FantasyPros' do, on every population and both statistics.
+
+~~FantasyPros is the *least* independent thing in the blend — 0.027 of marginal value
+against the usage baseline's 0.090 — which is the plan-03 finding arriving from a second
+direction.~~ **Withdrawn 2026-08-24.** That reading generalised a number measured on
+FantasyPros' 60 non-imputed players — the top ten per position, where every source
+agrees — to the whole board. At 592 players its disagreement with ESPN is 6.0% inside
+ADP 50 against **31.6%** outside 150. The *pass* stands; the ranking of FantasyPros
+does not, and neither does anything built on it (see the banner at the top of this
+section, and retired [plan 20](20-consensus-sources.md)).
 
 **The honest caveat: a noisier forecast has less-correlated residuals
 mechanically.** Low correlation is necessary, not sufficient; G1 is what checks
@@ -705,7 +730,11 @@ pre-draft version of G2 belongs to [plan 18](18-season-usage-model.md) against t
 ### What this decides
 
 - **Build the feature layer.** G0 is unambiguous: this is not re-deriving what
-  ESPN knows. FantasyPros, at 0.027 marginal value, is the redundant source.
+  ESPN knows. ~~FantasyPros, at 0.027 marginal value, is the redundant source.~~ That
+  second clause is withdrawn (2026-08-24) — it rested on FantasyPros' 60-player sample.
+  The decision it supported is unaffected: the usage model's +0.090 was measured against
+  a comparison set that was *more* collinear than it looked, so re-measurement should
+  strengthen this rather than weaken it.
 - **Availability first**, not the four families in the order §Feature layer lists
   them. It is where the entire G1 deficit lives, and the injury data is free.
 - **Nothing is wired into `WEIGHTS` yet.** `USG_` stays out of the blend until G1
