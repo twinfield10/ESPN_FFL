@@ -10,14 +10,15 @@ decides whether the next two plans are worth writing:
   ``docs/plans/20-consensus-sources.md``'s question, because the marginal value of
   source *k+1* is roughly one minus its correlation with the rest.
 
-  **That second use is withdrawn as of 2026-08-24, and the matrix needs re-running.**
-  It scores only non-imputed cells, and FantasyPros was real for 60 players -- ten per
-  position, everything it served without an account -- so the sample was the band where
-  every source agrees, and its disagreement with ESPN is five to six times larger
-  outside it. Every row is affected: each source was scored against a *rest* in which
-  FantasyPros was largely ESPN imputed through the mean. G0's conclusion is likely to
-  survive and may strengthen, since the comparison set was more collinear than it
-  looked -- but re-run it before quoting the numbers. Plan 20 is retired.
+  **That second use was withdrawn on 2026-08-24 and the matrix re-run the same day.**
+  It scores only non-imputed cells, and FantasyPros had been real for 60 players -- ten
+  per position, everything it served without an account -- so its column was sampled
+  from the band where every source agrees. At 80.1% coverage FantasyPros' marginal value
+  roughly doubles (+0.027 to +0.058; +0.109 to +0.180 partialled) and it is no longer
+  the least independent source -- Pinnacle is. **G0's own verdict strengthened**, from
+  +0.318 to +0.371 partialled, because the old FantasyPros column was largely ESPN
+  imputed through the mean and was therefore counting ESPN twice against the model.
+  Plan 20, which rested on the old ranking, is retired.
 * **G1 -- accuracy.** Does adding ``USG_`` reduce blended per-stat MAE?
 * **G2 -- draft.** Does within-position ranking against realised season points
   improve? That is the board's objective and it is not the same test as G1.

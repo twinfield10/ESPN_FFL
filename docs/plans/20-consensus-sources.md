@@ -78,17 +78,64 @@ Its two recommended *uses* for Sleeper have both been largely overtaken:
 | A second injury feed | [Plan 27](27-injury-model.md) built the injury layer on ESPN's `site.api` feed plus nflverse, with a daily archive and an episode table. A third feed is a cross-check, not a gap |
 | `depth_chart_order` | [Plan 21](21-coaching-and-scheme.md) pulls 2026 depth charts daily and they are the one feature that moved the season model |
 
-## What is now owed
+## Re-measured 2026-08-24, and the correction held
+
+The matrix was re-run the same day, once `year=2025` turned out to work and the 2025
+FantasyPros archive could be rebuilt uncapped — 960 rows to **10,474**, and coverage of
+the measured rows from 13% to **80.1%**. `python -m Scripts.usage.gates --season 2025`.
+
+| Source | 1 − mean r, before | after | partial, before | after |
+|---|---|---|---|---|
+| ESPN | +0.068 | +0.068 | +0.199 | +0.198 |
+| **FantasyPros** | **+0.027** | **+0.058** | **+0.109** | **+0.180** |
+| Pinnacle | +0.035 | +0.036 | +0.169 | +0.175 |
+| BetOnline | +0.043 | +0.045 | +0.167 | +0.175 |
+| **TOMCAT** | **+0.090** | **+0.113** | **+0.318** | **+0.371** |
+
+**FantasyPros roughly doubled** — +0.027 to +0.058 on residuals, +0.109 to +0.180
+partialled. ESPN, Pinnacle and BetOnline barely moved, which is what makes the diagnosis
+specific rather than a general drift: the error was in FantasyPros' sample and nowhere
+else.
+
+**The ranking that carried the whole argument is reversed.** FantasyPros was the least
+independent source in the blend and is now mid-pack, ahead of both books; **Pinnacle** is
+now last at +0.036. "FantasyPros is itself an expert consensus, so a sixth aggregator
+re-adds what is already there" was a reasonable story fitted to a number that turned out
+to be an artefact of a registration fence.
+
+**TOMCAT's own gate strengthened, as the retirement predicted it would.** +0.090 to
++0.113 on residuals and +0.318 to **+0.371** partialled — 1.9× ESPN's partial
+independence and better than twice FantasyPros'. The reason is worth keeping: the old
+FantasyPros column was mostly ESPN imputed through the mean, so "TOMCAT's correlation
+with FantasyPros" was largely TOMCAT's correlation with ESPN counted a second time.
+Giving FantasyPros a real, independent column *lowered* TOMCAT's mean correlation with
+the set rather than raising it.
+
+### What the new matrix says about the original question
+
+Plan 20 asked whether to add more external feeds. The honest answer is now better
+supported than the one it gave, and different in kind:
+
+**All four external sources cluster tightly** — +0.036 to +0.068 on residuals, +0.175 to
++0.198 partialled. They are mutually redundant as a group, not because FantasyPros in
+particular is derivative. **TOMCAT sits at roughly twice the best of them.** So a sixth
+external aggregator is still a poor use of effort — but because *external consensus is a
+saturated channel*, not because one of its members was uniquely redundant. That
+conclusion rests on a measurement rather than on an artefact, which is the difference
+this re-run bought.
+
+## What is still owed
 
 Not scheduled here, because this plan is retired and its question belongs to the plans
 that own the blend:
 
-1. **Re-run plan 16 step 0's independence matrix** on FantasyPros at 592 players rather
-   than 60. The whole table is suspect, not just FantasyPros' row: every other source's
-   "residual correlation with the rest" was computed against a *rest* that was mostly
-   ESPN wearing a FantasyPros badge. → [16](16-usage-data-layer.md)
-2. **Then** let [plan 03](03-projection-source-coverage.md)'s weight re-tune fit the
-   weights, rather than the hand-tuned quarters standing on this plan's reasoning.
+1. ~~**Re-run plan 16 step 0's independence matrix.**~~ **Done 2026-08-24** — see above.
+2. **[Plan 03](03-projection-source-coverage.md)'s weight re-tune**, which the re-run has
+   now given something real to fit against. G1 in the same run is a pointed hint: on the
+   2025 weekly blend the *best* TOMCAT weight is **0.05 at every one of the eight stats**,
+   not the 0.25 it carries — cutting passing-yard MAE 18.5%. That is a weekly measurement
+   on a weekly blend and does not transfer to the season board unexamined, but it is the
+   first evidence the repo has that a weight is set wrong, and it belongs to plan 03.
 
 Both are **frozen until after the 2026 drafts** (7–8 September) — they move
 `TRUE_Points`, and the [readiness doc](../DRAFT_READINESS.md) freezes projection maths
