@@ -11,6 +11,15 @@ config*.yml
 # so it is pinned: those files are hand-written severity judgements whose git history is the
 # point, and a future tightening of the pattern above must not swallow them silently.
 !config/injuries/
+# Backups and editor droppings of the credential file. `config*.yaml` matches on
+# basename and extension, so it does NOT catch config.yaml.bak / .orig / .save --
+# which hold exactly the same secrets. Caught on 2026-08-24 when a `git add -A`
+# staged config.yaml.bak carrying a live FantasyPros session and the ESPN cookies.
+config.yaml.*
+config*.yaml.*
+*.yaml.bak
+*.yaml.orig
+*.yaml.save
 *creds*.json
 *credential*.json
 service-account*.json

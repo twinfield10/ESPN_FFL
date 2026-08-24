@@ -159,7 +159,7 @@ p.run(['Knights_FFL'])"
 
 ```bash
 Rscript R/GetNFL.R                     # refresh schedule (scores drive current week)
-python -m Scripts.scrape_FP            # FantasyPros
+python -m Scripts.scrape_FP            # FantasyPros -- needs the session cookie, see below
 python -m Scripts.scrape_pinnacle      # Pinnacle (launches Chrome via Selenium)
 python -m Scripts.scrape_BOL           # BetOnline  -- SEE WARNING
 python -m Scripts.scrape_espn_injuries # today's injury report + a dated snapshot
@@ -172,6 +172,17 @@ python populateGoogleSheet.py          # render the store to Sheets
 
 Run from the repo root. Scrapers use `-m` because modules import as
 `Scripts.<name>`.
+
+**FantasyPros needs a logged-in session or it returns a tenth of the data.** Anonymously
+it serves ten rows per position behind a registration fence -- 60 players, which is what
+every board built before 2026-08-24 was blended on. A *free* account lifts it to 592 and
+takes D/ST from ten teams to all thirty-two. The cookie lives in `config.yaml` under
+`fantasypros.cookie`; see `config.example.yaml` for how to get it.
+
+It expires -- the 2026 session runs to **22 November**, mid-season. An expired cookie
+does not error, it silently returns the teaser, so `run_daily_refresh.sh` fails the run
+if the scrape comes back at 60 rows or fewer. If that fires, log in again and replace
+the cookie.
 
 `Scripts.refresh` is **required before** Sheets and comes **after** the projection
 scrapers. Both outputs read the same store, so they cannot disagree — but that
