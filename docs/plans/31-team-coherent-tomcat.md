@@ -254,11 +254,13 @@ reading is the narrower one: reconciling puts TOMCAT's column on a footing where
 quarterback opinion can be *read*, and says nothing yet about whether that opinion is
 right.
 
-Note one limit on the G-T1/G-T2 measurement. The gate path reconciles on the fold's
-own `team`, and the shipping path on ESPN's current `pro_team`, because the model's
-team is carried from prior-season snap counts and a free agent who signed in March is
-otherwise grouped with the wrong huddle. Any mis-grouping in the fold makes the gate
-conservative rather than kind.
+The two paths group by different columns — the gate by the model's own `team`, the
+shipping path by ESPN's `pro_team` — and that is a plumbing detail rather than a
+difference of opinion. Both are the current pre-season roster team; a player who
+moved is reconciled inside his **new** huddle, which is the same team whose offensive
+profile and coaching prior the model projected him in (`Scripts.usage.scheme.attach`).
+`project.build` simply does not carry `team` into the parquet, and `pro_team` is
+already on the board frame.
 
 ## Effort
 

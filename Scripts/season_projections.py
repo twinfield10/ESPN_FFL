@@ -1865,12 +1865,12 @@ def build_season_projections(league, season: Optional[int] = None,
     # Phase 1 of plan 31: make the model's own column describe a team that plays
     # seventeen games, *before* the blend reads it.
     #
-    # Here rather than in `Scripts.usage.project` for two reasons. `pro_team` is
-    # ESPN's, and it is the only 2026 team assignment in the building that is current
-    # -- the model's own `team` is carried from the prior season's snap counts, so a
-    # free agent who signed in March is grouped with the wrong huddle. And this is
-    # downstream of `_withdraw_usage_on_role`, so a backup ESPN has priced out has
-    # already left the frame and does not get counted into his room's games.
+    # Here rather than in `Scripts.usage.project` for two reasons. The model's own
+    # `team` is correct -- it is the current pre-season roster team, which is the
+    # whole point of the join in `Scripts.usage.scheme.attach` -- but `project.build`
+    # does not carry it into the parquet, and `pro_team` is already on this frame.
+    # And this is downstream of `_withdraw_usage_on_role`, so a backup ESPN has
+    # priced out has already left the frame and is not counted into his room's games.
     base = _make_usage_coherent(base)
 
     scoring = get_scoring_table(league)
