@@ -43,3 +43,25 @@ leagues:
     # A league you are not a member of needs that member's own cookies:
     espn_s2: 'THEIR_URL_ENCODED_ESPN_S2_COOKIE'
     swid: '{THEIR-SWID-COOKIE}'
+
+# FantasyPros session, for the projections scrape. OPTIONAL but strongly recommended.
+#
+# Without it, FantasyPros serves ten rows per position behind a registration fence --
+# 60 players total, which is a tenth of what the blend should see. A **free** account
+# (tier `basic`) lifts it to 592, and takes D/ST from ten teams to all thirty-two.
+#
+# To get it: log in at fantasypros.com, then DevTools -> Application -> Cookies ->
+# https://www.fantasypros.com. The ones that matter are `sessionid`, `fptoken`,
+# `fp_userdata`, `fp_level` and `fp_launchpad`, plus a randomised-name duplicate of
+# `sessionid`. Easiest is Network tab -> the projections request -> Request Headers ->
+# copy the whole `Cookie:` value; Scripts/scrape_FP.py ignores what it does not need.
+#
+# Use a `|-` block scalar, NOT a quoted string: some cookie values contain double
+# quotes (connectId is JSON) and will break a YAML double-quoted scalar.
+#
+# This is a live credential and expires -- the 2026 session runs to 22 November, mid
+# season. run_daily_refresh.sh fails loudly if the scrape drops back to <=60 rows,
+# which is what an expired cookie looks like.
+fantasypros:
+  cookie: |-
+    sessionid=...; fptoken=...; fp_userdata=...; fp_level=...; fp_launchpad=login

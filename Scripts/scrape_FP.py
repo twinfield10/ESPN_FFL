@@ -16,6 +16,46 @@ from Scripts.paths import season_dir
 WEEK = current_week()
 SEASON = current_season()
 
+#: robots.txt asks for five seconds between requests. Honour it.
+#:
+#: `https://www.fantasypros.com/robots.txt` sets `Crawl-delay: 5` and disallows `/api/`,
+#: `/json/`, `/ajax/` and `/xml/`. This scraper reads `/nfl/projections/`, which is
+#: allowed -- but it used to fire six requests per week back to back with no pause at
+#: all, and a measured 10.2s time-to-first-byte on one request during testing suggests
+#: that was being noticed. Whatever endpoint might serve this more conveniently under
+#: `/ajax/` is off-limits, the same call this repo made for BetOnline and
+#: Pro-Football-Reference.
+CRAWL_DELAY_SECONDS: float = 5.0
+
+#: Browser UA. The default `python-requests/x.y` gets a different page.
+USER_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+
+
+def _session_cookie():
+    """The logged-in FantasyPros cookie from ``config.yaml``, or None.
+
+    **This is what decides whether the scrape is worth running.** Anonymously,
+    FantasyPros serves exactly ten rows per position behind a registration fence
+    ("Create a free account to unlock"), so the whole scrape returns 60 players --
+    which is what every board built before 2026-08-24 was blended on. A *free*
+    account (tier `basic`) lifts it: measured the same day, 592 rows against 60, and
+    D/ST goes from ten teams to all thirty-two.
+
+    Optional on purpose. Without it the scrape still runs and still returns the top
+    ten per position, and :func:`get_fp` says so loudly rather than silently
+    producing a tenth of the data -- this repo's recurring failure mode is an absent
+    source reading as agreement.
+
+    Returns:
+        Optional[str]: The ``Cookie`` header value, or None when unconfigured.
+    """
+    try:
+        from Scripts.config_utils import load_config
+        return (load_config().get("fantasypros") or {}).get("cookie") or None
+    except Exception:
+        return None
+
 # FantasyPros serves full-season ("draft") projections under this sentinel in
 # place of a week number. Used to build the pre-season draft board.
 DRAFT_WEEK = "draft"
@@ -26,7 +66,7 @@ team_map = {'Kansas City Chiefs': 'KC',
            'Tampa Bay Buccaneers': 'TB',
            'Seattle Seahawks': 'SEA',
            'New Orleans Saints': 'NO',
-           'Chicago Beaars': 'CHI',
+           'Chicago Bears': 'CHI',
            'Cincinnati Bengals': 'CIN',
            'Buffalo Bills': 'BUF',
            'San Francisco 49ers': 'SF',
@@ -55,11 +95,15 @@ team_map = {'Kansas City Chiefs': 'KC',
            'Carolina Panthers': 'CAR',
            'Minnesota Vikings': 'MIN'
            }
-dst_map = team_map = {'Kansas City Chiefs': 'Chiefs D/ST',
+# NOT `dst_map = team_map = {...}`, which is what this said until 2026-08-24 and
+# which rebound `team_map` to this dict -- so D/ST rows stored a `playerTeam` of
+# "Texans D/ST" instead of "HOU", and the abbreviation map was unreachable
+# afterwards. Latent rather than fatal only because the join runs on name.
+dst_map = {'Kansas City Chiefs': 'Chiefs D/ST',
            'Tampa Bay Buccaneers': 'Buccaneers D/ST',
            'Seattle Seahawks': 'Seahawks D/ST',
            'New Orleans Saints': 'Saints D/ST',
-           'Chicago Beaars': 'Bears D/ST',
+           'Chicago Bears': 'Bears D/ST',
            'Cincinnati Bengals': 'Bengals D/ST',
            'Buffalo Bills': 'Bills D/ST',
            'San Francisco 49ers': '49ers D/ST',
@@ -105,10 +149,25 @@ def get_fp(wk):
     """
     proj_dfs = []
 
-    for pos in pos_list:
+    cookie = _session_cookie()
+    headers = {"User-Agent": USER_AGENT}
+    if cookie:
+        headers["Cookie"] = cookie
+    else:
+        print("  WARNING: no FantasyPros session in config.yaml -- the registration "
+              "fence caps every position at 10 rows, so this returns ~60 players "
+              "rather than ~590. See _session_cookie().")
+
+    for i, pos in enumerate(pos_list):
         # Build and Get URL
         url = f"https://www.fantasypros.com/nfl/projections/{pos}.php?max-yes=false&min-yes=false&scoring=STD&week={wk}"
-        response = requests.get(url)
+        if i:
+            time.sleep(CRAWL_DELAY_SECONDS)
+        response = requests.get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+        if 'id="registration-fence"' in response.text or "registration-fence" in response.text:
+            print(f"  NOTE: {pos} still served the registration fence -- the session "
+                  "cookie is missing or expired, and this position is capped at 10.")
         soup = BeautifulSoup(response.content, "lxml")
 
         # Find the table and extract HTML

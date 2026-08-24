@@ -121,6 +121,35 @@ log "pulling ESPN injuries"
 "${PYTHON}" -m Scripts.scrape_espn_injuries >>"${LOG}" 2>&1 \
   || fail "Scripts.scrape_espn_injuries"
 
+# --- 2b. FantasyPros season projections ---------------------------------
+# Added 2026-08-24, and it was the largest single data gap in the repo: this had never
+# run nightly at all, so the board was blending FantasyPros numbers from whenever the
+# scrape was last run by hand -- ten days stale when it was found.
+#
+# It also only returned 60 players until that day. Anonymously FantasyPros serves ten
+# rows per position behind a registration fence; a free account lifts it to 592. The
+# session lives in config.yaml under `fantasypros.cookie`.
+#
+# The row-count guard is the point. A cookie expires, and an expired cookie does not
+# error -- it silently returns the ten-row teaser, which is exactly this repo's
+# recurring failure mode of an absent source reading as agreement. So: fail loudly if
+# the scrape comes back at teaser size.
+log "pulling FantasyPros season projections"
+"${PYTHON}" -m Scripts.scrape_FP --what season >>"${LOG}" 2>&1 \
+  || fail "Scripts.scrape_FP"
+
+FP_ROWS="$("${PYTHON}" -c "
+import polars as pl
+from Scripts.paths import season_dir
+p = season_dir('FantasyPros', ${SEASON}, 'FantasyPros_Projections_Season.parquet')
+print(pl.read_parquet(p).height if p.is_file() else 0)
+" 2>/dev/null)" || FP_ROWS=0
+log "FantasyPros rows: ${FP_ROWS}"
+if [ "${FP_ROWS}" -le 60 ]; then
+  fail "FantasyPros returned ${FP_ROWS} rows -- the registration fence is back, which \
+means the session cookie in config.yaml has expired. Log in again and replace it."
+fi
+
 # --- 3. Re-project the usage head ---------------------------------------
 # Reads the fresh depth chart and roster. Refits only if the stored model is stale;
 # otherwise it reloads the fitted coefficients and re-predicts, which is what makes
