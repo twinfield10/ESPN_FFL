@@ -1,8 +1,33 @@
 # 13 — Model D/ST scoring from Vegas lines
 
-**Priority:** Medium (High once weekly lines are posted) · **Effort:** Medium · **Status:** Not started
+**Priority:** Medium (High once weekly lines are posted) · **Effort:** Medium ·
+**Status: SUPERSEDED by [30](30-dst-model.md) on 2026-08-18.**
 **Depends on:** [11 (per-slot scoring)](11-per-slot-scoring.md) for the IDP league only
 **Related:** [12 (season projections)](12-season-projections.md), [03 (source coverage)](03-projection-source-coverage.md)
+
+> **Read [plan 30](30-dst-model.md) instead. Three corrections, measured 2026-08-18.**
+>
+> **1. The premise below about which components are biggest is wrong.** Scoring every
+> team-defence season under each league's actual slot-16 rules puts points allowed at
+> **7.6%** and yards allowed at **14.7%** of the D/ST score in six of the nine leagues —
+> 22.3% together, against **sacks 33.8% + interceptions 22.3% = 56%**. Points allowed is the
+> largest component in exactly one league, GOP Degenerates, where it is **40.7%**. So the
+> plan below optimises the small half everywhere except one league.
+>
+> **2. But the market is still the answer — for a bigger reason than this plan gives.**
+> Implied points allowed beats the prior season on **seven of eight** components, including
+> the noisy ones this plan does not mention: sacks **0.464 against 0.203**, interceptions
+> **0.357 against 0.113**, fumble recoveries **0.193 against 0.015**. Opponent offensive
+> quality drives every defensive event, so a game line reaches the whole score sheet rather
+> than one tier.
+>
+> **3. The `E[f(X)]`-over-tiers instinct is correct and now has a number.** Weekly points
+> allowed has an SD of **9.57** against tiers 4–7 points wide, so scoring the season mean
+> understates the best third of defences by **12.24 points** and overstates the worst third
+> by 4.26 — a 16.5-point compression of the range the component exists to create.
+>
+> Also: "the rest waits on posted 2026 lines" is out of date — all **272** of 2026's games
+> are priced in `Data/NFL/schedules.parquet`.
 
 ## Problem
 

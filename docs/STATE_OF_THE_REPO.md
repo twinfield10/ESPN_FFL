@@ -107,9 +107,39 @@ rescales before blending and the residual is now 1-3%. The model itself is uncha
 and the backtest is untouched -- only the artifact the blend consumes is rescaled, and
 the availability estimate travels beside it as `usg_expected_games`.
 
-**The blend is an equal three-way split of ESPN, FantasyPros and the usage model as
-of 2026-08-07**, with Pinnacle and BetOnline at zero — an owner decision, recorded as
-one rather than inherited. G2 is still unanswered and still unanswerable on history;
+**The blend is an equal quarter each to ESPN, FantasyPros, BetOnline and the usage
+model**, with **Pinnacle** at zero — `projection_utils.WEIGHTS` is
+`{'ESPN': 0.25, 'FP': 0.25, 'PINNY': 0.0, 'BOL': 0.25, 'USG': 0.25}`. This paragraph
+said "an equal three-way split of ESPN, FantasyPros and the usage model, with Pinnacle
+**and BetOnline** at zero" until 2026-08-18, and was wrong: BetOnline carries a full
+quarter, and the *Known issues* table below has always said so ("BOL contributes 10–40%
+of the blend weight"), so this file contradicted itself. **Which of the two is the
+intended decision is still open** — the three-way split may be what was meant and never
+landed in the code. The boards in the store were all built with BOL at 0.25.
+
+**And the nominal weights are not the realised ones.** `compute_weighted_stats` drops a
+source's weight where its cell is flagged imputed and renormalises the rest, so the
+effective weight is per-row. Measured on Winfield Football's 2026 board over players with
+a positive `TRUE_Points`:
+
+| stat | ESPN | FP | BOL | USG |
+|---|---|---|---|---|
+| receivingYards | 0.69 | 0.04 | 0.06 | **0.21** |
+| receivingReceptions | 0.70 | 0.04 | 0.03 | **0.22** |
+| rushingYards | 0.85 | 0.05 | 0.02 | **0.08** |
+| passingYards | 0.91 | 0.05 | 0.01 | **0.02** |
+
+ESPN is the **only** real source for 45.5% of receiving-yard rows and 84% of passing-yard
+rows, and it carries 0.69–0.91 rather than 0.25. Two causes, and the first is structural:
+**ESPN has no `_is_imputed` columns at all** (FP, PINNY and BOL have 136 each, USG has 8),
+so `compute_weighted_stats`'s "a source with no provenance column counts as real" branch
+means ESPN's weight is *never* dropped — including on the 668 of 1,027 rows where
+`ESPN_receivingYards` is null and `.fillna(0.0)` turns its silence into an opinion of
+zero. That is contained rather than harmless: `sources_real` is 0 and
+`projection_missing` is True for 501 of those rows, so the board can tell them apart, but
+`TRUE_receivingYards` is `0.0` and not null for all 668.
+
+Recorded as an owner decision rather than inherited. G2 is still unanswered and still unanswerable on history;
 what changed is the evidence around it, with the model now beating the naive draft
 heuristic on every metric at every position in 26 of 28 out-of-sample season-position
 cells. Note the decision drops the better-covered market source: **BetOnline's season
@@ -508,6 +538,12 @@ and nothing read from `config.yaml`.
 The ordered list of everything outstanding lives in
 **[`plans/README.md` §What is left](plans/README.md#what-is-left)**.
 
+The subset of it that a **draft in the next two weeks** depends on — with the dates
+ESPN actually holds, and a day-by-day countdown — is
+**[`DRAFT_READINESS.md`](DRAFT_READINESS.md)**, assessed 2026-08-24. Short version:
+nothing blocks a draft, the boards are built and 1,174 tests pass, and the one real
+risk is that ~12,300 lines of plans 27-30 are uncommitted on `main`.
+
 ---
 
 ## Known issues
@@ -552,7 +588,7 @@ is meant to be used this way: every `<year>_<Team>_season` article carries
 
 | Issue | Location |
 |---|---|
-| Test coverage is thin in the places that matter most. `tests/` covers paths, config, season/week derivation, the scoring registry, per-slot scoring, the blend primitives, the store, the usage layer's leakage guarantee, the draft board page's derivations, the season usage head with both its arms, the fifth source's registration/join/abstention plumbing, the coaching table's Wikipedia parsing, the team-profile as-of boundary, and the S3 layer — key mapping, checksummed upload, the `meta.json`-last *sequence*, sync's push/pull/verify and the app's three read modes, all against a stub so it still needs no network or credentials, the board page's model block including the three ways an empty `USG` has to be told apart, the board's four include-filters, the auction-budget rescale, the keeper-pending test and the cash lens's budget conservation, and the viewer scoping that decides which leagues the app may offer (827 tests), including a guard that the notebook never re-defines the shared projection functions. Nothing covers the scrapers, the Sheets renderer, `analytic_utils`, `luck_index`, or `simulation_utils`. | `tests/` |
+| Test coverage is thin in the places that matter most. `tests/` covers paths, config, season/week derivation, the scoring registry, per-slot scoring, the blend primitives, the store, the usage layer's leakage guarantee, the draft board page's derivations, the season usage head with both its arms, the fifth source's registration/join/abstention plumbing, the coaching table's Wikipedia parsing, the team-profile as-of boundary, and the S3 layer — key mapping, checksummed upload, the `meta.json`-last *sequence*, sync's push/pull/verify and the app's three read modes, all against a stub so it still needs no network or credentials, the board page's model block including the three ways an empty `USG` has to be told apart, the board's four include-filters, the auction-budget rescale, the keeper-pending test and the cash lens's budget conservation, and the viewer scoping that decides which leagues the app may offer, and the whole injury layer -- episode construction with its three kinds of censoring, the severity ladder including a pinned regression for a comment that describes a *teammate's* injury, and the fitted curve's placebo guard, which requires a null effect to fit to no effect (1,125 tests), including a guard that the notebook never re-defines the shared projection functions. Nothing covers the scrapers, the Sheets renderer, `analytic_utils`, `luck_index`, or `simulation_utils`. | `tests/` |
 | No retry/backoff on any HTTP call. Four bare `except:` blocks remain — `populateGoogleSheet.py`'s is gone. A global `warnings.filterwarnings("ignore")` in `fetch_utils.py:16` silences every warning process-wide; `Scripts.scoring` and `Scripts.projection_utils` each force their own filter past it, which is a workaround rather than a fix. → [plan 06](plans/06-performance.md) | repo-wide |
 | `build_league_frame` calls `fetch_league`, then `get_ply_stats_by_matchup` calls it again — ~1s of duplicated ESPN round-trip per league, ~12% of a pre-season refresh. Fixing it means changing that function's signature from ids to a `League`. → [plan 06](plans/06-performance.md) | `equivalence.py`, `scrape_player_stats.py:463` |
 | `oauth2client==4.1.3` is end-of-life upstream and is only needed for Sheets auth. A Google auth change would mean migrating to `google-auth` mid-season, so it is worth doing before the season. → [plan 14](plans/14-thin-google-sheets.md) step 2.3 | `populateGoogleSheet.py`, `requirements.txt` |
