@@ -31,7 +31,7 @@ uppercase, and contains real misspellings (``Dalton Kinciad``).
 import datetime
 import re
 import unicodedata
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 import pandas as pd
 import polars as pl
@@ -587,6 +587,118 @@ def load_usage_season(season: int) -> pd.DataFrame:
         if source_col in df.columns:
             out[target_col] = df[source_col]
     return out.dropna(subset=["name_key"])
+
+
+def load_kicking_season(season: int) -> pd.DataFrame:
+    """The kicking model's per-team projection, prefixed ``KIK_``.
+
+    A **team** projection rather than a player one, and that is the finding rather than a
+    shortcut: a kicker's field-goal conversion rate has a year-over-year correlation of
+    0.009 and his extra-point volume does not travel when he changes jersey (r drops from
+    0.386 to -0.040). There is nothing player-specific to key on, so the model projects the
+    offence and :func:`_merge_team_source` hands the line to whoever is kicking.
+
+    Args:
+        season: Season year.
+
+    Returns:
+        pd.DataFrame: ``team``, ``KIK_<stat>`` and the lowercase context columns. Empty
+        when the artifact is absent.
+    """
+    from Scripts.kicking.model import projection_path
+
+    path = projection_path(season)
+    if not path.exists():
+        print(f"  Kicking file missing ({path.name}); "
+              f"run `python -m Scripts.kicking.model --season {season} --write`.")
+        return pd.DataFrame(columns=["team"])
+    return pd.read_parquet(path)
+
+
+def load_dst_season(season: int) -> pd.DataFrame:
+    """The team-defence model's projection, prefixed ``DST_``.
+
+    Carries both rate components and the two **tier vectors**, expressed as expected games
+    in each band and summing to the slate -- the same shape ESPN publishes, because a
+    tiered ladder has to be integrated over a weekly distribution rather than evaluated at
+    a season mean. Scoring the mean instead understates the best third of defences by 12.24
+    points and overstates the worst by 4.26.
+
+    Args:
+        season: Season year.
+
+    Returns:
+        pd.DataFrame: ``team``, ``DST_<stat>`` and the lowercase context columns. Empty
+        when the artifact is absent.
+    """
+    from Scripts.dst.model import projection_path
+
+    path = projection_path(season)
+    if not path.exists():
+        print(f"  D/ST file missing ({path.name}); "
+              f"run `python -m Scripts.dst.model --season {season} --write`.")
+        return pd.DataFrame(columns=["team"])
+    return pd.read_parquet(path)
+
+
+def _merge_team_source(base: pd.DataFrame, source: pd.DataFrame, prefix: str,
+                       positions: Sequence[str], label: str) -> pd.DataFrame:
+    """Attach a per-team projection to that team's players at the given positions.
+
+    Two details that would be bugs if left implicit.
+
+    **The team codes disagree.** ESPN says ``LAR`` and ``WSH`` where nflverse -- and
+    therefore the schedule, the lines and these models -- say ``LA`` and ``WAS``. Reuses
+    :data:`Scripts.draft.board.ESPN_TEAM_ALIASES` rather than restating the map, so there
+    is one place for it to be wrong.
+
+    **The flags are set for every row, not just the matched ones.** A player outside
+    ``positions`` gets a null value *and* an ``_is_imputed`` of True, which is what makes
+    :func:`Scripts.projection_utils.compute_weighted_stats` drop this source's weight for
+    him and renormalise the sources that did speak. Without the flag the source would
+    count as a real opinion of zero for every quarterback on the board -- the same trap
+    ESPN falls into by carrying no provenance columns at all.
+
+    Args:
+        base: The ESPN universe, carrying ``pro_team`` and ``primaryPosition``.
+        source: Output of :func:`load_kicking_season` or :func:`load_dst_season`.
+        prefix: ``"KIK"`` or ``"DST"``.
+        positions: Positions this source covers.
+        label: Name used in the printed report.
+
+    Returns:
+        pd.DataFrame: ``base`` with the ``<prefix>_`` columns and their flags attached.
+    """
+    if source.empty or "pro_team" not in base.columns:
+        return base
+    from Scripts.draft.board import ESPN_TEAM_ALIASES
+
+    stat_cols = [c for c in source.columns if c.startswith(f"{prefix}_")]
+    ctx_cols = [c for c in source.columns
+                if c.startswith(f"{prefix.lower()}_") and c != "team"]
+    if not stat_cols:
+        return base
+
+    lookup = source.drop_duplicates(subset=["team"]).set_index("team")
+    key = base["pro_team"].map(lambda t: ESPN_TEAM_ALIASES.get(t, t))
+    eligible = base["primaryPosition"].isin(list(positions))
+
+    # Built as a block and concatenated once, per plan 06: inserting ~30 columns one at a
+    # time into a frame this wide is what triggers pandas' fragmentation warning.
+    new: Dict[str, pd.Series] = {}
+    for c in stat_cols:
+        vals = pd.to_numeric(key.map(lookup[c]), errors="coerce").where(eligible)
+        new[c] = vals
+        new[f"{c}{IMPUTED_SUFFIX}"] = vals.isna()
+    for c in ctx_cols:
+        new[c] = key.map(lookup[c]).where(eligible)
+    out = pd.concat([base, pd.DataFrame(new, index=base.index)], axis=1)
+
+    matched = int(out[stat_cols[0]].notna().sum())
+    covered = int(eligible.sum())
+    print(f"  {label}: {matched} of {covered} {'/'.join(positions)} rows matched "
+          f"across {source['team'].nunique()} teams.")
+    return out
 
 
 def _merge_usage(base: pd.DataFrame, source: pd.DataFrame,
@@ -1167,6 +1279,40 @@ def _attach_injury_report(base: pd.DataFrame, season: int) -> pd.DataFrame:
     return base
 
 
+def _attach_injury_severity(base: pd.DataFrame, season: int) -> pd.DataFrame:
+    """Resolve what is wrong with each injured player, and how long it keeps him out.
+
+    A third injury pass over the same file, and separate from the two above for the same
+    reason they are separate from each other: :func:`_apply_injury_adjustment` *scales a
+    projection*, :func:`_attach_injury_report` *carries two fields for display*, and this
+    *resolves a severity*. The first two read only ``return_date`` and ``comment``;
+    ``injury_type``, ``injury_detail`` and ``injury_location`` were being pulled nightly
+    and discarded, and they are the only real diagnoses anything here has access to --
+    ``"Knee - ACL"`` where ``report_primary_injury`` says ``"Knee"``.
+
+    **Nothing this attaches changes a number yet.** The columns say what is known and how
+    confidently, which is useful in a draft room whether or not the fitted curve in
+    ``Scripts/injury/model.py`` ever earns the right to multiply ``TRUE_``.
+
+    Args:
+        base: The merged frame, carrying ``join_key`` and ``player_id``.
+        season: Season being projected.
+
+    Returns:
+        pd.DataFrame: ``base`` with :data:`Scripts.injury.apply.INJURY_COLUMNS` added.
+    """
+    from Scripts.injury import apply as injury_apply
+
+    base = injury_apply.attach_severity(base, season, week_one=_week_one(season))
+    # The fitted model's readings, and diagnostics only: the walk-forward rejected both the
+    # recovery curve and the hazard against their pre-committed gates, so nothing here
+    # multiplies a projection. What survives is a well-calibrated ramp and an externally
+    # validated recurrence rate, which are worth showing beside a number without moving it.
+    base = injury_apply.attach_model_diagnostics(base, season=season)
+    print(injury_apply.summary(base))
+    return base
+
+
 #: The sources that hold an independent opinion, for the floor/ceiling spread.
 #:
 #: ``MEAN`` is excluded because it is not an opinion -- it is the ESPN/FantasyPros
@@ -1218,7 +1364,7 @@ OPINION_PREFIXES = ("ESPN", "FP", "PINNY", "BOL")
 #: nobody else does gets a real ``TRUE_Points`` and a ``projection_missing`` of True.
 #: The board would then hide, as unprojected, exactly the players the model exists to
 #: differentiate.
-PROJECTION_PREFIXES = ("ESPN", "FP", "PINNY", "BOL", "USG")
+PROJECTION_PREFIXES = ("ESPN", "FP", "PINNY", "BOL", "USG", "KIK", "DST")
 
 
 def attach_source_spread(df: pd.DataFrame, stats: List[str],
@@ -1349,6 +1495,13 @@ def build_season_projections(league, season: Optional[int] = None,
     if not usage.empty and "player_id" in base.columns:
         base = _merge_usage(base, usage)
 
+    # The two position-specific models. Keyed on team rather than player, because
+    # neither position has a projectable individual signal -- see the loaders.
+    base = _merge_team_source(base, load_kicking_season(season), "KIK",
+                              ("K",), "Kicking")
+    base = _merge_team_source(base, load_dst_season(season), "DST",
+                              ("D/ST",), "D/ST")
+
     base = _apply_injury_adjustment(base, season)
     # After the injury adjustment and before the imputation chain: this is the last
     # point where role information can still reach the blend, and the two are
@@ -1357,6 +1510,11 @@ def build_season_projections(league, season: Optional[int] = None,
     base = _withdraw_usage_on_role(base, season)
     # Must precede the `join_key` drop below -- both functions join on it.
     base = _attach_injury_report(base, season)
+    # And so must this. Diagnostics only for now: body part, expected absence, which
+    # channel answered and one readable evidence string. No projection moves -- the
+    # fitted recovery curve has to clear its gates first, and if it does not, these
+    # columns are still worth having on a draft board. See docs/plans/27-injury-model.md.
+    base = _attach_injury_severity(base, season)
 
     base = base.drop(columns=["join_key"], errors="ignore")
 

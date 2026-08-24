@@ -216,6 +216,9 @@ board = dv.with_keeper_price(board, keepers)
 # Abbreviates the injury status and turns the estimated return into something a
 # reader can act on. Last, so it sees whichever of those columns the artifact has.
 board = dv.with_injury_code(board)
+# What the injury is and how long for, which the status alone cannot say: ESPN had
+# Jeremiyah Love ACTIVE at ADP 18 while the override file had him four to six weeks out.
+board = dv.with_injury_severity(board)
 
 # Which currency the Draft Metric group speaks: a snake draft has a queue, so the
 # comparison is rank against rank; an auction has a price. Read from the league's

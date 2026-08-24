@@ -111,6 +111,22 @@ INJURY_CODES: Dict[str, str] = {
     "DAY_TO_DAY": "DTD",
 }
 
+#: How each rung of the severity ladder reads on the board.
+#:
+#: Short because the column is narrow, and ordered by trust: an ``override`` is a human
+#: who read the beat report, ``ESPN dx`` is a published diagnosis, ``ESPN date`` is
+#: ESPN's own return estimate, ``news text`` is a regex over a sentence, and ``report``
+#: is a body part with no severity attached at all. Spelling the rung out is the point --
+#: see :func:`with_injury_severity`.
+INJURY_SEVERITY_SOURCES = {
+    "override": "override",
+    "espn_structured": "ESPN dx",
+    "return_date": "ESPN date",
+    "comment": "news text",
+    "report": "report",
+    "none": "unresolved",
+}
+
 #: The mark that says "this player has an injury note", in place of the note itself.
 #:
 #: The note is a sentence and a sentence needs 400px, which on a 26-column table is a
@@ -482,6 +498,51 @@ COLUMNS: List[Column] = [
                "backup ESPN has priced out.",
            caveat="Exists because an empty `USG` meant three different things and all "
                   "three rendered as the same blank cell, which reads as agreement."),
+    Column("inj_severity_label", "Notes", "Body Part", "text",
+           source_of="Injury model",
+           how="What is wrong with him and which channel said so, resolved through a "
+               "precedence ladder: a hand-written override, then ESPN's structured "
+               "diagnosis, then its estimated return date, then the news text, then the "
+               "weekly report's body part.",
+           caveat="**The provenance in brackets is the important half.** On this board "
+                  "most of these came from `news text` — a regex over one sentence — and "
+                  "those are a body part with a group-average duration attached, not a "
+                  "diagnosis. `ESPN dx` and `override` are worth acting on; `news text` "
+                  "is worth checking."),
+    Column("inj_expected_absence_weeks", "Notes", "Wks Out", "number", fmt="%.1f",
+           source_of="Injury model",
+           how="Games he is expected to miss from week 1, the midpoint of a range. From "
+               "ESPN's return date where it published one, otherwise the measured "
+               "average for that body part over 2016–2025.",
+           caveat="**Nothing on this board is discounted by it.** `TRUE` and every "
+                  "source column are healthy-season lines; this is the availability "
+                  "view, kept beside them the way `Exp G` is. A body part average is a "
+                  "wide distribution — an ankle spans one week to five — so read it as "
+                  "an order of magnitude, not a date."),
+    Column("inj_recovery_cost", "Notes", "Form Cost", "number", fmt="%.2f",
+           source_of="Injury model",
+           how="Games-equivalent of production the return-to-form ramp is expected to "
+               "cost, on top of any games missed — the fitted shortfall summed over the "
+               "six appearances after he is back. A knee costs about 0.36 of a game, a "
+               "hamstring 0.12, a concussion nothing.",
+           caveat="**Nothing is discounted by it, and that is a measured decision rather "
+                  "than an omission.** The curve behind it is well calibrated — a cell "
+                  "predicted to lose 20% loses 20% — but its accuracy gain in a "
+                  "walk-forward was ~1% against a 2% bar pre-committed in "
+                  "`Scripts/lab/registry.py`, so it is shown and not applied. Zero means "
+                  "the model abstained: for concussions and lower-body soft tissue the "
+                  "measured post-return shortfall sits inside its own error bars."),
+    Column("inj_reinjury_pct", "Notes", "Re-inj", "number", fmt="%.0f%%",
+           source_of="Injury model",
+           how="Chance the same body part goes again within six weeks of his return, from "
+               "a discrete-time hazard fitted over 2016–2025.",
+           caveat="This is the **second** cost channel and for some injuries it is the "
+                  "only one: a hamstring shows almost no lasting production loss once he "
+                  "is back and the highest recurrence rate of any body part, so `Form "
+                  "Cost` alone makes it look cheap. The pooled rate validates externally "
+                  "(hamstring 9.8% against a published 11.9%); the *weekly* hazard behind "
+                  "it failed its own Brier gate, so read this as a body-part rate rather "
+                  "than a personal risk."),
     Column("note_mark", "Notes", "News", "button", width="small",
            source_of="ESPN injury report",
            how="A mark where ESPN's injury report carries a note about him. **Click it "
@@ -2120,6 +2181,72 @@ def with_model_evidence(board: pl.DataFrame) -> pl.DataFrame:
         .otherwise(pl.lit(EVIDENCE_CLEAR))
         .alias("usg_evidence_label")
     )
+
+
+def with_injury_severity(board: pl.DataFrame) -> pl.DataFrame:
+    """Add ``inj_severity_label``: what is wrong, how long for, and how we know.
+
+    ``injury_code`` beside it answers *is he available*; this answers *what is it and how
+    long*. They come from different places and disagree usefully: ESPN's fantasy status
+    had Jeremiyah Love as ``ACTIVE`` at ADP 18 while a hand-written override put him four
+    to six weeks out with a high ankle sprain.
+
+    **The provenance is in the label, not in a tooltip.** Six channels can answer, and
+    they are not equally trustworthy -- a hand-checked override and a body part guessed
+    from a news sentence are both a body part and a number of weeks, and a reader deciding
+    whether to spend an eighteenth pick on it needs to know which one he is looking at.
+    Measured on Winfield Football's 2026 board: 102 of the 132 resolved severities came
+    from free text, 16 from an ESPN diagnosis, 13 from a return date and 1 from an
+    override. So the weak rung is carrying most of the column, and saying so is the
+    difference between a useful column and a misleading one.
+
+    Args:
+        board: A stored draft board.
+
+    Returns:
+        pl.DataFrame: The board with ``inj_severity_label`` added where it carries
+        ``inj_severity_source``. Unchanged otherwise, so an older artifact still renders.
+    """
+    if "inj_severity_source" not in board.columns:
+        return board
+
+    source = pl.col("inj_severity_source").cast(pl.String)
+    detail = pl.col("inj_detail").cast(pl.String) if "inj_detail" in board.columns \
+        else pl.lit(None, dtype=pl.String)
+    part = pl.col("inj_body_part").cast(pl.String) if "inj_body_part" in board.columns \
+        else pl.lit(None, dtype=pl.String)
+
+    # Prefer the specific reading, but only when it is genuinely a refinement of the body
+    # part. "ankle high" is what made the override worth writing and collapsing it back to
+    # "ankle" throws that away; "multi week" is a duration, and a Body Part column that
+    # says "multi week" is worse than one that says "foot toe".
+    readable_part = part.str.replace_all("_", " ")
+    readable_detail = detail.str.replace_all("_", " ")
+    refines = (readable_detail.is_not_null()
+               & (readable_detail != readable_part)
+               & (readable_detail.str.contains(readable_part.str.split(" ").list.first())
+                  | (part == "other")))
+    named = pl.when(refines).then(readable_detail).otherwise(readable_part)
+
+    board = board.with_columns(
+        pl.when(source.is_null())
+        .then(pl.lit(None, dtype=pl.String))
+        .otherwise(pl.concat_str([
+            named.fill_null("unknown"),
+            pl.lit(" ("),
+            source.replace_strict(INJURY_SEVERITY_SOURCES, default=source),
+            pl.lit(")"),
+        ])).alias("inj_severity_label"))
+
+    # Percentage points for display, in a column of its own rather than by rescaling the
+    # stored one. The artifact keeps the probability as a fraction because that is what
+    # arithmetic wants; quietly changing a column's units in the render layer is how a
+    # reader ends up unsure which one he is looking at.
+    if "inj_reinjury_prob" in board.columns:
+        board = board.with_columns(
+            (pl.col("inj_reinjury_prob").cast(pl.Float64) * 100.0)
+            .alias("inj_reinjury_pct"))
+    return board
 
 
 def with_injury_code(board: pl.DataFrame) -> pl.DataFrame:

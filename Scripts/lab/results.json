@@ -1668,6 +1668,349 @@
       ]
     }
   },
+  "injury": {
+    "folds": [
+      {
+        "control_mae_change_pct": -0.425,
+        "gain_pct": {
+          "blind": 2.702,
+          "do_nothing": 0.0,
+          "global_only": 2.702,
+          "hypothesised_ladder": 5.82,
+          "oracle": 2.613
+        },
+        "k": 5.0,
+        "k_sweep": {
+          "10": 6.1816882380426454,
+          "20": 6.1816882380426454,
+          "40": 6.1816882380426454,
+          "5": 6.1816882380426454,
+          "80": 6.1816882380426454
+        },
+        "mae": {
+          "blind": 6.4432,
+          "do_nothing": 6.6221,
+          "global_only": 6.4432,
+          "hypothesised_ladder": 6.2367,
+          "oracle": 6.4491
+        },
+        "rmse": {
+          "blind": 8.0133,
+          "do_nothing": 8.1501,
+          "global_only": 8.0133,
+          "hypothesised_ladder": 7.8989,
+          "oracle": 8.0231
+        },
+        "rmse_gain_pct": {
+          "blind": 1.679,
+          "do_nothing": 0.0,
+          "global_only": 1.679,
+          "hypothesised_ladder": 3.083,
+          "oracle": 1.558
+        },
+        "season": 2019,
+        "test_episodes": 43,
+        "test_rows": 191
+      },
+      {
+        "control_mae_change_pct": -0.436,
+        "gain_pct": {
+          "blind": 1.839,
+          "do_nothing": 0.0,
+          "global_only": 1.839,
+          "hypothesised_ladder": 0.707,
+          "oracle": 1.031
+        },
+        "k": 5.0,
+        "k_sweep": {
+          "10": 6.443178097977061,
+          "20": 6.443178097977061,
+          "40": 6.443178097977061,
+          "5": 6.443178097977061,
+          "80": 6.443178097977061
+        },
+        "mae": {
+          "blind": 6.1553,
+          "do_nothing": 6.2706,
+          "global_only": 6.1553,
+          "hypothesised_ladder": 6.2263,
+          "oracle": 6.2059
+        },
+        "rmse": {
+          "blind": 7.869,
+          "do_nothing": 7.7909,
+          "global_only": 7.869,
+          "hypothesised_ladder": 8.0888,
+          "oracle": 7.871
+        },
+        "rmse_gain_pct": {
+          "blind": -1.002,
+          "do_nothing": 0.0,
+          "global_only": -1.002,
+          "hypothesised_ladder": -3.823,
+          "oracle": -1.028
+        },
+        "season": 2020,
+        "test_episodes": 44,
+        "test_rows": 188
+      },
+      {
+        "control_mae_change_pct": -1.524,
+        "gain_pct": {
+          "blind": 1.637,
+          "do_nothing": 0.0,
+          "global_only": 3.028,
+          "hypothesised_ladder": 4.667,
+          "oracle": 3.605
+        },
+        "k": 5.0,
+        "k_sweep": {
+          "10": 6.15528490365335,
+          "20": 6.15528490365335,
+          "40": 6.15528490365335,
+          "5": 6.15528490365335,
+          "80": 6.15528490365335
+        },
+        "mae": {
+          "blind": 6.289,
+          "do_nothing": 6.3937,
+          "global_only": 6.2001,
+          "hypothesised_ladder": 6.0953,
+          "oracle": 6.1632
+        },
+        "rmse": {
+          "blind": 7.9526,
+          "do_nothing": 8.0298,
+          "global_only": 7.8989,
+          "hypothesised_ladder": 7.9228,
+          "oracle": 7.8623
+        },
+        "rmse_gain_pct": {
+          "blind": 0.962,
+          "do_nothing": 0.0,
+          "global_only": 1.631,
+          "hypothesised_ladder": 1.333,
+          "oracle": 2.087
+        },
+        "season": 2021,
+        "test_episodes": 60,
+        "test_rows": 257
+      },
+      {
+        "control_mae_change_pct": -0.836,
+        "gain_pct": {
+          "blind": 1.619,
+          "do_nothing": 0.0,
+          "global_only": 1.997,
+          "hypothesised_ladder": 2.107,
+          "oracle": 2.106
+        },
+        "k": 5.0,
+        "k_sweep": {
+          "10": 6.288990709927541,
+          "20": 6.288990709927541,
+          "40": 6.288990709927541,
+          "5": 6.288990709927541,
+          "80": 6.288990709927541
+        },
+        "mae": {
+          "blind": 5.9647,
+          "do_nothing": 6.0628,
+          "global_only": 5.9417,
+          "hypothesised_ladder": 5.9351,
+          "oracle": 5.9351
+        },
+        "rmse": {
+          "blind": 7.2166,
+          "do_nothing": 7.3151,
+          "global_only": 7.2071,
+          "hypothesised_ladder": 7.3136,
+          "oracle": 7.2021
+        },
+        "rmse_gain_pct": {
+          "blind": 1.346,
+          "do_nothing": 0.0,
+          "global_only": 1.476,
+          "hypothesised_ladder": 0.02,
+          "oracle": 1.544
+        },
+        "season": 2022,
+        "test_episodes": 52,
+        "test_rows": 239
+      },
+      {
+        "control_mae_change_pct": -0.151,
+        "gain_pct": {
+          "blind": 0.931,
+          "do_nothing": 0.0,
+          "global_only": 2.265,
+          "hypothesised_ladder": 1.256,
+          "oracle": 0.906
+        },
+        "k": 5.0,
+        "k_sweep": {
+          "10": 5.966856898894366,
+          "20": 5.969901689907966,
+          "40": 5.97369385479219,
+          "5": 5.9646612890209,
+          "80": 5.977524102363319
+        },
+        "mae": {
+          "blind": 6.4749,
+          "do_nothing": 6.5357,
+          "global_only": 6.3877,
+          "hypothesised_ladder": 6.4536,
+          "oracle": 6.4765
+        },
+        "rmse": {
+          "blind": 8.1385,
+          "do_nothing": 8.2398,
+          "global_only": 8.1695,
+          "hypothesised_ladder": 8.3497,
+          "oracle": 8.2511
+        },
+        "rmse_gain_pct": {
+          "blind": 1.23,
+          "do_nothing": 0.0,
+          "global_only": 0.853,
+          "hypothesised_ladder": -1.334,
+          "oracle": -0.137
+        },
+        "season": 2023,
+        "test_episodes": 44,
+        "test_rows": 182
+      },
+      {
+        "control_mae_change_pct": 0.3,
+        "gain_pct": {
+          "blind": 1.114,
+          "do_nothing": 0.0,
+          "global_only": 1.361,
+          "hypothesised_ladder": 3.333,
+          "oracle": 1.517
+        },
+        "k": 80.0,
+        "k_sweep": {
+          "10": 6.472842576117178,
+          "20": 6.469877848038633,
+          "40": 6.466815213917693,
+          "5": 6.474885730522004,
+          "80": 6.465724240677613
+        },
+        "mae": {
+          "blind": 6.0391,
+          "do_nothing": 6.1071,
+          "global_only": 6.024,
+          "hypothesised_ladder": 5.9036,
+          "oracle": 6.0145
+        },
+        "rmse": {
+          "blind": 7.6586,
+          "do_nothing": 7.7814,
+          "global_only": 7.6577,
+          "hypothesised_ladder": 7.6543,
+          "oracle": 7.6468
+        },
+        "rmse_gain_pct": {
+          "blind": 1.578,
+          "do_nothing": 0.0,
+          "global_only": 1.59,
+          "hypothesised_ladder": 1.634,
+          "oracle": 1.73
+        },
+        "season": 2024,
+        "test_episodes": 56,
+        "test_rows": 257
+      },
+      {
+        "control_mae_change_pct": -0.611,
+        "gain_pct": {
+          "blind": 1.347,
+          "do_nothing": 0.0,
+          "global_only": 2.754,
+          "hypothesised_ladder": 3.607,
+          "oracle": 1.863
+        },
+        "k": 5.0,
+        "k_sweep": {
+          "10": 6.039270461041056,
+          "20": 6.042259538224006,
+          "40": 6.04787311657578,
+          "5": 6.037475693366729,
+          "80": 6.039068111019697
+        },
+        "mae": {
+          "blind": 5.596,
+          "do_nothing": 5.6724,
+          "global_only": 5.5162,
+          "hypothesised_ladder": 5.4678,
+          "oracle": 5.5668
+        },
+        "rmse": {
+          "blind": 7.2567,
+          "do_nothing": 7.3747,
+          "global_only": 7.2497,
+          "hypothesised_ladder": 7.1704,
+          "oracle": 7.2543
+        },
+        "rmse_gain_pct": {
+          "blind": 1.6,
+          "do_nothing": 0.0,
+          "global_only": 1.695,
+          "hypothesised_ladder": 2.77,
+          "oracle": 1.632
+        },
+        "season": 2025,
+        "test_episodes": 56,
+        "test_rows": 261
+      }
+    ],
+    "gates": {
+      "HAMSTRING_RECURRENCE_RANGE": [
+        0.09,
+        0.15
+      ],
+      "MAX_CONTROL_MAE_INCREASE_PCT": 0.5,
+      "MAX_HAZARD_BRIER_RATIO": 0.98,
+      "MIN_CALIBRATION_SLOPE": 0.4,
+      "MIN_POST_RETURN_MAE_GAIN_PCT": 2.0
+    },
+    "metrics": {
+      "calibration_slope": 1.0549,
+      "control_mae_change_pct": -0.526,
+      "control_rmse_change_pct": 0.613,
+      "do_nothing_mae": 6.2066,
+      "global_only_mae_gain_pct": 2.288,
+      "hamstring_recurrence": 0.0976,
+      "hazard_brier_ratio": 0.9898,
+      "k_by_fold": {
+        "2019": 5.0,
+        "2020": 5.0,
+        "2021": 5.0,
+        "2022": 5.0,
+        "2023": 5.0,
+        "2024": 80.0,
+        "2025": 5.0
+      },
+      "ladder_mae_gain_pct": 3.169,
+      "oracle_mae_gain_pct": 2.016,
+      "post_return_mae_gain_pct": 1.583,
+      "rmse_gain_pct": {
+        "blind": 1.107,
+        "do_nothing": 0.0,
+        "global_only": 1.208,
+        "hypothesised_ladder": 0.7,
+        "oracle": 1.168
+      }
+    },
+    "ran_at": "2026-08-18T15:12:25.210339+00:00",
+    "verdict": {
+      "curve": "reject",
+      "curve_reason": "discounting healthy comparables improves their MAE by 0.53%, so the curve is fitting regression to the mean rather than injury.",
+      "hazard": "reject",
+      "hazard_reason": "weekly Brier is 0.9898 of the constant base rate's, above the 0.9800 the rule requires -- the hazard is not a weekly predictor. The pooled per-body-part rate is unaffected and may still be quoted."
+    }
+  },
   "rejected_before_plan_22": [],
   "weekly_transfer": {
     "routes": [
