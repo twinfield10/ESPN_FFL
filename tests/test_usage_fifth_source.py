@@ -51,18 +51,26 @@ def test_usg_is_registered_in_the_blend_weights():
 
 
 def test_the_blend_is_an_equal_split_across_the_sources_that_speak():
-    """Set three-way on 2026-08-07 and widened to four on 2026-08-17.
+    """Three-way on 2026-08-07, four on 2026-08-17, **five on 2026-08-24**.
 
-    ESPN, FantasyPros, BetOnline and the usage model at a quarter each; Pinnacle at
-    zero on 76 offence-only props. G2 is still unanswered -- it needs the blend scored
-    with and without the model against realised results, and no historical pre-season
-    blend survives -- so this is an assertion rather than a measurement. It is an
-    assertion with a seven-fold walk-forward behind it, recorded as a decision rather
-    than inherited as a default."""
+    The rule is one equal vote per source that actually has an opinion, and the test
+    name has been literally true only since Pinnacle joined: it sat at zero on the
+    grounds that it covered 76 offence-only props, which is an argument about
+    *coverage*, and coverage is already handled a layer down -- an imputed cell is
+    flagged and its weight dropped, so a source with no line cannot vote whatever its
+    nominal weight says. Zeroing it applied the same objection twice and silenced
+    Pinnacle on the 21-30 players where it does have a real line.
+
+    Equality is the assertion, not the value. Because every universal source carries
+    the same number, renormalisation turns it into 1/n over whoever is real on a given
+    row -- four sources weight 0.25 each, three 0.333, two 0.5. Change them all to 0.2
+    and nothing about the blend moves; make one of them 0.3 and the rule is broken.
+    """
     entry = pu.WEIGHTS["default"]
-    assert (entry["ESPN"] == entry["FP"] == entry["BOL"] == entry["USG"]
-            == pytest.approx(0.25))
-    assert entry["PINNY"] == 0.0
+    universal = ("ESPN", "FP", "PINNY", "BOL", "USG")
+    weights = {entry[k] for k in universal}
+    assert len(weights) == 1, f"universal sources must weight equally: {entry}"
+    assert entry["ESPN"] > 0
 
 
 def test_widening_the_blend_to_betonline_is_additive():

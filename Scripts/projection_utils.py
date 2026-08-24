@@ -210,7 +210,20 @@ IMPUTED_SUFFIX = "_is_imputed"
 #: exactly the 1/3 each he had before -- byte-identical output. The weight can only
 #: bite on the 273 players BetOnline actually covers.
 #:
-#: Pinnacle stays at zero: 76 props, offence only, and 94-100% imputed on the board.
+#: **Pinnacle was at zero until 2026-08-24 and is now an equal quarter like the rest.**
+#: The reasoning for zeroing it -- 76 props, offence only, 94-100% imputed on the board --
+#: described its *coverage*, and coverage is already handled one layer down: an imputed cell
+#: is flagged and its weight dropped, so a source with no line for a player cannot vote on
+#: him whatever its nominal weight says. Zeroing it on top of that was the same objection
+#: applied twice, and it silenced Pinnacle on the 21-30 players a week where it does have a
+#: real line.
+#:
+#: The rule these nominal weights encode is **one equal vote per source that actually has
+#: an opinion**. Because every universal source carries the same 0.25, renormalisation makes
+#: that literal: four real sources weight 0.25 each, three weight 0.333, two weight 0.5.
+#: Measured on the 2026 board's draftable receiving lines -- 29 rows carry five real
+#: sources, 67 carry four, 160 carry three, 102 carry two. The nominal number is therefore
+#: almost never the realised one, and that is the design rather than a defect.
 #:
 #: The previous hand-tuned table, for the record and for plan 03 step 3's re-tune:
 #:
@@ -265,7 +278,7 @@ WEIGHTS = {
     #     path -- where plan 29 measured the real value -- is where this gets revisited.
     #
     # See docs/plans/29-kicker-model.md and 30-dst-model.md.
-    'default': {'ESPN': 0.25, 'FP': 0.25, 'PINNY': 0.0, 'BOL': 0.25, 'USG': 0.25,
+    'default': {'ESPN': 0.25, 'FP': 0.25, 'PINNY': 0.25, 'BOL': 0.25, 'USG': 0.25,
                 'KIK': 0.0, 'DST': 0.25},
 }
 
