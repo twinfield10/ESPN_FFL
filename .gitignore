@@ -6,6 +6,11 @@
 config*.yaml
 config*.yml
 !config.example.yaml
+# `config*.yaml` matches on *basename*, so it catches root-level config.yaml and leaves
+# config/injuries/<season>.yaml alone. That is the behaviour we want but it is incidental,
+# so it is pinned: those files are hand-written severity judgements whose git history is the
+# point, and a future tightening of the pattern above must not swallow them silently.
+!config/injuries/
 *creds*.json
 *credential*.json
 service-account*.json

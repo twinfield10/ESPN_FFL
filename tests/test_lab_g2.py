@@ -22,7 +22,8 @@ import pandas as pd
 import pytest
 
 from Scripts.lab import g2
-from Scripts.projection_utils import IMPUTED_SUFFIX, WEIGHTS, compute_weighted_stats
+from Scripts.projection_utils import (IMPUTED_SUFFIX, POSITION_SCOPED_SOURCES, WEIGHTS,
+                                      compute_weighted_stats)
 
 
 def frame(usg_value: float = 100.0, usg_imputed: bool = False) -> pd.DataFrame:
@@ -38,6 +39,11 @@ def frame(usg_value: float = 100.0, usg_imputed: bool = False) -> pd.DataFrame:
     })
 
 
+def universal(weights):
+    """Weights over the sources that apply to every row -- see POSITION_SCOPED_SOURCES."""
+    return sum(v for k, v in weights.items() if k not in POSITION_SCOPED_SOURCES)
+
+
 # --- the counterfactual is real ------------------------------------------
 
 def test_the_two_variants_differ_only_in_usg():
@@ -47,8 +53,15 @@ def test_the_two_variants_differ_only_in_usg():
     assert without["USG"] == 0.0
     assert with_usg["USG"] > 0.0
     # Both blends must be complete, or one is quietly scoring on a smaller base.
-    assert sum(with_usg.values()) == pytest.approx(1.0)
-    assert sum(without.values()) == pytest.approx(1.0)
+    #
+    # Summed over the **universal** sources only. `KIK` and `DST` project one position
+    # each and carry no column anywhere else, so `compute_weighted_stats` drops them and
+    # renormalises -- which means the full table legitimately sums past 1.0 while every
+    # row it is applied to still blends on a complete base. This assertion read
+    # `sum(...values())` until 2026-08-24 and started failing the moment `DST` went to
+    # 0.25, correctly: the invariant it names is real, and only the arithmetic was wrong.
+    assert universal(with_usg) == pytest.approx(1.0)
+    assert universal(without) == pytest.approx(1.0)
 
 
 def test_with_usg_is_exactly_the_shipped_weighting():

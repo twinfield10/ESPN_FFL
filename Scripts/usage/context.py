@@ -146,6 +146,14 @@ def load_rosters(seasons: Sequence[int],
     ``espn_id`` and ``pfr_id`` together -- and the only current-season context a
     pre-season model has.
 
+    ``status`` collapses every kind of unavailability into one code, so
+    ``status_description_abbr`` comes with it: ``RES`` covers injured reserve, the
+    physically-unable-to-perform list and designated-for-return alike, and only the
+    finer code separates them. ``Scripts/injury/episodes.py`` needs that separation --
+    an injury episode may not be built from ``CUT`` or ``RET``, and ``R48``
+    (designated for return) is a return-to-form signal that must not be pooled with
+    ``R01``.
+
     Args:
         seasons: Season years to read.
         positions: Positions to keep. None keeps all.
@@ -157,9 +165,9 @@ def load_rosters(seasons: Sequence[int],
         FileNotFoundError: When a season has not been pulled.
     """
     columns = ["season", "week", "team", "position", "depth_chart_position",
-               "status", "full_name", "gsis_id", "espn_id", "pfr_id",
-               "years_exp", "entry_year", "rookie_year", "draft_number",
-               "birth_date", "ngs_position"]
+               "status", "status_description_abbr", "full_name", "gsis_id",
+               "espn_id", "pfr_id", "years_exp", "entry_year", "rookie_year",
+               "draft_number", "birth_date", "ngs_position"]
     frames = []
     for season in sorted(seasons):
         frame = pl.read_parquet(_require(season, "rosters_weekly"))

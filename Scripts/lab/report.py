@@ -463,6 +463,122 @@ def blend_section(ledger: Dict) -> str:
 </section>"""
 
 
+def injury_section(ledger: Dict) -> str:
+    """The injury model's walk-forward. Both heads rejected, and the reason is a metric."""
+    block = ledger.get("injury")
+    if not block or not block.get("folds"):
+        return ""
+
+    metrics = block["metrics"]
+    verdict = block.get("verdict", {})
+    rmse = metrics.get("rmse_gain_pct") or {}
+
+    fold_rows = [
+        [str(fold["season"]), f"{fold['test_episodes']:,}", f"{fold['test_rows']:,}",
+         f"{fold['k']:.0f}", fmt(fold["mae"]["do_nothing"], 3),
+         fmt(fold["gain_pct"].get("blind"), 2, signed=True),
+         fmt(fold["gain_pct"].get("oracle"), 2, signed=True),
+         fmt(fold["gain_pct"].get("hypothesised_ladder"), 2, signed=True)]
+        for fold in block["folds"]
+    ]
+
+    label = {"blind": "fitted, body part only (what the live system has)",
+             "oracle": "fitted, conditioned on realised duration",
+             "global_only": "a single global curve, no cell structure",
+             "hypothesised_ladder": "the hypothesised 0.75 / 0.75 / 0.85 / 0.92 ladder"}
+    metric_rows = [
+        [label[name],
+         fmt(metrics.get(f"{'post_return' if name == 'blind' else name}_mae_gain_pct"),
+             2, signed=True) if name == "blind"
+         else fmt(metrics.get(f"{name}_mae_gain_pct"), 2, signed=True),
+         fmt(rmse.get(name), 2, signed=True)]
+        for name in ("hypothesised_ladder", "global_only", "oracle", "blind")
+    ]
+    metric_rows.append(["healthy comparables, discounted as if injured",
+                        fmt(metrics.get("control_mae_change_pct"), 2, signed=True),
+                        fmt(metrics.get("control_rmse_change_pct"), 2, signed=True)])
+
+    chart = bar_chart(
+        [(label[name], rmse.get(name)) for name in
+         ("hypothesised_ladder", "global_only", "oracle", "blind") if name in rmse],
+        unit="%",
+        caption="RMSE gain over doing nothing. By MAE this ordering is exactly "
+                "reversed, and that is the finding.")
+
+    return f"""
+<section id="injury">
+  <h2>The injury model: fitted, walk-forwarded, and rejected</h2>
+  <p>Plan 27 asks three questions an availability flag cannot: how long until he plays,
+  how good he is once he does, and how likely he is to go again. The middle one is a
+  fitted curve, <code>m(w) = 1 - a&middot;exp(-(w-1)/&tau;)</code>, and the global fit
+  lands at <strong>a = 0.163, &tau; = 1.14</strong> &mdash; almost exactly what the plan
+  predicted in writing before any code existed.</p>
+  <p>It is <strong>rejected as a multiplier</strong> by the gates in
+  <code>registry.py</code>, which were written first. The columns ship; nothing moves
+  <code>TRUE_</code>.</p>
+
+  <h3>Walk-forward, folds on episodes</h3>
+  <p>Six appearances of one injury are one correlated observation, so folds split on
+  episodes rather than weeks. The control cohort, the shrinkage strength and the
+  abstention decisions are all re-derived inside each fold. Every figure is computed
+  twice &mdash; <em>oracle</em> conditioning on realised duration, <em>blind</em> on body
+  part alone &mdash; because at apply time duration is predicted, not observed, and only
+  the blind figure faces a gate.</p>
+  {table(["season", "episodes", "rows", "k", "do-nothing MAE", "blind", "oracle",
+          "ladder"], fold_rows)}
+
+  <h3>Two metrics, opposite answers</h3>
+  {chart}
+  {table(["candidate", "MAE gain", "RMSE gain"], metric_rows)}
+  <p>Under <strong>MAE</strong> the ranking is monotone in <em>how hard each candidate
+  discounts</em> &mdash; the hypothesised ladder, the most aggressive, wins outright
+  &mdash; and discounting <em>healthy</em> comparables improves their MAE too. Under
+  <strong>RMSE</strong> the ladder is the worst candidate and healthy comparables
+  correctly get worse.</p>
+  <p>The cause is structural. The prediction is a conditional <strong>mean</strong> (a
+  ratio of sums) and weekly scoring is strongly right-skewed, so the conditional median
+  sits well below it. MAE is minimised by the median, so it rewards <em>any</em> downward
+  bias whether or not it has anything to do with injuries. RMSE is minimised by the mean,
+  which is what the model estimates.</p>
+  <p class="note">The gate reads MAE and has been <strong>left alone</strong> rather than
+  swapped after the fact. It rejects on the false-positive clause &mdash; written
+  precisely to catch "this helps healthy players too" &mdash; and fires on the right
+  evidence for a slightly different reason than anticipated. Re-specifying it would not
+  change the outcome: under RMSE the fitted curve gains
+  {fmt(rmse.get('blind'), 2, signed=True)}% against a
+  {block['gates']['MIN_POST_RETURN_MAE_GAIN_PCT']:.0f}% bar.</p>
+
+  <h3>Well calibrated, not accurate enough</h3>
+  <p>Calibration slope <strong>{metrics.get('calibration_slope')}</strong> against a
+  {block['gates']['MIN_CALIBRATION_SLOPE']:.1f} floor: a cell predicted to lose 20% loses
+  about 20%. The curve knows the shape. What it does not have is enough per-player
+  accuracy to be worth multiplying a projection by, and those are different
+  properties.</p>
+  <p>The hazard fails separately, at a Brier ratio of
+  <strong>{metrics.get('hazard_brier_ratio')}</strong> against
+  {block['gates']['MAX_HAZARD_BRIER_RATIO']:.2f}. The weekly recurrence event is rare
+  (~1% a week), so Brier is dominated by the base rate. The <em>pooled per-body-part
+  rate</em> is a different quantity, judged separately, and it passes an external check
+  the weekly model was never asked to: hamstring
+  <strong>{fmt(metrics.get('hamstring_recurrence'), 3)}</strong> against a published
+  11.9%.</p>
+
+  <h3>Verdicts</h3>
+  <ul>
+    <li><strong>curve &mdash; {verdict.get('curve', '?').upper()}</strong>:
+    {verdict.get('curve_reason', '')}</li>
+    <li><strong>hazard &mdash; {verdict.get('hazard', '?').upper()}</strong>:
+    {verdict.get('hazard_reason', '')}</li>
+  </ul>
+  <p class="note">Two things would change the answer and both are data rather than
+  modelling. The daily ESPN injury archive started on 2026-08-18, and a season of it
+  gives real severity &mdash; "Knee - ACL" where the weekly report says "Knee". The
+  oracle-against-blind gap is the measured value of knowing it. And the accuracy gate
+  should be re-specified on RMSE <em>before</em> the next run, not after.</p>
+</section>
+"""
+
+
 def weekly_transfer_section(ledger: Dict) -> str:
     """Whether any of this transfers to the in-season head. Two findings invert."""
     block = ledger.get("weekly_transfer")
@@ -730,6 +846,7 @@ def render(ledger: Dict, headline: str = "") -> str:
     {experiments}
   </section>
   {weekly_transfer_section(ledger)}
+  {injury_section(ledger)}
   {blend_section(ledger)}
   {prior_negatives_section()}
   {sources_section()}

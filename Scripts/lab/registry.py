@@ -60,6 +60,78 @@ MAX_MEAN_MAE_INCREASE_PCT: float = 0.5
 MAX_STAT_MAE_INCREASE_PCT: float = 2.0
 
 
+# --- the injury model, plan 27 --------------------------------------------
+#
+# A separate block because it judges a different kind of thing. The clauses above score a
+# *source* -- ordering and per-stat accuracy for a stat line the blend averages. An injury
+# multiplier is not a source: it moves an already-blended number, on a small subpopulation,
+# and the question is whether the movement is real per player rather than only in the mean.
+#
+# Written before the walk-forward ran, and the numbers are sized from the measurement in
+# ``docs/plans/27-injury-model.md``, not chosen to be clearable.
+
+#: Post-return MAE improvement, in percent, that the multiplier must deliver.
+#:
+#: Sized from the effect and the noise. The deconfounded first-appearance drop is ~14% and
+#: the weekly residual standard deviation is ~6.4 fantasy points (plan 19's table), so a 14%
+#: haircut on a 12-point player is 1.7 points against a 6.4-point sigma. Two percent is
+#: about the smallest MAE movement that is distinguishable from noise on a few hundred
+#: post-return appearances, and anything under it is not evidence of anything.
+#:
+#: **Scored on post-return appearances only.** Pooled over every player-week the layer
+#: touches a few hundred rows out of tens of thousands and any real effect disappears into
+#: the denominator -- which would let a useless multiplier pass by dilution.
+MIN_POST_RETURN_MAE_GAIN_PCT: float = 2.0
+
+#: How much the multiplier may worsen MAE on *matched healthy* appearances.
+#:
+#: The false-positive clause, and the one that catches the failure this whole design is
+#: arranged against. Applied to control rows the multiplier should do nothing useful: they
+#: are not injured. If discounting healthy comparables *also* improves their MAE, the curve
+#: is not measuring injury at all -- it is measuring regression toward the mean off a
+#: selected four-game baseline, which the placebo correction exists to remove. Half a percent
+#: is tight because the correct answer here is zero.
+MAX_CONTROL_MAE_INCREASE_PCT: float = 0.5
+
+#: Slope of realised outcome regressed on predicted multiplier, by decile.
+#:
+#: The number to weight most heavily, because it is the one that separates "real in the
+#: mean" from "usable per player". A slope near 1 means a cell predicted to lose 20% loses
+#: about 20%. A slope of 0.2 means the ordering is right and the magnitude is mostly noise --
+#: directionally informative, and not something to multiply a projection by.
+MIN_CALIBRATION_SLOPE: float = 0.4
+
+#: How far any position x ADP band's median TRUE/ESPN ratio may move, as a fraction.
+#:
+#: Cross-position neutrality, the invariant commit 3a403bb exists to protect: a layer that
+#: touches only skill positions introduced 11%+ band distortion once already.
+#: ``store.calibration_summary()`` is the persisted regression test. The layer bites only on
+#: currently-injured players, so a whole-band move above one percent means it is biting
+#: somewhere it should not.
+MAX_BAND_RATIO_DRIFT: float = 0.01
+
+#: Ratio of the fitted hazard's Brier score to a constant base rate's.
+#:
+#: A miscalibrated hazard corrupts channel A downstream, since expected games lost is the
+#: recurrence probability times a duration. Beating a constant by 2% is a low bar and it is
+#: deliberately low: the event is rare (~1% a week), so Brier is dominated by the base rate
+#: and a large ratio improvement is not available at any skill level. If even this cannot be
+#: cleared, the weekly hazard is not a weekly predictor and only the pooled per-body-part
+#: rate should ship.
+MAX_HAZARD_BRIER_RATIO: float = 0.98
+
+#: Episodes a per-body-part recurrence rate needs before it is quoted.
+MIN_RECURRENCE_EPISODES: int = 40
+
+#: Where the published NFL same-season hamstring reinjury rate must land.
+#:
+#: External validation, and the reason to believe the episode construction at all. Jenkins
+#: et al. put same-season hamstring reinjury at 11.9%; this repo's own episode logic, built
+#: from a different source with a different definition, produces 9.9%. A drift outside this
+#: interval means the episode boundaries have moved, not that the league has changed.
+HAMSTRING_RECURRENCE_RANGE: Tuple[float, float] = (0.09, 0.15)
+
+
 @dataclass(frozen=True)
 class Experiment:
     """One thing to try, and everything needed to try it.
@@ -304,6 +376,89 @@ def by_name(name: str) -> Experiment:
             return experiment
     raise KeyError(f"Unknown experiment {name!r}. "
                    f"Known: {[e.name for e in EXPERIMENTS]}.")
+
+
+def injury_verdict(metrics: Dict) -> Tuple[str, str]:
+    """Apply the injury-model decision rule to a walk-forward's metrics.
+
+    Clause order is deliberate: the false-positive test comes before the accuracy test,
+    because a multiplier that improves injured *and* healthy predictions alike has not
+    found an injury effect however good its MAE looks, and reporting the MAE first would
+    bury that.
+
+    Args:
+        metrics: A dict from :mod:`Scripts.injury.backtest`, carrying
+            ``post_return_mae_gain_pct``, ``control_mae_change_pct``,
+            ``calibration_slope`` and optionally ``hazard_brier_ratio`` and
+            ``band_ratio_drift``.
+
+    Returns:
+        tuple: ``("merge", reason)`` or ``("reject", reason)``. "merge" here means *the
+        multiplier may be applied*; a rejection still leaves the columns worth shipping as
+        diagnostics, which is the outcome ``docs/plans/27-injury-model.md`` names in
+        advance.
+    """
+    control = metrics.get("control_mae_change_pct")
+    if control is not None and control < -MAX_CONTROL_MAE_INCREASE_PCT:
+        return "reject", (
+            f"discounting healthy comparables improves their MAE by "
+            f"{-control:.2f}%, so the curve is fitting regression to the mean rather "
+            f"than injury.")
+    if control is not None and control > MAX_CONTROL_MAE_INCREASE_PCT:
+        return "reject", (
+            f"MAE on matched healthy appearances worsens by {control:.2f}%, more than "
+            f"the {MAX_CONTROL_MAE_INCREASE_PCT:.2f}% the rule allows.")
+
+    gain = metrics.get("post_return_mae_gain_pct")
+    if gain is None:
+        return "reject", "no post-return MAE was measured."
+    if gain < MIN_POST_RETURN_MAE_GAIN_PCT:
+        return "reject", (
+            f"post-return MAE gain {gain:+.2f}% is below the "
+            f"{MIN_POST_RETURN_MAE_GAIN_PCT:+.2f}% the rule requires.")
+
+    slope = metrics.get("calibration_slope")
+    if slope is None or slope < MIN_CALIBRATION_SLOPE:
+        return "reject", (
+            f"calibration slope {slope if slope is None else f'{slope:.2f}'} is below "
+            f"{MIN_CALIBRATION_SLOPE:.2f}: the effect is real in the mean but the "
+            f"per-player magnitude is noise.")
+
+    drift = metrics.get("band_ratio_drift")
+    if drift is not None and drift > MAX_BAND_RATIO_DRIFT:
+        return "reject", (
+            f"a position x ADP band's median TRUE/ESPN ratio moves {drift:.3f}, more "
+            f"than the {MAX_BAND_RATIO_DRIFT:.3f} cross-position neutrality allows.")
+
+    return "merge", (
+        f"post-return MAE improves {gain:+.2f}% with calibration slope {slope:.2f} and "
+        f"no more than {MAX_CONTROL_MAE_INCREASE_PCT:.2f}% cost to healthy comparables.")
+
+
+def hazard_verdict(metrics: Dict) -> Tuple[str, str]:
+    """Whether the fitted weekly hazard may feed channel A.
+
+    Judged apart from the recovery curve because the two can fail independently, and
+    because the *pooled per-body-part rate* is a separate and simpler quantity: it has its
+    own external check against the published 11.9% hamstring figure and can be quoted on a
+    board whether or not the weekly model beats a constant.
+
+    Args:
+        metrics: Carries ``hazard_brier_ratio``.
+
+    Returns:
+        tuple: ``("merge", reason)`` or ``("reject", reason)``.
+    """
+    ratio = metrics.get("hazard_brier_ratio")
+    if ratio is None:
+        return "reject", "no hazard Brier score was measured."
+    if ratio > MAX_HAZARD_BRIER_RATIO:
+        return "reject", (
+            f"weekly Brier is {ratio:.4f} of the constant base rate's, above the "
+            f"{MAX_HAZARD_BRIER_RATIO:.4f} the rule requires -- the hazard is not a "
+            f"weekly predictor. The pooled per-body-part rate is unaffected and may "
+            f"still be quoted.")
+    return "merge", f"weekly Brier is {ratio:.4f} of the constant base rate's."
 
 
 def verdict(baseline: Dict, candidate: Dict) -> Tuple[str, str]:

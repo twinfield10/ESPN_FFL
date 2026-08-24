@@ -6,6 +6,9 @@ carries two different kinds of value and treating them alike is the trap: a near
 date is a real estimate, and a date past the end of the schedule is a season-ending
 placeholder. Read literally, the placeholder means "returns in week 23".
 
+Also pinned: the dated snapshot archive, because it has no backfill -- a day the
+nightly job fails to file is a day gone, and nothing else would report it.
+
 Synthetic payloads. No network.
 """
 
@@ -66,6 +69,97 @@ def _raise_like_fetch():
     payload_without = {"season": {}}
     if "injuries" not in payload_without:
         raise ValueError("returned no 'injuries' array; keys were ['season'].")
+
+
+# --- the archive ----------------------------------------------------------
+#
+# The current-state file is overwritten on every run, so before these landed ESPN's
+# severity vocabulary survived exactly one day and there is no backfill for the days
+# already lost. What is pinned here is that the archive cannot silently acquire a hole:
+# both files are always written, the partition is always well formed, and every row says
+# when it was pulled.
+
+def test_every_row_says_when_it_was_pulled():
+    """A snapshot has to be self-describing. Ordering a concatenated history by the
+    partition name means trusting the path; ordering it by ``pulled_at`` means trusting
+    the data."""
+    pulled = datetime.datetime(2026, 8, 18, 12, 30, tzinfo=datetime.timezone.utc)
+    frame = ei.parse(payload([record("A.J. Brown"), record("Puka Nacua")]), pulled)
+    assert frame["pulled_at"].to_list() == [pulled.isoformat()] * 2
+
+
+def test_pulled_at_is_utc_and_carries_its_offset():
+    frame = ei.parse(payload([record("A.J. Brown")]))
+    stamped = datetime.datetime.fromisoformat(frame["pulled_at"][0])
+    assert stamped.tzinfo is not None
+    assert stamped.utcoffset() == datetime.timedelta(0)
+
+
+def test_an_empty_pull_still_names_pulled_at():
+    """The all-active-week case. A caller reading the column off an empty frame gets an
+    empty column rather than a KeyError -- the same reason ``load_espn_injuries`` names
+    its columns."""
+    assert "pulled_at" in ei.parse({"injuries": []}).columns
+
+
+def test_a_pull_writes_both_the_current_state_and_a_dated_snapshot(tmp_path,
+                                                                  monkeypatch):
+    monkeypatch.setattr(ei, "DATA_DIR", tmp_path)
+    frame = ei.parse(payload([record("A.J. Brown", return_date="2026-10-11")]))
+
+    current = ei.write(2026, frame, stamp="2026-08-18")
+
+    snapshot = ei.snapshot_path(2026, "2026-08-18")
+    assert current.exists() and snapshot.exists()
+    assert pl.read_parquet(current).equals(pl.read_parquet(snapshot))
+
+
+def test_neither_write_is_behind_a_flag(tmp_path, monkeypatch):
+    """An archive you have to remember to ask for is an archive with gaps, so the
+    default call has to produce both files."""
+    monkeypatch.setattr(ei, "DATA_DIR", tmp_path)
+    ei.write(2026, ei.parse(payload([record("A.J. Brown")])))
+    assert list((tmp_path / "Injuries" / "2026" / "snapshots").glob("date=*"))
+
+
+def test_a_second_pull_the_same_day_overwrites_that_partition(tmp_path, monkeypatch):
+    """Last pull of the day wins. Appending would double every row a re-run touched,
+    and a history that counts a player twice is worse than one that is a day coarse."""
+    monkeypatch.setattr(ei, "DATA_DIR", tmp_path)
+    ei.write(2026, ei.parse(payload([record("A.J. Brown", status="Out")])),
+             stamp="2026-08-18")
+    ei.write(2026, ei.parse(payload([record("A.J. Brown", status="Questionable")])),
+             stamp="2026-08-18")
+
+    kept = pl.read_parquet(ei.snapshot_path(2026, "2026-08-18"))
+    assert kept.height == 1
+    assert kept["status"][0] == "Questionable"
+
+
+def test_two_days_are_two_partitions(tmp_path, monkeypatch):
+    monkeypatch.setattr(ei, "DATA_DIR", tmp_path)
+    frame = ei.parse(payload([record("A.J. Brown")]))
+    ei.write(2026, frame, stamp="2026-08-18")
+    ei.write(2026, frame, stamp="2026-08-19")
+    assert len(list((tmp_path / "Injuries" / "2026" / "snapshots").glob("date=*"))) == 2
+
+
+@pytest.mark.parametrize("stamp", ["2026-8-18", "20260818", "2026-08", "today", ""])
+def test_a_malformed_partition_raises_rather_than_landing(stamp):
+    """A bad partition is one no query engine can prune on, and it fails silently: the
+    file writes, ``--verify`` passes, and the hole is invisible."""
+    with pytest.raises(ValueError, match="YYYY-MM-DD"):
+        ei.snapshot_path(2026, stamp)
+
+
+def test_the_snapshot_lands_where_s3_already_mirrors_it():
+    """No new S3 plumbing: ``mirror_key`` maps every component through ``_hive``, which
+    converts bare four-digit years and leaves ``snapshots`` and ``date=`` alone."""
+    from Scripts import s3_store
+
+    key = s3_store.mirror_key(ei.snapshot_path(2026, "2026-08-18"))
+    assert key == ("injuries/season=2026/snapshots/date=2026-08-18/"
+                   "espn_injuries.parquet")
 
 
 # --- the return date ------------------------------------------------------

@@ -158,13 +158,16 @@ p.run(['Knights_FFL'])"
 ## Weekly run
 
 ```bash
-Rscript R/GetNFL.R                  # refresh schedule (scores drive current week)
-python -m Scripts.scrape_FP         # FantasyPros
-python -m Scripts.scrape_pinnacle   # Pinnacle (launches Chrome via Selenium)
-python -m Scripts.scrape_BOL        # BetOnline  -- SEE WARNING
-python -m Scripts.refresh --all     # build the store, once
-python -m Scripts.sync --push       # publish it to S3 -- the app reads from there
-python populateGoogleSheet.py       # render the store to Sheets
+Rscript R/GetNFL.R                     # refresh schedule (scores drive current week)
+python -m Scripts.scrape_FP            # FantasyPros
+python -m Scripts.scrape_pinnacle      # Pinnacle (launches Chrome via Selenium)
+python -m Scripts.scrape_BOL           # BetOnline  -- SEE WARNING
+python -m Scripts.scrape_espn_injuries # today's injury report + a dated snapshot
+python -m Scripts.injury.review        # who needs a hand-written severity  <-- read this
+#   ... edit config/injuries/<season>.yaml if it named anyone ...
+python -m Scripts.refresh --all        # build the store, once
+python -m Scripts.sync --push          # publish it to S3 -- the app reads from there
+python populateGoogleSheet.py          # render the store to Sheets
 ```
 
 Run from the repo root. Scrapers use `-m` because modules import as
@@ -214,6 +217,84 @@ p.run(p.john + p.will + p.cooleen + p.fields)    # everyone but you (~7 min)
 
 Cohorts defined in the script: `all`, `tommy`, `john`, `will`, `cooleen`,
 `fields`.
+
+### Injuries: the weekly five minutes
+
+**Order matters.** `scrape_espn_injuries` first, so the review reads today's report;
+the file edit before `refresh`, because `refresh` is what bakes it into the boards.
+Edit after refreshing and nothing happens until next week.
+
+```bash
+python -m Scripts.scrape_espn_injuries   # the nightly job does this; do it again if stale
+python -m Scripts.injury.review          # prints the three lists below
+```
+
+The review prints three groups and you act on them in order:
+
+| group | what to do |
+|---|---|
+| **Needs a severity** | Players inside ADP 150 whose reading came off the `news text` rung — a regex over one sentence, resolving to a body-part average. Rows marked `<-- worth a look` expect **more than one game** missed; the rest are camp knocks and need nothing. |
+| **Stale** | Older than 28 days. Re-read the beat report, or delete. |
+| **Expired** | The entry's own window has elapsed — "4–6 weeks from 18 August" is spent by early October. Confirm he is back and delete. |
+
+Most weeks the answer is **nothing**. On the 2026-08-18 board all 22 flagged players were
+half-game knocks, so the correct action was to close the file. That is the review working,
+not the review failing.
+
+To add one, append to `config/injuries/<season>.yaml`:
+
+```yaml
+  - espn_id: 4870808            # from the board's player_id -- preferred, it is stable
+    name_key: JEREMIYAH LOVE    # fallback; joins on a normalised name, the fragile one
+    player: Jeremiyah Love      # for humans, not used to join
+    body_part: ankle_high       # must map to a Scripts.injury.lexicon group or load RAISES
+    weeks_out: [4, 6]           # a range, because a range is what a report supports
+    as_of: 2026-08-18           # required
+    source: "beat report"       # required
+    note: >-
+      High ankle sprain; ESPN lists him Active with no returnDate.
+```
+
+Then:
+
+```bash
+python -m Scripts.refresh --all --what board   # in season, plain --all
+python -m Scripts.injury.review                # confirm the row moved to the strong rung
+```
+
+**Why bother.** The fitted recovery curve was *rejected* as a multiplier — it gains ~1%
+accuracy against a 2% bar — so nothing here discounts a projection automatically. A
+hand-written severity does something the model cannot: it moves the player's **duration
+bucket**, which is the strongest severity signal in the data. Love went from a 0.5-game camp
+knock to a 4–6 week absence on one line.
+
+**How often.** Measured on this repo's own episode table: about **2.7 new injuries a week**
+among players who clear the materiality floor, of which **~1.2** cost three or more games.
+That tail is the whole job — a pre-draft scan, then roughly one entry a week. See
+[plan 27](plans/27-injury-model.md).
+
+**What this file is not.** It is not availability. `Exp G` and the `USG_` scaling already
+read ESPN's return date; this supplies *severity* where no feed carries it, and the
+`Body Part`, `Wks Out`, `Form Cost` and `Re-inj` columns are what it feeds.
+
+### Refitting after the season
+
+The episode table and the fitted model are deliberately **not** in any recurring job —
+they change only when a season of games lands, and rebuilding ten seasons every morning for
+the same answer is waste. Once, after the season:
+
+```bash
+Rscript R/GetUsage.R <season> <season>
+Rscript R/GetContext.R <season> <season>
+python -m Scripts.injury.episodes --rebuild
+python -m Scripts.injury.model --fit
+python -m Scripts.injury.backtest --write
+python -m Scripts.lab.report
+python -m Scripts.sync --push
+```
+
+You do not have to remember: the board build compares the model's own `train_seasons`
+against the season being projected and prints those commands when it is behind.
 
 ### What used to be manual
 

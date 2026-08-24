@@ -1,0 +1,61 @@
+# Severity the feeds do not carry.
+#
+# Read by Scripts.injury.severity.load_overrides, which is the top rung of the precedence
+# ladder: a human who read the beat report knows more than any automatic channel here.
+#
+# Why this file has to exist. Measured on the 2026-08-18 ESPN pull: 800 injury records, of
+# which 114 carry a structured `injury_type` and "Undisclosed" is the second most common
+# value in that field. nflverse's `report_primary_injury` says "Ankle" and never "high
+# ankle", for all ten seasons on disk. Exactly one of 800 comments anywhere contains the
+# phrase "high ankle". So for most players the difference between a three-week absence and
+# a season is not in any feed, and this is where it goes.
+#
+# Every entry needs `as_of` and `source`. An override with no provenance is a guess that
+# outlives the reason for it, and after 28 days load-time validation says so.
+#
+# Prefer `espn_id` -- it is stable, and the season path already carries `player_id`.
+# `name_key` works as a documented fallback but joins on a normalised name, which is the
+# most fragile join in the repo; suffixes are the usual failure.
+#
+# `body_part` must map to a Scripts.injury.lexicon group or loading RAISES. That is
+# deliberate: a typo'd override that silently does nothing is worse than no file at all,
+# because the reader believes the correction landed.
+#
+# `weeks_out` is a range, because a range is what a beat report supports.
+#
+# WHY THIS LIVES IN config/ AND NOT Data/: everything under Data/ is untracked, because S3
+# is the system of record for data. This is not data -- it is a set of judgements someone
+# made from a beat report, and its git history is the useful part: what was believed, and
+# when. A severity written in August that looks wrong in November is a question `git log`
+# should answer. One file per season, so a rollover leaves last year's reasoning readable.
+#
+# HOW OFTEN TO UPDATE IT. Measured over 2016-2025 on this repo's own episode table: about
+# **2.7 new injuries a week** among players who clear the materiality floor (rising -- 1.6-2.2
+# a week in 2016-2018, 2.6-3.4 in 2023-2025), of which **~1.2 a week** cost three or more
+# games and **~0.35 a week** cost five or more. An override is only worth writing where the
+# automatic ladder is materially wrong, which in practice means that 1.2-a-week tail.
+#
+#   * once before the draft -- scan the ~20-30 players inside ADP 150 sitting on the
+#     `news text` rung and correct the few the beat reports say are worse than a camp tweak;
+#   * roughly one entry a week in season, when a rostered player picks up something real;
+#   * delete entries as they resolve. Loading warns at 28 days, which is about the point a
+#     severity written from one report stops describing the present.
+
+players:
+  - espn_id: 4870808
+    name_key: JEREMIYAH LOVE
+    player: Jeremiyah Love          # for humans; not used for joining
+    body_part: ankle_high
+    weeks_out: [4, 6]
+    as_of: 2026-08-18
+    source: "beat report"
+    note: >-
+      High ankle sprain. ESPN lists him Active with no returnDate and no injury_type, so
+      every automatic rung either misses him or reads a generic ankle -- the measured
+      generic-ankle prior is 1-5 weeks against 3-6 for a high ankle specifically, and the
+      duration bucket differs. The Cardinals are "hopeful" for Week 1, which is the
+      optimistic end of that range and is why the low bound is 4 rather than 3.
+    # Uncomment to apply your own ramp instead of the fitted curve. The fitted
+    # appearance-1 multiplier for an ankle is ~0.91 against this ladder's 0.75, so the
+    # disagreement becomes a number the backtest can score rather than an assertion.
+    # multiplier_ladder: [0.75, 0.75, 0.85, 0.92, 1.0]

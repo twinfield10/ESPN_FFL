@@ -8,10 +8,35 @@ yardage. **The rookie draft-capital arm passed its gate decisively.** `USG_` rea
 all nine boards and is the best-covered source in the pre-season blend (23.1% real
 against ESPN's 13.1%). §The fifth source, wired has the details.
 
+> **That coverage figure is the *model's*, not the board's, and the gap is large.**
+> Measured 2026-08-18 on all nine stored 2026 boards: the raw artifact
+> (`Data/Projections/Usage/Season/2026/`) carries a receiving-yards projection for
+> **667 of 915** rows (72.9%), and the board's blend sees **~25%** of its rows —
+> 256 of 1,027 on Winfield Football, and 10.2–26.4% across the nine. The difference is
+> the board's own withdrawal steps, which are working as designed: 317 rows never join
+> the model, 90 are `abstain`, and **318 are `withdrawn: backup`** — the same 318 in
+> every league, because `_withdraw_usage_on_role` keys on the depth chart and ESPN's
+> price, not on league scoring.
+>
+> **The consequence is that the model adds essentially no coverage.** In **all nine**
+> leagues there are **zero** players with a real `USG_receivingYards` and no
+> `ESPN_receivingYards` (2 for rushing yards, 0 for passing). This is structural rather
+> than incidental: `PRICED_OUT_SHARE` withdraws the model exactly where ESPN has said a
+> player will not play, so `USG` cannot by construction reach a player ESPN is silent on
+> — which is the deep pool its rookie arm was built for. It functions as a **second
+> opinion on ESPN-covered players**, not as coverage, and "players with any real
+> projection went 523 → 675" does not reproduce on any stored board (525 with
+> `TRUE_Points > 0` on Winfield Football, against ~523 without the model).
+>
+> None of this is an argument against the withdrawal rule, which exists because the
+> model inflated exactly the players it knew nothing about (+15.7 points across the 22
+> players ESPN listed OUT or IR). It is an argument that the *coverage* claim in this
+> header describes a quantity the board never sees.
+
 > **Two things in this header were stale until 2026-08-14, and both understated the
 > model.** It read "at weight **0.0**" and "**it now abstains for QB**". Neither is
-> true of the code: `projection_utils.WEIGHTS` is an equal three-way split of ESPN,
-> FantasyPros and `USG` at **0.333 each**, with Pinnacle and BetOnline at zero, and
+> true of the code: `projection_utils.WEIGHTS` is an equal **quarter** each to ESPN,
+> FantasyPros, **BetOnline** and `USG`, with **Pinnacle** at zero, and
 > `season.ABSTAIN_POSITIONS` is `()`. The 0.0 was the *initial* wiring, kept
 > deliberately so that turning it on would be one number rather than a build; it was
 > turned on the same day, and the quarterback abstention was lifted once the depth
