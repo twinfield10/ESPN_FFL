@@ -39,7 +39,7 @@ def test_the_scraper_only_reads_a_robots_allowed_path():
     # fetch, so scan assignment lines rather than the whole source.
     src = inspect.getsource(fp)
     fetched = [ln for ln in src.splitlines()
-               if re.match(r'\s*url\s*=\s*f?["\']https?://', ln)]
+               if re.match(r'\s*url\s*=\s*\(?\s*f?["\']https?://', ln)]
     assert fetched, "expected a URL assignment in the module"
     for ln in fetched:
         u = re.search(r'https://www\.fantasypros\.com(/[^"\'{\s?]*)', ln)
