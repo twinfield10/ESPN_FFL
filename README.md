@@ -258,8 +258,13 @@ says so in the sidebar.
 ## How the projection blend works
 
 Four external sources — **ESPN**, **FantasyPros**, **BetOnline** and **Pinnacle** —
-plus **our own internal model**, which covers every position through three backends: a
+plus **TOMCAT**, our own model, which covers every position through three backends: a
 usage arm for QB/RB/WR/TE, a defence arm for D/ST, and a kicking arm for K.
+
+**TOMCAT** is **T**ouches · **O**pportunity · **M**arket · **C**ontext ·
+**A**vailability · **T**iers — its six feature families. The columns it writes are
+still prefixed `USG_`; `Scripts/usage/__init__.py` says why the prefix did not move
+with the name.
 
 Each source is reduced to a **stat line**, never to points. The stat lines are blended,
 and only then scored through each league's own rules. That ordering is what lets one

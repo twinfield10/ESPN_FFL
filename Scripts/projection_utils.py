@@ -218,6 +218,11 @@ IMPUTED_SUFFIX = "_is_imputed"
 #: applied twice, and it silenced Pinnacle on the 21-30 players a week where it does have a
 #: real line.
 #:
+#: `USG` is **TOMCAT** -- Touches, Opportunity, Market, Context, Availability, Tiers --
+#: this repo's own model, and `KIK`/`DST` are two of its three arms rather than separate
+#: sources. The prefix stayed `USG_` when the name landed on 2026-08-24; see
+#: `Scripts/usage/__init__.py`.
+#:
 #: The rule these nominal weights encode is **one equal vote per source that actually has
 #: an opinion**. Because every universal source carries the same 0.25, renormalisation makes
 #: that literal: four real sources weight 0.25 each, three weight 0.333, two weight 0.5.

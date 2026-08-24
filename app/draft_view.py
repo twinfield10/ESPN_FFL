@@ -372,27 +372,33 @@ COLUMNS: List[Column] = [
                   "592 and carries roughly 0.45 of the realised weight where a stat "
                   "is live. Every rank, tier and VOR on this table is built from "
                   "this column."),
-    Column("USG_Points", "Points", "USG", "number", fmt="%.1f",
-           source_of="Usage model",
-           how="The model's own season projection, on a full healthy 17 games so it "
-               "means the same thing as the columns beside it — its availability "
-               "estimate is divided back out, not baked in.",
+    Column("USG_Points", "Points", "TOM", "number", fmt="%.1f",
+           source_of="TOMCAT",
+           how="**TOMCAT** — Touches, Opportunity, Market, Context, Availability, Tiers — "
+               "is our own model, and the only source here built from observed usage "
+               "rather than from somebody else's projection. This is its usage arm — "
+               "QB, RB, WR and TE — quoted over a full healthy 17 games, so it means "
+               "the same thing as the columns beside it: the availability estimate is "
+               "divided back out rather than baked in.",
            caveat="Runs a few percent below `ESPN` at the top of the board because the "
                   "model shrinks toward positional baselines while ESPN extrapolates. "
                   "That is disagreement about players, not a scale difference — but "
-                  "`Position Ranks | Δ USG` is still the cleaner read, since a rank "
-                  "cannot be moved by it at all."),
+                  "`Position Ranks | Δ TOM` is still the cleaner read, since a rank "
+                  "cannot be moved by it at all. The column is still named `USG_` "
+                  "underneath: renaming it would orphan the frozen G2 archive."),
     Column("DST_Points", "Points", "DST", "number", fmt="%.1f",
            positions=("D/ST",),
-           source_of="D/ST model",
-           how="Team defence projected from the **betting market** rather than from "
+           source_of="TOMCAT · defence arm",
+           how="TOMCAT's defence arm — the same model as `TOM`, a different backend. "
+               "Team defence projected from the **betting market** rather than from "
                "last season: implied points allowed beats prior season on seven of "
                "eight components, because opponent offences drive defensive events "
                "and the market prices opponent offences. The points-allowed and "
                "yards-allowed ladders are integrated over a weekly distribution "
                "rather than scored at the season mean.",
            caveat="Team defences only — blank at every other position, which is not a "
-                  "gap. Blended at a quarter since 2026-08-24, so `Us` already "
+                  "gap. It carries TOMCAT's vote on a D/ST row the way `TOM` carries it "
+                  "on a receiver's. Blended at a quarter since 2026-08-24, so `Us` already "
                   "carries it; this column is what the model says on its own. It "
                   "cleared its gate against prior-season points by 34–46% in all nine "
                   "leagues, but the gate against **ESPN** cannot be run until 2027, so "
@@ -443,7 +449,7 @@ COLUMNS: List[Column] = [
                "than we do.",
            caveat="More useful than the overall Δ beside it, because a positional "
                   "rank is what you are actually choosing between on the clock."),
-    Column("USG_PosRankDelta", "Position Ranks", "Δ USG", "number", fmt="%+.0f",
+    Column("USG_PosRankDelta", "Position Ranks", "Δ TOM", "number", fmt="%+.0f",
            emphasis=True, shade="delta", source_of="Usage model",
            how="`Us − USG` within position — our rank minus the usage model's. "
                "Positive means the model likes him more than ESPN and FantasyPros do.",

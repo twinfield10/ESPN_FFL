@@ -332,7 +332,7 @@ def test_the_points_group_reads_left_to_right_from_source_to_blend():
     points = [c.label for c in dv.COLUMNS if c.group == "Points"]
     assert points.index("ESPN") < points.index("Us")
     assert points.index("FP") < points.index("Us")
-    for after in ("USG", "DST"):
+    for after in ("TOM", "DST"):
         assert points.index("Us") < points.index(after), (
             f"{after} is a single-position aside and belongs after the blend")
 
@@ -433,7 +433,7 @@ def test_the_glossary_is_scoped_to_the_columns_actually_rendered():
     """A redraft league must not be told about keeper prices it does not have."""
     md = dv.glossary_markdown([("Player Info", "Player"), ("Points", "VOR")])
     assert "**Player**" in md and "**VOR**" in md
-    assert "Keeper" not in md and "USG" not in md
+    assert "Keeper" not in md and "TOM" not in md
 
 
 def test_the_glossary_keeps_the_tables_column_order():
@@ -1328,22 +1328,26 @@ def test_a_board_predating_the_model_is_returned_untouched():
 
 def test_the_model_block_is_dropped_from_a_board_that_predates_it():
     frame = dv.display_frame(dv.with_model_evidence(_board([{}])))
-    for key in (("Points", "USG"), ("Position Ranks", "Δ USG"),
+    for key in (("Points", "TOM"), ("Position Ranks", "Δ TOM"),
                 ("Notes", "Exp G"), ("Notes", "Model Evidence")):
         assert key not in frame.columns
 
 
 def test_the_model_sits_with_the_quantity_it_is_an_opinion_about():
-    """`USG` beside the points it is a projection of, and its rank dissent beside the
+    """`TOM` beside the points it is a projection of, and its rank dissent beside the
     positional ranks it dissents from — which is the arrangement that makes the level
-    mismatch visible instead of inviting the subtraction."""
+    mismatch visible instead of inviting the subtraction.
+
+    Labelled `TOM` since 2026-08-24, for TOMCAT — Touches, Opportunity, Market, Context,
+    Availability, Tiers. The underlying column is still `USG_Points`; see
+    `Scripts/usage/__init__.py` for why the prefix did not move with the name."""
     frame = dv.display_frame(
         dv.at_budget(dv.with_model_evidence(_modelled([{}])),
                      dv.DEFAULT_AUCTION_BUDGET),
         dv.VALUE_LENS_CASH)
     order = list(frame.columns)
-    assert order.index(("Points", "Us")) < order.index(("Points", "USG"))
-    assert order.index(("Position Ranks", "Δ")) < order.index(("Position Ranks", "Δ USG"))
+    assert order.index(("Points", "Us")) < order.index(("Points", "TOM"))
+    assert order.index(("Position Ranks", "Δ")) < order.index(("Position Ranks", "Δ TOM"))
     assert order.index(("Notes", "Exp G")) < order.index(("Notes", "Model Evidence"))
 
 
