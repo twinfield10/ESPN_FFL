@@ -24,6 +24,10 @@ pyarrow==18.1.0
 scikit-learn==1.7.2
 statsmodels==0.14.5
 joblib==1.5.3
+# Arrives transitively with scikit-learn, and pinned anyway: Scripts/injury/model.py
+# calls optimize.least_squares directly, and a dependency you import by name is one you
+# declare, or the next resolver that drops it breaks the fit rather than the install.
+scipy==1.17.1
 
 # --- Scraping -----------------------------------------------------------
 requests==2.32.5

@@ -30,6 +30,34 @@ NFL_TACKLES_CSV = DATA_DIR / "NFL_Tackles_By_Position.csv"
 #: season-scoped -- a player's ids do not change year to year.
 PLAYER_IDS_PARQUET = DATA_DIR / "NFL" / "player_ids.parquet"
 
+#: Hand-maintained injury severity, one file per season.
+#:
+#: **Tracked in git, unlike everything under ``Data/``**, and that is the whole reason it
+#: lives here. The file holds judgements a human made from a beat report -- severity no feed
+#: carries -- each stamped with an ``as_of`` and a ``source``. Version history is the point:
+#: it records what was believed and when, which is exactly what you want to re-read in
+#: November when a call made in August turns out wrong.
+#:
+#: Note the ``.gitignore`` nuance. ``config*.yaml`` is ignored so that ``config.yaml``'s
+#: league ids never leave the machine, and that pattern matches on *basename*, so
+#: ``config/injuries/2026.yaml`` is unaffected. An explicit un-ignore sits beside it anyway,
+#: so the intent survives a future edit to the ignore rules.
+INJURY_OVERRIDES_DIR = REPO_ROOT / "config" / "injuries"
+
+#: Injury episodes and their matched healthy control, written by
+#: ``python -m Scripts.injury.episodes --rebuild``.
+#:
+#: Deliberately **not** season-scoped, and deliberately not in
+#: :data:`Scripts.store.ARTIFACTS`. Not season-scoped because pooling across seasons is
+#: the entire point -- a body part yields 40-220 episodes over ten years and single-digit
+#: counts within one. Not a store artifact because the store is league-scoped and
+#: ``artifact_path`` takes a ``league_key``: an injury to a running back is the same
+#: injury in all nine leagues, and putting it there would imply nine copies of it.
+INJURY_EPISODES_PARQUET = DATA_DIR / "NFL" / "injury_episodes.parquet"
+INJURY_POST_RETURN_PARQUET = DATA_DIR / "NFL" / "injury_post_return.parquet"
+INJURY_CONTROLS_PARQUET = DATA_DIR / "NFL" / "injury_controls.parquet"
+INJURY_META_JSON = DATA_DIR / "NFL" / "injury_meta.json"
+
 
 def nfl_season_dir(season: int, *parts: str, create: bool = False) -> Path:
     """Season-scoped NFL reference data, written by the ``R/Get*.R`` scripts.

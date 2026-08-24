@@ -33,6 +33,16 @@ exist.
 so this lands on the same ``normalise_name`` key the book sources use, with the same
 shared-name caveat ``_disambiguate_name_keys`` exists for.
 
+**Every pull is kept.** The current-state file is overwritten each run, and until
+2026-08-18 that was the only copy -- so ESPN's severity vocabulary, which is the only
+severity any source in this repo carries, survived exactly one day. Measured on the
+2026-08-18 pull: 114 of 800 records carry a structured ``injury_type``, and among them
+``"Knee - ACL"`` and ``"Knee - ACL + MCL"`` are real diagnoses that ``nflreadr``'s
+``report_primary_injury`` cannot express -- it says ``"Knee"``. :func:`write` now also
+lands a dated partition, because **there is no backfill**: the history starts the day
+the archive ships and nothing can recover the days before it. See
+:func:`snapshot_path`.
+
 Usage::
 
     python -m Scripts.scrape_espn_injuries --season 2026
@@ -41,6 +51,7 @@ Usage::
 from __future__ import annotations
 
 import datetime
+import re
 from typing import Any, Dict, List, Optional
 
 import polars as pl
@@ -62,6 +73,13 @@ SEASON_ENDING_AFTER = datetime.date(2027, 1, 15)
 #: Statuses that mean the player is currently available.
 ACTIVE_STATUSES = ("Active",)
 
+#: A snapshot partition stamp. ``YYYY-MM-DD`` and nothing else.
+#:
+#: Validated rather than trusted because a malformed partition is one no query engine
+#: can prune on, and it fails silently -- the file lands, ``--verify`` passes, and the
+#: history simply has a hole in it that nothing reports.
+_DATE_STAMP = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
 
 def injuries_path(season: int, create: bool = False):
     """Where a season's pull lives.
@@ -74,6 +92,43 @@ def injuries_path(season: int, create: bool = False):
         Path: ``Data/Injuries/<season>/espn_injuries.parquet``.
     """
     directory = DATA_DIR / "Injuries" / str(season)
+    if create:
+        directory.mkdir(parents=True, exist_ok=True)
+    return directory / "espn_injuries.parquet"
+
+
+def snapshot_path(season: int, stamp: str, create: bool = False):
+    """Where one day's pull is kept, so the report has a history.
+
+    The current-state file is overwritten on every run, which means ESPN's own severity
+    vocabulary -- ``"Knee - ACL"``, ``injury_detail`` of ``"Surgery"`` -- exists only
+    for as long as it takes the next pull to replace it. **There is no backfill.** A
+    dated partition beside it turns a nightly snapshot into a time series: when a
+    designation first appeared, how an estimated return date moved, and eventually a
+    severity axis that ``nflreadr``'s generic body parts cannot express.
+
+    ``Data/Injuries/`` is already a mirrored tier, and
+    :func:`Scripts.s3_store.mirror_key` maps every path component through ``_hive``,
+    which converts bare four-digit years and leaves everything else alone. So this
+    lands at ``injuries/season=<season>/snapshots/date=<stamp>/espn_injuries.parquet``
+    with no new S3 plumbing.
+
+    Args:
+        season: Season year.
+        stamp: Partition date, ``YYYY-MM-DD``.
+        create: Create the directory.
+
+    Returns:
+        Path: ``Data/Injuries/<season>/snapshots/date=<stamp>/espn_injuries.parquet``.
+
+    Raises:
+        ValueError: When ``stamp`` is not ``YYYY-MM-DD``.
+    """
+    if not _DATE_STAMP.match(str(stamp)):
+        raise ValueError(
+            f"snapshot stamp must be YYYY-MM-DD, got {stamp!r}. A malformed partition "
+            f"is one no query can prune on, and it fails silently.")
+    directory = DATA_DIR / "Injuries" / str(season) / "snapshots" / f"date={stamp}"
     if create:
         directory.mkdir(parents=True, exist_ok=True)
     return directory / "espn_injuries.parquet"
@@ -102,22 +157,33 @@ def fetch(timeout: int = 30) -> Dict[str, Any]:
     return payload
 
 
-def parse(payload: Dict[str, Any]) -> pl.DataFrame:
+def parse(payload: Dict[str, Any],
+          pulled_at: Optional[datetime.datetime] = None) -> pl.DataFrame:
     """Flatten the nested payload into one row per injury record.
 
     Deliberately faithful: no games arithmetic here, no filtering to skill positions.
     The season-relative interpretation belongs with the schedule that defines week 1,
     and a pull that quietly dropped rows would be hard to audit later.
 
+    ``pulled_at`` stamps every row with when the pull happened, which is what makes a
+    snapshot self-describing: a concatenated history can be ordered and deduplicated
+    from the data rather than from the partition names, and a re-run that lands in the
+    wrong partition is visible instead of silent.
+
     Args:
         payload: :func:`fetch` output.
+        pulled_at: When the pull happened. Defaults to now, UTC.
 
     Returns:
         pl.DataFrame: ``full_name``, ``name_key``, ``team``, ``position``,
         ``status``, ``return_date``, ``injury_detail``, ``injury_type``,
-        ``injury_location``, ``news_date`` and ``comment``.
+        ``injury_location``, ``news_date``, ``comment`` and ``pulled_at``.
     """
     from Scripts.season_projections import normalise_name
+
+    if pulled_at is None:
+        pulled_at = datetime.datetime.now(datetime.timezone.utc)
+    stamp = pulled_at.isoformat()
 
     rows: List[Dict[str, Any]] = []
     for team in payload.get("injuries", []):
@@ -138,11 +204,13 @@ def parse(payload: Dict[str, Any]) -> pl.DataFrame:
                 "injury_location": details.get("location"),
                 "news_date": record.get("date"),
                 "comment": record.get("shortComment") or record.get("longComment"),
+                "pulled_at": stamp,
             })
 
     if not rows:
         return pl.DataFrame(schema={"full_name": pl.String, "name_key": pl.String,
-                                    "status": pl.String, "return_date": pl.Date})
+                                    "status": pl.String, "return_date": pl.Date,
+                                    "pulled_at": pl.String})
 
     frame = pl.DataFrame(rows)
     # Cast to String before parsing. A pull in which *no* record carries a return date
@@ -153,18 +221,35 @@ def parse(payload: Dict[str, Any]) -> pl.DataFrame:
         .str.to_date(strict=False).alias("return_date"))
 
 
-def write(season: int, frame: pl.DataFrame):
-    """Persist a pull.
+def write(season: int, frame: pl.DataFrame, stamp: Optional[str] = None):
+    """Persist a pull, as both current state and a dated snapshot.
+
+    Two writes, and **neither is behind a flag**. The current-state file keeps the path
+    every existing reader already depends on -- :func:`Scripts.season_projections.
+    load_espn_injuries` among them -- and the dated partition accumulates the history
+    that overwriting has been discarding. An archive you have to remember to ask for is
+    an archive with gaps, so ``run_daily_refresh.sh`` needs no change to get one.
+
+    A second pull on the same day **overwrites** that date's partition rather than
+    appending. Last pull of the day wins, which is the right resolution pre-season. In
+    season the report moves within a week, and finer stamping belongs with the weekly
+    availability head that cares -- see ``docs/plans/19-weekly-usage-model.md``.
 
     Args:
         season: Season year.
         frame: :func:`parse` output.
+        stamp: Snapshot partition date, ``YYYY-MM-DD``. Defaults to today, UTC, so the
+            partition agrees with the ``pulled_at`` the rows carry.
 
     Returns:
-        Path: Where it was written.
+        Path: The current-state path, which is what the caller reports.
     """
+    if stamp is None:
+        stamp = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+
     path = injuries_path(season, create=True)
     frame.write_parquet(path)
+    frame.write_parquet(snapshot_path(season, stamp, create=True))
     return path
 
 
