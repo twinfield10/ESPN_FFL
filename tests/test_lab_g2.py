@@ -22,8 +22,7 @@ import pandas as pd
 import pytest
 
 from Scripts.lab import g2
-from Scripts.projection_utils import (IMPUTED_SUFFIX, POSITION_SCOPED_SOURCES, WEIGHTS,
-                                      compute_weighted_stats)
+from Scripts.projection_utils import IMPUTED_SUFFIX, WEIGHTS, compute_weighted_stats
 
 
 def frame(usg_value: float = 100.0, usg_imputed: bool = False) -> pd.DataFrame:
@@ -39,10 +38,6 @@ def frame(usg_value: float = 100.0, usg_imputed: bool = False) -> pd.DataFrame:
     })
 
 
-def universal(weights):
-    """Weights over the sources that apply to every row -- see POSITION_SCOPED_SOURCES."""
-    return sum(v for k, v in weights.items() if k not in POSITION_SCOPED_SOURCES)
-
 
 # --- the counterfactual is real ------------------------------------------
 
@@ -54,14 +49,20 @@ def test_the_two_variants_differ_only_in_usg():
     assert with_usg["USG"] > 0.0
     # Both blends must be complete, or one is quietly scoring on a smaller base.
     #
-    # Summed over the **universal** sources only. `KIK` and `DST` project one position
-    # each and carry no column anywhere else, so `compute_weighted_stats` drops them and
-    # renormalises -- which means the full table legitimately sums past 1.0 while every
-    # row it is applied to still blends on a complete base. This assertion read
-    # `sum(...values())` until 2026-08-24 and started failing the moment `DST` went to
-    # 0.25, correctly: the invariant it names is real, and only the arithmetic was wrong.
-    assert universal(with_usg) == pytest.approx(1.0)
-    assert universal(without) == pytest.approx(1.0)
+    # "Complete" cannot be `sum == 1.0`, and the attempts to make it so are the history
+    # of this assertion. It read `sum(...values())` until 2026-08-24, when `DST` going to
+    # 0.25 broke it; summing only the universal sources fixed that and broke again hours
+    # later when Pinnacle joined at 0.25 and the universal total became 1.25.
+    #
+    # Both failures pointed at the same thing: the absolute total is not the invariant,
+    # because `compute_weighted_stats` renormalises whatever survives on a given row.
+    # What has to hold is that the sources carrying weight carry it **equally** -- that
+    # is what makes the blend 1/n over whoever is real, and it is the property the G2
+    # counterfactual depends on, since an unequal arm would score on a different rule
+    # rather than a different source set.
+    for variant in (with_usg, without):
+        live = {v for v in variant.values() if v > 0}
+        assert len(live) == 1, f"weighted sources must weight equally: {variant}"
 
 
 def test_with_usg_is_exactly_the_shipped_weighting():

@@ -133,7 +133,7 @@ dst_map = {'Kansas City Chiefs': 'Chiefs D/ST',
            'Minnesota Vikings': 'Vikings D/ST'
            }
 
-def get_fp(wk):
+def get_fp(wk, year=None):
     """Scrape FantasyPros projections for one week.
 
     Args:
@@ -141,6 +141,15 @@ def get_fp(wk):
             projections. FantasyPros accepts the literal string ``draft`` in
             place of a week number; the response layout is identical, so the
             same parser handles both.
+        year: Season to fetch. **This works, and this repo believed for a year
+            that it did not.** `docs/plans/03` and `STATE_OF_THE_REPO.md` both
+            recorded that "FantasyPros URLs take no season parameter, so the 2025
+            CSV cannot be reproduced by re-scraping" -- the parameter is `year`,
+            not `season`, and `season=` really is ignored, which is presumably how
+            the wrong conclusion was reached. Verified 2026-08-24 against the
+            archived 2025 week 1: all ten shared running backs matched to the
+            decimal, and the live pull returned 161 of them against the archive's
+            27. None when the current season is wanted.
 
     Returns:
         pd.DataFrame: One row per player with ``proj_``-prefixed stat columns.
@@ -160,7 +169,10 @@ def get_fp(wk):
 
     for i, pos in enumerate(pos_list):
         # Build and Get URL
-        url = f"https://www.fantasypros.com/nfl/projections/{pos}.php?max-yes=false&min-yes=false&scoring=STD&week={wk}"
+        url = (f"https://www.fantasypros.com/nfl/projections/{pos}.php"
+               f"?max-yes=false&min-yes=false&scoring=STD&week={wk}")
+        if year is not None:
+            url += f"&year={int(year)}"
         if i:
             time.sleep(CRAWL_DELAY_SECONDS)
         response = requests.get(url, headers=headers, timeout=30)
@@ -267,7 +279,13 @@ def scrape_weekly(season=None, week=None):
     season = SEASON if season is None else season
     week = WEEK if week is None else week
 
-    proj_list = [get_fp(wk=w) for w in range(1, week + 1)]
+    # `season` used to name the output directory and nothing else, so asking for 2025
+    # wrote the *current* season's numbers into `Data/Projections/FantasyPros/2025/`
+    # under 2025's name. It never fired because nobody could backfill -- the season
+    # parameter was believed not to exist. It does (`year`), so the argument now
+    # reaches the request as well as the path.
+    year = None if int(season) == int(SEASON) else int(season)
+    proj_list = [get_fp(wk=w, year=year) for w in range(1, week + 1)]
     df = pd.concat(proj_list, ignore_index=True)
 
     df.to_csv(season_dir("FantasyPros", season, "FantasyPros_Projections_Week_All.csv"))
@@ -293,7 +311,8 @@ def scrape_season_long(season=None):
     """
     season = SEASON if season is None else season
 
-    df = get_fp(wk=DRAFT_WEEK)
+    year = None if int(season) == int(SEASON) else int(season)
+    df = get_fp(wk=DRAFT_WEEK, year=year)
     out = season_dir("FantasyPros", season, "FantasyPros_Projections_Season.parquet")
     df.to_parquet(out)
     df.to_csv(out.with_suffix(".csv"), index=False)

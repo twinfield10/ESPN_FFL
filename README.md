@@ -11,6 +11,9 @@ IDP league, and a superflex league without special-casing.
 
 - **[docs/STATE_OF_THE_REPO.md](docs/STATE_OF_THE_REPO.md)** — what works, what
   is broken, and the prioritised backlog. Start here.
+- **[docs/projection_pipeline.html](docs/projection_pipeline.html)** — every source,
+  how they blend into `TRUE_Points`, and what the app shows. A living document;
+  open it in a browser, no build step.
 - **[docs/DRAFT_READINESS.md](docs/DRAFT_READINESS.md)** — the 2026 draft countdown:
   the dates ESPN has, what is verified working, and what to do on which day.
   Temporary — retire it after the last draft.
@@ -254,27 +257,24 @@ says so in the sidebar.
 
 ## How the projection blend works
 
-```
-ESPN stats ─┐
-FantasyPros ─┼─► impute gaps ─► MEAN ─► weighted blend ─► TRUE_* stat line
-Pinnacle ───┤                                                    │
-BetOnline ──┘                                                    ▼
-                                              proj_to_score(league)
-                                                  │
-                                   build_scoring_table() turns that
-                                   league's ESPN scoring settings into
-                                   per-stat point values
-                                                  ▼
-                                            TRUE_Points
-```
+Four external sources — **ESPN**, **FantasyPros**, **BetOnline** and **Pinnacle** —
+plus **our own internal model**, which covers every position through three backends: a
+usage arm for QB/RB/WR/TE, a defence arm for D/ST, and a kicking arm for K.
 
-Sources are blended per stat, not per player — `passingTouchdowns` leans on the
-sportsbooks, `passingYards` leans on FantasyPros. Weights live in
-`clean_lineups()` in `Scripts/projection_utils.py`.
+Each source is reduced to a **stat line**, never to points. The stat lines are blended,
+and only then scored through each league's own rules. That ordering is what lets one
+pipeline serve nine leagues with different scoring.
 
-The key idea is that projections are produced as **stat lines**, then scored
-through each league's own rules. That is what makes one pipeline serve nine
-leagues with different scoring.
+The weighting rule is **one equal vote per source that has an opinion**. Every source
+carries the same nominal weight, a source with no real line for a player is flagged and
+drops out, and the survivors renormalise — so four real sources weight 0.25 each, three
+weight 0.333, two weight 0.5. Weights live in `WEIGHTS` in
+`Scripts/projection_utils.py`.
+
+**Full detail, with current coverage figures and the board's column map:
+[`docs/projection_pipeline.html`](docs/projection_pipeline.html)** — open it in a
+browser, no build step. This paragraph is the summary; that document is the reference,
+and it is kept current.
 
 ---
 

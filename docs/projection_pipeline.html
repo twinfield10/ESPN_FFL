@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nine Leagues, One Blend — ESPN_FFL projection pipeline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+<style>
+  :root {
+    --ground:#FBFAF7; --panel:#FFFFFF; --sunk:#F3F1EB;
+    --ink:#14181F; --ink-soft:#4A5260; --ink-mute:#7A8494;
+    --rule:#E3E0D8; --rule-firm:#CFCBC0;
+    --brass:#9A6A16; --brass-bg:#F6EEDC;
+    --live:#10645F; --live-bg:#E4EFEC;
+    --dormant:#79818F;
+    --bar:#B98A2E;
+    --shadow:0 1px 2px rgba(20,24,31,.05), 0 8px 24px -16px rgba(20,24,31,.22);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:#0E1216; --panel:#161B21; --sunk:#1B212A;
+      --ink:#E9E6DF; --ink-soft:#AEB6C2; --ink-mute:#7D8794;
+      --rule:#262D36; --rule-firm:#39424D;
+      --brass:#D9A24A; --brass-bg:#2A2115;
+      --live:#4FB3A5; --live-bg:#122A28;
+      --dormant:#7D8794;
+      --bar:#C79338;
+      --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:#0E1216; --panel:#161B21; --sunk:#1B212A;
+    --ink:#E9E6DF; --ink-soft:#AEB6C2; --ink-mute:#7D8794;
+    --rule:#262D36; --rule-firm:#39424D;
+    --brass:#D9A24A; --brass-bg:#2A2115;
+    --live:#4FB3A5; --live-bg:#122A28;
+    --dormant:#7D8794;
+    --bar:#C79338;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.7);
+  }
+
+  * { box-sizing:border-box; }
+  html { -webkit-text-size-adjust:100%; }
+  body {
+    background:var(--ground); color:var(--ink);
+    font-family:"Source Serif 4", Georgia, "Times New Roman", serif;
+    font-size:17px; line-height:1.62; margin:0; padding:0 24px 96px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap { max-width:1080px; margin:0 auto; }
+  .measure { max-width:63ch; }
+
+  header.top { padding:72px 0 40px; border-bottom:2px solid var(--ink); }
+  .eyebrow {
+    font-family:"JetBrains Mono", ui-monospace, Menlo, monospace;
+    font-size:11px; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--brass); margin:0 0 20px;
+  }
+  h1 {
+    font-family:"Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+    font-weight:800; font-size:clamp(2.5rem,7vw,4.25rem); line-height:.98;
+    letter-spacing:-.028em; text-wrap:balance; margin:0 0 22px;
+  }
+  .standfirst { font-size:1.2rem; line-height:1.5; color:var(--ink-soft); max-width:58ch; margin:0; }
+  .stamp {
+    font-family:"JetBrains Mono", ui-monospace, Menlo, monospace;
+    font-size:11.5px; color:var(--ink-mute); margin-top:28px;
+    display:flex; flex-wrap:wrap; gap:8px 22px;
+  }
+  .living {
+    margin-top:18px; font-size:.85rem; color:var(--ink-mute);
+    font-style:italic; max-width:60ch;
+  }
+
+  section { padding-top:64px; }
+  h2 {
+    font-family:"Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+    font-weight:700; font-size:clamp(1.5rem,3.2vw,2rem);
+    letter-spacing:-.018em; line-height:1.1; text-wrap:balance; margin:0 0 6px;
+  }
+  h3 {
+    font-family:"Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+    font-weight:700; font-size:1.03rem; letter-spacing:-.006em; margin:34px 0 8px;
+  }
+  .kicker {
+    font-family:"JetBrains Mono", ui-monospace, Menlo, monospace;
+    font-size:10.5px; letter-spacing:.15em; text-transform:uppercase;
+    color:var(--ink-mute); margin:0 0 14px; padding-bottom:10px;
+    border-bottom:1px solid var(--rule);
+  }
+  p { margin:0 0 16px; }
+  a { color:var(--brass); text-underline-offset:2px; }
+  a:focus-visible { outline:2px solid var(--brass); outline-offset:3px; border-radius:2px; }
+  code, .mono {
+    font-family:"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size:.855em;
+  }
+  code {
+    background:var(--sunk); border:1px solid var(--rule);
+    padding:.08em .34em; border-radius:3px; white-space:nowrap;
+  }
+  strong { font-weight:600; }
+
+  figure { margin:32px 0; }
+  .figbox {
+    background:var(--panel); border:1px solid var(--rule); border-radius:4px;
+    box-shadow:var(--shadow); padding:28px 24px 20px; overflow-x:auto;
+  }
+  .figbox svg { display:block; width:100%; min-width:680px; height:auto; }
+  figcaption { font-size:.88rem; color:var(--ink-soft); margin-top:14px; max-width:70ch; line-height:1.5; }
+
+  .tablewrap {
+    overflow-x:auto; border:1px solid var(--rule); border-radius:4px;
+    background:var(--panel); box-shadow:var(--shadow); margin:24px 0;
+  }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; }
+  th, td { text-align:left; padding:11px 16px; border-bottom:1px solid var(--rule); vertical-align:top; }
+  thead th {
+    font-family:"JetBrains Mono", ui-monospace, Menlo, monospace;
+    font-size:10px; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--ink-mute); font-weight:500; background:var(--sunk);
+    white-space:nowrap; border-bottom:1px solid var(--rule-firm);
+  }
+  tbody tr:last-child td { border-bottom:0; }
+  .num {
+    font-family:"JetBrains Mono", ui-monospace, Menlo, monospace;
+    font-variant-numeric:tabular-nums; text-align:right; white-space:nowrap;
+  }
+  .src {
+    font-family:"JetBrains Mono", ui-monospace, Menlo, monospace;
+    font-weight:700; font-size:.84rem; white-space:nowrap;
+  }
+  td.note { color:var(--ink-soft); font-size:.89rem; line-height:1.45; }
+  tr.arm td:first-child { padding-left:34px; position:relative; }
+  tr.arm td:first-child::before {
+    content:"└"; position:absolute; left:16px; color:var(--ink-mute);
+    font-family:"JetBrains Mono", monospace;
+  }
+  tr.internal td { background:var(--brass-bg); }
+
+  .pill {
+    display:inline-block; font-family:"JetBrains Mono", ui-monospace, Menlo, monospace;
+    font-size:10px; font-weight:700; letter-spacing:.06em;
+    padding:2px 7px; border-radius:3px; white-space:nowrap;
+  }
+  .pill-live { background:var(--live-bg); color:var(--live); border:1px solid var(--live); }
+  .pill-off  { background:transparent; color:var(--dormant); border:1px dashed var(--rule-firm); }
+
+  .callout {
+    border-left:3px solid var(--brass); background:var(--brass-bg);
+    padding:18px 22px; margin:26px 0; border-radius:0 4px 4px 0;
+  }
+  .callout p:last-child { margin-bottom:0; }
+  .callout .lede {
+    font-family:"Bricolage Grotesque", Arial, sans-serif;
+    font-weight:700; font-size:.96rem; display:block; margin-bottom:4px;
+  }
+
+  ol.stages { list-style:none; counter-reset:st; padding:0; margin:26px 0 0; }
+  ol.stages li {
+    counter-increment:st; position:relative; padding:0 0 22px 52px;
+    border-left:1px solid var(--rule); margin-left:15px;
+  }
+  ol.stages li:last-child { border-left-color:transparent; padding-bottom:0; }
+  ol.stages li::before {
+    content:counter(st); position:absolute; left:-15px; top:-2px;
+    width:30px; height:30px; border-radius:50%;
+    background:var(--panel); border:1px solid var(--rule-firm); color:var(--brass);
+    font-family:"JetBrains Mono", ui-monospace, Menlo, monospace;
+    font-size:12px; font-weight:700; display:grid; place-items:center;
+  }
+  ol.stages h3 { margin:0 0 4px; }
+  ol.stages p { margin:0; color:var(--ink-soft); font-size:.95rem; }
+
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(238px,1fr)); gap:14px; margin:26px 0; }
+  .card {
+    background:var(--panel); border:1px solid var(--rule); border-radius:4px;
+    padding:16px 18px; box-shadow:var(--shadow);
+  }
+  .card h4 {
+    font-family:"JetBrains Mono", ui-monospace, Menlo, monospace;
+    font-size:10px; letter-spacing:.13em; text-transform:uppercase;
+    color:var(--ink-mute); margin:0 0 10px; font-weight:500;
+  }
+  .cols { display:flex; flex-wrap:wrap; gap:5px; }
+  .col-chip {
+    font-family:"JetBrains Mono", ui-monospace, Menlo, monospace;
+    font-size:11.5px; padding:3px 8px; border-radius:3px;
+    background:var(--sunk); border:1px solid var(--rule); color:var(--ink-soft);
+  }
+  .col-chip.hi { background:var(--brass-bg); border-color:var(--brass); color:var(--brass); font-weight:700; }
+
+  footer.end {
+    margin-top:72px; padding-top:22px; border-top:1px solid var(--rule);
+    font-size:.85rem; color:var(--ink-mute); max-width:70ch;
+  }
+  @media (max-width:620px) {
+    body { font-size:16px; padding:0 18px 64px; }
+    header.top { padding-top:48px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <p class="eyebrow">ESPN_FFL · projection pipeline</p>
+    <h1>Nine Leagues,<br>One Blend</h1>
+    <p class="standfirst">Every source that feeds a projection, how they combine into
+      <span class="mono">TRUE_Points</span>, and which of it reaches the board you draft from.</p>
+    <div class="stamp">
+      <span>Updated 2026-08-24</span>
+      <span>2026 season</span>
+      <span>Board: 2,504 rows × 1,355 columns</span>
+      <span>1,285 draftable</span>
+    </div>
+    <p class="living">A living document. When the sources, the weights or the board's
+      columns change, this changes with them — figures below are measured on the current
+      build, not remembered.</p>
+  </header>
+
+  <!-- ============ ARCHITECTURE ============ -->
+  <section id="idea">
+    <p class="kicker">The architecture, in one sentence</p>
+    <h2>Projections are blended as stat lines, then scored</h2>
+    <div class="measure">
+      <p>Every source is reduced to a <strong>stat line</strong> — passing yards, receptions,
+        sacks — never to points. Points are computed last, by running that blended stat line
+        through each league's own scoring rules, read live from ESPN.</p>
+      <p>That ordering is the whole reason one pipeline serves nine leagues with different
+        rules, including one that scores tackles for loss and another that pays a
+        two-keeper $250 auction. A source that published <em>points</em> would have to be
+        re-derived nine times, and could not be.</p>
+    </div>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 960 372" role="img"
+             aria-label="Four external sources and one internal model are imputed and flagged, then blended with flagged weights dropped and the remainder renormalised, producing a TRUE_ stat line scored separately under each of nine leagues' rules.">
+          <defs>
+            <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+            </marker>
+            <marker id="arb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--brass)"/>
+            </marker>
+          </defs>
+          <g font-family="JetBrains Mono, monospace" font-size="12" fill="currentColor">
+
+            <text x="16" y="22" font-size="10.5" fill="var(--ink-mute)" letter-spacing="1.6">EXTERNAL</text>
+            <g stroke="currentColor" stroke-width="1" fill="none">
+              <rect x="16" y="32"  width="152" height="28" rx="3"/>
+              <rect x="16" y="66"  width="152" height="28" rx="3"/>
+              <rect x="16" y="100" width="152" height="28" rx="3"/>
+              <rect x="16" y="134" width="152" height="28" rx="3"/>
+            </g>
+            <text x="28" y="50">ESPN</text>        <text x="156" y="50" text-anchor="end">.25</text>
+            <text x="28" y="84">FantasyPros</text> <text x="156" y="84" text-anchor="end">.25</text>
+            <text x="28" y="118">BetOnline</text>  <text x="156" y="118" text-anchor="end">.25</text>
+            <text x="28" y="152">Pinnacle</text>   <text x="156" y="152" text-anchor="end">.25</text>
+
+            <text x="16" y="190" font-size="10.5" fill="var(--brass)" letter-spacing="1.6">INTERNAL MODEL</text>
+            <rect x="16" y="200" width="152" height="112" rx="3"
+                  fill="var(--brass-bg)" stroke="var(--brass)" stroke-width="1.5"/>
+            <text x="28" y="221" fill="var(--brass)" font-weight="700">Ours</text>
+            <text x="156" y="221" text-anchor="end" fill="var(--brass)" font-weight="700">.25</text>
+            <line x1="28" y1="230" x2="156" y2="230" stroke="var(--brass)" stroke-width=".6" opacity=".5"/>
+            <text x="34" y="250" font-size="10.5" fill="var(--ink-soft)">usage arm · QB RB WR TE</text>
+            <text x="34" y="270" font-size="10.5" fill="var(--ink-soft)">defence arm · D/ST</text>
+            <text x="34" y="290" font-size="10.5" fill="var(--dormant)">kicking arm · K (held)</text>
+            <text x="34" y="306" font-size="9.5" fill="var(--ink-mute)">one source, three backends</text>
+
+            <g stroke="currentColor" stroke-width="1" fill="none" marker-end="url(#ar)" opacity=".55">
+              <path d="M 172 46  C 205 46, 205 156, 236 156"/>
+              <path d="M 172 80  C 205 80, 205 156, 236 156"/>
+              <path d="M 172 114 C 205 114, 205 156, 236 156"/>
+              <path d="M 172 148 C 205 148, 205 156, 236 156"/>
+            </g>
+            <path d="M 172 256 C 205 256, 205 156, 236 156" stroke="var(--brass)"
+                  stroke-width="1.2" fill="none" marker-end="url(#arb)"/>
+
+            <rect x="240" y="110" width="152" height="92" rx="3"
+                  fill="var(--sunk)" stroke="currentColor" stroke-width="1"/>
+            <text x="316" y="136" text-anchor="middle" font-size="12.5" font-weight="700">Impute + flag</text>
+            <text x="316" y="156" text-anchor="middle" font-size="10.5" fill="var(--ink-soft)">gaps filled from the</text>
+            <text x="316" y="170" text-anchor="middle" font-size="10.5" fill="var(--ink-soft)">ESPN / FP mean</text>
+            <text x="316" y="188" text-anchor="middle" font-size="10.5" fill="var(--brass)">every filled cell flagged</text>
+
+            <path d="M 396 156 L 436 156" stroke="var(--brass)" stroke-width="1.5" fill="none" marker-end="url(#arb)"/>
+            <text x="416" y="147" text-anchor="middle" font-size="9.5" fill="var(--brass)">flags</text>
+
+            <rect x="440" y="94" width="176" height="124" rx="3" fill="none"
+                  stroke="var(--brass)" stroke-width="1.5"/>
+            <text x="528" y="120" text-anchor="middle" font-size="12.5" font-weight="700" fill="var(--brass)">Equal vote</text>
+            <text x="528" y="142" text-anchor="middle" font-size="10.5" fill="var(--ink-soft)">a flagged cell forfeits</text>
+            <text x="528" y="156" text-anchor="middle" font-size="10.5" fill="var(--ink-soft)">its weight; the rest</text>
+            <text x="528" y="170" text-anchor="middle" font-size="10.5" fill="var(--ink-soft)">renormalise to 1/n</text>
+            <text x="528" y="194" text-anchor="middle" font-size="10" fill="var(--brass)">4 real → .25 · 3 → .33 · 2 → .5</text>
+
+            <path d="M 620 156 L 664 156" stroke="currentColor" stroke-width="1" fill="none" marker-end="url(#ar)"/>
+            <text x="642" y="147" text-anchor="middle" font-size="9.5" fill="var(--ink-mute)">TRUE_</text>
+            <text x="642" y="173" text-anchor="middle" font-size="9.5" fill="var(--ink-mute)">stat line</text>
+
+            <g stroke="currentColor" stroke-width="1" fill="none">
+              <rect x="676" y="126" width="150" height="60" rx="3"/>
+              <rect x="681" y="120" width="150" height="60" rx="3" opacity=".4"/>
+              <rect x="686" y="114" width="150" height="60" rx="3" opacity=".18"/>
+            </g>
+            <text x="751" y="151" text-anchor="middle" font-size="12.5" font-weight="700">Score per league</text>
+            <text x="751" y="169" text-anchor="middle" font-size="10.5" fill="var(--ink-soft)">its own ESPN rules × 9</text>
+
+            <path d="M 830 156 L 872 156" stroke="currentColor" stroke-width="1" fill="none" marker-end="url(#ar)"/>
+            <text x="878" y="146" font-size="12" font-weight="700">TRUE_</text>
+            <text x="878" y="162" font-size="12" font-weight="700">Points</text>
+            <text x="878" y="182" font-size="9.5" fill="var(--ink-mute)">every rank,</text>
+            <text x="878" y="195" font-size="9.5" fill="var(--ink-mute)">tier and VOR</text>
+            <text x="878" y="208" font-size="9.5" fill="var(--ink-mute)">derives here</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption><strong>The flagging step is the one that matters.</strong> A gap is filled
+        from the ESPN/FantasyPros mean so the arithmetic still works, but the fill is
+        recorded — and at blend time a flagged cell forfeits its weight rather than voting as
+        though it were an independent opinion. Without that, a book with no line would count
+        ESPN twice under another name.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============ THE RULE ============ -->
+  <section id="rule">
+    <p class="kicker">The weighting rule</p>
+    <h2>One equal vote per source that has an opinion</h2>
+    <div class="measure">
+      <p>Every source carries the same nominal weight. What varies is <em>who turns up</em>:
+        a source with no real line for a player is flagged, drops out, and the survivors
+        renormalise. Equal nominal weights make that renormalisation literal — the blend is
+        always <span class="mono">1/n</span> over whoever actually priced the player.</p>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr>
+          <th>Sources with a real line</th><th class="num">Weight each</th>
+          <th class="num">Draftable rows</th><th>Distribution</th>
+        </tr></thead>
+        <tbody>
+          <tr><td>5</td><td class="num">0.200</td><td class="num">29</td>
+            <td><svg width="200" height="12" role="img" aria-label="29 rows"><rect x="0" y="2" width="11" height="8" fill="var(--bar)"/></svg></td></tr>
+          <tr><td>4</td><td class="num">0.250</td><td class="num">67</td>
+            <td><svg width="200" height="12" role="img" aria-label="67 rows"><rect x="0" y="2" width="25" height="8" fill="var(--bar)"/></svg></td></tr>
+          <tr><td>3</td><td class="num">0.333</td><td class="num">160</td>
+            <td><svg width="200" height="12" role="img" aria-label="160 rows"><rect x="0" y="2" width="60" height="8" fill="var(--bar)"/></svg></td></tr>
+          <tr><td>2</td><td class="num">0.500</td><td class="num">102</td>
+            <td><svg width="200" height="12" role="img" aria-label="102 rows"><rect x="0" y="2" width="38" height="8" fill="var(--bar)"/></svg></td></tr>
+          <tr><td>1</td><td class="num">1.000</td><td class="num">188</td>
+            <td><svg width="200" height="12" role="img" aria-label="188 rows"><rect x="0" y="2" width="71" height="8" fill="var(--bar)"/></svg></td></tr>
+          <tr><td>none — no opinion at all</td><td class="num">—</td><td class="num">739</td>
+            <td><svg width="200" height="12" role="img" aria-label="739 rows"><rect x="0" y="2" width="200" height="8" fill="var(--rule-firm)"/></svg></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="measure">
+      <p style="font-size:.88rem;color:var(--ink-soft)">Measured on receiving yards across
+        1,285 draftable players. The 739 with no source are the deep bench nobody projects —
+        they carry an ADP and nothing else.</p>
+    </div>
+
+    <div class="callout">
+      <p><span class="lede">Equality is the assertion, not the number.</span>
+        Set every source to 0.2 instead of 0.25 and nothing about the blend changes, because
+        renormalisation only ever sees ratios. Set one of them to 0.3 and the rule is broken.
+        The test guarding this asserts <em>equality</em>, not a total — an earlier version
+        asserted the weights summed to 1.0 and broke twice in one day as sources joined.</p>
+    </div>
+  </section>
+
+  <!-- ============ SOURCES ============ -->
+  <section id="sources">
+    <p class="kicker">Inputs</p>
+    <h2>Four external sources, and ours</h2>
+    <div class="measure">
+      <p>Four feeds we do not control, and one internal model that covers every position
+        through three different backends. Coverage below is real, non-imputed cells among
+        the 1,285 draftable players on the 2026 GOP&nbsp;Degenerates board.</p>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr>
+          <th>Source</th><th>What it is</th><th class="num">Weight</th>
+          <th class="num">Rec / Rush / Pass</th><th>Note</th>
+        </tr></thead>
+        <tbody>
+          <tr>
+            <td class="src">ESPN</td>
+            <td>The league's own projection, arriving with the league fetch</td>
+            <td class="num"><span class="pill pill-live">0.25</span></td>
+            <td class="num">360 / 242 / 65</td>
+            <td class="note">The only source with no imputation flags, so its weight is never dropped</td>
+          </tr>
+          <tr>
+            <td class="src">FP</td>
+            <td>FantasyPros consensus — an aggregate of many analysts</td>
+            <td class="num"><span class="pill pill-live">0.25</span></td>
+            <td class="num">543 / 543 / 543</td>
+            <td class="note">Served 60 players until 2026-08-24, when a free-account registration fence was lifted. Now 592</td>
+          </tr>
+          <tr>
+            <td class="src">BOL</td>
+            <td>BetOnline season props, de-vigged into a stat line</td>
+            <td class="num"><span class="pill pill-live">0.25</span></td>
+            <td class="num">96 / 40 / 25</td>
+            <td class="note">A book prices what it can take action on, so it is thin by construction. Weekly feed is dead (403)</td>
+          </tr>
+          <tr>
+            <td class="src">PINNY</td>
+            <td>Pinnacle season props — the sharper of the two books</td>
+            <td class="num"><span class="pill pill-live">0.25</span></td>
+            <td class="num">30 / 21 / 23</td>
+            <td class="note">Thinnest source here, and weighted equally since 2026-08-24. It had been zeroed for thin coverage, which double-counted an objection the flags already handle</td>
+          </tr>
+          <tr class="internal">
+            <td class="src">USG</td>
+            <td><strong>Our internal model.</strong> One source, one vote, three backends</td>
+            <td class="num"><span class="pill pill-live">0.25</span></td>
+            <td class="num">256 / 105 / 34</td>
+            <td class="note">The only source built from observed usage rather than from other people's projections</td>
+          </tr>
+          <tr class="arm">
+            <td class="src">usage arm</td>
+            <td>QB · RB · WR · TE — from snap share, routes, depth chart, draft capital</td>
+            <td class="num">—</td>
+            <td class="num">256 skill</td>
+            <td class="note">83.7% of rostered players. Its rookie arm orders at ρ ≈ 0.61 where a guess manages ~0</td>
+          </tr>
+          <tr class="arm">
+            <td class="src">defence arm</td>
+            <td>D/ST — component vector projected from the betting market</td>
+            <td class="num">—</td>
+            <td class="num">32 teams</td>
+            <td class="note">Live since 2026-08-24. Beats prior-season points by 34–46% in all nine leagues</td>
+          </tr>
+          <tr class="arm">
+            <td class="src">kicking arm</td>
+            <td>K — extra points from the implied total, field goals from red-zone volume</td>
+            <td class="num"><span class="pill pill-off">held</span></td>
+            <td class="num">36 kickers</td>
+            <td class="note">Built and withheld from the blend: the extra-point channel is strong (+45.9%), the field-goal channel failed its gate at +1.2% against a 5% bar</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="measure">
+      <h3>Why the internal model is one source and not three</h3>
+      <p>A kicker and a team defence are positions like any other — they start every week and
+        they need a projection. That they are modelled differently underneath is an
+        implementation detail: the usage arm reads snap share, the defence arm reads implied
+        points allowed, the kicking arm reads red-zone volume. Above that line they are one
+        opinion, cast once, weighted like everybody else's.</p>
+      <p>The kicking arm is the exception, and deliberately so. It ships as a readable column
+        and is kept out of the blend until its field-goal channel clears the bar it was
+        pre-registered against. One model, three arms, and the arms mature at different
+        rates.</p>
+    </div>
+  </section>
+
+  <!-- ============ REALISED ============ -->
+  <section id="realised">
+    <p class="kicker">The consequence</p>
+    <h2>Nominal weights are not realised weights</h2>
+    <div class="measure">
+      <p>Because a flagged cell forfeits its share, the weight a source actually carries is
+        computed per row and depends entirely on who else showed up. Averaged over draftable
+        rows where the stat is live:</p>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Stat</th><th class="num">ESPN</th><th class="num">FP</th>
+          <th class="num">BOL</th><th class="num">USG</th><th class="num">Nominal</th></tr></thead>
+        <tbody>
+          <tr><td class="src">passingYards</td><td class="num">0.31</td><td class="num">0.49</td>
+              <td class="num">0.08</td><td class="num">0.12</td><td class="num">0.25 each</td></tr>
+          <tr><td class="src">rushingYards</td><td class="num">0.34</td><td class="num">0.52</td>
+              <td class="num">0.03</td><td class="num">0.11</td><td class="num">0.25 each</td></tr>
+          <tr><td class="src">receivingYards</td><td class="num">0.33</td><td class="num">0.41</td>
+              <td class="num">0.06</td><td class="num">0.20</td><td class="num">0.25 each</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="measure">
+      <p>FantasyPros runs ahead of its nominal quarter because it reaches more players than
+        anyone else. Before its fence lifted it was real for 60, and the same table read
+        ESPN 0.55–0.65 — the blend was ESPN with three thin second opinions. It is a genuine
+        multi-source blend now.</p>
+    </div>
+  </section>
+
+  <!-- ============ BEYOND ============ -->
+  <section id="beyond">
+    <p class="kicker">Not projections</p>
+    <h2>What else reaches the board</h2>
+    <div class="measure">
+      <p>Three layers feed the board without entering the blend. They describe players rather
+        than predicting them, and none of them moves <span class="mono">TRUE_Points</span>.</p>
+    </div>
+
+    <ol class="stages">
+      <li>
+        <h3>The market</h3>
+        <p>One <span class="mono">kona_player_info</span> request per league returns ADP,
+          auction values and a 45-stat projection, carrying <span class="mono">player.id</span>
+          so the join is exact. Replacement level comes from each league's real starting slots;
+          tiers are 1-D KMeans within position.</p>
+      </li>
+      <li>
+        <h3>Injuries, as duration rather than status</h3>
+        <p>A six-rung severity ladder resolves body part, expected weeks out, recurrence risk
+          and a form cost. Diagnostics only — the fitted recovery curve was measured and
+          rejected by its own pre-committed gates, so the columns ship and nothing is
+          multiplied.</p>
+      </li>
+      <li>
+        <h3>Owner tendencies</h3>
+        <p>5,748 picks across 36 league-seasons: positional lean by round, NFL-team preference,
+          rookie appetite, autodraft rate, auction budget shape. Every measurement is
+          leave-one-out against the room and season-matched.</p>
+      </li>
+    </ol>
+  </section>
+
+  <!-- ============ FRONTEND ============ -->
+  <section id="frontend">
+    <p class="kicker">Output</p>
+    <h2>What the app actually shows</h2>
+    <div class="measure">
+      <p>A Streamlit app with two pages — <strong>Store Overview</strong> and
+        <strong>Draft Board</strong> — reading parquet from S3. The board splits into four
+        tabs: <em>Board</em>, <em>Values</em>, <em>League</em> and <em>Calibration</em>.</p>
+      <p>Columns sit under spanner headers. Highlighted are the ones carrying a source's own
+        opinion rather than a derived number.</p>
+    </div>
+
+    <div class="grid">
+      <div class="card"><h4>Player Info</h4><div class="cols">
+        <span class="col-chip">Player</span><span class="col-chip">Pos</span>
+        <span class="col-chip">NFL</span><span class="col-chip">Bye</span>
+        <span class="col-chip">Tier</span></div></div>
+      <div class="card"><h4>Points</h4><div class="cols">
+        <span class="col-chip hi">ESPN</span><span class="col-chip hi">FP</span>
+        <span class="col-chip hi">BOL</span><span class="col-chip hi">PIN</span>
+        <span class="col-chip hi">Us</span><span class="col-chip hi">USG</span>
+        <span class="col-chip hi">DST</span>
+        <span class="col-chip">Δ</span><span class="col-chip">VOR</span></div></div>
+      <div class="card"><h4>Ranks</h4><div class="cols">
+        <span class="col-chip">ESPN</span><span class="col-chip">Us</span>
+        <span class="col-chip">Δ</span></div></div>
+      <div class="card"><h4>Position Ranks</h4><div class="cols">
+        <span class="col-chip">ESPN</span><span class="col-chip">Us</span>
+        <span class="col-chip">Δ</span><span class="col-chip">Δ USG</span></div></div>
+      <div class="card"><h4>Draft Metric</h4><div class="cols">
+        <span class="col-chip">ESPN</span><span class="col-chip">Us</span>
+        <span class="col-chip">Δ</span></div></div>
+      <div class="card"><h4>Notes</h4><div class="cols">
+        <span class="col-chip">Exp Return</span><span class="col-chip">Exp G</span>
+        <span class="col-chip">Wks Out</span><span class="col-chip">Form Cost</span></div></div>
+    </div>
+
+    <div class="measure">
+      <h3>Two reading rules</h3>
+      <p><strong>Us</strong> is <span class="mono">TRUE_Points</span> — every rank, tier and
+        VOR on the table is built from it. <strong>DST</strong> renders only when defences are
+        in view; a team defence's projection is not <em>missing</em> from a receiver's row, it
+        is a question never asked of him.</p>
+      <p>Compare <span class="mono">USG</span> by <em>rank</em> rather than points.
+        <span class="mono">USG_Points</span> is injury-adjusted and
+        <span class="mono">TRUE_Points</span> is not, so the rank delta is the comparison that
+        survives.</p>
+    </div>
+  </section>
+
+  <!-- ============ REPRODUCE ============ -->
+  <section id="reproduce">
+    <p class="kicker">Provenance</p>
+    <h2>Reproducing any number here</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Question</th><th>Command</th></tr></thead>
+        <tbody>
+          <tr><td>Is the data current?</td><td class="src">python -m Scripts.refresh_status</td></tr>
+          <tr><td>Rebuild every board</td><td class="src">python -m Scripts.refresh --all --what board</td></tr>
+          <tr><td>Publish to S3</td><td class="src">python -m Scripts.sync --push</td></tr>
+          <tr><td>Who needs a hand-written injury severity?</td><td class="src">python -m Scripts.injury.review</td></tr>
+          <tr><td>Does the defence arm earn its weight?</td><td class="src">python -m Scripts.dst.gates</td></tr>
+          <tr><td>Rebuild the usage arm's evidence</td><td class="src">python -m Scripts.usage.backtest</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer class="end">
+    <p>Figures measured on the 2026-08-24 board build, GOP&nbsp;Degenerates unless stated.
+      Coverage counts are non-imputed cells among draftable players. Blend weights live in
+      <span class="mono">Scripts/projection_utils.py</span>; the column specs and their
+      glossary entries live in <span class="mono">app/draft_view.py</span>, which is the single
+      place a column's source, format and caveat are declared together. Open this file
+      directly in a browser — it needs no build step and no server.</p>
+  </footer>
+
+</div>
+</body>
+</html>

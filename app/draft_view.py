@@ -350,6 +350,15 @@ COLUMNS: List[Column] = [
                   "passing, and is real for 73 of the top 150 by ADP. Where it is "
                   "blank the weight is dropped and the other sources renormalise, so "
                   "a gap here costs nothing; it simply is not an opinion."),
+    Column("PINNY_Points", "Points", "PIN", "number", fmt="%.1f",
+           source_of="Pinnacle",
+           how="Pinnacle season props, de-vigged into a stat line. A second sportsbook "
+               "beside BetOnline, and the sharper of the two — Pinnacle's whole business "
+               "is taking the bet rather than shading the line.",
+           caveat="The thinnest source here: real for roughly 21–30 players a stat and "
+                  "none at all on passing touchdowns or receptions. Weighted an equal "
+                  "quarter since 2026-08-24 — it had been zeroed for thin coverage, which "
+                  "double-counted an objection the imputation flags already handle."),
     Column("TRUE_Points", "Points", "Us", "number", fmt="%.1f",
            source_of="Blend",
            how="ESPN, FantasyPros, BetOnline and the usage model in equal quarters, "
