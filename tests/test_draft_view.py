@@ -309,6 +309,34 @@ def test_value_targets_can_include_players_the_rosters_claim():
 # assert about it. What can still go wrong is a record that is *incomplete*, which is
 # what these check instead.
 
+def test_every_blended_source_has_a_column_of_its_own():
+    """A source that moves `Us` must be readable beside it.
+
+    FantasyPros carried a quarter of the blend and had no column for the whole of the
+    2026 build: you could see the blend move and not see who moved it. Same for the
+    D/ST model once it went to 0.25 on 2026-08-24. Pinned as a rule rather than as two
+    names, so the next source wired into `WEIGHTS` at a non-zero weight fails here
+    until it is rendered.
+    """
+    from Scripts.projection_utils import WEIGHTS
+
+    rendered = {column.source for column in dv.COLUMNS}
+    for source, weight in WEIGHTS["default"].items():
+        if weight > 0:
+            assert f"{source}_Points" in rendered, (
+                f"{source} carries {weight} of the blend but has no column")
+
+
+def test_the_points_group_reads_left_to_right_from_source_to_blend():
+    """ESPN, FP, then Us: the inputs, then what they make. Order is the argument."""
+    points = [c.label for c in dv.COLUMNS if c.group == "Points"]
+    assert points.index("ESPN") < points.index("Us")
+    assert points.index("FP") < points.index("Us")
+    for after in ("USG", "DST"):
+        assert points.index("Us") < points.index(after), (
+            f"{after} is a single-position aside and belongs after the blend")
+
+
 def test_every_column_carries_its_own_documentation():
     """A column with no account of where it came from is a number the reader has to
     guess at. Enforced on the record rather than across two collections, because

@@ -320,16 +320,40 @@ COLUMNS: List[Column] = [
                "it, and differs from what ESPN's site shows you.",
            caveat="Blank for the players ESPN projects no line for at all — about "
                   "one in eight of the pool that has a projection."),
+    Column("FP_Points", "Points", "FP", "number", fmt="%.1f",
+           source_of="FantasyPros",
+           how="FantasyPros' consensus season projection, scored through **this "
+               "league's** rules like every column beside it. It is an aggregate of "
+               "many analysts rather than one house view, which is why it is the "
+               "closest thing here to a second opinion on ESPN.",
+           caveat="Covered 60 players until 2026-08-24 — ten per position, all "
+                  "FantasyPros serves without an account — and was imputed from the "
+                  "ESPN/FP mean for everyone else. It now covers 592, so a blank here "
+                  "means genuinely unprojected rather than merely unseen."),
+    Column("BOL_Points", "Points", "BOL", "number", fmt="%.1f",
+           source_of="BetOnline",
+           how="Season-long props from BetOnline, de-vigged and converted to a stat "
+               "line. The only source here priced by people with money at stake "
+               "rather than by analysts, which is why it earns a quarter of the "
+               "blend on the players it covers.",
+           caveat="Thin by construction — a book prices the players it can take "
+                  "action on, so it reaches 96 players on receiving yards and 25 on "
+                  "passing, and is real for 73 of the top 150 by ADP. Where it is "
+                  "blank the weight is dropped and the other sources renormalise, so "
+                  "a gap here costs nothing; it simply is not an opinion."),
     Column("TRUE_Points", "Points", "Us", "number", fmt="%.1f",
            source_of="Blend",
-           how="ESPN, FantasyPros, BetOnline and the usage model in equal quarters — "
-               "blended as a **stat line**, then scored through this league's own "
-               "rules, which is what lets one pipeline serve nine leagues. Pinnacle is "
-               "weighted zero.",
+           how="ESPN, FantasyPros, BetOnline and the usage model in equal quarters, "
+               "plus the D/ST model at a quarter on team defences only — blended as a "
+               "**stat line**, then scored through this league's own rules, which is "
+               "what lets one pipeline serve nine leagues. Pinnacle and the kicker "
+               "model are weighted zero.",
            caveat="A source with no line for a player is dropped and the rest "
-                  "reweighted, so most players are really an ESPN/usage blend — "
-                  "FantasyPros publishes only 60 season projections. Every rank, tier "
-                  "and VOR on this table is built from this column."),
+                  "reweighted. That used to make most players an ESPN/usage blend, "
+                  "because FantasyPros reached only 60; since 2026-08-24 it reaches "
+                  "592 and carries roughly 0.45 of the realised weight where a stat "
+                  "is live. Every rank, tier and VOR on this table is built from "
+                  "this column."),
     Column("USG_Points", "Points", "USG", "number", fmt="%.1f",
            source_of="Usage model",
            how="The model's own season projection, on a full healthy 17 games so it "
@@ -340,6 +364,20 @@ COLUMNS: List[Column] = [
                   "That is disagreement about players, not a scale difference — but "
                   "`Position Ranks | Δ USG` is still the cleaner read, since a rank "
                   "cannot be moved by it at all."),
+    Column("DST_Points", "Points", "DST", "number", fmt="%.1f",
+           source_of="D/ST model",
+           how="Team defence projected from the **betting market** rather than from "
+               "last season: implied points allowed beats prior season on seven of "
+               "eight components, because opponent offences drive defensive events "
+               "and the market prices opponent offences. The points-allowed and "
+               "yards-allowed ladders are integrated over a weekly distribution "
+               "rather than scored at the season mean.",
+           caveat="Team defences only — blank at every other position, which is not a "
+                  "gap. Blended at a quarter since 2026-08-24, so `Us` already "
+                  "carries it; this column is what the model says on its own. It "
+                  "cleared its gate against prior-season points by 34–46% in all nine "
+                  "leagues, but the gate against **ESPN** cannot be run until 2027, so "
+                  "read it as a co-equal second opinion rather than the better number."),
     Column("points_delta", "Points", "Δ", "number", fmt="%+.1f", emphasis=True,
            shade="delta",
            source_of="Board build",
