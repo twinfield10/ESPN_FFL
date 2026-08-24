@@ -94,7 +94,7 @@ VOLUME_TARGETS: Tuple[str, ...] = ("targets_pg", "carries_pg", "pass_attempts_pg
 #: buys nothing over this population and this horizon.
 VOLUME_REGRESSORS: Tuple[str, ...] = (
     "p1_volume", "p2_volume", "p1_games", "team_changed", "age",
-    "depth_rank", "is_first_string",
+    "depth_rank", "is_first_string", "peak3_volume",
 )
 
 #: The **coach prior** is not here, and that is a measured decision rather than an
@@ -124,6 +124,26 @@ VOLUME_REGRESSORS: Tuple[str, ...] = (
 #: the real bottleneck -- it moves 0.5193 to **0.5803**. It is in
 #: :data:`VOLUME_REGRESSORS` now.
 VETERAN_SITUATIONAL_REJECTED: Tuple[str, ...] = ("coach_volume", "staff_continuity")
+
+#: Why ``peak3_volume`` is in :data:`VOLUME_REGRESSORS` and not scoped to quarterback.
+#:
+#: Plan 32 predicted a **quarterback-only** feature, and a per-position regressor set
+#: was built to hold it. Re-measured on the real feature layer rather than the plan's
+#: panel reconstruction, that prediction was wrong in a useful direction: the window
+#: pays at every position. Pooled walk-forward MAE 2020-2025, all players --
+#: QB **+1.8%**, RB **+1.0%**, WR **+1.0%**, TE **+0.7%** -- and positive in 6 of 6
+#: folds at quarterback, 5 of 6 at receiver and tight end, 4 of 6 at running back.
+#:
+#: So the per-position machinery was deleted rather than shipped unused. The
+#: measurement that motivated it did not survive contact with the real feature layer,
+#: and the panel's per-position split (RB −0.6%, TE +0.2%, WR −0.1%) was an artefact
+#: of reconstructing the peak from a flat panel instead of ``prior_season_frame``.
+#:
+#: The mechanism still reads clearest at quarterback -- usage there is close to
+#: binary, so last season's attempts confound losing the job with never having had
+#: it, which a three-season peak separates and a lag cannot. It is simply not
+#: exclusive to quarterback: a receiver coming off an injured year has the same
+#: shape, with less amplitude.
 
 #: Depth rank used where the chart lists nobody, and the reason it is not zero.
 #:
@@ -347,7 +367,20 @@ HOLDOUT_SEASONS: int = 2
 #: (the spread *given* games played) and ``stat_correlation`` (how the eight stats'
 #: residuals move together). Plan 28 needs both, and 1.1.0 files load fine without them
 #: -- the fields default empty and every caller falls back explicitly.
-MODEL_VERSION = "1.2.0"
+#:
+#: 1.3.0 -- ``peak3_volume`` joins :data:`VOLUME_REGRESSORS`, so the volume heads see
+#: a three-season window as well as two lags (plan 32 phase 1). Unlike 1.2.0, which was
+#: additive, this bump is **load-bearing**: :func:`Scripts.usage.project.load_or_fit`
+#: keys the persisted model on this string, and a 1.2.0 file cannot be silently reused
+#: by a model that now expects an eighth regressor -- there is no empty default to fall
+#: back to. In the other direction, a refit under an unchanged version would leave one
+#: version name meaning two different models.
+#:
+#: **A refit is what changes the board, not this commit.** The version bump makes
+#: `default_path()` miss, so the next ``Scripts.usage.project`` run refits and the
+#: projections move. That is why this must not merge before the 2026 drafts -- see
+#: ``docs/DRAFT_READINESS.md``.
+MODEL_VERSION = "1.3.0"
 
 #: Positions the season head declines to project, whatever features it has for them.
 #:
@@ -830,6 +863,19 @@ class SeasonUsageModel:
             "moved_contract_apy": column("team_changed") * column("contract_apy_pct"),
             "moved_contract_gtd": column("team_changed") * column("contract_guaranteed"),
             "moved_contract_new": column("team_changed") * column("contract_is_new"),
+            # --- plan 32 phase 1: the window --------------------------------
+            # Two lags cannot separate "lost the job for eight weeks" from "is not
+            # a starter" -- both are a low `p1_volume`. A peak over three seasons
+            # can.
+            # `peak3_volume` ships; the other two are measured and off. Adding
+            # `mean3` gains more pooled (QB +2.4% against +1.8%) and is less stable
+            # -- 3 of 6 folds at running back against 4, and a −3.0% quarterback
+            # fold in 2021 that `peak3` alone does not have. Adding `peak5` on top
+            # takes running back to 2 of 6 and +0.1% pooled. One regressor that is
+            # positive everywhere beat two that are larger on average.
+            "peak3_volume": column(f"{ft.PEAK_PREFIXES[3]}{target}"),
+            "mean3_volume": column(f"{ft.MEAN3_PREFIX}{target}"),
+            "peak5_volume": column(f"{ft.PEAK_PREFIXES[5]}{target}"),
         }
 
     def predict_volume(self, frame: pl.DataFrame, target: str) -> pl.Expr:

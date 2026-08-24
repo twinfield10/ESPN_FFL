@@ -160,6 +160,34 @@ LAG1_PREFIX = "p1_"
 #: Prefix for two seasons before.
 LAG2_PREFIX = "p2_"
 
+#: Windowed-history prefixes: the best and the average season inside the last N.
+#:
+#: **Deliberately not ``p3_``/``p5_``.** Plan 32 named them that, and it is the wrong
+#: name in this module: ``p1_`` and ``p2_`` mean *lag one* and *lag two*, so ``p3_``
+#: reads as "three seasons ago" rather than "the best of the last three". These are
+#: aggregates over a window, not a third lag, and the two are used differently enough
+#: that a reader must not have to check.
+#:
+#: The window is what the model was missing at quarterback. Two lags cannot separate
+#: "lost the job for eight weeks" from "is not a starter" -- both look like a low
+#: ``p1_``. A peak over three seasons can, and plan 32 measured it at +4.5% MAE on
+#: quarterback movers with ``peak3`` outweighing ``p1_`` in the fit.
+PEAK_PREFIXES: Dict[int, str] = {3: "peak3_", 5: "peak5_"}
+
+#: Prefix for the mean season inside the last three.
+#:
+#: Peak alone rewards one outlying year. The mean beside it is what says whether the
+#: peak was the player or the schedule -- fitted together, plan 32 measured the pair
+#: at +4.5% where ``peak3`` alone gave +5.2% on movers but less on all quarterbacks.
+MEAN3_PREFIX = "mean3_"
+
+#: Column counting seasons actually observed inside the three-season window.
+#:
+#: Without it a peak of zero is ambiguous in exactly the way that matters: a rookie
+#: with no window and a veteran who genuinely did nothing both read as 0.0, and the
+#: first is the population the rookie arm exists for.
+WINDOW_SEASONS_COLUMN = "peak3_seasons"
+
 
 def load_player_weeks(seasons: Sequence[int],
                       columns: Optional[Sequence[str]] = None) -> pl.DataFrame:
@@ -872,6 +900,68 @@ def attach_context(features: pl.DataFrame, target_season: int,
     return out
 
 
+def windowed_history(prior: pl.DataFrame, target_season: int,
+                     stats: Sequence[str] = ("targets_pg", "carries_pg",
+                                             "pass_attempts_pg")) -> pl.DataFrame:
+    """A player's best and average season inside the last three and five.
+
+    **The model looked back exactly two seasons and that is too short at
+    quarterback.** Plan 32 measured it: a three-season peak is worth +4.5% MAE on
+    quarterback movers and ~1% on all quarterbacks, and in the fitted coefficients
+    ``peak3`` (+0.221) *outweighs last season* (``p1_`` at +0.061). The mechanism is
+    that quarterback usage is close to binary -- last season's attempts confound
+    "lost the job for eight weeks" with "is not a starter", and a window separates
+    them where a lag cannot.
+
+    Leak-free by construction rather than by filtering: ``prior`` already holds only
+    seasons before ``target_season`` -- :func:`prior_season_frame` raises otherwise --
+    so the window is bounded below and the upper bound is inherited.
+
+    A player absent from a season contributes nothing to it rather than a zero. The
+    two are different and the difference is the whole point of
+    :data:`WINDOW_SEASONS_COLUMN`: a quarterback who missed 2024 injured should not
+    have a zero averaged into his mean, while one who was a healthy backup taking no
+    snaps genuinely did nothing. ``prior`` carries a row only for a season a player
+    actually appeared in, so "absent" is already "no row" and the aggregate skips it.
+
+    Args:
+        prior: :func:`prior_season_frame` output, one row per player-season.
+        target_season: Season being predicted. The window ends the season before it.
+        stats: Volume columns to summarise. Defaults to
+            :data:`Scripts.usage.season.VOLUME_TARGETS`, spelled out here to avoid
+            importing the model into the feature layer.
+
+    Returns:
+        pl.DataFrame: One row per ``gsis_id``, with ``peak3_<stat>``,
+        ``mean3_<stat>``, ``peak5_<stat>`` and :data:`WINDOW_SEASONS_COLUMN`.
+        Players with no season in any window are absent, not zero-filled.
+    """
+    present = [c for c in stats if c in prior.columns]
+    if not present or "season" not in prior.columns:
+        return pl.DataFrame(schema={"gsis_id": pl.String})
+
+    frames = []
+    for span, prefix in sorted(PEAK_PREFIXES.items()):
+        window = prior.filter(
+            (pl.col("season") < target_season)
+            & (pl.col("season") >= target_season - span))
+        aggregations = [pl.col(c).cast(pl.Float64).max().alias(f"{prefix}{c}")
+                        for c in present]
+        if span == 3:
+            aggregations += [
+                pl.col(c).cast(pl.Float64).mean().alias(f"{MEAN3_PREFIX}{c}")
+                for c in present]
+            aggregations.append(
+                pl.col("season").n_unique().cast(pl.Int32)
+                  .alias(WINDOW_SEASONS_COLUMN))
+        frames.append(window.group_by("gsis_id").agg(aggregations))
+
+    out = frames[0]
+    for extra in frames[1:]:
+        out = out.join(extra, on="gsis_id", how="full", coalesce=True)
+    return out
+
+
 def season_features(target_season: int, history: Sequence[int],
                     positions: Sequence[str] = MODELLED_POSITIONS,
                     shrinkage: Optional[Dict[str, float]] = None,
@@ -927,6 +1017,12 @@ def season_features(target_season: int, history: Sequence[int],
                                 if c != "gsis_id"})
         out = out.join(lagged, on="gsis_id", how="left")
 
+    # After the lags and before everything else, because it reads the same `prior`
+    # frame they do. Left-joined like them, so a player with no window keeps nulls
+    # rather than zeros -- `_veteran_terms` fills to zero at the point of use, where
+    # the arm can tell the two apart.
+    out = out.join(windowed_history(prior, target_season), on="gsis_id", how="left")
+
     if contracts:
         out = out.join(contract_context(target_season), on="gsis_id", how="left")
 
@@ -978,8 +1074,16 @@ def leakage_columns(frame: pl.DataFrame, target_season: int) -> List[str]:
     # prior does not silently trip this check, which is what adding the coordinator
     # and offensive-lead priors did.
     prior_prefixes = tuple(sc.PRIOR_KEYS) + (sc.TEAM_PREFIX,)
+    # The windowed-history prefixes, allowed for the same reason as the lags and on
+    # the same evidence: `windowed_history` aggregates `prior_season_frame`, which
+    # raises rather than filters if history reaches the target season, and bounds
+    # its own window below at `target_season - span`. Derived from the constants
+    # rather than spelled out, so widening the window cannot silently slip past
+    # this check -- which is exactly what adding the coordinator prior did.
+    window_prefixes = tuple(PEAK_PREFIXES.values()) + (MEAN3_PREFIX,)
     return sorted(
         column for column in frame.columns
         if column not in allowed
-        and not column.startswith((LAG1_PREFIX, LAG2_PREFIX) + prior_prefixes)
+        and not column.startswith((LAG1_PREFIX, LAG2_PREFIX)
+                                  + prior_prefixes + window_prefixes)
     )
