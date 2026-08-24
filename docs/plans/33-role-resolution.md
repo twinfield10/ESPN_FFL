@@ -1,6 +1,6 @@
 # 33 — Role resolution: what the first three games say about the depth chart
 
-**Priority:** Medium · **Effort:** S–M · **Status:** Evidence measured 2026-08-24, not started
+**Priority:** Medium · **Effort:** S–M · **Status:** **Phases 1–2 built 2026-08-24** — G-R0, G-R1 and G-R3 pass, and G-R3 passing means these ship during the draft freeze. Phase 3 not started, and belongs scoped with [28](28-outcome-distributions.md), whose **G-D0 passed by 17.5×** on 2026-08-24
 **Depends on:** [21](21-coaching-and-scheme.md) (the depth chart this measures) ·
 [18](18-season-usage-model.md) (the arms that consume it)
 **Feeds:** [28](28-outcome-distributions.md) (the floor/ceiling this is really for) ·
