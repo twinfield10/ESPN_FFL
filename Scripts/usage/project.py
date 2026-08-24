@@ -46,6 +46,7 @@ import polars as pl
 
 from Scripts.paths import season_dir
 from Scripts.usage import features as ft
+from Scripts.usage import role as rl
 from Scripts.usage import season as sn
 
 #: Provider directory name, matching ``Data/Projections/<source>/Season/<year>/``.
@@ -65,7 +66,8 @@ HISTORY_START = 2016
 #: ``proj_to_score`` will not try to price them.
 CONTEXT_COLUMNS = ("expected_games", "games_sd", "games_low", "games_high",
                    "usg_arm", "usg_evidence", "usg_thin_evidence", "position",
-                   "pred_targets_pg", "pred_carries_pg", "pred_pass_attempts_pg")
+                   "pred_targets_pg", "pred_carries_pg", "pred_pass_attempts_pg",
+                   "usg_role_cohort", "usg_role_confidence")
 
 
 def projection_path(season: int, create: bool = False):
@@ -392,6 +394,14 @@ def build(season: int, refit: bool = False,
 
     # Which conditions, if any, make this projection order players worse.
     predicted = attach_evidence(predicted)
+
+    # How often the depth chart this player's projection leans on turns out to be
+    # right, for someone in his situation. Plan 33 phase 2, and a diagnostic only --
+    # no projection moves, because the calibration says how much to trust a number
+    # rather than what the number should be. Silently absent if nobody has run
+    # `python -m Scripts.usage.role --fit`, which is the same contract every other
+    # optional artifact here has.
+    predicted = rl.attach_confidence(predicted)
 
     stat_columns = [f"{sn.USAGE_PREFIX}{stat}" for stat in sn.STAT_TERMS
                     if f"{sn.USAGE_PREFIX}{stat}" in predicted.columns]
