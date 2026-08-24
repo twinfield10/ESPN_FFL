@@ -27,8 +27,17 @@ tiebreaker between two similar backups, not a reason to move anyone up a round, 
 ``handcuff_r2`` travels to the board so the number cannot be read as more than it is.
 
 Team strength is the mean Vegas spread across a team's games, from the point of view
-of that team -- positive means favoured. Every 2026 game is already priced, all 272 of
-them, so this needs no forecast of its own.
+of that team -- positive means favoured.
+
+**It averages the games that carry a line, which pre-season is not all of them.** This
+docstring claimed "every 2026 game is already priced, all 272 of them" until 2026-08-18
+and was wrong: **52 of 272** are priced, weeks 1 to 4, so the 2026 estimate rests on 3 to
+4 games per team rather than seventeen. All 32 teams are covered, and measured over 320
+historical team-seasons a weeks-1-to-4 average predicts the full-season spread at
+r = 0.810 -- so the input is usable, but it is an estimate with a standard deviation ~17%
+wider than the quantity it stands for, and this module does **not** shrink for that.
+``Scripts.vegas.team_strength`` does, with a fitted slope of 0.772; pointing this module
+at it is the obvious follow-up and is not done yet.
 
 ``Data/NFL/schedules.parquet`` holds 2016-2026 from ``nflverse/nfldata``
 (``data/games.csv``), which is what ``nflreadr::load_schedules`` reads.
