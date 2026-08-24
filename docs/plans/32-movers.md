@@ -141,14 +141,29 @@ It helps movers and **hurts everyone else**, which is the signature of a feature
 belongs behind an interaction rather than in the main effect. The clean form is not
 yet identified: the plain term wins on movers, the interaction wins overall.
 
-### What is not measurable today
+### What is not measurable today — **resolved, see the note**
 
 The destination-quality idea — is he going somewhere better? — wants pressure rate and
-an offensive-line grade. **The repo has neither.** `Data/NFL/<season>/player_weeks.parquet`
-carries `sacks_suffered` and `def_qb_hits`; `ADVANCED_FILES` is `routes`, `ngs`,
-`red_zone`. No pressures, no hurries, no PFF grades. A team sack rate per dropback is
-buildable today as an O-line proxy; anything better needs `R/GetAdvanced.R` extended to
-`nflreadr::load_pfr_advstats`.
+an offensive-line grade. When this plan was written the repo had neither:
+`Data/NFL/<season>/player_weeks.parquet` carried `sacks_suffered` and `def_qb_hits`,
+and `ADVANCED_FILES` was `routes`, `ngs`, `red_zone`. No pressures, no hurries.
+
+> **Resolved 2026-08-24 by `R/GetPBP.R`.** `Data/NFL/<season>/pfr_pass.parquet` now
+> carries `times_pressured`, `times_pressured_pct`, `times_blitzed`, `times_hurried`,
+> `times_hit` and `times_sacked` per quarterback per game, and `pfr_rush` carries
+> yards before and after contact. Phase 3 is unblocked.
+>
+> **Two constraints came with it.** The feeds start late — PFR in **2018**, FTN in
+> **2022** — against a walk-forward that trains from 2016, so a model using them sees
+> pressure data for part of its window and not the rest. That is the same coverage
+> objection `GetAdvanced.R`'s header raised when it declined to pull them, and it is
+> now a gate's problem rather than a reason not to hold the data. And they key on
+> **PFR's** player id: `Scripts.crosswalk` maps `gsis_id` to ESPN and stops there, so
+> joining them to anything here needs a crosswalk hop that does not exist yet.
+>
+> Full play-by-play is archived for **1999-2025** besides, so a team sack rate per
+> dropback — the O-line proxy this section called for — is a `group_by` rather than a
+> pull.
 
 ## Fix
 
@@ -170,10 +185,12 @@ re-signed with his own team must not read as a mover.
 
 ### Phase 3 — destination quality (research, not yet a build)
 
-Pull `load_pfr_advstats` for pressure rate, build a team sack-rate-per-dropback proxy,
-and test whether *quarterback* and *line* quality at the destination predict a
-receiver's usage where the target pool did not. Gate it on phase 3's own G-M3 before
-any of it enters a fitted arm — the pool result says destination features are where
+The pull has landed — `R/GetPBP.R`, 2026-08-24 — so this is now a research spike
+rather than a data task. Build a team sack-rate-per-dropback proxy from the
+play-by-play archive, bring in `pfr_pass`'s pressure columns behind a `pfr_player_id`
+crosswalk, and test whether *quarterback* and *line* quality at the destination
+predict a receiver's usage where the target pool did not. Gate it on its own G-M5
+before any of it enters a fitted arm — the pool result says destination features are where
 this kind of idea goes to die, and the oracle bound says the whole category is worth at
 most a few percent.
 
@@ -199,6 +216,13 @@ lookback ships at **quarterback only**, and G-M2 is what keeps it there.
 **G-M3 — contract must survive the interaction.** **Bar: +2% on WR movers *and* no
 regression on all WRs.** The plain term fails the second half today (1.2204 → 1.2390),
 which is exactly why this is gated rather than shipped.
+
+**G-M5 — destination quality must clear the coverage objection, not dodge it.**
+PFR starts in 2018 and FTN in 2022, so any feature built on them is measurable on at
+most 8 of the 10 training seasons. **Bar: the walk-forward gain must survive being
+scored only on folds where the feature is actually present**, rather than on a window
+where its absence is filled and the fill carries the result. This is the gate the data
+being collected turned from an assertion into a question.
 
 **G-M4 — nothing here may move the blend.** Re-run `python -m Scripts.usage.g1_season`.
 **Bar: no regression on TOMCAT's contribution at weight 0.25.**
