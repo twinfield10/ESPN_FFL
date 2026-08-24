@@ -162,6 +162,57 @@ def test_the_kicker_model_carries_no_per_kicker_accuracy_term():
     assert sum(shares[f"made_share_{k}"] for k in keys) == pytest.approx(1.0, abs=0.01)
 
 
+def test_misses_are_allocated_on_the_miss_distribution_not_the_make_one():
+    """A short kick is 57.8% of makes and 15.6% of misses. Those are not the same shape.
+
+    Regression for a bug that shipped: per-bucket misses were allocated on
+    ``made_share_*``, which puts most misses where kicks are easiest. Pooled over
+    2016-2025 that over-stated ``missedFieldGoalsFromUnder40`` by 3.7x and under-stated
+    the 50+ bucket by 2.9x -- on the 2026 board, 2.95 short misses a season against
+    ESPN's 0.60. Short misses are a scored penalty in the leagues that price them, so
+    the error had a sign.
+
+    Pinned on the ordering rather than the exact constants, which move with each refit:
+    misses must skew long where makes skew short, and the two must not be equal.
+    """
+    model = kick.load()
+    c = model["constants"]
+    made = {b: c[f"made_share_{b}"] for b in kick.BUCKETS}
+    miss = {b: c[f"miss_share_{b}"] for b in kick.BUCKETS}
+
+    assert sum(made.values()) == pytest.approx(1.0, abs=0.01)
+    assert sum(miss.values()) == pytest.approx(1.0, abs=0.01)
+
+    # Makes concentrate short; misses concentrate long. This is the whole bug.
+    assert made["Under40"] == max(made.values()), "makes should skew short"
+    assert miss["Under40"] == min(miss.values()), "misses should skew long"
+    assert miss["Under40"] < made["Under40"] / 2, (
+        "short misses must be far rarer than short makes; borrowing made_share_* here "
+        "is the bug this test exists for")
+    assert miss["From50Plus"] > made["From50Plus"] * 2
+
+    # And the per-bucket make rates must fall with distance, which is what makes the
+    # two distributions differ in the first place.
+    rates = [c[f"make_rate_{b}"] for b in ("Under40", "From40To49", "From50Plus")]
+    assert rates == sorted(rates, reverse=True), f"make rate must fall with distance: {rates}"
+    assert rates[0] > 0.90 and rates[-1] < 0.80
+
+
+def test_projected_misses_sum_back_to_the_total():
+    """Per-bucket misses are normalised, so they reconcile however the pool drifts."""
+    pred = kick.project(2026)
+    buckets = ["KIK_missedFieldGoalsFromUnder40",
+               "KIK_missedFieldGoalsFromFrom40To49",
+               "KIK_missedFieldGoalsFromFrom50Plus"]
+    total = pred["KIK_missedFieldGoals"].to_numpy()
+    parts = sum(pred[b].to_numpy() for b in buckets)
+    assert np.allclose(parts, total, rtol=1e-9), "bucket misses must sum to the total"
+    # And the short bucket must be the small one, on real projected output.
+    short = pred["KIK_missedFieldGoalsFromUnder40"].mean()
+    assert short < pred["KIK_missedFieldGoalsFromFrom50Plus"].mean()
+    assert short < 1.5, f"short misses back above the pre-fix level: {short:.2f}"
+
+
 def test_bucket_mapping_covers_every_nflverse_band_once():
     seen = [b for bands in kick.BUCKETS.values() for b in bands]
     assert sorted(seen) == sorted({"0_19", "20_29", "30_39", "40_49", "50_59", "60_"})

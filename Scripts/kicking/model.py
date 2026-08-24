@@ -71,6 +71,9 @@ def _team_season(seasons: Sequence[int]) -> pl.DataFrame:
           .rename({"posteam": "team"}))
 
     made_cols = [f"fg_made_{b}" for bs in BUCKETS.values() for b in bs]
+    miss_cols = [f"fg_missed_{b}" for b in
+                 (b for bs in BUCKETS.values() for b in bs)
+                 if f"fg_missed_{b}" in pw.columns]
     kick = (pw.filter(pl.col("position") == "K")
             .group_by(["season", "team"])
             .agg(pl.len().alias("kg"),
@@ -79,7 +82,8 @@ def _team_season(seasons: Sequence[int]) -> pl.DataFrame:
                  pl.col("pat_att").fill_null(0).sum().alias("pat_att"),
                  pl.col("pat_made").fill_null(0).sum().alias("pat_made"),
                  pl.col("fg_made_distance").fill_null(0).sum().alias("fg_yards"),
-                 *[pl.col(c).fill_null(0).sum().alias(c) for c in made_cols]))
+                 *[pl.col(c).fill_null(0).sum().alias(c) for c in made_cols],
+                 *[pl.col(c).fill_null(0).sum().alias(c) for c in miss_cols]))
     offence = (pw.group_by(["season", "team"])
                .agg(pl.len().alias("rows"),
                     (pl.col("rushing_tds").fill_null(0)
@@ -95,6 +99,10 @@ def _team_season(seasons: Sequence[int]) -> pl.DataFrame:
     for name, bs in BUCKETS.items():
         out = out.with_columns(
             sum(pl.col(f"fg_made_{b}") for b in bs).alias(f"made_{name}"))
+        present = [b for b in bs if f"fg_missed_{b}" in out.columns]
+        out = out.with_columns(
+            (sum(pl.col(f"fg_missed_{b}") for b in present) if present
+             else pl.lit(0.0)).alias(f"missed_{name}"))
     return out.with_columns(
         (pl.col("fga") / pl.col("games")).alias("fga_pg"),
         (pl.col("pat_att") / pl.col("games")).alias("pat_pg"),
@@ -112,6 +120,27 @@ def _constants(ts: pl.DataFrame) -> Dict[str, float]:
     total_made = sum(ts[f"made_{n}"].sum() for n in BUCKETS)
     for n in BUCKETS:
         c[f"made_share_{n}"] = float(ts[f"made_{n}"].sum() / max(total_made, 1))
+
+    # Misses get their **own** distance shares, measured rather than borrowed.
+    #
+    # They used to be allocated on `made_share_*`, which is wrong in the one direction
+    # that matters: makes concentrate where kicks are easy and misses concentrate where
+    # they are hard. Pooled over 2016-2025 -- 8,667 makes against 1,393 misses -- a kick
+    # inside 40 is 57.8% of makes and only 15.6% of misses, while a kick from 50+ is
+    # 14.7% of makes and 42.4% of misses. So the old allocation over-stated short misses
+    # by 3.7x and under-stated long ones by 2.9x. On the 2026 board that put
+    # `missedFieldGoalsFromUnder40` at 2.95 a season against ESPN's 0.60, and short
+    # misses are a penalty in the leagues that score them.
+    #
+    # This stays a positional constant, which is the plan's central finding: a *distance
+    # band's* make rate is a property of the distance (95.8% / 80.3% / 68.4%), not of the
+    # kicker, whose own conversion has a year-over-year r of 0.009.
+    total_missed = sum(ts[f"missed_{n}"].sum() for n in BUCKETS)
+    for n in BUCKETS:
+        c[f"miss_share_{n}"] = (float(ts[f"missed_{n}"].sum() / total_missed)
+                                if total_missed else c[f"made_share_{n}"])
+        att = float(ts[f"made_{n}"].sum() + ts[f"missed_{n}"].sum())
+        c[f"make_rate_{n}"] = float(ts[f"made_{n}"].sum() / att) if att else c["fg_make_rate"]
     return c
 
 
@@ -252,13 +281,18 @@ def project(season: int, model: Optional[Dict] = None) -> pl.DataFrame:
         col = ("KIK_madeFieldGoalsFromUnder40" if name == "Under40"
                else f"KIK_madeFieldGoalsFrom{name}")
         out = out.with_columns(pl.Series(col, made_total * share))
-    # Missed-by-bucket, which two leagues score. Allocated on the same shares, since
-    # per-bucket miss rates are a per-kicker quantity and this model has none.
+    # Missed-by-bucket, on the miss distribution rather than the make distribution.
+    # See `_constants`: borrowing `made_share_*` here over-stated short misses 3.7x.
+    # Shares are normalised so the buckets sum back to `missed` exactly, which keeps the
+    # per-bucket columns reconciling with `KIK_missedFieldGoals` however the pooled
+    # counts drift.
     missed = fg_att - made_total
+    miss_norm = sum(c[f"miss_share_{n}"] for n in BUCKETS) or 1.0
     for name in BUCKETS:
         col = ("KIK_missedFieldGoalsFromUnder40" if name == "Under40"
                else f"KIK_missedFieldGoalsFrom{name}")
-        out = out.with_columns(pl.Series(col, missed * c[f"made_share_{name}"]))
+        out = out.with_columns(
+            pl.Series(col, missed * (c[f"miss_share_{name}"] / miss_norm)))
     return out.with_columns(
         pl.when(pl.col("kik_n_priced") == 0)
         .then(pl.lit("no line; league-average environment"))
