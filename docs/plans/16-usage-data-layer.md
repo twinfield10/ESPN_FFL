@@ -450,22 +450,28 @@ the app's coverage panel shows it at 0%.
 
 ## Step 0 — the gates, measured 2026-08-06
 
-> **The independence matrix in this section is stale as of 2026-08-24 and must be
-> re-run before anything else is built on it.** It was computed on **non-imputed cells
-> only**, and FantasyPros was real for just 60 players — ten per position, all it served
-> without an account — so the sample was the top ten at each position and nobody else,
-> which is exactly the band where every source agrees. FantasyPros now reaches 592, and
-> its disagreement with ESPN runs 6.0% inside ADP 50 against **31.6%** outside ADP 150.
+> **The independence matrix below was re-run on 2026-08-24 and the figures here are the
+> ORIGINAL ones, measured when FantasyPros covered 13% of rows. Read the correction with
+> them.** The matrix scores non-imputed cells only, and FantasyPros was then real for 60
+> players — ten per position, all it served without an account — so its column was
+> sampled from the band where every source agrees.
 >
-> **Every row is affected, not just FantasyPros'.** Each source's "residual correlation
-> with the rest" was scored against a *rest* in which FantasyPros was largely ESPN
-> imputed through the mean — so the matrix partly measured ESPN's correlation with
-> itself. G0's *conclusion* (the usage model is the most independent source, +0.090)
-> is likely to survive re-measurement and may even strengthen, since the comparison set
-> was more collinear than it appeared. But it is unverified until re-run.
+> Re-measured at 80.1% FantasyPros coverage, `python -m Scripts.usage.gates --season 2025`:
 >
-> This retired [plan 20](20-consensus-sources.md), which was built on the matrix.
-> Frozen until after the 2026 drafts: it moves `TRUE_Points`.
+> | Source | here | re-run | partial here | re-run |
+> |---|---|---|---|---|
+> | ESPN | +0.068 | +0.068 | +0.199 | +0.198 |
+> | **FantasyPros** | **+0.027** | **+0.058** | **+0.109** | **+0.180** |
+> | Pinnacle | +0.035 | +0.036 | +0.169 | +0.175 |
+> | BetOnline | +0.043 | +0.045 | +0.167 | +0.175 |
+> | **usage baseline / TOMCAT** | **+0.090** | **+0.113** | **+0.318** | **+0.371** |
+>
+> **G0's verdict survives and strengthens** — TOMCAT goes from +0.318 to +0.371 partialled,
+> 1.9× ESPN's. Only FantasyPros' row moved materially, which is what makes the diagnosis
+> specific. FantasyPros is no longer the least independent source; Pinnacle is. Anything
+> in this section that ranks FantasyPros last is superseded by the re-run — see retired
+> [plan 20](20-consensus-sources.md), which was built on that ranking.
+
 
 
 **Done.** `python -m Scripts.usage.gates --season 2025` regenerates every number
