@@ -21,7 +21,7 @@ ESPN scoring settings via :func:`proj_to_score`.
 """
 
 import warnings
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 import pandas as pd
 
@@ -224,15 +224,49 @@ IMPUTED_SUFFIX = "_is_imputed"
 #: there are none now; a row of identical dicts is a thing that drifts out of sync
 #: rather than a structure. :func:`compute_weighted_stats` reads ``default`` for any
 #: stat without its own entry, so re-adding one is a single line.
+#: Sources that project **one position** and are absent everywhere else.
+#:
+#: They break the "weights sum to 1.0" invariant the other sources hold, and that is
+#: correct rather than a bug: `compute_weighted_stats` drops a source with no column on
+#: a row and renormalises the remainder, so a `DST` weight of 0.25 is 0.25 of a team
+#: defence's blend and exactly 0.0 of a running back's. Summing the whole table and
+#: expecting 1.0 is therefore the wrong check -- sum the universal sources instead.
+#:
+#: Named here rather than inlined so the callers that need the distinction (the G2
+#: counterfactual, and the tests guarding it) share one definition of it.
+POSITION_SCOPED_SOURCES: Tuple[str, ...] = ("KIK", "DST")
+
+
 WEIGHTS = {
-    # `KIK` and `DST` are registered at 0.0 deliberately, the same way `USG` was on
-    # 2026-08-07: the columns reach all nine boards and `TRUE_Points` is provably
+    # `KIK` and `DST` were both registered at 0.0 on 2026-08-18, the same way `USG` was
+    # on 2026-08-07: the columns reach all nine boards and `TRUE_Points` is provably
     # unmoved, so turning either on later is one number rather than a build. They cover
     # only kickers and team defences respectively; every other position sees no `KIK_` or
     # `DST_` column at all, so `compute_weighted_stats` drops their weight and
-    # renormalises. See docs/plans/29-kicker-model.md and 30-dst-model.md.
+    # renormalises.
+    #
+    # **`DST` was turned on at 0.25 on 2026-08-24, and `KIK` was not.** The two positions
+    # were built together and the evidence separated them, which is the conclusion plans
+    # 29 and 30 reached independently: a defence is genuinely draftable and a kicker
+    # essentially is not (season-average environment spreads D/ST 3.1x and kickers 1.24x).
+    #
+    #   * `DST` cleared **G-DST2 baseline (a) in all nine leagues** -- walk-forward MAE on
+    #     season D/ST points is 34-46% below prior-season points, against a 10% bar
+    #     (`python -m Scripts.dst.gates`). It cleared **G-DST4** with a measured
+    #     cross-position shift of exactly 0.0000. G-DST2(b), against ESPN, is *not run*:
+    #     no pre-season ESPN D/ST projection survives for a season whose result is known.
+    #     0.25 is therefore a **co-equal** weight rather than a claim to beat ESPN -- on a
+    #     D/ST row where FantasyPros is imputed it renormalises to a 50/50 with ESPN.
+    #   * `KIK` stays at 0.0. Channel P (extra points) is strong at +45.9% held out, but
+    #     **channel F (field goals) fails G-K2 at +1.2% against a 5% bar** -- exactly the
+    #     humbling plan 29 pre-registered, because red-zone conversion's own YoY r is
+    #     0.095. Blending the position would carry the failed channel in with the good
+    #     one. The `KIK_` columns stay on the board as a second opinion, and the weekly
+    #     path -- where plan 29 measured the real value -- is where this gets revisited.
+    #
+    # See docs/plans/29-kicker-model.md and 30-dst-model.md.
     'default': {'ESPN': 0.25, 'FP': 0.25, 'PINNY': 0.0, 'BOL': 0.25, 'USG': 0.25,
-                'KIK': 0.0, 'DST': 0.0},
+                'KIK': 0.0, 'DST': 0.25},
 }
 
 

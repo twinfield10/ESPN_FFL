@@ -108,8 +108,14 @@ and the backtest is untouched -- only the artifact the blend consumes is rescale
 the availability estimate travels beside it as `usg_expected_games`.
 
 **The blend is an equal quarter each to ESPN, FantasyPros, BetOnline and the usage
-model**, with **Pinnacle** at zero — `projection_utils.WEIGHTS` is
-`{'ESPN': 0.25, 'FP': 0.25, 'PINNY': 0.0, 'BOL': 0.25, 'USG': 0.25}`. This paragraph
+model**, with **Pinnacle** at zero — plus a **position-scoped fifth**, `DST` at 0.25 on
+team defences only, since 2026-08-24. `projection_utils.WEIGHTS` is
+`{'ESPN': 0.25, 'FP': 0.25, 'PINNY': 0.0, 'BOL': 0.25, 'USG': 0.25, 'KIK': 0.0, 'DST': 0.25}`.
+That table deliberately sums to 1.25 rather than 1.0: `KIK` and `DST` carry a column on
+one position each, so `compute_weighted_stats` drops them everywhere else and
+renormalises — see `POSITION_SCOPED_SOURCES`. On a D/ST row it renormalises to a 50/50
+with ESPN. `KIK` is registered and **stays at 0.0**, because its field-goal channel
+failed G-K2 at +1.2% against a 5% bar. This paragraph
 said "an equal three-way split of ESPN, FantasyPros and the usage model, with Pinnacle
 **and BetOnline** at zero" until 2026-08-18, and was wrong: BetOnline carries a full
 quarter, and the *Known issues* table below has always said so ("BOL contributes 10–40%

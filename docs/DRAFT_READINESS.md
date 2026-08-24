@@ -61,7 +61,7 @@ Verified today, not taken from a doc:
 | Test suite | **1,174 passing**, 0 failures |
 | Usage model coverage | 766/915 rostered players (83.7%) |
 | Pre-draft injury scan | 2 players inside ADP 150 on a weak rung, **both under one game** |
-| Kicker / D/ST models | priced and on every board (3–4 sources each) |
+| Kicker / D/ST models | priced on every board; **`DST` blended at 0.25**, `KIK` at 0.0 |
 
 The injury result is the one worth noticing: 31 players inside ADP 150 already carry
 a real severity off an automatic rung, and the manual queue is two camp knocks that
@@ -99,29 +99,50 @@ writing commit messages, and it is the only item here whose cost goes up if you 
 
 ## Two open decisions
 
-### 1. Leave `KIK_` and `DST_` at weight 0.0 — recommended
+### 1. `DST_` is on at 0.25. `KIK_` stays at 0.0 — done 2026-08-24
 
-Both models are built, priced and on all nine boards at weight 0.0, exactly as `USG_`
-was on 2026-08-07. Turning either on is one number. **Do not turn them on before the
-draft**, on today's numbers:
+**This entry replaces the opposite recommendation, which was wrong.** It said to leave
+both at 0.0 because `KIK_Points` sits at 0.689 of ESPN's level and `DST_Points` at
+0.589, and that blending a low level would walk both positions down the VOR board.
 
-| | Level vs ESPN | Rank agreement with ESPN |
-|---|---|---|
-| `KIK_Points` | **0.689** | ρ 0.627 |
-| `DST_Points` | **0.589** | ρ 0.455 |
+The level ratio was the wrong diagnostic. Blending happens **per stat with
+renormalisation**, not on the `_Points` column, so a standalone score 41% below ESPN's
+does not translate into a 41% shift in the blend. Measured across all nine leagues at
+`DST=0.25`, the cross-position shift in median `TRUE_`/`ESPN_` is **exactly 0.0000** for
+QB, RB, WR and TE, and D/ST's own mean moves by 0.4 to 3.5 points. G-DST4 passes with
+room to spare.
 
-The ordering disagreement is the interesting half — the D/ST model's top defence is
-the **Chiefs at ADP 164** where ESPN has Seattle and Baltimore — and it is exactly
-what [plan 30](plans/30-dst-model.md) predicted from Vegas beating prior season on
-seven of eight components. But the *level* is 31–41% low, and blending a low level
-at any non-zero weight walks both positions down the VOR board in every league,
-which is precisely what gates G-K4 and G-DST4 pre-register against (bar: 0.02 on a
-position's median `TRUE_`/`ESPN_` ratio).
+And the level gap itself is not the model's error. Actual league-wide points allowed is
+**22.74** per team-game over 2016-2025 and **23.01** in 2025. The model says 22.89.
+**ESPN says 22.00**, which is every defence projected above average — arithmetically
+impossible, and the real source of the gap.
 
-So the value is available **as a second opinion you read**, not as a blended number.
-On draft night, sort D/ST by `DST_Points` and treat a large positive gap against ADP
-as the model saying the market has not priced the schedule. Fixing the level is a
-post-draft job; the ranking is usable today.
+What decided the weight was the gate:
+
+| Gate | Result |
+|---|---|
+| **G-DST2(a)** — beat prior-season points by 10% in all nine leagues | **PASS, 34–46%** (walk-forward; model MAE 20–24 against 31–43) |
+| **G-DST4** — cross-position neutrality, bar 0.02 | **PASS, 0.0000** in all nine |
+| G-DST2(b) — beat ESPN | **Not run.** No pre-season ESPN D/ST projection survives for a season whose result is known; the 2026 board becomes that record in 2027 |
+| **G-K2** — FG channel beats a constant by 5% | **FAIL, +1.2%** — exactly the humbling plan 29 pre-registered |
+
+So `DST` is on at **0.25**, which on a D/ST row renormalises to a 50/50 with ESPN — a
+co-equal weight, not a claim to beat ESPN, since the gate that would support that claim
+cannot be run. `KIK` stays at **0.0**: channel P is strong (+45.9% held out) but channel
+F fails, and blending the position carries the failed channel in with the good one.
+
+Reproduce with `python -m Scripts.dst.gates`.
+
+**A real bug turned up on the way.** The kicker model allocated missed field goals
+across distance buckets using the *made* shares. Makes concentrate short and misses
+concentrate long — a kick inside 40 is 57.8% of makes and 15.6% of misses — so short
+misses were over-stated 3.7× and 50+ misses under-stated 2.9×. On the board that was
+2.95 short misses a season against ESPN's 0.60; it is now 0.80. Short misses are a
+scored penalty in the leagues that price them, so the error had a sign. Fixed and
+pinned.
+
+What this changes on draft night: D/ST ordering now differs from ESPN at ρ 0.863
+(it was 1.000 — pure ESPN). The Chargers at ADP 164 enter GOP's top five.
 
 ### 2. BetOnline weekly props — not a draft decision
 
@@ -202,7 +223,7 @@ Ordered by when it has to happen, not by size.
       ```
 - [ ] Re-run `python -m Scripts.injury.review` the morning of. A Friday injury to a
       third-round pick is exactly the case the override file exists for.
-- [ ] **Freeze the code.** No blend-weight changes, no turning `KIK_`/`DST_` on, no
+- [ ] **Freeze the code.** No further blend-weight changes, no turning `KIK_` on, no
       dependency upgrades. Everything in this repo's own *Known issues* about absent
       sources reading as agreement applies double to a change made the day of a draft.
 
@@ -213,7 +234,8 @@ Ordered by when it has to happen, not by size.
       four; GOP and Knights draft on consecutive nights and are one click apart.
 - [ ] Read `Δrk` rather than `USG` points — `USG_Points` is injury-adjusted and
       `TRUE_Points` is not, so the rank comparison is the one that survives.
-- [ ] For K and D/ST, read `KIK_Points` / `DST_Points` as an opinion, not a total.
+- [ ] D/ST is blended now, so `TRUE_Points` already carries the model — read it as the
+      number. For kickers, `KIK_Points` is still an opinion beside the total, not in it.
 
 ---
 

@@ -298,3 +298,41 @@ def test_a_flagged_source_loses_its_weight_and_the_rest_renormalise():
                                 {"default": {"ESPN": 0.5, "KIK": 0.5}})
     assert out["TRUE_madeFieldGoals"].iloc[0] == pytest.approx(30.0), (
         "a flagged-absent source must drop its weight, not contribute a zero")
+
+
+# --- G-DST2, the gate that decided the weight -----------------------------
+
+def test_realised_tier_counts_are_a_full_slate_and_never_negative():
+    """The gate scores actuals by counting weekly games into tiers, not by scoring a
+    season mean. Getting that backwards would compare the model against the very
+    approximation plan 30 exists to reject, and it would silently pass."""
+    from Scripts.dst import gates
+
+    truth = gates.realised([2024])
+    pa = [f"DST_defensive{t}" for t, _, _ in dst.PA_TIERS]
+    yd = [f"DST_defensive{t}" for t, _, _ in dst.YD_TIERS]
+    for group in (pa, yd):
+        total = sum(truth[c].to_numpy() for c in group)
+        assert (total >= 14).all(), "a team-season should carry a near-full slate"
+        assert (total <= 18).all(), f"more tier games than weeks played: {total.max()}"
+        for c in group:
+            assert (truth[c].to_numpy() >= 0).all()
+
+
+def test_the_gate_refuses_to_report_the_espn_baseline_it_cannot_run():
+    """G-DST2 has two baselines and only one is runnable. The module must say so.
+
+    This repo's recurring failure mode is an absent source reading as agreement; a gate
+    quietly reporting half of itself as a whole one is the same error wearing a lab coat.
+    """
+    from Scripts.dst import gates
+
+    text = gates.__doc__
+    assert "Only (a) is runnable" in text
+    assert "ESPN" in text and "2027" in text
+    # And the printed result has to carry the caveat, not just the docstring -- the
+    # report is what a reader actually sees. Checked on the source of `report` rather
+    # than by calling it, which refits the model walk-forward and costs a minute.
+    import inspect
+    printed = inspect.getsource(gates.report)
+    assert "G-DST2(b) vs ESPN is NOT run" in printed
