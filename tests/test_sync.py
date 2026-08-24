@@ -61,6 +61,59 @@ def test_push_uploads_the_store_and_the_mirror(s3_env):
     assert "nfl/season=2026/depth_charts.parquet" in s3_env.objects
 
 
+def test_an_unchanged_mirror_file_is_not_re_uploaded(s3_env):
+    """The bandwidth guard the play-by-play archive made necessary.
+
+    `R/GetPBP.R` takes ``Data/NFL`` from ~40 MB to ~540 MB, and 26 of its 27 seasons
+    are completed seasons that cannot change. Without this, the nightly sends half a
+    gigabyte every night to arrive at identical objects.
+    """
+    _mirror_file("NFL/2026/pbp.parquet", b"plays")
+    first, _ = sync.push(["nfl"], 2026, snapshot_date=None)
+    assert first == 1
+
+    s3_env.put_order.clear()
+    second, failures = sync.push(["nfl"], 2026, snapshot_date=None)
+    assert (second, failures, s3_env.put_order) == (0, [], [])
+
+
+def test_changed_bytes_are_uploaded_even_at_the_same_size(s3_env):
+    """Same length, different content -- so the check cannot be size or mtime."""
+    path = _mirror_file("NFL/2026/pbp.parquet", b"plays")
+    sync.push(["nfl"], 2026, snapshot_date=None)
+
+    path.write_bytes(b"PLAYS")
+    s3_env.put_order.clear()
+    count, failures = sync.push(["nfl"], 2026, snapshot_date=None)
+    assert count == 1 and not failures
+    assert s3_env.objects["nfl/season=2026/pbp.parquet"] == b"PLAYS"
+
+
+def test_a_head_that_errors_uploads_rather_than_skipping(s3_env, monkeypatch):
+    """Any doubt uploads. A "nothing to do" that really means "could not tell" is
+    this repo's recurring failure mode wearing a different hat."""
+    _mirror_file("NFL/2026/pbp.parquet", b"plays")
+    sync.push(["nfl"], 2026, snapshot_date=None)
+
+    def explode(*_a, **_k):
+        raise RuntimeError("S3 unreachable")
+    monkeypatch.setattr(s3_store, "verify", explode)
+
+    s3_env.put_order.clear()
+    count, failures = sync.push(["nfl"], 2026, snapshot_date=None)
+    assert count == 1 and not failures
+
+
+def test_skip_unchanged_can_be_turned_off(s3_env):
+    """A forced re-push has to stay available -- it is the repair for a bucket
+    someone edited out from under the mirror."""
+    _mirror_file("NFL/2026/pbp.parquet", b"plays")
+    sync.push(["nfl"], 2026, snapshot_date=None)
+    s3_env.put_order.clear()
+    count, _ = sync.push(["nfl"], 2026, snapshot_date=None, skip_unchanged=False)
+    assert count == 1
+
+
 def test_the_snapshot_lands_under_a_dated_partition(s3_env):
     """The capability G2 had to be hand-built to get: a board that survives the day
     it was built."""

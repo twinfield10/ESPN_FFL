@@ -280,3 +280,173 @@ def advanced_available(seasons: Sequence[int]) -> Dict[str, List[int]]:
     """
     return {name: sorted(s for s in seasons if advanced_path(s, name).is_file())
             for name in ADVANCED_FILES}
+
+
+# --- The play-by-play archive -------------------------------------------------
+#
+# `R/GetAdvanced.R` downloads full play-by-play, derives `routes` and `red_zone`
+# from it, and discards the other 370 columns. `R/GetPBP.R` keeps it, so a
+# play-level question is a `group_by` rather than a new R script and a re-download.
+
+#: Archive pulls `R/GetPBP.R` writes, and the grain each is keyed on.
+#:
+#: Unlike :data:`ADVANCED_FILES` these are **not** all player-week frames, which is
+#: why the grain is recorded rather than assumed. Play-by-play and participation are
+#: keyed on the *play* and carry no ``gsis_id`` at all.
+#:
+#: The three PFR pulls are player-week -- verified unique on
+#: ``(season, week, pfr_player_id)`` and not on ``(season, pfr_player_id)`` -- but
+#: they key on **PFR's** player id, not nflverse's. Joining them to anything in this
+#: repo needs a crosswalk hop that does not exist yet; :mod:`Scripts.crosswalk` maps
+#: ``gsis_id`` to ESPN and stops there.
+#:
+#: ``pfr_pass`` is the one plan 32 went looking for and could not find: it carries
+#: ``times_pressured``, ``times_blitzed``, ``times_hurried``, ``times_hit`` and
+#: ``times_sacked`` per quarterback per game, which is the pressure-rate and
+#: offensive-line evidence that plan's phase 3 needs.
+PBP_FILES: Dict[str, Tuple[str, ...]] = {
+    "pbp": ("season", "week", "play_id"),
+    "participation": ("season", "play_id"),
+    "ftn_charting": ("season", "week", "nflverse_play_id"),
+    "pfr_pass": ("season", "week", "pfr_player_id"),
+    "pfr_rush": ("season", "week", "pfr_player_id"),
+    "pfr_rec": ("season", "week", "pfr_player_id"),
+}
+
+#: Weeks a fantasy pipeline scores. Weeks 19-22 are the post-season.
+REGULAR_SEASON_MAX_WEEK = 18
+
+
+def pbp_path(season: int, name: str = "pbp"):
+    """Path to one of :data:`PBP_FILES` for a season. Not created."""
+    if name not in PBP_FILES:
+        raise KeyError(f"Unknown play-by-play pull {name!r}. "
+                       f"Known: {sorted(PBP_FILES)}.")
+    return nfl_season_dir(season, f"{name}.parquet")
+
+
+def pbp_seasons_available(candidates: Sequence[int],
+                          name: str = "pbp") -> List[int]:
+    """Which of ``candidates`` have this archive pull on disk.
+
+    Worth calling before a wide read: the archive is ~26 MB a season, so a caller
+    that wants 1999-2025 should know it is about to read 600 MB rather than
+    discover it.
+
+    Args:
+        candidates: Season years to check.
+        name: One of :data:`PBP_FILES`.
+
+    Returns:
+        list: Sorted seasons present.
+    """
+    return sorted(s for s in candidates if pbp_path(s, name).is_file())
+
+
+def load_pbp(seasons: Sequence[int],
+             columns: Optional[Sequence[str]] = None,
+             season_type: Optional[str] = "REG",
+             max_week: Optional[int] = REGULAR_SEASON_MAX_WEEK) -> pl.DataFrame:
+    """Play-by-play for several seasons.
+
+    **The filters are here rather than at write time, and that is the design.**
+    Every other pull in this repo is filtered to regular-season weeks 1-18 before
+    it reaches disk, because a fantasy pipeline never scores weeks 19-22 and
+    playoff games would corrupt per-game denominators. Correct for a feature table;
+    wrong for an archive, since a filter applied at write time cannot be undone and
+    post-season snaps are real evidence about a player.
+
+    So the file holds everything and this defaults to the same REG weeks 1-18 every
+    existing caller already assumed. Pass ``season_type=None`` to see the rest.
+
+    **Pass ``columns``.** Play-by-play is 372 columns and ~20 MB a season on disk;
+    a projection pushed into the parquet read is the difference between a 600 MB
+    load and a 20 MB one across the full archive.
+
+    Args:
+        seasons: Season years to read. Missing ones are skipped, not raised on --
+            the archive starts where nflverse does and a caller asking for 1998
+            should get an empty frame rather than a traceback.
+        columns: Columns to read. None reads all 372.
+        season_type: ``"REG"``, ``"POST"``, or None for both.
+        max_week: Drop weeks above this. None keeps all.
+
+    Returns:
+        pl.DataFrame: One row per play, sorted by season, week and play id. Empty
+        with a ``season``/``week`` schema when no season has been pulled.
+    """
+    frames = []
+    for season in sorted(set(seasons)):
+        path = pbp_path(season, "pbp")
+        if not path.is_file():
+            continue
+        want = list(columns) if columns else None
+        if want is not None:
+            # A projection naming a column the season does not have would raise
+            # mid-read, and the seasons genuinely differ -- `qb_epa` predates
+            # `xpass`. Narrowing to what is really there keeps a 1999-2025 read
+            # from failing on its oldest file.
+            present = set(pl.scan_parquet(path).collect_schema().names())
+            want = [c for c in want if c in present]
+            for key in ("season", "week", "season_type"):
+                if key in present and key not in want:
+                    want.append(key)
+        frames.append(pl.read_parquet(path, columns=want))
+
+    if not frames:
+        return pl.DataFrame(schema={"season": pl.Int32, "week": pl.Int32})
+
+    out = pl.concat(frames, how="diagonal")
+    if season_type is not None and "season_type" in out.columns:
+        out = out.filter(pl.col("season_type") == season_type)
+    if max_week is not None and "week" in out.columns:
+        out = out.filter(pl.col("week") <= max_week)
+
+    order = [c for c in ("season", "week", "play_id") if c in out.columns]
+    return out.sort(order) if order else out
+
+
+def load_pbp_annotation(seasons: Sequence[int], name: str) -> pl.DataFrame:
+    """One of the non-play-by-play archive pulls, for several seasons.
+
+    Participation, FTN charting and the three PFR tables. Skipped rather than
+    raised on where absent, because absence is the normal case: participation
+    starts in 2016, PFR in 2018 and FTN in 2022, so any read spanning the training
+    window walks through all three boundaries.
+
+    Args:
+        seasons: Season years to read.
+        name: One of :data:`PBP_FILES`, other than ``"pbp"``.
+
+    Returns:
+        pl.DataFrame: The concatenated frames. Empty with a ``season`` schema when
+        no season has been pulled.
+
+    Raises:
+        KeyError: On an unknown pull name.
+        ValueError: When called for ``"pbp"``, which has its own loader and its
+            own filtering contract.
+    """
+    if name == "pbp":
+        raise ValueError("Use load_pbp for play-by-play -- it filters season type "
+                         "and week, which this does not.")
+    frames = [pl.read_parquet(pbp_path(s, name))
+              for s in sorted(set(seasons)) if pbp_path(s, name).is_file()]
+    if not frames:
+        return pl.DataFrame(schema={"season": pl.Int32})
+    return pl.concat(frames, how="diagonal")
+
+
+def load_pbp_meta(season: int) -> Optional[Dict]:
+    """A season's ``pbp_meta.json``, or None when it has not been pulled.
+
+    Args:
+        season: Season year.
+
+    Returns:
+        dict: Release timestamps, row counts and the season-type breakdown.
+    """
+    path = nfl_season_dir(season, "pbp_meta.json")
+    if not path.is_file():
+        return None
+    return json.loads(path.read_text())

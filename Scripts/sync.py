@@ -72,8 +72,44 @@ def _league_seasons(season: int) -> List[Tuple[int, str]]:
 
 # --- push ----------------------------------------------------------------
 
+def _unchanged(local, key: str) -> bool:
+    """Whether S3 already holds this exact file.
+
+    **This is a bandwidth guard, not a correctness one**, and it is here because
+    the play-by-play archive changed the arithmetic. Before it, the mirror was
+    ~40 MB and re-uploading all of it nightly was merely wasteful. `R/GetPBP.R`
+    takes `Data/NFL` to ~540 MB, and 26 of its 27 seasons are completed seasons
+    that cannot change -- so an unconditional push would send half a gigabyte
+    every night to arrive at identical objects.
+
+    Compares SHA-256 through :func:`Scripts.s3_store.verify` rather than size or
+    mtime. Size collides trivially, and mtime is wrong in the direction that
+    matters here: a re-run of `R/GetPBP.R` rewrites a completed season's parquet
+    with fresh mtimes and identical bytes, which is exactly the case worth
+    skipping.
+
+    **Any doubt uploads.** An error reaching S3 returns False, so the push happens
+    and the failure surfaces on the upload rather than being swallowed by a
+    check -- an absent source reading as agreement is this repo's recurring
+    failure mode, and a "nothing to do" that really means "could not tell" is that
+    same shape.
+
+    Args:
+        local: Local file.
+        key: Object key.
+
+    Returns:
+        bool: True only when S3 is known to hold identical bytes.
+    """
+    try:
+        return s3_store.verify(local, key)
+    except Exception:                                       # noqa: BLE001
+        return False
+
+
 def push(what: Sequence[str], season: int, *, dry_run: bool = False,
-         snapshot_date: Optional[str] = None) -> Tuple[int, List[str]]:
+         snapshot_date: Optional[str] = None,
+         skip_unchanged: bool = True) -> Tuple[int, List[str]]:
     """Upload the requested tiers.
 
     Args:
@@ -82,6 +118,8 @@ def push(what: Sequence[str], season: int, *, dry_run: bool = False,
         dry_run: Resolve keys and checksums without writing anything.
         snapshot_date: ``YYYY-MM-DD`` to preserve today's boards under. None skips
             the snapshot entirely.
+        skip_unchanged: Skip mirror files whose object in S3 already has the same
+            SHA-256. See :func:`_unchanged`.
 
     Returns:
         tuple: ``(objects_uploaded, failures)``. Failures are human-readable and
@@ -119,7 +157,11 @@ def push(what: Sequence[str], season: int, *, dry_run: bool = False,
     dirs = _tier_dirs(what)
     if dirs:
         counts: Dict[str, int] = {}
+        skipped = 0
         for local, key in s3_store.iter_mirror_files(dirs):
+            if skip_unchanged and _unchanged(local, key):
+                skipped += 1
+                continue
             try:
                 s3_store.put_file(local, key, dry_run=dry_run)
                 uploaded += 1
@@ -129,6 +171,8 @@ def push(what: Sequence[str], season: int, *, dry_run: bool = False,
                 _log(f"  mirror     {key:<40} FAILED  {type(e).__name__}: {e}")
         for tier, n in sorted(counts.items()):
             _log(f"  {tier:<12} {'':<22} {prefix} {n} objects")
+        if skipped:
+            _log(f"  mirror     {'':<22} skipped {skipped} unchanged")
 
     return uploaded, failures
 

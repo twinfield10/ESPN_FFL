@@ -13,8 +13,10 @@
 # What it does NOT do, deliberately:
 #
 #   * No historical nflverse backfill. R/GetUsage.R and R/GetAdvanced.R cover
-#     2016-2025, and completed seasons do not change. Re-pulling them daily would
-#     download ~500 MB of play-by-play to arrive at identical files.
+#     2016-2025 and R/GetPBP.R covers 1999-2025, and completed seasons do not
+#     change. Re-pulling them daily would download ~600 MB of play-by-play to
+#     arrive at identical files. The play-by-play archive *is* pulled nightly, but
+#     for the current season only -- that one does change, every week.
 #   * No Google Sheets render. populateGoogleSheet.py spends ~9 minutes asleep in
 #     rate-limit backoff, and pre-season there is nothing weekly to publish. Add it
 #     once the season starts if you want the phone view refreshed nightly.
@@ -113,6 +115,22 @@ log "depth chart before: ${BEFORE}"
 log "pulling rosters, depth charts, injuries (R/GetContext.R)"
 "${RSCRIPT}" R/GetContext.R "${SEASON}" "${SEASON}" >>"${LOG}" 2>&1 \
   || fail "R/GetContext.R"
+
+# --- 1b. Play-by-play archive -------------------------------------------
+# Current season only. Completed seasons do not change, and re-pulling 1999-2025
+# nightly would download ~600 MB to arrive at identical files -- backfill is an
+# explicit `Rscript R/GetPBP.R 1999 2025`, run once.
+#
+# Before GetContext but after nothing in particular: it has no dependants inside
+# this script. It runs here rather than at the end because `R/GetAdvanced.R` reads
+# the archive it writes, so if that script is ever added to this nightly the
+# ordering is already right.
+#
+# Pre-season this writes almost nothing -- the current season has no plays until
+# week 1 -- and that is not a failure. GetPBP.R exits 0 having skipped the season.
+log "pulling play-by-play archive (R/GetPBP.R)"
+"${RSCRIPT}" R/GetPBP.R "${SEASON}" "${SEASON}" >>"${LOG}" 2>&1 \
+  || fail "R/GetPBP.R"
 
 # --- 2. ESPN injury report ----------------------------------------------
 # A separate feed from nflreadr's, and the one that carries returnDate -- which the

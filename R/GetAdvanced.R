@@ -152,6 +152,48 @@ write_checked <- function(df, path, season, label) {
   invisible(df)
 }
 
+#' Play-by-play for a season, from the local archive where one exists.
+#'
+#' `R/GetPBP.R` writes `Data/NFL/<season>/pbp.parquet` -- the same frame this
+#' script used to download, kept rather than discarded. Reading it back turns the
+#' expensive part of this script into a local parquet read, and stops a nightly
+#' that runs both scripts downloading the same ~20 MB twice.
+#'
+#' Falls back to downloading, so this script still works standalone for anyone who
+#' has not run GetPBP.R. The archive is unfiltered by design; the caller applies
+#' the REG/week-18 filter either way, so the two paths return the same rows.
+#'
+#' The nflverse release timestamp does not survive a parquet round-trip, so it is
+#' read back from `pbp_meta.json` and travels as an attribute rather than being
+#' silently recorded as NA -- these stamps are how a stale pull gets noticed.
+#'
+#' @param season Season year.
+#' @return The frame with a `pbp_stamp` attribute, or NULL when there is none.
+load_pbp_cached <- function(season) {
+  archive <- file.path(repo_root, "Data", "NFL", as.character(season),
+                       "pbp.parquet")
+  if (file.exists(archive)) {
+    pbp <- tryCatch(arrow::read_parquet(archive), error = function(e) {
+      message(sprintf("  archive at %s unreadable (%s); downloading instead.",
+                      archive, conditionMessage(e)))
+      NULL
+    })
+    if (!is.null(pbp) && nrow(pbp) > 0) {
+      meta_file <- file.path(dirname(archive), "pbp_meta.json")
+      stamp <- if (file.exists(meta_file)) {
+        tryCatch(jsonlite::fromJSON(meta_file)$nflverse_timestamps$pbp,
+                 error = function(e) NA_character_)
+      } else NA_character_
+      message(sprintf("  play-by-play from archive: %d rows", nrow(pbp)))
+      attr(pbp, "pbp_stamp") <- if (is.null(stamp)) NA_character_ else stamp
+      return(pbp)
+    }
+  }
+  pbp <- load_optional("play-by-play", nflreadr::load_pbp, season)
+  if (!is.null(pbp)) attr(pbp, "pbp_stamp") <- release_timestamp(pbp)
+  pbp
+}
+
 #' Routes run, derived from participation and play-by-play.
 #'
 #' There is no routes column anywhere in public NFL data. What there is, in
@@ -358,9 +400,9 @@ for (season in SEASONS) {
   # Play-by-play is loaded once and shared by routes and red zone. It is the
   # expensive part of this script by an order of magnitude, and loading it twice
   # would double a ten-season backfill for nothing.
-  pbp <- load_optional("play-by-play", nflreadr::load_pbp, season)
+  pbp <- load_pbp_cached(season)
   if (!is.null(pbp)) {
-    stamps$pbp <- release_timestamp(pbp)
+    stamps$pbp <- attr(pbp, "pbp_stamp")
     pbp <- pbp %>%
       filter(season_type == "REG", week <= MAX_WEEK) %>%
       mutate(week = as.integer(week))
