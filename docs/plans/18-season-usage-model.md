@@ -52,6 +52,60 @@ past season — so the 2026 board is the gate, and turning the weight on is one 
 **Feeds:** [09 (draft views)](09-frontend-draft-views.md) ·
 [03 (weight re-tune)](03-projection-source-coverage.md)
 
+## G1 for the shipped head, measured 2026-08-24
+
+**The shipped season head had never been through G1.** `Scripts/usage/gates.py` runs G1
+against `Scripts/usage/baseline.py` -- "the crudest usage model there is: two trailing
+terms per stat", by its own docstring -- which failed and located the deficit in not
+knowing who plays. The depth chart, the rookie arm and the availability estimate all
+arrived *afterwards*, as the answer to that failure, and nobody re-measured.
+
+`python -m Scripts.usage.g1_season` closes it. 2025 walk-forward, genuine pre-season
+sources only, priced by Winfield_Football, n = 556:
+
+| TOMCAT weight | MAE | vs base | QB | RB | WR | TE |
+|---|---|---|---|---|---|---|
+| none | 34.83 | — | 0.806 | 0.806 | 0.792 | 0.832 |
+| 0.05 | 34.64 | +0.5% | 0.807 | 0.808 | 0.794 | 0.835 |
+| 0.10 | 34.52 | +0.9% | 0.810 | 0.807 | 0.794 | 0.838 |
+| **0.25** | **34.40** | **+1.3%** | 0.804 | 0.809 | 0.796 | **0.843** |
+| 0.40 | 34.36 | +1.4% | 0.799 | 0.810 | 0.796 | 0.847 |
+| 0.50 | 34.36 | +1.4% | 0.790 | 0.809 | 0.794 | 0.849 |
+
+**It passes, and modestly.** Adding TOMCAT cuts MAE 1.3% at the shipped weight and lifts
+within-position ordering at RB, WR and TE. **The shipped 0.25 is defensible rather than
+merely inside the range**: MAE is flat from 0.25 to 0.50 while quarterback ordering falls
+monotonically across that stretch (0.804 to 0.790), so the marginal 0.1% of MAE beyond
+0.25 is bought with QB rank. Consistent across all nine leagues at 1.2-1.3%.
+
+### Two traps, both of which produced a confident wrong answer first
+
+**The summed-weekly baseline is contaminated and looks excellent.** Summing each source's
+*weekly* projections into a season line was the first attempt, and it gave the baseline a
+within-position Spearman of 0.91 at QB and 0.93 at RB -- which no projection achieves,
+because a weekly projection is reissued each week knowing who got hurt. The tell is a
+number: summed-weekly ESPN correlates **+0.327** with the games a player actually went on
+to play and FantasyPros **+0.324**, where TOMCAT manages **+0.067**. That mode is kept
+behind `--basis summed-weekly`, loudly refused as a result, so the next person to have
+the idea watches it fail in one command.
+
+**Scoring the two arms on different populations produced a false -8% against TOMCAT.**
+393 of 949 players on the fold carry no external projection at all, and
+`backtest.points` scores an absent stat as zero rather than null -- so those rows stayed
+in the baseline as a confident projection of nought. A player nobody projects generally
+does score close to nought, so the baseline collected free credit for an opinion it never
+issued while TOMCAT projected them and took the error. Restricting to players both arms
+can blend moved the headline from **-8%** to **+1.3%**.
+
+### What this does not settle
+
+The baseline is **FantasyPros plus BetOnline only**. ESPN -- the strongest single source
+-- serves only its current projection and no 2025 board survives, and Pinnacle has no
+season-long archive. So this is a weaker baseline than a live board and the comparison is
+correspondingly kinder to TOMCAT than the real thing would be. A second season is not
+available either: there is no BetOnline 2024 season archive. **G2 against the full blend
+still belongs to `Data/G2/2026/` after this season is played.**
+
 ## What it is for
 
 The draft board values players on `TRUE_Points`, a blend of four projection
