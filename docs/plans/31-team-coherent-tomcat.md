@@ -2,7 +2,7 @@
 
 **Status:** IN PROGRESS
 
-**Priority:** High · **Effort:** M · **Where it stands:** Not started — evidence measured 2026-08-24
+**Priority:** High · **Effort:** M · **Where it stands:** **Phase 1 shipped on `feat/team-coherent-tomcat`, 2026-08-24** — three gates pass, G-T2 misses, so the false-positive clause does not fire and phases 2–3 stay open. Evidence measured 2026-08-24
 **Depends on:** [18](18-season-usage-model.md) (the season head) ·
 [28](28-outcome-distributions.md) (the redistribution evidence this needs)
 **Feeds:** [19](19-weekly-usage-model.md) · [03](03-projection-source-coverage.md)
@@ -59,15 +59,28 @@ Both failure directions are the same bug:
 * **Atlanta** — Tua 3,634 + Penix 2,404 = **6,037** passing yards, from 21.9 QB-games.
   ESPN splits the same room 2,171 + 1,884 = 4,055. TOMCAT projects each quarterback as
   though he were most of a starter and adds them.
-* **Cleveland** — Shedeur Sanders alone at 10.2 expected games, so **1,938** passing
-  yards. No NFL team has thrown for under 2,800 in a 17-game season. The other 6.8 games
-  are played by a quarterback the model does not project, and their volume simply leaves
-  the team.
+* **Cleveland** — Shedeur Sanders alone at **1,938** passing yards. No NFL team has
+  thrown for under 2,800 in a 17-game season.
 
-That second case is the more interesting one. **Availability is modelled as "games this
-player misses" and never redistributed to whoever replaces him**, so a starter's injury
-discount deletes team volume instead of moving it. Miami sits at **3.7** projected
-QB-games.
+> **Corrected 2026-08-24, in implementation.** This plan attributed Cleveland to
+> Sanders' 10.2 expected games, with the other 6.8 games' volume leaving the team.
+> **That is the mechanism in the backtest and not on the board.**
+> `Scripts.usage.project.to_full_slate` divides each player's own `expected_games`
+> back out before the parquet is written, so every shipped `USG_` line already
+> describes seventeen games. Cleveland's number is 16.7 attempts a game at 6.8 yards
+> an attempt over a full slate — the model shrinking an unproven rookie toward a
+> positional baseline. No games term is involved.
+>
+> The consequence is not cosmetic: phase 1 as written below **multiplies a line that
+> is already on a full slate**, so it does not lift a short room to seventeen games,
+> it pushes it past them. Miami — whose only projected passer is Malik Willis at 3.7
+> expected games, the starter being unprojected — went to **8,268 projected passing
+> yards** against an all-time record of 5,477. See *What shipped*.
+
+Atlanta's failure is the one that survives intact, and it is the full-slate double
+count: **every projected quarterback is priced for seventeen games and a team fields
+one at a time.** The two teams with two quarterbacks projected are exactly the two
+teams over the line.
 
 ### Roster incompleteness is not the explanation
 
@@ -99,11 +112,39 @@ Carnell Tate and Wan'Dale Robinson both ride Tennessee's 1.270 the other way.
 Three phases, cheapest first, each gated. **Phase 1 is the null hypothesis and may be the
 whole answer** — see the false-positive clause.
 
-### Phase 1 — reconcile inside the model
+### Phase 1 — reconcile inside the model — **shipped**
 
 Apply `reconcile_team_totals`' midpoint scaling to `USG_` before it reaches the blend,
 and normalise each team's quarterback-games to the slate. Half a day. It makes the column
 honest and nothing more: the shares stay wherever the model put them.
+
+**As built** — `Scripts/usage/coherence.py`, called from `_make_usage_coherent` in
+`Scripts.season_projections` and from `Scripts.usage.g1_season` so the gate measures
+what ships. Two passes, room first, because a midpoint taken against a double-counted
+room is still too high (Atlanta 5,112).
+
+The room factor is **capped at one**: `min(1, slate / room games)`. Uncapped it
+fabricates volume, per the correction above. The four candidates, scored as MAE
+against ESPN's 2026 team passing totals:
+
+| room rule | raw MAE | midpoint MAE | team span after midpoint |
+|---|---|---|---|
+| none (status quo) | 431 | 309 | 2,620 – 5,112 |
+| `eg_i / room` (shares to 1) | 384 | 286 | 2,620 – 4,606 |
+| `17 / room` (this plan as written) | 1,442 | 722 | 3,268 – **8,268** |
+| **`min(1, 17 / room)`** (shipped) | **361** | **274** | 2,620 – 4,606 |
+
+The cap is a **no-op on thirty of the thirty-two teams**. Only Atlanta and Las Vegas
+have a room to trim.
+
+Two things phase 1 deliberately does not do. `usg_expected_games` is **not** rewritten
+— normalising it would print 17.0 beside a quarterback the model believes plays four
+games, and the board shows that column and plan 27 reads it; the room's arithmetic
+travels beside it as `usg_team_qb_games` and `usg_qb_room_scale`. And a **short** room
+is left short: the missing volume belongs to a passer the model does not project, and
+putting it on the projected starter's row would be wrong at the player level to buy
+tidiness at the team level. That is phase 3, and it needs a replacement row to move it
+to.
 
 ### Phase 2 — a team snap budget
 
@@ -165,14 +206,68 @@ experiments in [plan 22](22-feature-research.md), a rejected injury multiplier i
 [27](27-injury-model.md) — says the cheap version wins more often than it feels like it
 should.
 
+## What shipped, and what the gates said
+
+Phase 1 only, on `feat/team-coherent-tomcat`, measured 2026-08-24.
+
+| gate | bar | result | |
+|---|---|---|---|
+| **G-T0** identity | 0.98–1.02 on 32 teams | **1.000–1.000 on 32** | **pass** |
+| **G-T0** QB-games | 16–18 on every team | 3.7–17.0 | **not reachable in phase 1** |
+| **G-T1** accuracy | no regression on the +1.3% at weight 0.25 | **+1.3% → +2.1%** | **pass** |
+| **G-T2** standalone QB ordering | +0.02 Spearman | **+0.005** | **miss** |
+| **G-T2** ordering elsewhere | must not fall | RB −0.001, WR +0.002, TE +0.001 | **pass** |
+| **G-T3** blend stability | median `TRUE_Points` shift < 2% at every position | **worst 0.45%** (QB 0.43, TE 0.45, WR 0.31, RB 0.09) | **pass** |
+| **G-T4** conservation | — | phase 3 | n/a |
+
+**G-T0's second half cannot be met by phase 1 and the gate was mis-specified, not
+missed.** Bringing a short room up to seventeen games means projecting a quarterback
+who is not on the board — Miami's starter is not in the model's universe at all. There
+is no row to put the games on until phase 3 makes one. The identity half, which is the
+half that reads on the board, closes exactly.
+
+**G-T1 came in better than "no regression".** The full sweep, 2025 walk-forward,
+pre-season basis, priced by `winfield_football`:
+
+| TOMCAT weight | MAE before | MAE after | vs baseline before | after |
+|---|---|---|---|---|
+| 0.10 | 34.52 | 34.39 | +0.9% | **+1.3%** |
+| **0.25** (ships) | 34.40 | **34.09** | +1.3% | **+2.1%** |
+| 0.40 | 34.36 | 33.91 | +1.4% | **+2.7%** |
+| 0.50 | 34.36 | 33.86 | +1.4% | **+2.8%** |
+
+Blended within-position Spearman at quarterback rises 0.804 → 0.815 at the shipping
+weight. The lowest-MAE weight moves from 0.40 to 0.50, which is worth a separate look:
+a reconciled TOMCAT is a source the blend wants **more** of, not less.
+
+**G-T2 is the result that matters, and it is a miss.** `USG_` alone at quarterback
+moves 0.713 → 0.718 against a pre-committed bar of +0.02. The plan predicted the fix
+would recover much of the −0.502 correlation between a quarterback's TOMCAT-vs-market
+disagreement and his team's identity ratio; it recovered a quarter of the predicted
+amount.
+
+So **the false-positive clause does not fire.** Phase 1 fixed the level and left the
+ordering roughly where it was, which is the measurement the plan pre-committed to as
+the justification for phases 2 and 3 — the disagreement at quarterback is mostly not
+arithmetic. That is now the open question rather than an assumption, and the honest
+reading is the narrower one: reconciling puts TOMCAT's column on a footing where its
+quarterback opinion can be *read*, and says nothing yet about whether that opinion is
+right.
+
+Note one limit on the G-T1/G-T2 measurement. The gate path reconciles on the fold's
+own `team`, and the shipping path on ESPN's current `pro_team`, because the model's
+team is carried from prior-season snap counts and a free agent who signed in March is
+otherwise grouped with the wrong huddle. Any mis-grouping in the fold makes the gate
+conservative rather than kind.
+
 ## Effort
 
 M. Phase 1 is half a day and may be the whole plan. Phase 2 is a day. Phase 3 is two to
 three days and is the only part that needs new modelling, most of it already measured by
 plan 28.
 
-**Not before the 2026 drafts.** Every phase moves `USG_` and therefore `TRUE_`, and the
-board is frozen — see [`DRAFT_READINESS.md`](../DRAFT_READINESS.md). The evidence above
+**Not before the 2026 drafts, and phase 1 is on a branch for exactly that reason.**
+Every phase moves `USG_` and therefore `TRUE_`, and the board is frozen — see [`DRAFT_READINESS.md`](../DRAFT_READINESS.md). The evidence above
 is reproducible today and the fix is not urgent: the blend is already reconciled, so
 nothing anyone drafts from is wrong. What is wrong is the column beside it, and the
 read-around until this ships is **compare TOMCAT by rank within position, and discount a
