@@ -131,11 +131,16 @@ that own the blend:
 
 1. ~~**Re-run plan 16 step 0's independence matrix.**~~ **Done 2026-08-24** — see above.
 2. **[Plan 03](03-projection-source-coverage.md)'s weight re-tune**, which the re-run has
-   now given something real to fit against. G1 in the same run is a pointed hint: on the
-   2025 weekly blend the *best* TOMCAT weight is **0.05 at every one of the eight stats**,
-   not the 0.25 it carries — cutting passing-yard MAE 18.5%. That is a weekly measurement
-   on a weekly blend and does not transfer to the season board unexamined, but it is the
-   first evidence the repo has that a weight is set wrong, and it belongs to plan 03.
+   now given something real to fit against.
+
+   **A correction to the first version of this line.** It said G1 in the same run showed
+   the best TOMCAT weight to be 0.05 rather than the 0.25 it carries, and called that
+   "the first evidence the repo has that a weight is set wrong." That overstated it.
+   G1's `USG` column is `Scripts/usage/baseline.py` — by its own docstring "the crudest
+   usage model there is: two trailing terms per stat… not meant to be good" — and not
+   `Scripts/usage/season.py`, which is what actually ships. 0.05 is the right weight for
+   the crude thing and says little about the shipped 0.25. **The shipped season head has
+   never been through G1 at all**, which is the gap worth closing before any re-tune.
 
 Both are **frozen until after the 2026 drafts** (7–8 September) — they move
 `TRUE_Points`, and the [readiness doc](../DRAFT_READINESS.md) freezes projection maths
