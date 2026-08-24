@@ -263,7 +263,23 @@ def get_fp(wk, year=None):
 
         proj_dfs.append(df)
 
-    return pd.concat(proj_dfs, ignore_index=True).fillna(0)
+    out = pd.concat(proj_dfs, ignore_index=True)
+
+    # Fill the *stat* columns only. `.fillna(0)` across the whole frame was the previous
+    # line, and it turned a missing player name into the integer 0 -- which then failed
+    # the parquet write with "Expected bytes, got a 'int' object" rather than producing a
+    # visibly wrong row, so it only surfaced when the 2025 season-long table happened to
+    # carry one blank. A nameless row is not a player and cannot be joined to anything, so
+    # it is dropped rather than zero-filled; the count is printed because silently losing
+    # rows is how a scraper stops being trustworthy.
+    identity = ["week", "player_name", "playerTeam", "TimeStamp"]
+    numeric = [c for c in out.columns if c not in identity]
+    out[numeric] = out[numeric].fillna(0)
+
+    named = out["player_name"].apply(lambda v: isinstance(v, str) and v.strip() != "")
+    if not named.all():
+        print(f"  dropped {int((~named).sum())} row(s) with no player name")
+    return out[named].reset_index(drop=True)
 
 
 def scrape_weekly(season=None, week=None):
