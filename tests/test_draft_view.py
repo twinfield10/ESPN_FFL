@@ -337,6 +337,47 @@ def test_the_points_group_reads_left_to_right_from_source_to_blend():
             f"{after} is a single-position aside and belongs after the blend")
 
 
+def test_a_single_position_column_is_dropped_where_it_cannot_apply():
+    """A team defence's projection is not *missing* from a receiver's row.
+
+    `DST_Points` is on all 2,504 board rows and null for 2,472 of them, so presence in
+    the frame is not enough to decide whether to render it. A column of blanks reads as
+    missing data about the player rather than as a question never asked of him.
+    """
+    board = pl.DataFrame({
+        "primaryPosition": ["RB", "WR", "D/ST"],
+        "player_name": ["a", "b", "c"],
+        "ESPN_Points": [1.0, 2.0, 3.0],
+        "DST_Points": [None, None, 3.0],
+    })
+    labels = lambda f: {c.label for c in dv.shown_columns(f) if c.group == "Points"}
+
+    assert "DST" in labels(board)
+    assert "DST" in labels(board.filter(pl.col("primaryPosition") == "D/ST"))
+    assert "DST" not in labels(board.filter(pl.col("primaryPosition") == "RB"))
+    assert "DST" not in labels(board.filter(pl.col("primaryPosition").is_in(["RB", "WR"])))
+
+
+def test_a_frame_with_no_position_column_keeps_every_spec():
+    """Nothing to filter on is not the same as nothing matching."""
+    board = pl.DataFrame({"player_name": ["a"], "ESPN_Points": [1.0],
+                          "DST_Points": [3.0]})
+    assert "DST" in {c.label for c in dv.shown_columns(board) if c.group == "Points"}
+
+
+def test_only_single_position_sources_are_position_scoped():
+    """The scoping is for sources that model one position, not a general filter.
+
+    ESPN, FantasyPros, BetOnline and the blend must never be gated this way -- they
+    project every position, and a blank there is genuinely missing data.
+    """
+    scoped = {c.source for c in dv.COLUMNS if c.positions}
+    assert scoped == {"DST_Points"}, f"unexpected position-scoped columns: {scoped}"
+    for always in ("ESPN_Points", "FP_Points", "BOL_Points", "TRUE_Points"):
+        spec = next(c for c in dv.COLUMNS if c.source == always)
+        assert spec.positions == ()
+
+
 def test_every_column_carries_its_own_documentation():
     """A column with no account of where it came from is a number the reader has to
     guess at. Enforced on the record rather than across two collections, because
