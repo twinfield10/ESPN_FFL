@@ -45,12 +45,18 @@ a week-1 injury does not read as a demotion.
 
 | cohort | listed 1 → true 1 | listed 2 → true 2 | listed 3 → true 3 | n |
 |---|---|---|---|---|
-| **settled** | **57%** | 45% | 70% | 1,525 |
-| **mover** | 44% | 42% | 57% | 408 |
-| **rookie** | **35%** | 31% | 60% | 293 |
+| **settled** | **59%** | 47% | 59% | 1,525 |
+| **mover** | 45% | 43% | 57% | 408 |
+| **rookie** | **36%** | 32% | 51% | 293 |
 
-A rookie listed as his position's starter is the real starter **35%** of the time,
-against 57% for a settled veteran. The chart degrades precisely on the players whose
+A rookie listed as his position's starter is the real starter **36%** of the time,
+against 59% for a settled veteran.
+
+> Reproduced by `python -m Scripts.usage.role`, which is the authority on these
+> numbers. They sit a point or two above the first measurement because the shipped
+> version drops a player short of :data:`MIN_DERIVED_GAMES` **before** ranking rather
+> than after: a man who played one game should not occupy a rank that pushes a
+> team-mate down one. The chart degrades precisely on the players whose
 role a drafter cannot work out for himself — which is unsurprising once stated (a
 rookie's line is the most speculative entry on any chart) and is not recorded anywhere
 today.
@@ -118,17 +124,17 @@ coin-flip between two seasons (2.24), and the board shows both at about 9%.
 
 ## Fix
 
-### Phase 1 — ship the derived chart and the calibration table
+### Phase 1 — ship the derived chart and the calibration table — **built**
 
 `Scripts/usage/role.py`: build the derived chart for every completed season, and the
 `P(true | listed, cohort)` table from it. Half a day. It is a diagnostic before it is
 anything else — the 35% is worth knowing on its own, and every later phase reads this
 table.
 
-### Phase 2 — carry the calibration onto the board
+### Phase 2 — carry the calibration onto the board — **built**
 
 Surface it where `usg_evidence` already lives: a rookie listed WR2 is not a WR2, he is
-a 31% WR2, and a drafter reading a projection should see which of those he is being
+a 32% WR2, and a drafter reading a projection should see which of those he is being
 sold. No projection moves — this is a confidence column, and it is the cheapest thing
 here that a human actually uses.
 
@@ -154,12 +160,13 @@ two should land together rather than build two Monte Carlos.
 ## Gates, pre-committed
 
 **G-R0 — the derived chart must agree with the pre-season one more often than chance.**
-Three ranks, so chance is 33%. **Bar: settled exact agreement above 50%.** Measured at
-57%; this is here so a bug that scrambles the join cannot be reported as a finding.
+Three ranks, so chance is 33%. **Bar: settled rank-1 accuracy above 50%.** ✅ Measured
+at **59%**; this is here so a bug that scrambles the join cannot be reported as a
+finding.
 
 **G-R1 — the calibration must separate the cohorts.** **Bar: rookie rank-1 accuracy at
-least 15 points below settled.** Measured 35% against 57%. If a re-run does not
-reproduce the gap, phases 2 and 3 have nothing to carry.
+least 15 points below settled.** ✅ Measured **36% against 59%**, a 23-point gap. If a
+re-run does not reproduce it, phases 2 and 3 have nothing to carry.
 
 **G-R2 — the spread must beat the incumbent at being a spread.** Score both the
 role-conditional interval and the current source-disagreement interval by **empirical
@@ -169,7 +176,14 @@ than source disagreement is.** Coverage rather than width, because a wide interv
 trivially achievable and useless.
 
 **G-R3 — no projection may move in phases 1 and 2.** They are diagnostics. **Bar:
-`TRUE_Points` identical to the byte.** Phase 3 changes `floor`/`ceiling` only.
+`TRUE_Points` identical to the byte.** ✅ **Passed twice.** On a rebuilt GOP board,
+2,504 players, **0 rows moved and max |change| is exactly 0.0**; and at the source, a
+rebuilt `Usage_SeasonProjections.parquet` is identical on all **55** shared columns
+with only `usg_role_cohort` and `usg_role_confidence` added. Phase 3 changes
+`floor`/`ceiling` only.
+
+**Consequence: phases 1 and 2 are safe to merge during the draft freeze**, unlike
+plan 31 phase 1 and plan 32 phase 1. Nothing they touch is a projection.
 
 **And a scope clause.** The feature evidence above is negative and the plan is being
 written anyway, because the *calibration* and the *spread* are the deliverables and

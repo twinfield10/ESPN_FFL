@@ -543,6 +543,23 @@ COLUMNS: List[Column] = [
            caveat="Blank means no estimate published, not no injury — ESPN dates only "
                   "about one in seven of the players it lists. `IR` alone does not "
                   "mean out for the year; this column is what answers that."),
+    Column("usg_role_confidence", "Notes", "Role %", "number", fmt="%.0f%%",
+           source_of="Usage model",
+           how="How often the pre-season depth chart turns out to be right for a "
+               "player in this one's situation — measured by rebuilding the chart "
+               "each season from who actually got the ball in the first three games "
+               "(plan 33). A listed starter really is one 59% of the time if he is "
+               "settled, 45% if he changed teams and 36% if he is a rookie.",
+           caveat="**This does not scale the projection and is not a grade on the "
+                  "player.** It is how much of the projection rests on a depth-chart "
+                  "entry that may not hold. A low number beside a high projection is "
+                  "the combination worth a second look: the model is confident about "
+                  "a role nobody should be confident about. **Compare within a depth "
+                  "rank, not across one** — being right that a man is third string is "
+                  "easier than picking the starter, so a rookie listed third scores "
+                  "above a starter who changed teams without being better known. "
+                  "Blank where the calibration has not been fitted, or for a position "
+                  "group it has never seen."),
     Column("usg_expected_games", "Notes", "Exp G", "number", fmt="%.1f",
            source_of="Usage model",
            how="Games out of 17 the model expects him to play — its own estimate, "

@@ -580,7 +580,12 @@ def load_usage_season(season: int) -> pd.DataFrame:
                "games_sd": "usg_games_sd",
                "games_low": "usg_games_low",
                "games_high": "usg_games_high",
-               "usg_arm": "usg_arm"}
+               "usg_arm": "usg_arm",
+               # Plan 33 phase 2. Already board-named upstream, so they map to
+               # themselves -- listed here rather than picked up by a prefix scan
+               # because this dict is the whole contract for what crosses over.
+               "usg_role_cohort": "usg_role_cohort",
+               "usg_role_confidence": "usg_role_confidence"}
     out = df[[c for c in ["player_id", "name_key"] if c in df.columns]
              + [c for c in df.columns if c.startswith("USG_")]].copy()
     for source_col, target_col in context.items():
