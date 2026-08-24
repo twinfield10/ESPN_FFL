@@ -1,8 +1,11 @@
 # 28 — Outcome distributions, and where the variance actually lives
 
 **Priority:** High (draft-relevant, and it is the first thing on the board that would
-be *new information* rather than a better mean) · **Effort:** L · **Status:** Not
-started. **Evidence below measured 2026-08-18, and it already kills one of the three
+be *new information* rather than a better mean) · **Effort:** L · **Status:** **G-D0
+passed and G-D5 failed, 2026-08-24.** The materiality gate clears by 17.5x against a
+1.5x bar, so phases 1-3 are justified; the fragility premium is **non-monotone inside
+strata and runs the wrong way in the strongest tertile**, so phase 5 moves to *Do not
+build* on the plan's own pre-committed terms. Not otherwise started. **Evidence below measured 2026-08-18, and it already kills one of the three
 things this plan was asked for.** The vacancy transfer is real and large in a backfield
 — the lead back's 17.42 opportunities a game go 81% to the next three backs and the room
 keeps 93% of its volume — **and it is absent in a receiver room**, where the WR2 gains
@@ -325,8 +328,9 @@ to do something it can actually do.
 | 2 | `Scripts/outcomes/vacancy.py` + `simulate.py` — the room-level joint draw | G-D2 |
 | 3 | Board columns and `app/pages/draft_board.py` | G-D3 |
 | 4 | Duration → `availability.py`'s `mu`, with a 27-style matched control rebuilt on the season frame | G-D4 |
-| 5 | the fragility premium, **stratified by Vegas team strength** — the confound `Scripts/draft/handcuff.py` already measured | G-D5 |
+| ~~5~~ | ~~the fragility premium, stratified by Vegas team strength~~ | **G-D5 FAILED 2026-08-24 — do not build** |
 | — | fragility-conditional bump for backups, unstratified | **Do not build** — measured, reversed, and confounded |
+| — | fragility-conditional bump for backups, **stratified** | **Do not build** — G-D5 ran it and it is non-monotone inside strata, with the strong tertile running 142.1 → 94.3 the *wrong* way |
 | — | diagnosis-level (ACL) severity | **Do not build** — 73.1% of long absences carry no body part. Revisit after a season of plan 27's ESPN archive |
 | — | WR-room transfer rule | **Do not build** — 45% recapture, +0.59 targets to the WR2 |
 
@@ -342,6 +346,30 @@ against the simulated p10–p90 width. **Bar: the simulated interval must be at 
 wider at the median.** If source disagreement already spans the bimodal range, the board
 displays this information today and the rest of the plan is machinery for a column that
 already exists.
+
+> ✅ **PASSED 2026-08-24, by 17.5× against a 1.5× bar.** For depth-rank ≥2 RBs and TEs
+> the board's `(ceiling − floor) / TRUE_Points` is **16.0%** (n = 104); the realised
+> spread of `actual / projected` season points over 2020–2025 is **280.5%** (n = 626).
+>
+> **It is not the availability tail.** Stripping players who barely appeared:
+>
+> | cut | width | vs board |
+> |---|---|---|
+> | all | 280.5% | 17.5× |
+> | played 1+ games | 268.2% | 16.7× |
+> | played 8+ games | 204.7% | 12.8× |
+> | played 14+ games | 185.8% | **11.6×** |
+>
+> The most legible form: **the board's own floor→ceiling contains 4.6% of realised
+> outcomes** — 10.1% among players who managed 8+ games — against the ~80% a thing
+> called a floor and a ceiling implies.
+>
+> Two substitutions, both forced and both stated. No historical board survives (plan
+> 25), so the incumbent width is the live 2026 board and the spread is 2020–2025. And
+> the projection is TOMCAT's expected-value line rather than the `TRUE_` blend, so its
+> own error is inside that spread — a better projection would narrow it. Neither can
+> plausibly close a 11.6× gap, which is why the gate is reported as passed rather than
+> as passed-with-conditions.
 
 **G-D1 — calibration, and it is not optional.** An uncalibrated distribution is worse
 than a point estimate, because it invites acting on its tails. **Bar: 80% interval
@@ -370,6 +398,27 @@ gradient in the backup's season points across the incumbent's absence buckets, i
 least two of three strength tertiles.** Non-monotone inside strata means the premise is
 dead rather than merely confounded, and this plan stops claiming otherwise.
 
+> ❌ **FAILED 2026-08-24 — monotone in 1 of 3 tertiles.** Backup's season PPR points by
+> the incumbent's prior-season games missed, 203 incumbent/backup pairs with a Vegas
+> strength value, tertile cuts at spread −1.21 and 2.18:
+>
+> | tertile | missed 0 | missed 1–2 | missed 3–5 | missed 6+ | monotone |
+> |---|---|---|---|---|---|
+> | weak | 93.6 (25) | 93.0 (26) | 85.5 (13) | — (4) | yes |
+> | middle | 106.4 (24) | 107.5 (23) | 97.4 (18) | — (3) | no |
+> | **strong** | **142.1 (21)** | **125.8 (27)** | **94.3 (14)** | 106.3 (5) | no |
+>
+> **And where there is a gradient it runs the wrong way.** A fragile incumbent's backup
+> scores *fewer* points, not more — most sharply on strong teams, 142.1 down to 94.3.
+> The premise was that a fragile starter makes his backup more valuable; no tertile
+> supports it and the best-powered one contradicts it.
+>
+> So this is the outcome the gate named in advance: **the premise is dead rather than
+> merely confounded**, and phase 5 moves to *Do not build*. Thin, and stated: 203 pairs,
+> and the "missed 6+" bucket falls below five in two tertiles, so the test rests on
+> three buckets there. The middle tertile's non-monotonicity is a hair (107.5 against
+> 106.4) and reads as flat; the strong tertile's is not.
+
 **And one false-positive clause, in G-D1's spirit and ordered before it**, borrowed from
 `injury_verdict`: if widening the interval improves coverage for healthy, entrenched
 starters *as much as* for backups, the model has found variance in general rather than
@@ -377,9 +426,9 @@ vacancy in particular, and the redistribution rule is decoration. Report that fi
 
 ## Effort
 
-L. Phase 0 is an afternoon and can reject the plan; **phase 5 is also an afternoon and
-should be run early**, because it is the cheapest way this plan can be shown to have
-drawn the wrong conclusion from its own table. Phases 1–2 are the real work, ~2 days
+L, now **M** — phase 5 is gone. Phase 0 was an afternoon and did not reject the plan;
+phase 5 was also an afternoon and **did** reject its own premise, which is exactly why
+it was scheduled early. Both ran 2026-08-24. Phases 1–2 are the real work, ~2 days
 including the correlation estimation and the seeding discipline a reproducible Monte Carlo
 needs. Phase 3 ~0.5 day. Phase 4 ~0.5 day, and it is the piece most likely to survive on
 its own merits, because it is a feature on an existing head with an existing bar rather
