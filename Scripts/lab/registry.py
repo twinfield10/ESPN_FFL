@@ -151,7 +151,27 @@ HAMSTRING_RECURRENCE_RANGE: Tuple[float, float] = (0.09, 0.15)
 #: window is +-8 points rather than tighter because the walk-forward is seven folds of a
 #: few hundred players and the binomial standard error on a coverage estimate at n = 400
 #: is about 2 points -- a window inside three of those would reject on noise.
+#:
+#: **Unchanged since it was pre-committed. What was corrected on 2026-08-25 is the
+#: population it is measured over**, and the correction makes the gate harder rather than
+#: easier, which is the only direction a post-hoc change to a gate can honestly move.
+#: See :data:`MIN_SCORED_PROJECTION`.
 OUTCOME_COVERAGE_RANGE: Tuple[float, float] = (0.72, 0.88)
+
+#: Projected season points below which a row does not count toward coverage.
+#:
+#: **The gate was passing on players nobody drafts.** Measured over 2021-2025, **32% of
+#: the scored sample projects under 10 points, realises a median of exactly 0.0, and is
+#: "covered" at 0.825** -- its interval contains the zero it was always going to produce.
+#: Pooled with everyone else that pulled reported coverage to 0.732 and inside the window.
+#: Strip them and it is **0.688**, outside it.
+#:
+#: Twenty-five points is about 1.5 a game, below which nobody is rostered in any of the
+#: nine leagues. **The exact cut is not load-bearing and that is checkable**: coverage is
+#: 0.687 at a 10-point floor, 0.688 at 25, 0.701 at 50 and 0.722 at 100. Every cut in that
+#: range says the same thing and only the unfiltered population disagrees, which is what
+#: identifies the unfiltered population as the artefact rather than the finding.
+MIN_SCORED_PROJECTION: float = 25.0
 
 #: Where the calibration slope must land.
 #:
@@ -596,14 +616,18 @@ def outcome_verdict(metrics: Dict) -> Tuple[str, str]:
         does not touch the interval fix, which is a separate correction to a column that
         already existed.
     """
-    coverage = metrics.get("coverage")
+    # The draftable population, not the whole pool -- see `MIN_SCORED_PROJECTION` for the
+    # 32% of rows that were being counted as covered for producing the zero their
+    # interval already contained.
+    coverage = metrics.get("coverage_draftable", metrics.get("coverage"))
     if coverage is None:
         return "reject", "no interval coverage was measured."
     low, high = OUTCOME_COVERAGE_RANGE
     if not low <= coverage <= high:
         direction = "too narrow -- it is lying" if coverage < low else "uselessly wide"
         return "reject", (
-            f"80% interval coverage is {coverage:.3f}, outside [{low:.2f}, {high:.2f}]: "
+            f"80% interval coverage is {coverage:.3f} on players projected above "
+            f"{MIN_SCORED_PROJECTION:.0f} points, outside [{low:.2f}, {high:.2f}]: "
             f"{direction}.")
 
     slope = metrics.get("calibration_slope")
@@ -616,8 +640,8 @@ def outcome_verdict(metrics: Dict) -> Tuple[str, str]:
             f"is right on average while the per-player spread is not.")
 
     return "merge", (
-        f"80% coverage {coverage:.3f} with calibration slope {slope:.3f}, both inside "
-        f"the pre-committed windows.")
+        f"80% coverage {coverage:.3f} on the draftable pool with calibration slope "
+        f"{slope:.3f}, both inside the pre-committed windows.")
 
 
 def joint_verdict(metrics: Dict) -> Tuple[str, str]:

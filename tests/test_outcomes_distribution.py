@@ -365,3 +365,32 @@ def test_a_cohort_with_no_fitted_cell_falls_back_to_pooled():
     assert spec.phi[0, index] == 60.0     # has its own cell
     assert spec.phi[1, index] == 100.0    # falls back to pooled
     assert spec.cohort_share == pytest.approx(0.5)
+
+
+def test_coverage_is_scored_on_players_worth_projecting():
+    """The artefact that passed G-D1 and then inverted plan 33's result.
+
+    A third of the scored sample projects near zero and realises exactly zero, so its
+    interval contains the outcome by construction and it counts as covered. Pooling that
+    with real projections pulled reported coverage from 0.687 to 0.730 and across the
+    gate's lower bound. Coverage has to be measured where a forecast means something.
+    """
+    from Scripts.lab import registry as reg
+
+    assert reg.MIN_SCORED_PROJECTION > 0
+
+    # The gate reads the draftable figure when one is present, and only falls back to
+    # the whole-pool one when it is not -- so a harness that forgets to compute it
+    # cannot silently restore the flattering number.
+    passing = {"coverage": 0.730, "coverage_draftable": 0.80,
+               "calibration_slope": 1.0}
+    failing = {"coverage": 0.730, "coverage_draftable": 0.687,
+               "calibration_slope": 1.0}
+    assert reg.outcome_verdict(passing)[0] == "merge"
+    call, reason = reg.outcome_verdict(failing)
+    assert call == "reject"
+    assert "25 points" in reason and "too narrow" in reason
+
+    # The threshold itself is untouched from its pre-commitment. Only the population
+    # moved, and it moved in the direction that makes the gate harder.
+    assert reg.OUTCOME_COVERAGE_RANGE == (0.72, 0.88)

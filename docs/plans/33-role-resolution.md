@@ -2,9 +2,12 @@
 
 **Priority:** Medium · **Effort:** S–M · **Status:** **Phases 1–2 built 2026-08-24;
 phase 3 built and REJECTED 2026-08-25 at G-R2.** Role uncertainty is real and is already
-in the interval — rookies cover at 0.801 against a nominal 0.800 while *settled* players
-sit at 0.701, so the cohort this was built to widen is the one that was already right.
-Both mechanisms measured null (−0.3pp each) and are off by default. Original status:
+in the interval — cohort does not explain the miss. On the draftable pool coverage is
+flat across settled, mover and rookie (0.676-0.689) and uniformly ~11 points too narrow,
+so there is no width to redistribute; both mechanisms are flat-to-worse and off by
+default. **Measuring it caught an artefact that had inverted the first version of this
+result, and the same artefact was holding up plan 28's G-D1**, which now fails -- see
+that plan. Original status:
 **Phases 1–2 built 2026-08-24** — G-R0, G-R1 and G-R3 pass, and G-R3 passing means these ship during the draft freeze. Phase 3 not started, and belongs scoped with [28](28-outcome-distributions.md), whose **G-D0 passed by 17.5×** on 2026-08-24
 **Depends on:** [21](21-coaching-and-scheme.md) (the depth chart this measures) ·
 [18](18-season-usage-model.md) (the arms that consume it)
@@ -158,51 +161,70 @@ here that a human actually uses.
 
 ### Phase 3 — role uncertainty as the floor/ceiling — **BUILT AND REJECTED 2026-08-25**
 
-**Both mechanisms measured, both null, and the premise has its sign backwards.**
+**Both mechanisms measured, both null, and cohort turns out not to be where the
+interval's problem lives.**
 
 Two ways to give role uncertainty a channel were built on top of plan 28's simulation,
-which is where this plan said it belonged. Walk-forward 2021–2025, coverage against a
-nominal 0.800:
+which is where this plan said it belonged: split the fitted dispersion by cohort, and draw
+the true rank per simulation from the calibration table.
+
+Coverage on the **draftable** pool — players the model projects above 25 points, for the
+reason two sections down — walk-forward 2021–2025 against a nominal 0.800:
 
 | cohort | plan 28 as shipped | dispersion split by cohort | role drawn per simulation |
 |---|---|---|---|
-| settled | 0.701 | 0.699 | 0.705 |
-| mover | 0.704 | 0.702 | 0.691 |
-| **rookie** | **0.801** | 0.796 | 0.796 |
-| all | 0.730 | 0.727 | 0.727 |
+| settled | 0.689 | 0.685 | 0.691 |
+| mover | 0.676 | 0.674 | 0.660 |
+| rookie | 0.688 | 0.672 | 0.664 |
+| **all** | **0.687** | 0.687 | 0.680 |
 
-Both mechanisms are worth **−0.3pp** overall, and both make the rookie cell *worse*
-(0.801 → 0.796) — the one cohort they were built for. The role draw moves movers the
-wrong way by 1.3pp. Neither is a result.
+**Cohort does not explain the miss.** Coverage is flat across all three — 0.676 to 0.689,
+a 1.3-point spread — and *uniformly about 11 points too narrow*. The interval's problem is
+a property of the whole interval, not of any cohort, so a mechanism that redistributes
+width between cohorts has nothing to redistribute.
 
-**One bug found while measuring, and it mattered.** The first version of the cohort split
-gave a player whose cohort had no fitted cell no dispersion at all, rather than falling
-back to the pooled one — so those players dropped out of the coverage denominator instead
-of being covered, and the split was scored on a favourable subset of itself. Caught by a
-test written to pin the fallback, not by reading the numbers. Fixed, and the numbers above
-are the honest ones: the rookie cell moved 0.804 → 0.796 once the dropped players came
-back, which strengthens the rejection rather than softening it.
+**And both mechanisms are flat-to-worse.** The cohort split costs rookies 1.6 points and
+movers nothing; the role draw costs movers 1.6 and rookies 2.4. Neither helps the cohorts
+they were built for.
 
-**The premise was that cohort is the axis the interval fails along. It is the axis it
-already handles.** Rookies cover at **0.801** against nominal 0.800 — essentially exact —
-while *settled* players sit at 0.701 and movers at 0.704. Phase 3 was built to widen the
-interval for the cohort that turns out to be the only one already right.
+**The first version of this section claimed the opposite, and the correction is the
+lesson.** It reported rookies at **0.801** — essentially nominal — and concluded the
+premise had its sign backwards, that rookies were the one cohort already right. That
+number was an artefact: **861 of 1,060 rookie rows project near zero, realise a median of
+exactly 0.0, and sit trivially inside their own interval.** They made the rookie cell look
+solved. Caught by asking whether a suspiciously good number survived a projection floor,
+which it did not — and the same artefact turned out to be holding up
+[28](28-outcome-distributions.md)'s G-D1, which now fails.
 
-**Why, and it is the interesting part.** The residuals do agree that cohort matters: a
-rookie's coefficient of variation is **1.6× to 2.3×** a settled player's (RB rushing
-yards 0.70 against 1.28; TE receiving yards 0.57 against 1.29), in exactly the order this
-plan's calibration predicts. But the fitted mean-variance function is
-`Var = phi × mu + mu²/k`, which already gives a proportionally wider interval at a
-smaller projection — and a rookie's projection *is* smaller, 182 rushing yards against a
-settled back's 382. **Most of the cohort effect was a level effect the two-parameter form
-already absorbed**, and splitting on it re-fits the same coefficients on a third of the
-rows over a narrower range of mu.
+**Why cohort has nothing left to give.** The residuals really do differ by cohort — a
+rookie's coefficient of variation is **1.6× to 2.3×** a settled player's (RB rushing yards
+0.70 against 1.28; TE receiving yards 0.57 against 1.29). But the fitted mean-variance
+function is `Var = phi × mu + mu²/k`, which already widens the interval at a smaller
+projection, and a rookie's projection *is* smaller — 182 rushing yards against a settled
+back's 382. Most of the cohort effect is a level effect the two-parameter form has already
+absorbed, so splitting on it re-fits the same coefficients on a third of the rows over a
+narrower range of mu and buys nothing.
 
-This is plan 22's generalisation again, from a new direction: player-level context that is
-a function of past usage does not survive, because past usage is already carrying it.
+That is plan 22's generalisation from a new direction: player-level context that is a
+function of past usage does not survive, because past usage already carries it. And it is
+consistent with the flat table above — by the time the interval reaches a cohort, the
+cohort's effect is already in its `mu`.
+
+**The gap is real and the lever is elsewhere.** Every cohort is under-covered by about 11
+points. That is the whole interval being too narrow, and the first thing to try against it
+is the games↔stats coupling [28](28-outcome-distributions.md)'s postscript names — the
+decomposition draws them independently while `predictive.py` measures them correlating
++0.48 to +0.63.
+
+**One bug found while measuring, and it mattered.** The first cohort split gave a player
+whose cohort had no fitted cell no dispersion at all, rather than the pooled one, so those
+players left the coverage denominator instead of being covered and the split was scored on
+a favourable subset of itself. Caught by a test written to pin the fallback, not by reading
+the numbers.
 
 **G-R2 fails on its first clause regardless.** The bar is coverage within 5 points of
-nominal; the role-conditional interval lands at **0.727**, 7.3 points out. It is far
+nominal; the role-conditional interval lands at **0.681** on the draftable pool, nearly
+12 points out. It is far
 closer than source disagreement, whose band contains **4.6%** of realised outcomes — but
 the gate asks for a usable interval before it asks for a better one, and this is not one.
 
@@ -248,8 +270,8 @@ role-conditional interval within 5 points of nominal 80% coverage, and closer to
 than source disagreement is.** Coverage rather than width, because a wide interval is
 trivially achievable and useless.
 
-> ❌ **FAILED 2026-08-25 on the first clause.** Role-conditional coverage is **0.727**,
-> 7.3 points from nominal against the five the rule allows. The second clause it would
+> ❌ **FAILED 2026-08-25 on the first clause.** Role-conditional coverage is **0.681**
+> on the draftable pool, nearly 12 points from nominal against the five the rule allows. The second clause it would
 > have passed easily — source disagreement's band contains 4.6% of realised outcomes —
 > but a spread has to be usable before it can be better.
 >

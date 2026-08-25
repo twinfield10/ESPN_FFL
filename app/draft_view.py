@@ -574,13 +574,19 @@ COLUMNS: List[Column] = [
                "Simulated from the usage model's own fitted per-stat distributions, "
                "then rescaled onto `Us` so it brackets the number you are reading.",
            caveat="Forecast uncertainty, **not** source disagreement — a different "
-                  "quantity from `Floor`, and much wider. The spread carries the usage "
-                  "model's own error, since it is the only source with a fitted "
-                  "distribution, so it is if anything too wide rather than too narrow."),
+                  "quantity from `Floor`, and much wider. **Measured too narrow:** "
+                  "walk-forward over 2021–2025 the p10–p90 band contains **69%** of "
+                  "realised seasons for players projected above 25 points, against the "
+                  "80% it is built for. So treat `p90` as a good season rather than a "
+                  "ceiling, and `p10` as optimistic about the downside. It is still far "
+                  "closer than `Floor`–`Ceiling`, which contains 4.6%."),
     Column("pts_p90", "Range", "p90", "number", fmt="%.0f",
            source_of="Outcome simulation",
-           how="The season that makes your year: he clears this one year in ten.",
-           caveat="Same simulation as `p10`. Read the pair, not either alone."),
+           how="The season that makes your year — nominally one year in ten, and "
+               "measured closer to one in six.",
+           caveat="Same simulation as `p10`, and the same measured shortfall: 69% "
+                  "realised coverage against a nominal 80%. Read the pair, not either "
+                  "alone."),
     Column("p_top12_pct", "Range", "Top", "number", fmt="%.0f%%",
            source_of="Outcome simulation",
            how="How often he finishes in his **position's** starter tier across the "

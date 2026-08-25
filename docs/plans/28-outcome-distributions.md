@@ -9,8 +9,10 @@ on all nine leagues, from a Monte Carlo over the usage model's own fitted per-st
 distributions, rescaled onto `TRUE_Points`. **No projection moved** -- `TRUE_Points` is
 identical to the byte on a rebuilt board against the same inputs.
 
-**G-D1 passed** at coverage 0.730 and slope 1.072, walk-forward 2021-2025. **G-D2
-failed**: the room-level joint draw is only **+2.1pp** closer to nominal for backups
+**G-D1 passed at 0.730 on 2026-08-24 and fails at 0.687 on re-measurement**: a third of
+the gated sample was players projected near zero who realise zero and sit inside their own
+interval. The threshold is untouched; the population was corrected, which made the gate
+harder. **G-D2 failed**: the room-level joint draw is only **+2.1pp** closer to nominal for backups
 against a 5pp bar, so phase 1 ships alone and the room machinery is off by default --
 though entrenched starters move **+0.0pp**, so the effect is exactly as vacancy-specific
 as claimed and it is the size that fails, not the direction. **G-D3 passed** at 13.5%
@@ -340,7 +342,7 @@ to do something it can actually do.
 |---|---|---|
 | — | `Scripts/outcomes/evidence.py` — the measurements above, reproducible | **Done 2026-08-18** |
 | 0 | **G-D0 first.** Does the existing `floor`/`ceiling` already span it? | **G-D0 passed 2026-08-24** |
-| 1 | `Scripts/outcomes/distribution.py` — points marginal from the per-stat marginals, per league scoring, correlation from residuals | **G-D1 passed 2026-08-24** |
+| 1 | `Scripts/outcomes/distribution.py` — points marginal from the per-stat marginals, per league scoring, correlation from residuals | **G-D1 FAILS on re-measurement 2026-08-25** — 0.687 on the draftable pool. Columns ship, labelled |
 | 2 | `Scripts/outcomes/vacancy.py` + `simulate.py` — the room-level joint draw | **G-D2 FAILED 2026-08-24 — built, measured, off by default** |
 | 3 | Board columns and `app/draft_view.py` | **G-D3 passed 2026-08-24** |
 | 4 | Duration → `availability.py`'s `mu`, with a 27-style matched control rebuilt on the season frame | G-D4 |
@@ -393,9 +395,42 @@ coverage inside [0.72, 0.88] and calibration slope inside [0.85, 1.15]** on real
 season points, walk-forward. `availability.py::calibration` and
 `Scripts/usage/backtest.py`'s existing coverage report are the pattern.
 
-> ✅ **PASSED 2026-08-24.** Coverage **0.730**, calibration slope **1.072**, walk-forward
-> over 2021–2025 on Winfield Football, 2,000 draws a fold. Stable across folds — 0.703 to
-> 0.743, no fold outside the window.
+> ❌ **PASSED 2026-08-24 AND FAILS ON RE-MEASUREMENT 2026-08-25.** The pass was real
+> arithmetic on the wrong population.
+>
+> Reported coverage was **0.730** over 2021–2025, inside the window. But **32% of the
+> scored sample projects under 10 points, realises a median of exactly 0.0, and is
+> "covered" at 0.825** — its interval contains the zero it was always going to produce.
+> Those rows are not a forecast anybody reads. On players projected above 25 points,
+> coverage is **0.687**, outside [0.72, 0.88], and the verdict is *too narrow — it is
+> lying*.
+>
+> **The cut is not what decides it, and that is checkable.** Coverage by projection floor:
+>
+> | floor | ≥0 | ≥10 | ≥25 | ≥50 | ≥100 |
+> |---|---|---|---|---|---|
+> | coverage | 0.730 | 0.685 | 0.687 | 0.699 | 0.724 |
+>
+> Every floor from 10 points up says the same thing. Only the unfiltered population
+> disagrees, which is what identifies it as the artefact rather than the finding.
+>
+> **The threshold was not touched.** `OUTCOME_COVERAGE_RANGE` is exactly as
+> pre-committed; what changed is `MIN_SCORED_PROJECTION`, the population it is measured
+> over — a correction that makes the gate *harder*, which is the only direction a
+> post-hoc change to a gate can honestly move. Found on 2026-08-25 while checking a
+> suspiciously good rookie cell in [33](33-role-resolution.md) phase 3, where the same
+> artefact had inverted that plan's result.
+>
+> Calibration slope **1.072** is unaffected and still inside its window: it measures
+> whether the spread is right *where the model claims it is*, which is a within-sample
+> comparison the degenerate rows do not distort.
+>
+> **What this means for the shipped columns.** They are still far better than what they
+> sit beside — the board's own floor-to-ceiling contains **4.6%** of realised outcomes
+> against this interval's 68.7%. But a `p90` measured at 0.687 coverage is closer to a
+> 1-in-6 than a 1-in-10, and `p10` understates downside, which is the worse of the two
+> directions. The columns keep their place and the board now says so; widening the
+> interval is a modelling change and the lead is in the postscript below.
 >
 > **The folds start at 2021 and that is a constraint rather than a choice.** The
 > dispersions are fitted on held-out residuals, and `_holdout_residuals` sets aside the
@@ -403,10 +438,10 @@ season points, walk-forward. `availability.py::calibration` and
 > on 2017–2018 and its model carries no distribution to score at all. Running it would
 > have reported a model with no interval as a model whose interval failed.
 >
-> It sits near the bottom of the window, and honestly so: 0.730 against a nominal 0.80
-> means the interval is still a little narrow. The direction is named in the postscript —
-> the decomposition drops ~10% of the unconditional spread because it draws games and
-> stats independently, while `predictive.py` measures those correlating +0.48 to +0.63.
+> The direction of the miss is named in the postscript — the decomposition drops ~10% of
+> the unconditional spread because it draws games and stats independently, while
+> `predictive.py` measures those correlating +0.48 to +0.63. That is the first thing to
+> try against the gap.
 
 **G-D2 — the joint structure must earn its complexity.** Coverage for depth-rank ≥2
 players in RB and TE rooms, joint draw against independent marginals. **Bar: the joint

@@ -206,6 +206,10 @@ def run_fold(season: int, league_key: str = ubt.SCORING_LEAGUE,
                             or sn.DEFAULT_TARGET_SLATE)))
 
     actual = frame["actual_points"].cast(pl.Float64).to_numpy()
+    # The model's own point estimate, as the draftable filter. Deliberately not a
+    # *simulated* p50: the cohort masks have to be the same rows for every arm, or the
+    # arms are compared on different populations.
+    projected = frame["usg_points"].cast(pl.Float64).to_numpy()
     # Cohorts come from the rooms themselves rather than from a ``depth_rank`` label,
     # and the distinction is not cosmetic: the 2016-2024 chart lists two or three
     # rank-1 backs in a third of rooms, so a ``depth_rank <= 1`` control group contains
@@ -224,8 +228,13 @@ def run_fold(season: int, league_key: str = ubt.SCORING_LEAGUE,
     # question G-R2 asks.
     if "usg_role_cohort" in frame.columns:
         listed = np.array(frame["usg_role_cohort"].to_list())
+        # Restricted to the draftable pool like every other coverage number here. The
+        # unrestricted version is what inverted this measurement once already: rookies
+        # read 0.801 rather than 0.658, because 861 of 1,060 of them project near zero,
+        # realise zero, and are inside their own interval for it.
+        draftable = np.isfinite(projected) & (projected >= reg.MIN_SCORED_PROJECTION)
         for name in ("settled", "mover", "rookie"):
-            cohorts[name] = listed == name
+            cohorts[name] = (listed == name) & draftable
 
     probabilities = rl.rank_probabilities()
 
@@ -256,6 +265,23 @@ def run_fold(season: int, league_key: str = ubt.SCORING_LEAGUE,
         low = summary["pts_p10"].to_numpy()
         mid = summary["pts_p50"].to_numpy()
         high = summary["pts_p90"].to_numpy()
+
+        # The draftable pool, and a sensitivity ladder beside it. A third of the scored
+        # sample projects near zero, realises zero, and is trivially inside its own
+        # interval -- pooling that with everyone else was what put reported coverage
+        # inside G-D1's window. The ladder is reported so the choice of floor can be seen
+        # not to be doing the work.
+        drafted = np.isfinite(mid) & (mid >= reg.MIN_SCORED_PROJECTION)
+        coverage, n = _coverage(actual[drafted], low[drafted], high[drafted])
+        out[f"{arm}_draftable_coverage"] = coverage
+        out[f"{arm}_draftable_n"] = n
+        if arm == "joint":
+            for floor in (0.0, 10.0, 25.0, 50.0, 100.0):
+                rows = np.isfinite(mid) & (mid >= floor)
+                value, count = _coverage(actual[rows], low[rows], high[rows])
+                out[f"floor_{int(floor)}_coverage"] = value
+                out[f"floor_{int(floor)}_n"] = count
+
         for name, mask in cohorts.items():
             coverage, n = _coverage(actual[mask], low[mask], high[mask])
             out[f"{arm}_{name}_coverage"] = coverage
@@ -403,6 +429,9 @@ def run(folds: Sequence[int] = DEFAULT_FOLDS,
 
     metrics = {
         "coverage": pooled("joint_all_coverage"),
+        "coverage_draftable": pooled("joint_draftable_coverage"),
+        "role_coverage_draftable": pooled("role_draftable_coverage"),
+        "cohort_coverage_draftable": pooled("cohort_draftable_coverage"),
         "calibration_slope": float(np.nanmean([r["joint_slope"] for r in rows])),
         "independent_coverage": pooled("independent_all_coverage"),
         "backup_coverage_joint": pooled("joint_backup_coverage"),
@@ -414,7 +443,8 @@ def run(folds: Sequence[int] = DEFAULT_FOLDS,
         # Plan 33 phase 3's two candidate mechanisms, and the cohorts they were supposed
         # to help. Both are measured here rather than in a separate harness because they
         # are variants of this same distribution and share every other input.
-        "role_coverage": pooled("role_all_coverage"),
+        "role_coverage": pooled("role_draftable_coverage"),
+        "role_coverage_all": pooled("role_all_coverage"),
         "cohort_coverage": pooled("cohort_all_coverage"),
         "role_backup_gain_pp": gain("backup"),
     }
@@ -485,9 +515,12 @@ def report(result: Dict) -> str:
             f"{row['joint_slope']:>8.2f}")
 
     lines += ["", "  --- G-D1: is the distribution publishable? ---",
-              f"  80% interval coverage      {metrics['coverage']:.3f}   "
+              f"  coverage, draftable        {metrics['coverage_draftable']:.3f}   "
               f"(bar {reg.OUTCOME_COVERAGE_RANGE[0]:.2f}-"
-              f"{reg.OUTCOME_COVERAGE_RANGE[1]:.2f})",
+              f"{reg.OUTCOME_COVERAGE_RANGE[1]:.2f}, p50 >= "
+              f"{reg.MIN_SCORED_PROJECTION:.0f} pts)",
+              f"  coverage, whole pool       {metrics['coverage']:.3f}   "
+              f"(what the gate reported until 2026-08-25)",
               f"  calibration slope          {metrics['calibration_slope']:.3f}   "
               f"(bar {reg.OUTCOME_SLOPE_RANGE[0]:.2f}-{reg.OUTCOME_SLOPE_RANGE[1]:.2f})",
               "",
@@ -507,6 +540,16 @@ def report(result: Dict) -> str:
                   f"  board (ceiling-floor)/TRUE_Points   "
                   f"{metrics['board_interval_width']:.3f}  "
                   f"(n={metrics['board_interval_n']})"]
+
+    ladder = [(f, result["folds"][0].get(f"floor_{f}_coverage"))
+              for f in (0, 10, 25, 50, 100)]
+    if any(v is not None for _, v in ladder):
+        lines += ["", "  the floor is not doing the work -- coverage by projection floor:",
+                  "  " + "".join(f"{f'>={f}':>10}" for f, _ in ladder)]
+        weighted = {f: float(np.average(
+            [r[f"floor_{f}_coverage"] for r in result["folds"]],
+            weights=[r[f"floor_{f}_n"] for r in result["folds"]])) for f, _ in ladder}
+        lines.append("  " + "".join(f"{weighted[f]:>10.3f}" for f, _ in ladder))
 
     lines += ["", "  --- G-R2 (plan 33 phase 3): does role uncertainty help? ---",
               f"  {'cohort':<12}{'joint':>9}{'by cohort':>11}{'role draw':>11}"]
