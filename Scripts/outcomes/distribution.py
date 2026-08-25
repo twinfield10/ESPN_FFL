@@ -73,6 +73,28 @@ STAT_ORDER: Tuple[str, ...] = tuple(sn.STAT_OUTCOMES)
 #: nobody reads and cost ten times the runtime across nine leagues.
 DEFAULT_SIMS: int = 5000
 
+#: Whether the shipped distribution splits its dispersion by plan 33's cohort.
+#:
+#: **False, and it is a measured rejection rather than a default.** Plan 33 phase 3
+#: predicted that cohort is the axis the interval fails to vary along: a settled QB1 is
+#: nearly certain and a mover TE2 is a coin flip, and the board showed both at about 9%.
+#: The residuals agree that cohort matters -- a rookie's coefficient of variation is
+#: 1.6x-2.3x a settled player's. Splitting the fitted dispersion on it is worth
+#: **-0.1pp** of coverage walk-forward, and **-1.3pp** for the backups it was most
+#: expected to help.
+#:
+#: The reason is the mean-variance function it was competing with. ``Var = phi * mu +
+#: mu^2 / k`` already gives a proportionally wider interval at a smaller projection, and a
+#: rookie's projection *is* smaller -- 182 rushing yards against a settled back's 382. So
+#: most of the cohort effect was a level effect the two-parameter form already absorbed,
+#: and splitting re-fits it on a third of the rows over a narrower range of mu.
+#:
+#: Measured per cohort, the interval was never failing along that axis: rookies covered
+#: **0.797** against nominal 0.800, while *settled* players sat at 0.702. The premise had
+#: the sign backwards. Cells are still fitted and persisted, so the finding is
+#: reproducible; they are not used.
+COHORT_DISPERSION: bool = False
+
 #: Fixed seed for the shipped artifact.
 #:
 #: A board that changed between two builds of identical inputs would be indistinguishable
@@ -101,6 +123,8 @@ class PlayerSpec:
         conditional: Whether ``phi``/``k``/``bust`` are the games-conditional
             dispersions. Recorded rather than inferred so a caller cannot mix bases by
             accident.
+        used_cohort: Per (player, stat), whether a cohort-specific dispersion was found
+            or the pooled one stood in.
     """
 
     gsis_id: Tuple[str, ...]
@@ -111,6 +135,19 @@ class PlayerSpec:
     bust: np.ndarray
     correlation: Dict[str, np.ndarray]
     conditional: bool
+    used_cohort: Optional[np.ndarray] = None
+
+    @property
+    def cohort_share(self) -> float:
+        """Share of fitted cells taking a cohort-specific dispersion rather than pooled.
+
+        Reported rather than assumed: a split that binds on 10% of cells is a different
+        claim from one that binds on 90%, and only the number says which this is.
+        """
+        if self.used_cohort is None:
+            return 0.0
+        fitted = np.isfinite(self.mu)
+        return float(self.used_cohort[fitted].mean()) if fitted.any() else 0.0
 
     @property
     def n_players(self) -> int:
@@ -157,7 +194,9 @@ def _dispersions(model: sn.SeasonUsageModel, conditional: bool
 
 def player_spec(frame: pl.DataFrame, model: sn.SeasonUsageModel,
                 conditional: bool,
-                mu_columns: Optional[Dict[str, str]] = None) -> PlayerSpec:
+                mu_columns: Optional[Dict[str, str]] = None,
+                cohort_column: str = "usg_role_cohort",
+                use_cohort: Optional[bool] = None) -> PlayerSpec:
     """Assemble the sampling parameters for a prediction frame.
 
     Args:
@@ -168,6 +207,11 @@ def player_spec(frame: pl.DataFrame, model: sn.SeasonUsageModel,
         conditional: Use the games-conditional dispersions. See the module docstring;
             there is deliberately no default.
         mu_columns: Stat to the column holding its mean. Defaults to ``USG_<stat>``.
+        cohort_column: Where plan 33's cohort lives. Absent, every player takes the
+            pooled dispersion, which is the behaviour before phase 3.
+        use_cohort: Split the dispersion by cohort. None takes
+            :data:`COHORT_DISPERSION`, which is False because G-R2 measured the split at
+            -0.1pp. Pass it explicitly to run either arm of that comparison.
 
     Returns:
         PlayerSpec: Ready for :func:`sample_stats`.
@@ -182,24 +226,46 @@ def player_spec(frame: pl.DataFrame, model: sn.SeasonUsageModel,
     k = np.full((n, width), np.nan)
     bust = np.zeros((n, width))
 
+    # Plan 33 phase 3: cohort is a real axis of this spread, and until now the interval
+    # did not vary along it at all. A rookie's residual CV is 1.6x-2.3x a settled
+    # player's, so the *same* projection is far less knowable for one than the other.
+    # Where a cohort cell was too thin to fit, the pooled cell stands in -- visibly, via
+    # `cohort_cells`, rather than by silently pretending the split happened.
+    split = COHORT_DISPERSION if use_cohort is None else use_cohort
+    cohorts = (frame[cohort_column].to_list()
+               if split and cohort_column in frame.columns
+               else [None] * frame.height)
+    used_cohort = np.zeros((n, width), dtype=bool)
+
     for index, stat in enumerate(STAT_ORDER):
         column = columns.get(stat)
         if column is None or column not in frame.columns:
             continue
         values = frame[column].cast(pl.Float64).to_numpy()
         for position in set(positions):
-            coefficients = dispersion.get(pv.key(position, stat))
-            if coefficients is None:
-                # No fitted dispersion means no interval, which is what
-                # `stat_intervals` already does. Partial coverage is visible; an
-                # invented number is not.
-                continue
-            rows = np.array([p == position for p in positions])
-            keep = rows & np.isfinite(values) & (values > 0)
-            mu[keep, index] = values[keep]
-            phi[keep, index] = coefficients["phi"]
-            k[keep, index] = coefficients["k"]
-            bust[keep, index] = coefficients.get("bust", 0.0)
+            for cohort in sorted(set(cohorts), key=lambda c: (c is None, c)):
+                # The cohort cell when one was fitted, the pooled cell when it was not.
+                # A thin cohort must not lose its interval altogether: partial coverage
+                # is visible, a missing interval reads as the model declining to speak.
+                coefficients = dispersion.get(pv.key(position, stat, cohort))
+                split = coefficients is not None and cohort is not None
+                if coefficients is None:
+                    coefficients = dispersion.get(pv.key(position, stat))
+                if coefficients is None:
+                    # No fitted dispersion at all means no interval, which is what
+                    # `stat_intervals` already does. An invented number is not.
+                    continue
+                rows = np.array([p == position for p in positions])
+                if cohort is not None:
+                    rows = rows & np.array([c == cohort for c in cohorts])
+                keep = rows & np.isfinite(values) & (values > 0)
+                if not keep.any():
+                    continue
+                mu[keep, index] = values[keep]
+                phi[keep, index] = coefficients["phi"]
+                k[keep, index] = coefficients["k"]
+                bust[keep, index] = coefficients.get("bust", 0.0)
+                used_cohort[keep, index] = split
 
     return PlayerSpec(
         gsis_id=tuple(frame["gsis_id"].to_list()),
@@ -207,6 +273,7 @@ def player_spec(frame: pl.DataFrame, model: sn.SeasonUsageModel,
         mu=mu, phi=phi, k=k, bust=bust,
         correlation=correlation_matrices(model),
         conditional=conditional,
+        used_cohort=used_cohort,
     )
 
 

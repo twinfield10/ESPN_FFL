@@ -1,6 +1,11 @@
 # 33 — Role resolution: what the first three games say about the depth chart
 
-**Priority:** Medium · **Effort:** S–M · **Status:** **Phases 1–2 built 2026-08-24** — G-R0, G-R1 and G-R3 pass, and G-R3 passing means these ship during the draft freeze. Phase 3 not started, and belongs scoped with [28](28-outcome-distributions.md), whose **G-D0 passed by 17.5×** on 2026-08-24
+**Priority:** Medium · **Effort:** S–M · **Status:** **Phases 1–2 built 2026-08-24;
+phase 3 built and REJECTED 2026-08-25 at G-R2.** Role uncertainty is real and is already
+in the interval — rookies cover at 0.801 against a nominal 0.800 while *settled* players
+sit at 0.701, so the cohort this was built to widen is the one that was already right.
+Both mechanisms measured null (−0.3pp each) and are off by default. Original status:
+**Phases 1–2 built 2026-08-24** — G-R0, G-R1 and G-R3 pass, and G-R3 passing means these ship during the draft freeze. Phase 3 not started, and belongs scoped with [28](28-outcome-distributions.md), whose **G-D0 passed by 17.5×** on 2026-08-24
 **Depends on:** [21](21-coaching-and-scheme.md) (the depth chart this measures) ·
 [18](18-season-usage-model.md) (the arms that consume it)
 **Feeds:** [28](28-outcome-distributions.md) (the floor/ceiling this is really for) ·
@@ -151,7 +156,62 @@ a 32% WR2, and a drafter reading a projection should see which of those he is be
 sold. No projection moves — this is a confidence column, and it is the cheapest thing
 here that a human actually uses.
 
-### Phase 3 — role uncertainty as the floor/ceiling
+### Phase 3 — role uncertainty as the floor/ceiling — **BUILT AND REJECTED 2026-08-25**
+
+**Both mechanisms measured, both null, and the premise has its sign backwards.**
+
+Two ways to give role uncertainty a channel were built on top of plan 28's simulation,
+which is where this plan said it belonged. Walk-forward 2021–2025, coverage against a
+nominal 0.800:
+
+| cohort | plan 28 as shipped | dispersion split by cohort | role drawn per simulation |
+|---|---|---|---|
+| settled | 0.701 | 0.699 | 0.705 |
+| mover | 0.704 | 0.702 | 0.691 |
+| **rookie** | **0.801** | 0.796 | 0.796 |
+| all | 0.730 | 0.727 | 0.727 |
+
+Both mechanisms are worth **−0.3pp** overall, and both make the rookie cell *worse*
+(0.801 → 0.796) — the one cohort they were built for. The role draw moves movers the
+wrong way by 1.3pp. Neither is a result.
+
+**One bug found while measuring, and it mattered.** The first version of the cohort split
+gave a player whose cohort had no fitted cell no dispersion at all, rather than falling
+back to the pooled one — so those players dropped out of the coverage denominator instead
+of being covered, and the split was scored on a favourable subset of itself. Caught by a
+test written to pin the fallback, not by reading the numbers. Fixed, and the numbers above
+are the honest ones: the rookie cell moved 0.804 → 0.796 once the dropped players came
+back, which strengthens the rejection rather than softening it.
+
+**The premise was that cohort is the axis the interval fails along. It is the axis it
+already handles.** Rookies cover at **0.801** against nominal 0.800 — essentially exact —
+while *settled* players sit at 0.701 and movers at 0.704. Phase 3 was built to widen the
+interval for the cohort that turns out to be the only one already right.
+
+**Why, and it is the interesting part.** The residuals do agree that cohort matters: a
+rookie's coefficient of variation is **1.6× to 2.3×** a settled player's (RB rushing
+yards 0.70 against 1.28; TE receiving yards 0.57 against 1.29), in exactly the order this
+plan's calibration predicts. But the fitted mean-variance function is
+`Var = phi × mu + mu²/k`, which already gives a proportionally wider interval at a
+smaller projection — and a rookie's projection *is* smaller, 182 rushing yards against a
+settled back's 382. **Most of the cohort effect was a level effect the two-parameter form
+already absorbed**, and splitting on it re-fits the same coefficients on a third of the
+rows over a narrower range of mu.
+
+This is plan 22's generalisation again, from a new direction: player-level context that is
+a function of past usage does not survive, because past usage is already carrying it.
+
+**G-R2 fails on its first clause regardless.** The bar is coverage within 5 points of
+nominal; the role-conditional interval lands at **0.727**, 7.3 points out. It is far
+closer than source disagreement, whose band contains **4.6%** of realised outcomes — but
+the gate asks for a usable interval before it asks for a better one, and this is not one.
+
+So the scope clause this plan wrote in advance applies: **phases 1 and 2 still stand.**
+`Scripts/outcomes/simulate.py::draw_role_order` and the cohort-split dispersion are kept,
+tested and persisted so the measurement is reproducible, behind `ROLE_DRAW = False` and
+`COHORT_DISPERSION = False`.
+
+### Phase 3 — the original design, for the record
 
 The one that matters. Replace source disagreement with a **role-conditional
 distribution**: draw a role from `P(true | listed, cohort)`, take the volume
@@ -187,6 +247,19 @@ coverage**: what fraction of players land inside their own p10–p90. **Bar: the
 role-conditional interval within 5 points of nominal 80% coverage, and closer to it
 than source disagreement is.** Coverage rather than width, because a wide interval is
 trivially achievable and useless.
+
+> ❌ **FAILED 2026-08-25 on the first clause.** Role-conditional coverage is **0.727**,
+> 7.3 points from nominal against the five the rule allows. The second clause it would
+> have passed easily — source disagreement's band contains 4.6% of realised outcomes —
+> but a spread has to be usable before it can be better.
+>
+> **One substitution, forced and stated.** No historical board survives ([25](25-results-backfill.md)),
+> so the incumbent's coverage cannot be scored walk-forward the way the candidate's can;
+> the 4.6% is measured on the live 2026 board against 2020–2025 realised spread, the same
+> substitution [28](28-outcome-distributions.md)'s G-D0 had to make. It is not close
+> enough to the bar for the substitution to matter.
+>
+> Registered as `role_verdict` in `Scripts/lab/registry.py`.
 
 **G-R3 — no projection may move in phases 1 and 2.** They are diagnostics. **Bar:
 `TRUE_Points` identical to the byte.** ✅ **Passed twice.** On a rebuilt GOP board,

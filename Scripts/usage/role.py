@@ -287,6 +287,42 @@ def load_calibration(path=None) -> Optional[Dict]:
     return json.loads(path.read_text())
 
 
+def rank_probabilities(payload: Optional[Dict] = None
+                       ) -> Dict[Tuple[str, int], List[float]]:
+    """``P(true rank | listed rank, cohort)`` as a lookup, for drawing a role.
+
+    :func:`attach_confidence` reads the *diagonal* of this table -- how often the chart
+    was simply right -- because a drafter wants one number beside a projection. Phase 3
+    reads the whole row: a listed rookie RB1 is the lead only 35.6% of the time, and the
+    other 64.4% is not "unknown", it is 22.6% rank 2 and 41.8% rank 3. That distribution
+    is the input :mod:`Scripts.outcomes.simulate` draws a role from.
+
+    Args:
+        payload: :func:`load_calibration` output. None loads it.
+
+    Returns:
+        dict: ``(cohort, listed_rank)`` to a probability vector indexed from rank 1, each
+        renormalised to sum to 1. Empty when the calibration has not been fitted -- the
+        caller then treats the chart as certain, which is the behaviour before this
+        existed rather than an invented distribution.
+    """
+    payload = load_calibration() if payload is None else payload
+    rows = (payload or {}).get("rows") or []
+
+    ranks = sorted({int(key.rsplit("_", 1)[1])
+                    for row in rows for key in row if key.startswith("p_true_")})
+    out: Dict[Tuple[str, int], List[float]] = {}
+    for row in rows:
+        vector = [float(row.get(f"p_true_{rank}") or 0.0) for rank in ranks]
+        total = sum(vector)
+        if total <= 0:
+            continue
+        # Renormalised because the stored row is a set of independently computed means
+        # and need not sum to exactly one; a sampler needs it to.
+        out[(str(row["cohort"]), int(row["depth_rank"]))] = [v / total for v in vector]
+    return out
+
+
 def attach_confidence(frame: pl.DataFrame,
                       payload: Optional[Dict] = None) -> pl.DataFrame:
     """Attach ``usg_role_cohort`` and ``usg_role_confidence`` to a feature frame.

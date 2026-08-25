@@ -39,6 +39,7 @@ from Scripts.outcomes import simulate as sim
 from Scripts.outcomes import vacancy as vac
 from Scripts.usage import backtest as ubt
 from Scripts.usage import context as ctx
+from Scripts.usage import role as rl
 from Scripts.usage import season as sn
 
 #: Seasons predicted, each from a model blind to it.
@@ -90,7 +91,14 @@ def _fold_frame(season: int, league_key: str) -> Tuple[pl.DataFrame, sn.SeasonUs
         tuple: The scored frame and the fold's model.
     """
     frame, model = ubt.run_season(season, league_key=league_key)
-    return frame.filter(pl.col("usg_points").is_not_null()), model
+    frame = frame.filter(pl.col("usg_points").is_not_null())
+    # The cohort plan 33's calibration is keyed on. Derived here rather than read,
+    # because `attach_confidence` writes it onto the *artifact* and a backtest fold never
+    # goes through that path.
+    if {"is_rookie", "team_changed"}.issubset(frame.columns):
+        frame = frame.with_columns(
+            rl.cohort_expression().alias("usg_role_cohort"))
+    return frame, model
 
 
 def _depth_rank(frame: pl.DataFrame, season: int) -> np.ndarray:
@@ -191,7 +199,9 @@ def run_fold(season: int, league_key: str = ubt.SCORING_LEAGUE,
     baseline = sim.baseline_opportunity(frame)
     rooms = sim.room_order(frame, season, baseline=baseline)
     weights = ubt.scoring_weights(season, league_key)
-    spec = dist.player_spec(frame, model, conditional=True)
+    specs = {True: dist.player_spec(frame, model, conditional=True, use_cohort=True),
+             False: dist.player_spec(frame, model, conditional=True, use_cohort=False)}
+    spec = specs[True]
     slate = int(round(float(frame["y_games_available"].cast(pl.Float64).max()
                             or sn.DEFAULT_TARGET_SLATE)))
 
@@ -209,17 +219,39 @@ def run_fold(season: int, league_key: str = ubt.SCORING_LEAGUE,
         backup[list(room.players[STARTER_RANK:])] = True
     cohorts = {"all": np.ones(frame.height, dtype=bool),
                "backup": backup, "starter": lead}
+    # Plan 33's own axis. The pooled coverage cannot answer whether the interval varies
+    # along the *right* axis -- only the per-cohort split can, and it is the whole
+    # question G-R2 asks.
+    if "usg_role_cohort" in frame.columns:
+        listed = np.array(frame["usg_role_cohort"].to_list())
+        for name in ("settled", "mover", "rookie"):
+            cohorts[name] = listed == name
+
+    probabilities = rl.rank_probabilities()
 
     out: Dict[str, object] = {"season": season, "n": frame.height,
-                              "slate": slate, "shares": shares}
-    for arm, transfer in (("joint", True), ("independent", False)):
+                              "slate": slate, "shares": shares,
+                              "role_cells": len(probabilities)}
+    # Three arms, differing in exactly one thing each. `independent` draws availability
+    # per player and redistributes nothing. `joint` adds the room transfer with the depth
+    # chart treated as fact. `role` adds plan 33's draw on top, so who leads the room is
+    # itself uncertain -- a listed rookie rank-1 really leads only 35.6% of the time.
+    out["cohort_share"] = spec.cohort_share
+    for arm, transfer, drawn, cohort in (("joint", True, False, False),
+                                         ("independent", False, False, False),
+                                         ("cohort", True, False, True),
+                                         ("role", True, True, True)):
         rng = np.random.default_rng(dist.DEFAULT_SEED + season)
+        order = (sim.draw_role_order(rng, frame, rooms, n_sims, probabilities)
+                 if drawn else None)
         modulation = sim.opportunity_multiplier(
             rng, frame, rooms, shares, model, slate, n_sims, baseline,
-            transfer=transfer)
-        sample = dist.sample_stats(spec, rng, n_sims=n_sims, mu_scale=modulation)
+            transfer=transfer, role_order=order)
+        sample = dist.sample_stats(specs[cohort], rng, n_sims=n_sims,
+                                   mu_scale=modulation)
         points = dist.season_points(sample, weights)
-        summary = dist.summarise(points, spec.positions, spec.has_projection)
+        summary = dist.summarise(points, specs[cohort].positions,
+                                 specs[cohort].has_projection)
 
         low = summary["pts_p10"].to_numpy()
         mid = summary["pts_p50"].to_numpy()
@@ -379,7 +411,16 @@ def run(folds: Sequence[int] = DEFAULT_FOLDS,
         "starter_coverage_independent": pooled("independent_starter_coverage"),
         "backup_coverage_gain_pp": gain("backup"),
         "starter_coverage_gain_pp": gain("starter"),
+        # Plan 33 phase 3's two candidate mechanisms, and the cohorts they were supposed
+        # to help. Both are measured here rather than in a separate harness because they
+        # are variants of this same distribution and share every other input.
+        "role_coverage": pooled("role_all_coverage"),
+        "cohort_coverage": pooled("cohort_all_coverage"),
+        "role_backup_gain_pp": gain("backup"),
     }
+    for name in ("settled", "mover", "rookie"):
+        for arm in ("joint", "cohort", "role"):
+            metrics[f"{arm}_{name}_coverage"] = pooled(f"{arm}_{name}_coverage")
 
     board = board_interval_width(max(folds) + 1, league_key)
     if board:
@@ -396,6 +437,7 @@ def run(folds: Sequence[int] = DEFAULT_FOLDS,
     call, reason = reg.outcome_verdict(metrics)
     joint_call, joint_reason = reg.joint_verdict(metrics)
     relevance_call, relevance_reason = reg.relevance_verdict(metrics)
+    role_call, role_reason = reg.role_verdict(metrics)
     return {
         "ordering": ordering,
         "ran_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -406,7 +448,8 @@ def run(folds: Sequence[int] = DEFAULT_FOLDS,
         "verdict": {"distribution": call, "distribution_reason": reason,
                     "joint": joint_call, "joint_reason": joint_reason,
                     "relevance": relevance_call,
-                    "relevance_reason": relevance_reason},
+                    "relevance_reason": relevance_reason,
+                    "role": role_call, "role_reason": role_reason},
         "gates": {
             "OUTCOME_COVERAGE_RANGE": list(reg.OUTCOME_COVERAGE_RANGE),
             "OUTCOME_SLOPE_RANGE": list(reg.OUTCOME_SLOPE_RANGE),
@@ -414,6 +457,7 @@ def run(folds: Sequence[int] = DEFAULT_FOLDS,
             "MIN_VACANCY_SPECIFICITY_PP": reg.MIN_VACANCY_SPECIFICITY_PP,
             "MIN_MOVED_SHARE": reg.MIN_MOVED_SHARE,
             "MIN_PICK_MOVE": reg.MIN_PICK_MOVE,
+            "MAX_ROLE_COVERAGE_ERROR": reg.MAX_ROLE_COVERAGE_ERROR,
         },
     }
 
@@ -464,6 +508,17 @@ def report(result: Dict) -> str:
                   f"{metrics['board_interval_width']:.3f}  "
                   f"(n={metrics['board_interval_n']})"]
 
+    lines += ["", "  --- G-R2 (plan 33 phase 3): does role uncertainty help? ---",
+              f"  {'cohort':<12}{'joint':>9}{'by cohort':>11}{'role draw':>11}"]
+    for name in ("settled", "mover", "rookie"):
+        if f"joint_{name}_coverage" not in metrics:
+            continue
+        lines.append(f"  {name:<12}{metrics[f'joint_{name}_coverage']:>9.3f}"
+                     f"{metrics[f'cohort_{name}_coverage']:>11.3f}"
+                     f"{metrics[f'role_{name}_coverage']:>11.3f}")
+    lines.append(f"  {'all':<12}{metrics['coverage']:>9.3f}"
+                 f"{metrics['cohort_coverage']:>11.3f}{metrics['role_coverage']:>11.3f}")
+
     ordering = result.get("ordering") or {}
     if ordering:
         lines += ["", "  --- G-D3: does the distribution reorder anything? ---",
@@ -480,7 +535,9 @@ def report(result: Dict) -> str:
               f"  VERDICT joint:        {result['verdict']['joint'].upper()} -- "
               f"{result['verdict']['joint_reason']}",
               f"  VERDICT relevance:    {result['verdict']['relevance'].upper()} -- "
-              f"{result['verdict']['relevance_reason']}"]
+              f"{result['verdict']['relevance_reason']}",
+              f"  VERDICT role (G-R2):  {result['verdict']['role'].upper()} -- "
+              f"{result['verdict']['role_reason']}"]
     return "\n".join(lines)
 
 

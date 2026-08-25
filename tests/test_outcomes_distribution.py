@@ -316,3 +316,52 @@ def test_a_board_without_the_probability_columns_passes_through():
 
     board = pl.DataFrame({"player_name": ["a"], "TRUE_Points": [1.0]})
     assert dv.with_percent_columns(board).equals(board)
+
+
+# --- plan 33 phase 3, measured and rejected ------------------------------
+
+def test_the_cohort_split_is_off_and_the_pooled_cell_is_what_ships():
+    """G-R2 measured the split at -0.3pp, so it does not bind by default.
+
+    The cells stay fitted and persisted so the measurement is reproducible; a caller
+    has to ask for them. If this ever flips silently, every published interval changes
+    for a reason nobody chose.
+    """
+    dispersion = {
+        pv.key("WR", "receivingYards"): {"phi": 100.0, "k": 1000.0, "bust": 0.0},
+        pv.key("WR", "receivingYards", "rookie"): {"phi": 400.0, "k": 1000.0,
+                                                   "bust": 0.0},
+    }
+    m = sn.SeasonUsageModel(volume={}, stat_dispersion=dispersion,
+                            stat_dispersion_conditional=dispersion, version="1.2.0")
+    rows = pl.DataFrame({"gsis_id": ["a"], "position": ["WR"],
+                         "USG_receivingYards": [500.0],
+                         "usg_role_cohort": ["rookie"]})
+
+    assert dist.COHORT_DISPERSION is False
+    index = dist.STAT_ORDER.index("receivingYards")
+    assert dist.player_spec(rows, m, conditional=True).phi[0, index] == 100.0
+    # ... and the split is still reachable, or the rejection could not be re-measured.
+    forced = dist.player_spec(rows, m, conditional=True, use_cohort=True)
+    assert forced.phi[0, index] == 400.0
+    assert forced.cohort_share == pytest.approx(1.0)
+
+
+def test_a_cohort_with_no_fitted_cell_falls_back_to_pooled():
+    """A thin cohort must not lose its interval entirely -- partial coverage is
+    visible, a missing one reads as the model declining to speak."""
+    dispersion = {
+        pv.key("WR", "receivingYards"): {"phi": 100.0, "k": 1000.0, "bust": 0.0},
+        pv.key("WR", "receivingYards", "settled"): {"phi": 60.0, "k": 1000.0,
+                                                    "bust": 0.0},
+    }
+    m = sn.SeasonUsageModel(volume={}, stat_dispersion=dispersion,
+                            stat_dispersion_conditional=dispersion, version="1.2.0")
+    rows = pl.DataFrame({"gsis_id": ["a", "b"], "position": ["WR", "WR"],
+                         "USG_receivingYards": [500.0, 500.0],
+                         "usg_role_cohort": ["settled", "mover"]})
+    spec = dist.player_spec(rows, m, conditional=True, use_cohort=True)
+    index = dist.STAT_ORDER.index("receivingYards")
+    assert spec.phi[0, index] == 60.0     # has its own cell
+    assert spec.phi[1, index] == 100.0    # falls back to pooled
+    assert spec.cohort_share == pytest.approx(0.5)

@@ -207,6 +207,53 @@ MIN_PICK_MOVE: int = 12
 MAX_TRUE_POINTS_DRIFT: float = 0.0
 
 
+# --- role uncertainty as a variance channel, plan 33 phase 3 ---------------
+#
+# Transcribed from ``docs/plans/33-role-resolution.md``, which pre-committed it before
+# any of this was built.
+
+#: How far from nominal 80% the role-conditional interval may land.
+#:
+#: G-R2, and it is a *coverage* bar rather than a width bar because a wide interval is
+#: trivially achievable and useless. Five points, which is tighter than plan 28's G-D1
+#: window on the same quantity -- deliberately, because this is asked of a mechanism whose
+#: entire claim is that it makes an existing interval better.
+MAX_ROLE_COVERAGE_ERROR: float = 0.05
+
+
+def role_verdict(metrics: Dict) -> Tuple[str, str]:
+    """Whether role uncertainty earns a place in the interval. Plan 33's G-R2.
+
+    Args:
+        metrics: Carrying ``role_coverage`` and, optionally, ``incumbent_coverage`` --
+            the share of realised outcomes inside the board's source-disagreement band.
+
+    Returns:
+        tuple: ``("merge", reason)`` or ``("reject", reason)``. A rejection leaves plan
+        33 phases 1 and 2 standing, which that plan names in advance.
+    """
+    coverage = metrics.get("role_coverage")
+    if coverage is None:
+        return "reject", "no role-conditional coverage was measured."
+
+    error = abs(coverage - 0.80)
+    if error > MAX_ROLE_COVERAGE_ERROR:
+        return "reject", (
+            f"role-conditional coverage is {coverage:.3f}, {error * 100:.1f} points from "
+            f"nominal against the {MAX_ROLE_COVERAGE_ERROR * 100:.0f} the rule allows -- "
+            f"so the interval is not fit to replace anything, whatever it beats.")
+
+    incumbent = metrics.get("incumbent_coverage")
+    if incumbent is not None and abs(incumbent - 0.80) <= error:
+        return "reject", (
+            f"role-conditional coverage {coverage:.3f} is no closer to nominal than "
+            f"source disagreement's {incumbent:.3f}.")
+
+    return "merge", (
+        f"role-conditional coverage {coverage:.3f} is within "
+        f"{MAX_ROLE_COVERAGE_ERROR * 100:.0f} points of nominal.")
+
+
 @dataclass(frozen=True)
 class Experiment:
     """One thing to try, and everything needed to try it.

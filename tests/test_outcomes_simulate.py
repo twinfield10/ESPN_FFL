@@ -261,3 +261,104 @@ def test_the_same_seed_gives_the_same_draw():
     """Not `np.random.seed`. This runs once per league across nine leagues, which is
     exactly the situation where a global stream stops being reproducible."""
     assert np.array_equal(modulate([8.0, 17.0]).gain, modulate([8.0, 17.0]).gain)
+
+
+# --- the role draw (plan 33 phase 3) -------------------------------------
+
+def role_frame(cohorts):
+    """A room whose members carry a cohort, so the calibration has cells to find."""
+    n = len(cohorts)
+    return pl.DataFrame({
+        "gsis_id": [f"00-{i}" for i in range(n)],
+        "position": ["RB"] * n,
+        "expected_games": [17.0] * n,
+        "usg_role_cohort": list(cohorts),
+        "pred_carries_pg": [10.0] * n,
+        "pred_targets_pg": [0.0] * n})
+
+
+CERTAIN = {("settled", 1): [1.0, 0.0, 0.0], ("settled", 2): [0.0, 1.0, 0.0]}
+COINFLIP = {("settled", 1): [0.5, 0.5, 0.0], ("settled", 2): [0.5, 0.5, 0.0]}
+
+
+def test_a_certain_chart_reproduces_the_listed_order():
+    """The base case, and the reason the generalisation is safe.
+
+    With every player certain of his listed rank, the drawn order must be the listed
+    order in every simulation -- so a role draw that is *certain* changes nothing, and
+    every result measured before this existed is still the result.
+    """
+    rooms = room(2)
+    got = sim.draw_role_order(np.random.default_rng(0), role_frame(["settled"] * 2),
+                              rooms, n_sims=200, probabilities=CERTAIN)
+    assert np.array_equal(got[0], np.tile(np.arange(2), (200, 1)))
+
+
+def test_an_uncertain_chart_sometimes_makes_the_understudy_the_lead():
+    """The whole point. A listed rookie RB1 leads his room 35.6% of the time, and
+    treating that as certain removes the variance channel plan 33 exists to add."""
+    got = sim.draw_role_order(np.random.default_rng(0), role_frame(["settled"] * 2),
+                              room(2), n_sims=2000, probabilities=COINFLIP)
+    leads_listed = (got[0][:, 0] == 0).mean()
+    assert 0.4 < leads_listed < 0.9      # not always, and not never
+    assert (got[0][:, 0] == 1).any()
+
+
+def test_a_player_with_no_calibration_cell_keeps_his_listed_rank():
+    """No cell means no measurement, and an unmeasured player gets the chart rather
+    than a distribution nobody fitted."""
+    got = sim.draw_role_order(np.random.default_rng(0), role_frame([None, None]),
+                              room(2), n_sims=50, probabilities=COINFLIP)
+    assert np.array_equal(got[0], np.tile(np.arange(2), (50, 1)))
+
+
+def test_an_unfitted_calibration_leaves_every_room_alone():
+    """The contract every optional artifact here has: absent means the behaviour from
+    before it existed, not a guess."""
+    got = sim.draw_role_order(np.random.default_rng(0), role_frame(["settled"] * 3),
+                              room(3), n_sims=50, probabilities={})
+    assert np.array_equal(got[0], np.tile(np.arange(3), (50, 1)))
+
+
+def test_the_identity_order_reproduces_the_undrawn_transfer_exactly():
+    """The generalisation to a per-simulation lead must be transparent.
+
+    `opportunity_multiplier` was rewritten to let the lead vary by simulation. Passing
+    the listed order back in has to give bit-identical results to not passing one at
+    all, or every number measured before plan 33 phase 3 quietly moved.
+    """
+    plain = modulate([0.001, 17.0, 17.0],
+                     rooms=[sim.Room("AAA", "RB", (0, 1, 2), (1, 2, 3))])
+    identity = [np.tile(np.arange(3), (400, 1))]
+    f = frame([0.001, 17.0, 17.0])
+    drawn = sim.opportunity_multiplier(
+        np.random.default_rng(0), f,
+        [sim.Room("AAA", "RB", (0, 1, 2), (1, 2, 3))], SHARES, model(), 17, 400,
+        sim.baseline_opportunity(f), role_order=identity)
+    assert np.array_equal(plain.gain, drawn.gain)
+    assert np.array_equal(plain.availability, drawn.availability)
+
+
+def test_a_drawn_lead_vacates_and_the_listed_lead_inherits():
+    """The mirror image of the normal case, and the one only a role draw produces.
+
+    The *listed* rank-2 back is drawn as the true lead in every simulation and is the one
+    who misses the season; the listed rank-1 back, who is present, must inherit from him.
+    Without the draw the transfer would run the other way and find nothing to move.
+    """
+    f = frame([17.0, 0.001])          # listed 1 healthy, listed 2 absent
+    swap = [np.tile(np.array([1, 0]), (400, 1))]
+    got = sim.opportunity_multiplier(
+        np.random.default_rng(0), f, room(2), SHARES, model(), 17, 400,
+        sim.baseline_opportunity(f), role_order=swap)
+    assert got.gain[:, 0].mean() == pytest.approx(0.80, abs=0.03)
+    assert got.gain[:, 1].max() == pytest.approx(0.0, abs=1e-9)
+
+
+def test_the_role_draw_is_reproducible():
+    """Same seed, same board."""
+    a = sim.draw_role_order(np.random.default_rng(7), role_frame(["settled"] * 3),
+                            room(3), 300, probabilities=COINFLIP)
+    b = sim.draw_role_order(np.random.default_rng(7), role_frame(["settled"] * 3),
+                            room(3), 300, probabilities=COINFLIP)
+    assert np.array_equal(a[0], b[0])
