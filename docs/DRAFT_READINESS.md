@@ -70,30 +70,15 @@ need nothing. That is the pre-draft scan
 
 ---
 
-## The one thing that is actually risky
+## The one thing that was actually risky — **resolved 2026-08-24**
 
-**~12,300 lines of work are uncommitted, unpushed, and on `main`.**
+~12,300 lines of plans 27–30 sat uncommitted on `main`, with the nightly job depending
+on code that existed only in the working tree. All of it is merged. Plan 28's model
+layer went in the same day as PR #27; the working tree is clean and `origin/main` has
+everything the nightly runs.
 
-```
-10,837 lines  untracked  (Scripts/injury, Scripts/kicking, Scripts/dst,
-                          Scripts/outcomes, Scripts/vegas.py, config/injuries,
-                          plans 27–30, 7 test files)
- 1,438 lines  modified   (21 tracked files)
-```
-
-That is plans 27, 28, 29 and 30 — the entire injury layer, both special-teams models
-and the outcome-distribution evidence. No branch, no PR, nothing at `origin`.
-
-Two reasons this matters more than it usually would:
-
-1. **The nightly job depends on it.** `run_daily_refresh.sh` calls code that exists
-   only in this working tree. A `git checkout` of a clean `main` would leave a
-   pipeline that no longer builds the boards you are about to draft off.
-2. **A draft is a deadline.** The one week you cannot afford to reconstruct a week of
-   work from memory is this one.
-
-**Do this first, before anything else on the list.** It is an hour, most of it
-writing commit messages, and it is the only item here whose cost goes up if you wait.
+Nothing on this page is blocked. What remains below is upside, one operational habit,
+and two decisions.
 
 ---
 
@@ -214,9 +199,9 @@ Ordered by when it has to happen, not by size.
       of your four leagues, no date in ESPN. Everything below is scheduled against
       these. If either is genuinely next week, stop and re-read this file — the
       answer does not change, but the ordering does.
-- [ ] **Commit and push the ~12,300 uncommitted lines.** Branch, PR, merge. See
-      *The one thing that is actually risky*. `gh auth switch --user twinfield10`
-      in the same shell as the `gh` call.
+- [x] ~~**Commit and push the ~12,300 uncommitted lines.**~~ Done 2026-08-24, plus
+      plan 28's model layer in PR #27. `gh auth switch --user twinfield10` in the same
+      shell as the `gh` call, or it fails as a non-collaborator.
 - [ ] Confirm the nightly job is still firing daily — `python -m Scripts.refresh_status`
       should read under 24 h every morning. A shut lid is a skipped night, and camp
       is when the depth chart moves most.
