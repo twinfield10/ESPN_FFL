@@ -200,6 +200,47 @@ def quantile(stat: str, mu, phi: float, k: float, q: float,
     Returns:
         np.ndarray | None: Quantiles, or None when the stat is in neither family.
     """
+    reparameterised = _reparameterise(stat, mu, phi, k, bust)
+    if reparameterised is None:
+        return None
+    family, parameters, share = reparameterised
+
+    if family == "count":
+        return stats.nbinom.ppf(q, *parameters)
+
+    shape, scale = parameters
+    if share > 0.0:
+        # A mixture: mass `share` at zero, a Gamma for the rest, the Gamma scaled so
+        # the mixture's mean is still `mu` -- the point estimate is what plan 18
+        # measured and must not move when an interval is put around it. Below the
+        # point mass the quantile *is* zero; the clip keeps the Gamma's own ppf off
+        # the negative arguments it would otherwise be handed and return NaN for.
+        q = np.asarray(q, dtype=float)
+        rescaled = np.clip((q - share) / (1.0 - share), _EPS, 1.0 - _EPS)
+        return np.where(q > share,
+                        stats.gamma.ppf(rescaled, shape, scale=scale), 0.0)
+    return stats.gamma.ppf(q, shape, scale=scale)
+
+
+def _reparameterise(stat: str, mu, phi: float, k: float,
+                    bust: float = 0.0):
+    """The family's own parameters at ``mu``, shared by :func:`quantile` and :func:`pit`.
+
+    Factored out so the sampler, the quantile and the probability transform cannot
+    drift apart. Every expression here is lifted verbatim from :func:`quantile`.
+
+    Args:
+        stat: Stat name without the ``USG_`` prefix.
+        mu: Mean per player.
+        phi: Poisson-like coefficient.
+        k: Shape coefficient.
+        bust: Zero point mass, yardage only.
+
+    Returns:
+        tuple | None: ``(family, parameters, share)`` where ``parameters`` is
+        ``(size, probability)`` for a count and ``(shape, scale)`` for yardage, and
+        ``share`` is the zero mass actually applied. None when the stat has no family.
+    """
     family = family_for(stat)
     if family is None:
         return None
@@ -207,37 +248,83 @@ def quantile(stat: str, mu, phi: float, k: float, q: float,
     mu = np.clip(np.asarray(mu, dtype=float), _EPS, None)
     variance = np.clip(variance_at(mu, phi, k), mu * _EPS + _EPS, None)
 
-    if family == "yardage" and bust > 0.0:
-        # A mixture: mass `bust` at zero, a Gamma for the rest. The Gamma is scaled
-        # so the mixture's mean is still `mu` -- the point estimate is what plan 18
-        # measured and must not move when an interval is put around it.
-        share = min(float(bust), MAX_BUST)
+    if family == "count":
+        excess = np.clip(variance - mu, _EPS, None)
+        size = mu ** 2 / excess
+        return family, (size, size / (size + mu)), 0.0
+
+    share = min(max(float(bust), 0.0), MAX_BUST)
+    if share > 0.0:
         conditional_mean = mu / (1.0 - share)
         conditional_var = np.clip(
             (variance + mu ** 2) / (1.0 - share) - conditional_mean ** 2,
             _EPS, None)
-        out = np.zeros_like(mu)
-        upper_part = q > share
-        if np.any(upper_part):
-            rescaled = (q - share) / (1.0 - share)
-            shape = conditional_mean ** 2 / conditional_var
-            scale = conditional_var / conditional_mean
-            out = np.where(upper_part,
-                           stats.gamma.ppf(rescaled, shape, scale=scale),
-                           0.0)
-        return out
+        return (family,
+                (conditional_mean ** 2 / conditional_var,
+                 conditional_var / conditional_mean),
+                share)
+    return family, (mu ** 2 / variance, variance / mu), 0.0
+
+
+def pit(stat: str, mu, phi: float, k: float, observed, bust: float = 0.0,
+        rng: Optional[np.random.Generator] = None) -> Optional[np.ndarray]:
+    """Probability-integral transform of a realised value, randomised at the atoms.
+
+    ``F(x)`` for a continuous distribution is Uniform(0, 1) when the distribution is
+    right, which is what makes this the natural residual to correlate: it strips every
+    stat's own scale and shape away and leaves only where in its own distribution the
+    player landed. Correlating those is what a copula needs.
+
+    **Randomised, and it has to be.** Both families here put point mass somewhere -- a
+    Negative Binomial on every integer, a zero-inflated Gamma on zero -- and a plain
+    ``F(x)`` at an atom is not uniform: every player who caught exactly four touchdowns
+    returns the identical number, so the transform piles up on a few values and the
+    correlation reads whatever the ties happen to do. Spreading each atom uniformly
+    across the probability it owns restores uniformity exactly. Without it the fitted
+    correlations are attenuated toward zero, worst for the low-count stats that have the
+    most ties.
+
+    Args:
+        stat: Stat name without the ``USG_`` prefix.
+        mu: Mean per player.
+        phi: Poisson-like coefficient.
+        k: Shape coefficient.
+        observed: Realised totals, same shape as ``mu``.
+        bust: Zero point mass, yardage only.
+        rng: Generator for the randomisation. None draws deterministically at the
+            midpoint of each atom, which is reproducible and adequate for a
+            correlation, but is *not* uniform -- pass a Generator when that matters.
+
+    Returns:
+        np.ndarray | None: Values in ``(0, 1)``, or None when the stat has no family.
+    """
+    reparameterised = _reparameterise(stat, mu, phi, k, bust)
+    if reparameterised is None:
+        return None
+    family, parameters, share = reparameterised
+
+    x = np.asarray(observed, dtype=float)
+    spread = (rng.random(x.shape) if rng is not None
+              else np.full(x.shape, 0.5))
 
     if family == "count":
-        # NegBin(n, p) with mean mu and the given variance. Variance must exceed the
-        # mean for the family to exist; where it does not the count is effectively
-        # Poisson and the shape is pushed high rather than allowed to go negative.
-        excess = np.clip(variance - mu, _EPS, None)
-        size = mu ** 2 / excess
-        probability = size / (size + mu)
-        return stats.nbinom.ppf(q, size, probability)
+        size, probability = parameters
+        upper = stats.nbinom.cdf(x, size, probability)
+        lower = stats.nbinom.cdf(x - 1.0, size, probability)
+    elif share > 0.0:
+        shape, scale = parameters
+        positive = x > 0.0
+        upper = np.where(positive,
+                         share + (1.0 - share) * stats.gamma.cdf(
+                             np.clip(x, _EPS, None), shape, scale=scale),
+                         share)
+        lower = np.where(positive, upper, 0.0)
+    else:
+        shape, scale = parameters
+        upper = stats.gamma.cdf(np.clip(x, 0.0, None), shape, scale=scale)
+        lower = upper
 
-    shape = mu ** 2 / variance
-    return stats.gamma.ppf(q, shape, scale=variance / mu)
+    return np.clip(lower + spread * (upper - lower), _EPS, 1.0 - _EPS)
 
 
 def key(position: str, stat: str) -> str:

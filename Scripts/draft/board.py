@@ -540,6 +540,28 @@ def build_board(
         except (FileNotFoundError, ImportError) as e:
             _warn(f"no handcuff columns on this board ({e}).")
 
+    # Plan 28's season-points distribution. **Here rather than in
+    # `build_season_projections`, and the reason is the join key**: the room draw matches
+    # players against the depth chart on `gsis_id`, which this function attaches a few
+    # dozen lines above and which the projection frame does not carry at all.
+    #
+    # Additive. The board is still ordered by `TRUE_Points`; whether `p_top12` may change
+    # that is G-D3's decision, not this call's.
+    if season is not None and league is not None:
+        try:
+            from Scripts.season_projections import attach_outcome_distribution
+            from Scripts.scoring import get_scoring_table
+            scored = get_scoring_table(league, season=season, verify=False)
+            board = attach_outcome_distribution(
+                board, season, league,
+                [c for c in scored["colName"].dropna().unique()])
+        # `AttributeError` is in the list for the same reason the others are: a league
+        # object that cannot resolve its own scoring -- a stub in a test, a partially
+        # constructed one -- is a missing input, and every attacher here degrades to
+        # "no columns" rather than taking the board down with it.
+        except (FileNotFoundError, ImportError, KeyError, AttributeError) as e:
+            _warn(f"no outcome columns on this board ({e}).")
+
     # Sorted by VOR, not by value: value is NaN for everyone the market has not
     # priced, which in 2026 is 84% of the pool. Plan 09 offers sort-by-value as an
     # interaction; it is the wrong default for a stored artifact.

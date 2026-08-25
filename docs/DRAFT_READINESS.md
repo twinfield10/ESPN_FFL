@@ -58,7 +58,7 @@ Verified today, not taken from a doc:
 | Nightly refresh | `ok`, 3.7 h ago, all six stages |
 | Boards | 9 of 9 built 06:00, 2,504 rows × 1,355 cols (GOP) |
 | S3 publish | 274 objects, plus the dated board snapshot |
-| Test suite | **1,174 passing**, 0 failures |
+| Test suite | **1,277 passing**, 0 failures |
 | Usage model coverage | 766/915 rostered players (83.7%) |
 | Pre-draft injury scan | 2 players inside ADP 150 on a weak rung, **both under one game** |
 | Kicker / D/ST models | priced on every board; **`DST` blended at 0.25**, `KIK` at 0.0 |
@@ -156,10 +156,37 @@ week-1 problem. → [plan 02](plans/02-betonline-access.md).
 | Missing | Draft impact | Verdict |
 |---|---|---|
 | **Live Draft page** ([09](plans/09-frontend-draft-views.md)) | Pick tracking during the draft. The board on a second monitor works without it — that is how 2025 ran | The only item worth building if time allows |
-| **Outcome distributions** ([28](plans/28-outcome-distributions.md)) | The model is not built, but **its evidence is usable at the draft without it** — see below | Do not build. Read the numbers |
+| **Outcome distributions** ([28](plans/28-outcome-distributions.md)) | **Built 2026-08-24.** The board now shows `p10`/`p90`, `Top` and `Bust` beside every projection the usage model covers — 290 players a league, every one it prices | Use them. Read the evidence below too |
 | **Weekly views** ([08](plans/08-frontend-weekly-views.md)) | None | After week 1 |
 | **Weekly usage head** ([19](plans/19-weekly-usage-model.md)) | None — comes online ~week 3 | After the draft |
 | **Blend weight re-tune** ([03](plans/03-projection-source-coverage.md)) | Would move `TRUE_Points` days before a draft on an untested change | **Do not touch before the draft** |
+
+### Plan 28's columns, and what they are not
+
+Built 2026-08-24 and on all nine boards. Under the **Range** spanner:
+
+- **`p10` / `p90`** — a real forecast interval, and a **different quantity from
+  `Floor`/`Ceiling`**, which is how far the four sources disagree. Measured, the two are
+  17.5× apart: the board's own floor-to-ceiling contains **4.6%** of realised outcomes
+  against the ~80% those words imply. Read `p10`–`p90` as the range, not the other pair.
+- **`Top`** — how often he finishes in his **position's** starter tier across 5,000
+  simulated seasons. Position-relative, so it does not compare a receiver against a back;
+  `VOR` is still the column for that. It reorders 13.5% of draftable players by 12+ places
+  within position — 23% at quarterback and receiver, and **none at running back**.
+- **`Bust`** — how often he finishes below half his own projection.
+
+**Three caveats worth knowing before you lean on them.** The spread is simulated from the
+usage model's own fitted distributions, so it carries that model's error and is if
+anything too wide. It covers the eight stats the model projects — `Range Evidence` names
+what each league's scoring adds that it cannot price. And realised coverage is **0.730**
+against a nominal 0.80, so the interval is still slightly narrow: treat `p90` as a good
+outcome rather than a ceiling.
+
+**The handcuff machinery is built and turned off.** Simulating a whole running-back room
+jointly, so an RB2 inherits when his lead sits, improved backup coverage by only 2.1
+points against a 5-point bar. It is real — entrenched starters gained exactly nothing, so
+the effect is specifically about vacancy — just too small to carry. Which is the same
+conclusion the evidence below reaches by hand.
 
 ### Plan 28's evidence, which you can use on draft night with no build
 
@@ -244,7 +271,7 @@ Ordered by when it has to happen, not by size.
 ```bash
 python -m Scripts.refresh_status   # refresh + boards, ages and league count
 python -m Scripts.injury.review    # who needs a hand-written severity
-python -m pytest -q                # 1,174 tests, ~1 min
+python -m pytest -q                # 1,277 tests, ~1 min
 ```
 
 All three green and the board built today is the whole readiness bar.

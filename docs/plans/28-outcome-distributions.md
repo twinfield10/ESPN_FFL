@@ -1,11 +1,27 @@
 # 28 — Outcome distributions, and where the variance actually lives
 
 **Priority:** High (draft-relevant, and it is the first thing on the board that would
-be *new information* rather than a better mean) · **Effort:** L · **Status:** **G-D0
-passed and G-D5 failed, 2026-08-24.** The materiality gate clears by 17.5x against a
-1.5x bar, so phases 1-3 are justified; the fragility premium is **non-monotone inside
-strata and runs the wrong way in the strongest tertile**, so phase 5 moves to *Do not
-build* on the plan's own pre-committed terms. Not otherwise started. **Evidence below measured 2026-08-18, and it already kills one of the three
+be *new information* rather than a better mean) · **Effort:** L · **Status:** **Phases
+1-3 built 2026-08-24. G-D0, G-D1 and G-D3 pass; G-D2 and G-D5 fail.**
+
+The board now carries `pts_p10`, `pts_p90`, `p_top12`, `p_bust` and `outcome_evidence`
+on all nine leagues, from a Monte Carlo over the usage model's own fitted per-stat
+distributions, rescaled onto `TRUE_Points`. **No projection moved** -- `TRUE_Points` is
+identical to the byte on a rebuilt board against the same inputs.
+
+**G-D1 passed** at coverage 0.730 and slope 1.072, walk-forward 2021-2025. **G-D2
+failed**: the room-level joint draw is only **+2.1pp** closer to nominal for backups
+against a 5pp bar, so phase 1 ships alone and the room machinery is off by default --
+though entrenched starters move **+0.0pp**, so the effect is exactly as vacancy-specific
+as claimed and it is the size that fails, not the direction. **G-D3 passed** at 13.5%
+within position, driven by quarterback and receiver.
+
+**Two defects found in shipped code on the way, and the postscript has both.** The
+published `USG_<stat>_low`/`_high` were the realised-season spread rescaled onto an
+if-healthy centre, which on **14.0% of projected cells was a p10 equal to its p90** -- now
+0.5%, and fixed without moving a mean. And **half of `expected_games` is role rather than
+availability**: the proportional rescale everyone reaches for over-projects a realised
+total by up to 27%, and the fitted exponent is 0.32-0.49. **Evidence below measured 2026-08-18, and it already kills one of the three
 things this plan was asked for.** The vacancy transfer is real and large in a backfield
 — the lead back's 17.42 opportunities a game go 81% to the next three backs and the room
 keeps 93% of its volume — **and it is absent in a receiver room**, where the WR2 gains
@@ -323,10 +339,10 @@ to do something it can actually do.
 | Phase | What | Gate |
 |---|---|---|
 | — | `Scripts/outcomes/evidence.py` — the measurements above, reproducible | **Done 2026-08-18** |
-| 0 | **G-D0 first.** Does the existing `floor`/`ceiling` already span it? | G-D0 |
-| 1 | `Scripts/outcomes/distribution.py` — points marginal from the per-stat marginals, per league scoring, correlation from residuals | G-D1 |
-| 2 | `Scripts/outcomes/vacancy.py` + `simulate.py` — the room-level joint draw | G-D2 |
-| 3 | Board columns and `app/pages/draft_board.py` | G-D3 |
+| 0 | **G-D0 first.** Does the existing `floor`/`ceiling` already span it? | **G-D0 passed 2026-08-24** |
+| 1 | `Scripts/outcomes/distribution.py` — points marginal from the per-stat marginals, per league scoring, correlation from residuals | **G-D1 passed 2026-08-24** |
+| 2 | `Scripts/outcomes/vacancy.py` + `simulate.py` — the room-level joint draw | **G-D2 FAILED 2026-08-24 — built, measured, off by default** |
+| 3 | Board columns and `app/draft_view.py` | **G-D3 passed 2026-08-24** |
 | 4 | Duration → `availability.py`'s `mu`, with a 27-style matched control rebuilt on the season frame | G-D4 |
 | ~~5~~ | ~~the fragility premium, stratified by Vegas team strength~~ | **G-D5 FAILED 2026-08-24 — do not build** |
 | — | fragility-conditional bump for backups, unstratified | **Do not build** — measured, reversed, and confounded |
@@ -377,16 +393,79 @@ coverage inside [0.72, 0.88] and calibration slope inside [0.85, 1.15]** on real
 season points, walk-forward. `availability.py::calibration` and
 `Scripts/usage/backtest.py`'s existing coverage report are the pattern.
 
+> ✅ **PASSED 2026-08-24.** Coverage **0.730**, calibration slope **1.072**, walk-forward
+> over 2021–2025 on Winfield Football, 2,000 draws a fold. Stable across folds — 0.703 to
+> 0.743, no fold outside the window.
+>
+> **The folds start at 2021 and that is a constraint rather than a choice.** The
+> dispersions are fitted on held-out residuals, and `_holdout_residuals` sets aside the
+> two most recent training seasons and returns nothing below four — so a 2019 fold trains
+> on 2017–2018 and its model carries no distribution to score at all. Running it would
+> have reported a model with no interval as a model whose interval failed.
+>
+> It sits near the bottom of the window, and honestly so: 0.730 against a nominal 0.80
+> means the interval is still a little narrow. The direction is named in the postscript —
+> the decomposition drops ~10% of the unconditional spread because it draws games and
+> stats independently, while `predictive.py` measures those correlating +0.48 to +0.63.
+
 **G-D2 — the joint structure must earn its complexity.** Coverage for depth-rank ≥2
 players in RB and TE rooms, joint draw against independent marginals. **Bar: the joint
 must be at least 5 percentage points closer to nominal.** If independent marginals
 already cover the backups, the room-level machinery is unjustified and phase 1 ships
 alone.
 
+> ❌ **FAILED 2026-08-24 — +2.1pp against a 5pp bar.** Backup coverage goes 0.695 →
+> 0.715; nominal is 0.80. So phase 1 ships alone, `BOARD_USES_JOINT_DRAW` is False, and
+> the room machinery stays in the tree measured and rejected — plan 27's outcome for its
+> recovery curve, reached the same way.
+>
+> **How it failed is the part worth keeping.** Entrenched starters move **+0.0pp**. The
+> false-positive clause — which exists because a model that simply widens every interval
+> improves coverage everywhere — found *nothing*. The effect is exactly as
+> vacancy-specific as the mechanism claims; it is the magnitude that fails, not the
+> direction. The shape change is real and large: on the 2026 board the joint draw takes a
+> backup RB's p90/p50 from ~1.70 to 1.82–2.16, moving mass out of the middle into both
+> tails at constant mean. It just does not buy enough coverage to justify carrying it.
+>
+> **Two bugs found on the way, both of which would have made this gate pass wrongly.**
+> The first draft of the transfer *added* opportunity rather than redistributing it, which
+> lifted the median backup on the 2026 board from 123 points to 156 — a different
+> projection, not a wider one. It is a double-count: an RB2 averages 9.86 opportunities a
+> game across a season against 5.09 with his lead present and 12.93 without, so a model
+> fitted on season totals already prices the expected inheritance. And the control cohort
+> was contaminated: the 2016–2024 depth chart lists **two or three rank-1 backs in 19–23
+> of 64 rooms**, because its rank 1 means "a starter" rather than "the best one", so a
+> `depth_rank <= 1` control group contained players receiving the treatment. Ties inside a
+> rank are now broken by projected opportunity.
+
 **G-D3 — decision relevance.** Ordering by `p_top12` against ordering by mean points.
 **Bar: ≥5% of draftable players move by ≥12 picks.** If the two orderings agree, ship
 the columns as diagnostics and do not touch the board's sort — the plan-27 outcome, named
 in advance again.
+
+> ✅ **PASSED 2026-08-24 at 13.5%** — 18 of 133 draftable players inside `vor_rank` 200
+> on the 2026 Winfield Football board, the league the walk-forward scores. By position:
+> QB **23.1%** (6 of 26), WR **22.9%** (11 of 48), TE 3.8% (1 of 26), RB **0.0%** (0 of
+> 33). GOP's board gives 13.3% on the same measure, so it is not a one-league artefact.
+>
+> **Measured within position, and the first attempt was not.** `p_top12` is the chance of
+> finishing in a player's *own* position's starter tier, so ranking the whole board by it
+> ranks quarterbacks against running backs on two different scales — that version scored
+> 85% and was measuring only the mismatch. Within position it is a real question and the
+> answer is 13.3%.
+>
+> **Running back moves nobody, and that follows from G-D2.** The joint draw is off, so an
+> RB's distribution is his own marginal, and a marginal's `p_top12` ordering tracks its
+> mean closely. The movement is at quarterback and receiver, where the pools are deepest
+> relative to their starter tiers and the tails cross most.
+>
+> It is worth saying which way the causation runs: the position this plan was *written*
+> about is the one its shipped columns reorder least, because the mechanism that would
+> have reordered it is the one G-D2 turned off.
+>
+> Passing means the ordering information is materially different — **not** that the
+> board's sort should become `p_top12`, which is position-relative and cannot compare
+> across positions. It ships as a sortable column beside `VOR`.
 
 **G-D4 — the severity shift.** Out-of-sample R² on games played, prior-absence bucket
 added to the availability head. **Bar: +0.02**, the bar prior snap share actually cleared
@@ -426,9 +505,28 @@ vacancy in particular, and the redistribution rule is decoration. Report that fi
 
 ## Effort
 
+**Spent: phases 1–3 in a day**, against an estimate of ~3 days. The estimate was not
+wrong about the work; it was wrong about where the work would be. Almost none of it went
+on the Monte Carlo, which reuses `predictive.quantile` as its own inverse CDF and was
+right the first time. It went on three things the plan had not anticipated:
+
+1. **The plan's stated conditional fit was biased and had to be replaced.** `USG × games /
+   expected_games` over-projects by up to 27%; the exponent had to be fitted. Half a day,
+   and it produced the most transferable finding here.
+2. **Two bugs that would each have made a gate pass wrongly** — the transfer adding rather
+   than redistributing, and the control cohort containing treated players. Both were found
+   by looking at a number that seemed slightly off, not by a test.
+3. **Attributing a 21.97-point `TRUE_Points` drift** that turned out to be live ESPN data
+   moving between the 06:00 nightly and the rebuild, not the change under test. Settled by
+   stashing the entire branch and reproducing the drift on clean `main`.
+
+The general lesson, which is the one worth carrying: on this plan the *simulation* was
+cheap and the *basis* was expensive. Every hard question was some version of "which random
+variable is this, exactly".
+
 L, now **M** — phase 5 is gone. Phase 0 was an afternoon and did not reject the plan;
 phase 5 was also an afternoon and **did** reject its own premise, which is exactly why
-it was scheduled early. Both ran 2026-08-24. Phases 1–2 are the real work, ~2 days
+it was scheduled early. Both ran 2026-08-24. Phases 1–2 were estimated at ~2 days
 including the correlation estimation and the seeding discipline a reproducible Monte Carlo
 needs. Phase 3 ~0.5 day. Phase 4 ~0.5 day, and it is the piece most likely to survive on
 its own merits, because it is a feature on an existing head with an existing bar rather
@@ -451,10 +549,66 @@ simulation machinery survives its gates.
   between the population persistence (r = 0.31) and the incumbent-only persistence
   (~none) is the size of the benching component. Any future use of it should say which
   one it means.
+- **Half of `expected_games` is role, not availability, and it is now a fitted number.**
+  The obvious way to ask "what would he do over G games" is to divide `expected_games`
+  out of `USG_<stat>` and multiply the games back in. Measured on held-out residuals that
+  **over-projects the realised total by +8.8% to +26.7%** and drops the regression slope
+  of realised on projected from ~1.00 to 0.32–0.70, while the unconditional projection on
+  the same rows is unbiased with a slope of 0.92–1.10 — so it is a real degradation, not
+  the regression dilution a slope alone would suggest. The cause is the thing
+  `DATA_CATALOGUE.md` already asserts qualitatively: a low `expected_games` on a backup
+  means *buried*, not *fragile*, and his per-game line is a buried player's line.
+  Fitting the exponent instead — `USG_<stat> × (games / expected_games) ** e` — puts `e`
+  at **0.32 to 0.49** across every position and stat, bias inside ±6% and slope back to
+  0.91–1.04. Read plainly: **a player who plays twice the games the model expected
+  produces about the square root of twice the output, not twice.** Quarterback is lowest
+  at 0.32, which is where [31](31-team-coherent-tomcat.md) would predict it.
+
+- **The shipped `USG_<stat>_low`/`_high` were a rescaled version of the wrong
+  distribution, and on 14% of cells they were not an interval at all.**
+  `stat_intervals` fits its quantiles around `USG_<stat>`, which carries
+  `expected_games` inside it, so its spread is the spread of the season a player
+  *realises*. `to_full_slate` then multiplied the mean **and those quantiles** by
+  `slate / expected_games`. Multiplying a quantile by a constant rescales a random
+  variable correctly — but the if-healthy line is a *different* random variable, with the
+  availability variance taken out, so the published band carried realised-season spread
+  around an if-healthy centre. Worst exactly where the multiplier is largest: a TE
+  projected for 22 receiving yards had his interval evaluated at a mean of **1.01 yards**,
+  where the fitted Gamma is nearly a spike at zero, and then scaled up — giving
+  **p10 = p90 = 0**. Across the 2026 artifact **398 of 2,839 projected cells (14.0%) had a
+  p10 equal to their p90**; it is now 15 (0.5%). On cells that were not degenerate, every
+  stat narrows: −5% at receiving yards to −34% at passing touchdowns. Fixed by
+  `project.healthy_intervals`, from a games-conditional dispersion fitted in the same
+  place as the unconditional one. **No mean moves** — `TRUE_Points` is identical to the
+  byte on a rebuilt board.
+
+- **The if-healthy *mean* has the same problem and is not fixed.** `to_full_slate` rescales
+  proportionally, which is the `e = 1` case the elasticity above rejects. On healthy
+  players it lands +15% high at WR, −0.3% at RB and **+41%** at QB. That column is in the
+  blend at weight 0.25, so correcting it moves `TRUE_Points` — it is named here and left
+  alone, deliberately, days before a draft.
+
+- **Two of nine leagues score per-game bonuses that currently score zero.** The registry's
+  `colName` is `rushingYards100-199Game`; ESPN's `projected_breakdown` key, which becomes
+  the frame column, is `rushing100To199YardGame`. On `john_pc_league`'s 2026 board
+  `ESPN_rushing100To199YardGame` has 242 non-zero rows and `TRUE_rushingYards100-199Game`
+  is 0.0 on every one. `coverage_gaps()` cannot catch it — the `colName` is non-null, just
+  wrong. Belongs to [01](01-scoring-coverage.md); it is recorded here because this plan
+  found it and because a season-total simulation could not price those bonuses anyway.
+
 - **2025's `depth_charts.parquet` is not in nflverse shape.** It carries `dt`, `team`,
   `player_name`, `espn_id` — plan 21's ESPN snapshot — so a `pl.concat` across 2016–2025
   raising `ColumnNotFoundError: week` is the schemas being genuinely different, not a bad
   read. `ctx.load_depth_charts` is the only safe reader.
+
+- **A third of historical rooms have more than one "starter".** The 2016–2024 depth chart's
+  rank 1 means *a* starter, not *the* best one — `STARTERS_BY_POSITION` exists for exactly
+  this — so **19 to 23 of 64 RB and TE rooms list two or three rank-1 players**, up to
+  three. The 2025-onward schema is a strict ordering and has none. Any code that picks a
+  room's lead from `depth_rank` alone is picking arbitrarily on a third of the sample, and
+  any cohort defined as `depth_rank <= 1` contains players who are in fact understudies.
+  Ties are now broken by the model's own projected per-game opportunity, which is the
+  quantity that separates a lead back from a committee-mate and is available pre-season.
 
 - **The room ranking was not deterministic, and the numbers moved between runs.**
   `rank("ordinal")` breaks ties in row order, and row order out of a multi-threaded
@@ -475,7 +629,9 @@ simulation machinery survives its gates.
 Every figure in this document is reproduced by:
 
 ```bash
-python -m Scripts.outcomes.evidence
+python -m Scripts.outcomes.evidence                      # the evidence layer
+python -m Scripts.outcomes.vacancy --report              # the fitted transfer rule
+python -m Scripts.outcomes.backtest --seasons 2021-2025  # G-D0, G-D1, G-D2, G-D3
 ```
 
 That module is the plan's evidence layer and exists before its model layer on purpose —

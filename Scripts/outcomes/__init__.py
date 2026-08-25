@@ -28,11 +28,28 @@ into a **variance**.
 
 Modules::
 
-    evidence.py   the measurements behind docs/plans/28-outcome-distributions.md
+    evidence.py       the measurements behind docs/plans/28-outcome-distributions.md
+    distribution.py   season points as a distribution, from the per-stat marginals
+    vacancy.py        where a missing starter's work goes, fitted
+    simulate.py       the room-level joint draw over a shared availability draw
+    backtest.py       walk-forward scoring against the pre-committed gates
 
 Reproduce every figure in that plan with::
 
     python -m Scripts.outcomes.evidence
+    python -m Scripts.outcomes.vacancy --report
+    python -m Scripts.outcomes.backtest --seasons 2021-2025
+
+**What the gates decided, so the next reader does not have to re-derive it.** ``G-D1``
+passed -- 80% interval coverage 0.730 with a calibration slope of 1.072, both inside
+windows fixed before the run -- so the distribution ships. ``G-D2`` **failed**: the
+room-level joint draw puts backup coverage only **+2.1pp** closer to nominal against a
+5pp bar, so phase 1 ships alone and ``BOARD_USES_JOINT_DRAW`` is False.
+
+The way it failed is worth keeping. Entrenched starters move **+0.0pp** -- the false
+positive clause found nothing -- so the vacancy effect is exactly as specific as the
+mechanism claims. It is the magnitude that fails, not the direction. The room machinery
+stays here, measured and rejected, the way plan 27's recovery curve did.
 
 See ``docs/plans/28-outcome-distributions.md``.
 """

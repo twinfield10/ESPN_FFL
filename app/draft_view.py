@@ -543,7 +543,7 @@ COLUMNS: List[Column] = [
            caveat="Blank means no estimate published, not no injury — ESPN dates only "
                   "about one in seven of the players it lists. `IR` alone does not "
                   "mean out for the year; this column is what answers that."),
-    Column("usg_role_confidence", "Notes", "Role %", "number", fmt="%.0f%%",
+    Column("usg_role_confidence_pct", "Notes", "Role %", "number", fmt="%.0f%%",
            source_of="Usage model",
            how="How often the pre-season depth chart turns out to be right for a "
                "player in this one's situation — measured by rebuilding the chart "
@@ -560,6 +560,51 @@ COLUMNS: List[Column] = [
                   "above a starter who changed teams without being better known. "
                   "Blank where the calibration has not been fitted, or for a position "
                   "group it has never seen."),
+    # --- what the season could be, not just its mean (plan 28) ----------
+    #
+    # A separate group from Points, because these answer a different question. The
+    # Points block is a level -- how much. This is a *range*, and the board's own
+    # floor/ceiling is not one: `attach_source_spread` measures how far the forecasters
+    # disagree, which is not how uncertain the forecast is. Measured, the two are 17.5x
+    # apart, and the board's floor-to-ceiling contains 4.6% of realised outcomes against
+    # the ~80% those words imply.
+    Column("pts_p10", "Range", "p10", "number", fmt="%.0f",
+           source_of="Outcome simulation",
+           how="A bad but not disastrous season: he beats this in 9 years out of 10. "
+               "Simulated from the usage model's own fitted per-stat distributions, "
+               "then rescaled onto `Us` so it brackets the number you are reading.",
+           caveat="Forecast uncertainty, **not** source disagreement — a different "
+                  "quantity from `Floor`, and much wider. The spread carries the usage "
+                  "model's own error, since it is the only source with a fitted "
+                  "distribution, so it is if anything too wide rather than too narrow."),
+    Column("pts_p90", "Range", "p90", "number", fmt="%.0f",
+           source_of="Outcome simulation",
+           how="The season that makes your year: he clears this one year in ten.",
+           caveat="Same simulation as `p10`. Read the pair, not either alone."),
+    Column("p_top12_pct", "Range", "Top", "number", fmt="%.0f%%",
+           source_of="Outcome simulation",
+           how="How often he finishes in his **position's** starter tier across the "
+               "simulated seasons — top 12 at QB and TE, top 24 at RB, top 36 at WR. "
+               "A within-simulation rank, so it asks how often he *gets there*, which "
+               "is not what his mean already tells you.",
+           caveat="Position-relative, so it does **not** compare across positions — "
+                  "`VOR` is the column for that. Measured against the mean ordering it "
+                  "moves 13% of draftable players by 12+ places, and almost all of that "
+                  "is at receiver."),
+    Column("p_bust_pct", "Range", "Bust", "number", fmt="%.0f%%",
+           source_of="Outcome simulation",
+           how="How often he finishes below half his own projection — injury, a lost "
+               "job, or simply the low end of his range.",
+           caveat="Relative to his own number, so a 10% bust rate means something "
+                  "different for a first-rounder and a bench flier."),
+    Column("outcome_evidence", "Notes", "Range Evidence", "text",
+           source_of="Derived here",
+           how="Whether the range was simulated, and which of that league's scored "
+               "rules the simulation cannot price.",
+           caveat="The simulation covers the eight stats the usage model projects. "
+                  "Two-point conversions are in no source at all, GOP scores rushing "
+                  "attempts and completions, and two leagues price per-game yardage "
+                  "bonuses that a season-total simulation structurally cannot express."),
     Column("usg_expected_games", "Notes", "Exp G", "number", fmt="%.1f",
            source_of="Usage model",
            how="Games out of 17 the model expects him to play — its own estimate, "
@@ -2327,6 +2372,34 @@ def with_injury_severity(board: pl.DataFrame) -> pl.DataFrame:
             (pl.col("inj_reinjury_prob").cast(pl.Float64) * 100.0)
             .alias("inj_reinjury_pct"))
     return board
+
+
+def with_percent_columns(board: pl.DataFrame) -> pl.DataFrame:
+    """Rescale the 0-1 probabilities into the 0-100 the ``%`` formats expect.
+
+    **This exists because the alternative silently renders every one of them as 0%.**
+    ``column_config`` formats are printf, so ``"%.0f%%"`` on a probability of 0.90 prints
+    ``1%``, and on 0.32 it prints ``0%`` -- no error, no blank cell, just a column of
+    zeroes that reads as "this player never busts" when it means the opposite.
+
+    Derived columns rather than a rescale in place, following ``inj_reinjury_pct``: the
+    stored artifact keeps the units arithmetic wants, and quietly changing a column's
+    units in the render layer is how a reader ends up unsure which one he is looking at.
+
+    ``usg_role_confidence`` is in here too. It shipped with plan 33 phase 2 against a
+    ``%`` format and a 0-1 source, so every board built since has shown ``Role %`` as 0%
+    for all 671 players who have one. Display only -- no projection moves.
+
+    Args:
+        board: The stored board.
+
+    Returns:
+        pl.DataFrame: ``board`` with a ``<column>_pct`` per probability it carries.
+    """
+    scaled = [(pl.col(column).cast(pl.Float64) * 100.0).alias(f"{column}_pct")
+              for column in ("p_top12", "p_bust", "usg_role_confidence")
+              if column in board.columns]
+    return board.with_columns(scaled) if scaled else board
 
 
 def with_injury_code(board: pl.DataFrame) -> pl.DataFrame:
