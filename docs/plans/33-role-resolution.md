@@ -176,7 +176,7 @@ reason two sections down — walk-forward 2021–2025 against a nominal 0.800:
 | settled | 0.689 | 0.685 | 0.691 |
 | mover | 0.676 | 0.674 | 0.660 |
 | rookie | 0.688 | 0.672 | 0.664 |
-| **all** | **0.687** | 0.687 | 0.680 |
+| **all** | **0.682** | 0.681 | 0.680 |
 
 **Cohort does not explain the miss.** Coverage is flat across all three — 0.676 to 0.689,
 a 1.3-point spread — and *uniformly about 11 points too narrow*. The interval's problem is
@@ -223,8 +223,8 @@ a favourable subset of itself. Caught by a test written to pin the fallback, not
 the numbers.
 
 **G-R2 fails on its first clause regardless.** The bar is coverage within 5 points of
-nominal; the role-conditional interval lands at **0.681** on the draftable pool, nearly
-12 points out. It is far
+nominal; the role-conditional interval lands at **0.680** on the draftable pool, 12 points
+out. It is far
 closer than source disagreement, whose band contains **4.6%** of realised outcomes — but
 the gate asks for a usable interval before it asks for a better one, and this is not one.
 
@@ -270,8 +270,8 @@ role-conditional interval within 5 points of nominal 80% coverage, and closer to
 than source disagreement is.** Coverage rather than width, because a wide interval is
 trivially achievable and useless.
 
-> ❌ **FAILED 2026-08-25 on the first clause.** Role-conditional coverage is **0.681**
-> on the draftable pool, nearly 12 points from nominal against the five the rule allows. The second clause it would
+> ❌ **FAILED 2026-08-25 on the first clause.** Role-conditional coverage is **0.680**
+> on the draftable pool, 12 points from nominal against the five the rule allows. The second clause it would
 > have passed easily — source disagreement's band contains 4.6% of realised outcomes —
 > but a spread has to be usable before it can be better.
 >

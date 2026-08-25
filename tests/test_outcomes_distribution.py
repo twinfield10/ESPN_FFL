@@ -394,3 +394,18 @@ def test_coverage_is_scored_on_players_worth_projecting():
     # The threshold itself is untouched from its pre-commitment. Only the population
     # moved, and it moved in the direction that makes the gate harder.
     assert reg.OUTCOME_COVERAGE_RANGE == (0.72, 0.88)
+
+
+def test_the_gate_scores_the_arm_the_board_actually_publishes():
+    """G-D1 asks whether the *published* distribution is fit to publish.
+
+    The board runs without the room transfer, because G-D2 rejected it. The first version
+    of the harness pooled its headline coverage from the joint arm instead -- both land at
+    0.68 and both fail, so no verdict moved, but the number being reported was not the
+    number on the board. These two constants have to agree.
+    """
+    from Scripts.outcomes import backtest as obt
+    from Scripts.season_projections import BOARD_USES_JOINT_DRAW
+
+    expected = "joint" if BOARD_USES_JOINT_DRAW else "independent"
+    assert obt.SHIPPED_ARM == expected

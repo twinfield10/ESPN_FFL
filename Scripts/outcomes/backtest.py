@@ -67,6 +67,21 @@ FOLD_SIMS: int = 2000
 #: numbers in this repo mean the same thing.
 CALIBRATION_BINS: int = 5
 
+#: The arm the board actually publishes, and therefore the one the gates judge.
+#:
+#: **G-D1 asks whether the *published* distribution is fit to publish**, so it has to score
+#: what ships. The board runs without the room transfer -- G-D2 rejected it, so
+#: :data:`Scripts.season_projections.BOARD_USES_JOINT_DRAW` is False -- while the first
+#: version of this harness pooled its headline coverage from the ``joint`` arm. Both land
+#: at 0.68 and both fail, so no verdict moved, but the number being reported was not the
+#: number on the board.
+#:
+#: Pinned equal to that constant by a test rather than imported: this module is scored
+#: offline from parquet and importing the board builder would drag the ESPN and scoring
+#: stack in with it, which is the same reason ``app/draft_view.py`` duplicates its
+#: evidence strings.
+SHIPPED_ARM: str = "independent"
+
 #: Depth rank at or below which a player is the room's incumbent.
 #:
 #: The control group for the false-positive clause: an entrenched starter has no vacancy
@@ -275,7 +290,7 @@ def run_fold(season: int, league_key: str = ubt.SCORING_LEAGUE,
         coverage, n = _coverage(actual[drafted], low[drafted], high[drafted])
         out[f"{arm}_draftable_coverage"] = coverage
         out[f"{arm}_draftable_n"] = n
-        if arm == "joint":
+        if arm == SHIPPED_ARM:
             for floor in (0.0, 10.0, 25.0, 50.0, 100.0):
                 rows = np.isfinite(mid) & (mid >= floor)
                 value, count = _coverage(actual[rows], low[rows], high[rows])
@@ -428,11 +443,12 @@ def run(folds: Sequence[int] = DEFAULT_FOLDS,
         return 100.0 * (abs(independent - 0.80) - abs(joint - 0.80))
 
     metrics = {
-        "coverage": pooled("joint_all_coverage"),
-        "coverage_draftable": pooled("joint_draftable_coverage"),
+        "coverage": pooled(f"{SHIPPED_ARM}_all_coverage"),
+        "coverage_draftable": pooled(f"{SHIPPED_ARM}_draftable_coverage"),
         "role_coverage_draftable": pooled("role_draftable_coverage"),
         "cohort_coverage_draftable": pooled("cohort_draftable_coverage"),
-        "calibration_slope": float(np.nanmean([r["joint_slope"] for r in rows])),
+        "calibration_slope": float(
+            np.nanmean([r[f"{SHIPPED_ARM}_slope"] for r in rows])),
         "independent_coverage": pooled("independent_all_coverage"),
         "backup_coverage_joint": pooled("joint_backup_coverage"),
         "backup_coverage_independent": pooled("independent_backup_coverage"),
@@ -472,6 +488,7 @@ def run(folds: Sequence[int] = DEFAULT_FOLDS,
         "ordering": ordering,
         "ran_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "league": league_key,
+        "shipped_arm": SHIPPED_ARM,
         "n_sims": n_sims,
         "folds": rows,
         "metrics": metrics,
@@ -541,6 +558,7 @@ def report(result: Dict) -> str:
                   f"{metrics['board_interval_width']:.3f}  "
                   f"(n={metrics['board_interval_n']})"]
 
+    lines[-1] += f"   [arm: {result.get('shipped_arm', SHIPPED_ARM)}]"
     ladder = [(f, result["folds"][0].get(f"floor_{f}_coverage"))
               for f in (0, 10, 25, 50, 100)]
     if any(v is not None for _, v in ladder):
