@@ -561,7 +561,7 @@ The ordered list of everything outstanding lives in
 The subset of it that a **draft in the next two weeks** depends on — with the dates
 ESPN actually holds, and a day-by-day countdown — is
 **[`DRAFT_READINESS.md`](DRAFT_READINESS.md)**, assessed 2026-08-24. Short version:
-nothing blocks a draft, the boards are built and 1,174 tests pass, and the one real
+nothing blocks a draft, the boards are built and 1,277 tests pass, and the one real
 risk is that ~12,300 lines of plans 27-30 are uncommitted on `main`.
 
 ---

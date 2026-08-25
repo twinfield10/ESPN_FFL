@@ -131,7 +131,20 @@ coin-flip between two seasons (2.24), and the board shows both at about 9%.
 anything else — the 35% is worth knowing on its own, and every later phase reads this
 table.
 
-### Phase 2 — carry the calibration onto the board — **built**
+### Phase 2 — carry the calibration onto the board — **built, and it was rendering 0%**
+
+**Found 2026-08-24 by [28](28-outcome-distributions.md), fixed the same day.**
+`usg_role_confidence` is a probability in `[0, 1]` and its board column was formatted
+`"%.0f%%"`. Streamlit's `column_config` formats are printf, so 0.588 printed as `0%` —
+and so did every other value, for all 671 players carrying one. No error, no blank cell,
+just a column of zeroes reading as "this chart is never right".
+
+Fixed by `app/draft_view.py::with_percent_columns`, which derives a `_pct` twin the way
+`inj_reinjury_pct` already did rather than rescaling in place. Display only; G-R3 still
+holds, no projection moves. A test now pins **every** percent-formatted spec to a `_pct`
+source, so the next column with this shape cannot repeat it.
+
+
 
 Surface it where `usg_evidence` already lives: a rookie listed WR2 is not a WR2, he is
 a 32% WR2, and a drafter reading a projection should see which of those he is being

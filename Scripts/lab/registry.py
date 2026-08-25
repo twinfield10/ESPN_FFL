@@ -132,6 +132,81 @@ MIN_RECURRENCE_EPISODES: int = 40
 HAMSTRING_RECURRENCE_RANGE: Tuple[float, float] = (0.09, 0.15)
 
 
+# --- outcome distributions, plan 28 ---------------------------------------
+#
+# A fourth block, judging a third kind of thing. The first block scores a *source* -- is
+# its stat line better. The second scores a *multiplier* on an already-blended number.
+# These score a **distribution**, where the failure mode is different again: a
+# distribution can have a perfect mean and still be useless, and an uncalibrated one is
+# worse than a point estimate because it invites acting on its tails.
+#
+# Written before the walk-forward ran. The numbers are transcribed from
+# ``docs/plans/28-outcome-distributions.md``, which pre-committed them before any of this
+# was built.
+
+#: Where realised 80% interval coverage must land.
+#:
+#: The gate that decides whether any of this is publishable. A p10-p90 band should contain
+#: 80% of outcomes; much more and it is uselessly wide, much less and it is lying. The
+#: window is +-8 points rather than tighter because the walk-forward is seven folds of a
+#: few hundred players and the binomial standard error on a coverage estimate at n = 400
+#: is about 2 points -- a window inside three of those would reject on noise.
+OUTCOME_COVERAGE_RANGE: Tuple[float, float] = (0.72, 0.88)
+
+#: Where the calibration slope must land.
+#:
+#: Coverage alone can be bought by a wide interval that is wide in the wrong places. The
+#: slope of realised on predicted, by bin, is what says the *ordering* of uncertainty is
+#: right: a player the model says is uncertain must actually be more uncertain. Centred on
+#: 1.0 because unlike plan 27's multiplier -- where 0.4 was accepted as "directionally
+#: informative" -- a distribution's whole claim is the magnitude.
+OUTCOME_SLOPE_RANGE: Tuple[float, float] = (0.85, 1.15)
+
+#: How much closer to nominal the joint draw must be than independent marginals.
+#:
+#: Five percentage points, on depth-rank >= 2 RBs and TEs. The room-level machinery is the
+#: expensive half of plan 28 and this is what makes it earn its place: if independent
+#: marginals already cover the backups, phase 1 ships alone. Sized against the ~2-point
+#: standard error above, so it is a real gap rather than a fold-to-fold wobble.
+MIN_JOINT_COVERAGE_GAIN_PP: float = 5.0
+
+#: How much of that gain must be specific to backups rather than general.
+#:
+#: **The false-positive clause, and it is applied before the accuracy clause** -- the same
+#: ordering, and for the same reason, as ``injury_verdict``'s control arm. A model that
+#: widens every interval improves coverage everywhere, including for healthy entrenched
+#: starters who have no vacancy to inherit. That is not the vacancy effect, it is a wider
+#: interval, and reporting the coverage gain first would bury it.
+#:
+#: Three of the five points the gate requires, so a majority of the improvement has to be
+#: where the mechanism claims it is.
+MIN_VACANCY_SPECIFICITY_PP: float = 3.0
+
+#: How wide the board's own floor-to-ceiling must be beaten to justify building at all.
+#:
+#: G-D0, measured 2026-08-24 and passed by 17.5x. Kept in code so the claim is
+#: reproducible rather than a number in a document -- the original measurement's script
+#: was never committed.
+MIN_INTERVAL_WIDTH_RATIO: float = 1.5
+
+#: How much of the draftable pool must move, and by how many picks, for the board's sort
+#: to change.
+#:
+#: G-D3. If ordering by ``p_top12`` agrees with ordering by mean points, the columns ship
+#: as diagnostics and the sort is left alone -- the plan-27 outcome, named in advance
+#: again. Twelve picks is a round in a twelve-team league, which is the smallest move a
+#: drafter would act on.
+MIN_MOVED_SHARE: float = 0.05
+MIN_PICK_MOVE: int = 12
+
+#: How far ``TRUE_Points`` may move when the outcome columns are attached.
+#:
+#: Zero, to the byte. Plan 33's G-R3 set the precedent and passed it twice; the columns
+#: are diagnostics until G-D3 says otherwise, and a diagnostic that moves a projection is
+#: not a diagnostic.
+MAX_TRUE_POINTS_DRIFT: float = 0.0
+
+
 @dataclass(frozen=True)
 class Experiment:
     """One thing to try, and everything needed to try it.
@@ -459,6 +534,127 @@ def hazard_verdict(metrics: Dict) -> Tuple[str, str]:
             f"weekly predictor. The pooled per-body-part rate is unaffected and may "
             f"still be quoted.")
     return "merge", f"weekly Brier is {ratio:.4f} of the constant base rate's."
+
+
+def outcome_verdict(metrics: Dict) -> Tuple[str, str]:
+    """Whether the season-points distribution is fit to publish. Plan 28's G-D1.
+
+    Args:
+        metrics: A dict from :mod:`Scripts.outcomes.backtest`, carrying ``coverage`` and
+            ``calibration_slope``.
+
+    Returns:
+        tuple: ``("merge", reason)`` or ``("reject", reason)``. "merge" means the
+        distribution may be published as ``pts_p10``/``pts_p50``/``pts_p90``; a rejection
+        does not touch the interval fix, which is a separate correction to a column that
+        already existed.
+    """
+    coverage = metrics.get("coverage")
+    if coverage is None:
+        return "reject", "no interval coverage was measured."
+    low, high = OUTCOME_COVERAGE_RANGE
+    if not low <= coverage <= high:
+        direction = "too narrow -- it is lying" if coverage < low else "uselessly wide"
+        return "reject", (
+            f"80% interval coverage is {coverage:.3f}, outside [{low:.2f}, {high:.2f}]: "
+            f"{direction}.")
+
+    slope = metrics.get("calibration_slope")
+    if slope is None:
+        return "reject", "no calibration slope was measured."
+    low, high = OUTCOME_SLOPE_RANGE
+    if not low <= slope <= high:
+        return "reject", (
+            f"calibration slope {slope:.3f} is outside [{low:.2f}, {high:.2f}]: coverage "
+            f"is right on average while the per-player spread is not.")
+
+    return "merge", (
+        f"80% coverage {coverage:.3f} with calibration slope {slope:.3f}, both inside "
+        f"the pre-committed windows.")
+
+
+def joint_verdict(metrics: Dict) -> Tuple[str, str]:
+    """Whether the room-level joint draw earns its complexity. Plan 28's G-D2.
+
+    **Clause order is deliberate and matches ``injury_verdict``'s.** The specificity test
+    runs before the coverage test, because a model that has simply widened every interval
+    improves coverage for backups and entrenched starters alike -- and it would pass a
+    coverage-gain bar while having found nothing about vacancy at all.
+
+    Args:
+        metrics: Carrying ``backup_coverage_gain_pp`` and ``starter_coverage_gain_pp``,
+            both as the improvement in distance to nominal, in percentage points.
+
+    Returns:
+        tuple: ``("merge", reason)`` or ``("reject", reason)``. A rejection means phase 1
+        ships alone, which is the outcome the plan names in advance.
+    """
+    backup = metrics.get("backup_coverage_gain_pp")
+    starter = metrics.get("starter_coverage_gain_pp")
+    if backup is None:
+        return "reject", "no backup coverage gain was measured."
+
+    # The clause only has something to catch when the control group actually moved. Where
+    # entrenched starters gain nothing, there is no false positive to find and this must
+    # fall through to the magnitude bar -- otherwise a perfectly vacancy-specific effect
+    # gets rejected with the words "it has found variance in general", which is the
+    # opposite of what was measured. The first run of this gate did exactly that: backups
+    # +2.1pp, starters +0.0pp, rejected for non-specificity.
+    if (starter is not None and starter > 0
+            and (backup - starter) < MIN_VACANCY_SPECIFICITY_PP):
+        return "reject", (
+            f"the joint draw improves backups by {backup:+.1f}pp and entrenched starters "
+            f"by {starter:+.1f}pp -- a {backup - starter:+.1f}pp difference against the "
+            f"{MIN_VACANCY_SPECIFICITY_PP:.1f}pp the rule requires. It has found variance "
+            f"in general rather than vacancy in particular, and the redistribution rule "
+            f"is decoration.")
+
+    if backup < MIN_JOINT_COVERAGE_GAIN_PP:
+        specific = ("" if not starter else
+                    f" The gain is entirely vacancy-specific -- entrenched starters move "
+                    f"{starter:+.1f}pp -- so the mechanism is real and the magnitude is "
+                    f"not.")
+        if starter is not None and starter <= 0:
+            specific = (f" Entrenched starters move {starter:+.1f}pp, so the effect is "
+                        f"exactly as specific as the mechanism claims; it is the size "
+                        f"that fails, not the direction.")
+        return "reject", (
+            f"the joint draw is {backup:+.1f}pp closer to nominal for depth-rank >= 2 RBs "
+            f"and TEs, below the {MIN_JOINT_COVERAGE_GAIN_PP:.1f}pp the rule requires, so "
+            f"the room-level machinery does not earn its complexity and phase 1 ships "
+            f"alone.{specific}")
+
+    return "merge", (
+        f"the joint draw is {backup:+.1f}pp closer to nominal for backups against "
+        f"{starter:+.1f}pp for entrenched starters, so the gain is vacancy-specific.")
+
+
+def relevance_verdict(metrics: Dict) -> Tuple[str, str]:
+    """Whether the distribution may change what the board is sorted by. Plan 28's G-D3.
+
+    Args:
+        metrics: Carrying ``moved_share`` -- the fraction of draftable players whose
+            ordering by ``p_top12`` differs from their ordering by mean points by at least
+            :data:`MIN_PICK_MOVE` picks.
+
+    Returns:
+        tuple: ``("merge", reason)`` or ``("reject", reason)``. "merge" means the sort may
+        change; "reject" means ship the columns as diagnostics and leave the sort alone,
+        which is not a failure -- it is one of the two outcomes the gate was written to
+        distinguish.
+    """
+    moved = metrics.get("moved_share")
+    if moved is None:
+        return "reject", "no ordering comparison was measured."
+    if moved < MIN_MOVED_SHARE:
+        return "reject", (
+            f"only {moved:.1%} of draftable players move by {MIN_PICK_MOVE}+ picks under "
+            f"p_top12, below the {MIN_MOVED_SHARE:.0%} the rule requires -- the two "
+            f"orderings agree, so ship the columns as diagnostics and do not touch the "
+            f"board's sort.")
+    return "merge", (
+        f"{moved:.1%} of draftable players move by {MIN_PICK_MOVE}+ picks under p_top12, "
+        f"above the {MIN_MOVED_SHARE:.0%} the rule requires.")
 
 
 def verdict(baseline: Dict, candidate: Dict) -> Tuple[str, str]:

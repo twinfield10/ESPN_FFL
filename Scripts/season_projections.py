@@ -1372,6 +1372,253 @@ OPINION_PREFIXES = ("ESPN", "FP", "PINNY", "BOL")
 PROJECTION_PREFIXES = ("ESPN", "FP", "PINNY", "BOL", "USG", "KIK", "DST")
 
 
+#: What ``outcome_evidence`` says when a row has no distribution, and why.
+#:
+#: The same contract as :data:`ROLE_WITHDRAWN_EVIDENCE`, and the same trap: the app cannot
+#: import this module -- it would pull the whole ESPN and scoring stack into a process that
+#: only reads parquet -- so these strings are duplicated in ``app/draft_view.py`` and
+#: pinned equal by a test.
+OUTCOME_EVIDENCE = {
+    "no_model": "no usage line",
+    "no_dispersion": "no fitted dispersion",
+    "unpriced": "no blended projection",
+    "simulated": "simulated",
+}
+
+#: Scored rules the season-points simulation does **not** price, by league.
+#:
+#: Recorded rather than absorbed. The simulation covers the eight stats the usage model
+#: emits (:data:`Scripts.usage.backtest.OUTCOME_COLUMNS`), and three leagues score
+#: offensive rules outside that set:
+#:
+#: * ``gop_degenerates`` prices ``rushingAttempts`` and ``passingCompletions``. Attempts
+#:   are recoverable -- the model's ``pred_carries_pg`` is right there -- and completions
+#:   are not.
+#: * ``john_atl_league`` and ``john_pc_league`` price **per-game** yardage bonuses
+#:   (``rushingYards100-199Game`` and friends). A season-total simulation structurally
+#:   cannot express a per-game threshold; that needs the weekly model in
+#:   ``docs/plans/19-weekly-usage-model.md``.
+#:
+#: Every league also scores two-point conversions, which no source in this repo projects.
+#: The effect is that ``pts_mean`` is a distribution over *most* of a player's points, and
+#: the columns say so rather than implying completeness.
+UNPRICED_RULES = ("2PtConversions", "Attempts", "Completions", "YardGame",
+                  "Yards100-199Game", "Yards200+Game", "Yards300to399Game",
+                  "Yards400PlusGame")
+
+
+def _unpriced_note(stats: List[str]) -> str:
+    """Which of a league's scored rules the simulation cannot see.
+
+    Args:
+        stats: The league's scored ``colName`` values.
+
+    Returns:
+        str: A short suffix for ``outcome_evidence``, empty when nothing is missing.
+    """
+    from Scripts.usage.backtest import OUTCOME_COLUMNS
+
+    missing = sorted({
+        stat for stat in stats
+        if stat not in OUTCOME_COLUMNS
+        and any(token in stat for token in UNPRICED_RULES)
+        and not stat.startswith("defensive")})
+    return f"; excludes {len(missing)} unpriced rule(s)" if missing else ""
+
+
+def _modelled_scoring_weights(league, season: int) -> Dict[str, float]:
+    """Points per unit for the eight stats the usage model emits.
+
+    :func:`Scripts.usage.backtest.scoring_weights` does this from a config key; this
+    module holds a ``League`` object instead, and :func:`Scripts.scoring.get_scoring_table`
+    accepts either. Same table, same slot, so the two cannot disagree about what a
+    reception is worth.
+
+    Args:
+        league: League whose rules apply.
+        season: Season year, so a mid-history rule change is honoured.
+
+    Returns:
+        dict: ESPN stat name to points per unit.
+    """
+    from Scripts.scoring import SLOT_BASE
+    from Scripts.usage.backtest import OUTCOME_COLUMNS
+
+    # `get_scoring_table` takes a live `League` or a config key on different parameters.
+    # Accept either, the way it does, so a caller holding one does not have to build the
+    # other -- the board build has the object, a test or a backtest has the key.
+    scope = ({"league_key": league} if isinstance(league, str)
+             else {"league": league})
+    table = get_scoring_table(season=season, slot=SLOT_BASE, verify=False, **scope)
+    return {row.colName: float(row.points) for row in table.itertuples()
+            if isinstance(getattr(row, "colName", None), str)
+            and row.colName in OUTCOME_COLUMNS}
+
+
+#: Whether the board's distribution uses the room-level joint draw.
+#:
+#: **False, and that is a gate outcome rather than a default.** ``G-D2`` asked whether the
+#: joint draw earns its complexity, pre-committing that the machinery must put backup
+#: coverage at least 5 percentage points closer to nominal than independent marginals do.
+#: Measured walk-forward over 2021-2025 it gets **+2.1pp**, so the answer is no and the
+#: plan's own consequence applies: phase 1 ships alone.
+#:
+#: What the same run found is worth keeping beside that: entrenched starters move
+#: **+0.0pp**, so the effect is exactly as vacancy-specific as the mechanism claims -- it
+#: is the size that fails, not the direction. The room machinery stays in the tree,
+#: measured and rejected, the way plan 27's recovery curve did. Flip this to True and the
+#: board takes the joint draw; the gate says do not.
+BOARD_USES_JOINT_DRAW = False
+
+
+def attach_outcome_distribution(base: pd.DataFrame, season: int, league,
+                                stats: List[str],
+                                seed: int = None,
+                                joint: bool = None) -> pd.DataFrame:
+    """Attach the season-points distribution -- plan 28's phases 1-3.
+
+    The board publishes a mean and an interval, and the interval is not uncertainty:
+    :func:`attach_source_spread` measures how far the *forecasters disagree*, which the
+    note above it says plainly is a different question. This adds the missing one.
+
+    **The shape is simulated and the centre is not.** The room-level Monte Carlo runs on
+    the usage model's own line, because that is the only source with a fitted predictive
+    distribution -- and its own error is therefore inside the spread, which
+    ``docs/plans/28-outcome-distributions.md`` records as a stated substitution rather
+    than a hidden one. The resulting quantiles are then rescaled onto ``TRUE_Points``, so
+    ``pts_p50`` brackets the number the drafter actually reads and no projection moves.
+
+    **Nothing here changes the board's sort.** These are columns beside a projection until
+    G-D3 says otherwise, which is the outcome the plan named in advance.
+
+    Args:
+        base: The projection frame, after :func:`attach_source_spread`.
+        season: Season year.
+        league: League, for its scoring rules.
+        stats: The league's scored ``colName`` values.
+        seed: Monte Carlo seed. None uses
+            :data:`Scripts.outcomes.distribution.DEFAULT_SEED`, fixed so two builds of
+            identical inputs produce an identical board.
+        joint: Use the room-level draw. None takes :data:`BOARD_USES_JOINT_DRAW`, which
+            is False because G-D2 rejected it.
+
+    Returns:
+        pd.DataFrame: ``base`` plus ``pts_p10``, ``pts_p50``, ``pts_p90``, ``pts_mean``,
+        ``pts_sd``, ``p_top12``, ``p_bust`` and ``outcome_evidence``. Returned unchanged
+        if any input is missing -- the same contract every other attacher here has.
+    """
+    try:
+        import numpy as np
+
+        from Scripts.outcomes import distribution as dist
+        from Scripts.outcomes import simulate as osim
+        from Scripts.outcomes import vacancy as vac
+        from Scripts.usage import backtest as ubt
+        from Scripts.usage import season as sn
+    except ImportError as error:                       # pragma: no cover - import guard
+        print(f"  outcome distribution: unavailable ({error})")
+        return base
+
+    required = {"gsis_id", "primaryPosition", "TRUE_Points", "usg_expected_games"}
+    if not required.issubset(base.columns):
+        print("  outcome distribution: missing "
+              f"{sorted(required - set(base.columns))}")
+        return base
+
+    try:
+        model = sn.SeasonUsageModel.load()
+        shares = vac.applied_rule(vac.load())
+        weights = _modelled_scoring_weights(league, season)
+    except (FileNotFoundError, KeyError, ValueError) as error:
+        print(f"  outcome distribution: unavailable ({error})")
+        return base
+
+    stat_columns = {stat: f"USG_{stat}" for stat in dist.STAT_ORDER}
+    slate = float(sn.DEFAULT_TARGET_SLATE)
+
+    # Onto the basis the dispersions were fitted on. The board carries the *if-healthy*
+    # line -- `to_full_slate` divided each player's expected games out of it -- and an
+    # opportunity multiplier of 1.0 has to mean "the season the model projected", not
+    # "a full seventeen games".
+    expected = pd.to_numeric(base["usg_expected_games"], errors="coerce")
+
+    def _text(column: str) -> list:
+        """Pandas nulls to None, because ``pd.NA`` is not a string polars will take.
+
+        The crosswalk misses roughly a sixth of a board -- rookies mostly -- and
+        ``build_board`` fills those with ``pd.NA``. A ``.astype("string")`` leaves them as
+        ``pd.NA`` inside an object array, and constructing a polars frame from that raises
+        ``TypeError: 'NAType' object cannot be converted to 'PyString'`` for the whole
+        league.
+        """
+        values = base[column]
+        return [None if pd.isna(v) else str(v) for v in values]
+
+    frame = pl.DataFrame({
+        "gsis_id": _text("gsis_id"),
+        "position": _text("primaryPosition"),
+        "expected_games": expected.to_numpy(dtype=float),
+        **{column: (pd.to_numeric(base.get(column), errors="coerce")
+                    * expected / slate).to_numpy(dtype=float)
+           for column in stat_columns.values() if column in base.columns},
+    })
+    # The model's own per-game volume heads are not carried onto a board, so a vacancy is
+    # split by the projected stat line instead -- the same quantity one level up.
+    for source, target in (("rushingYards", "pred_carries_pg"),
+                           ("receivingYards", "pred_targets_pg")):
+        column = stat_columns[source]
+        if column in frame.columns:
+            frame = frame.with_columns(
+                (pl.col(column).fill_null(0.0) / slate).alias(target))
+
+    try:
+        rooms = osim.room_order(frame, season,
+                                baseline=osim.baseline_opportunity(frame))
+    except FileNotFoundError as error:
+        print(f"  outcome distribution: no room draw ({error})")
+        rooms = []
+
+    try:
+        spec = dist.player_spec(frame, model, conditional=True)
+    except ValueError as error:
+        print(f"  outcome distribution: unavailable ({error})")
+        return base
+
+    rng = np.random.default_rng(dist.DEFAULT_SEED if seed is None else seed)
+    modulation = osim.opportunity_multiplier(
+        rng, frame, rooms, shares, model, int(round(slate)), dist.DEFAULT_SIMS,
+        osim.baseline_opportunity(frame),
+        transfer=BOARD_USES_JOINT_DRAW if joint is None else joint)
+    sample = dist.sample_stats(spec, rng, n_sims=dist.DEFAULT_SIMS,
+                              mu_scale=modulation)
+    points = dist.season_points(sample, weights)
+    summary = dist.summarise(points, spec.positions, spec.has_projection).to_pandas()
+
+    # Rescale onto the blend. The simulation knows the *shape* of a season and only the
+    # usage model's opinion of its level; `TRUE_Points` is four sources reconciled to team
+    # totals. Taking the shape from one and the centre from the other is the same move
+    # G-D0 already had to make, and it is what keeps `pts_p50` beside a number the drafter
+    # recognises.
+    true_points = pd.to_numeric(base["TRUE_Points"], errors="coerce")
+    scale = (true_points.to_numpy(dtype=float)
+             / np.where(summary["pts_mean"] > 0, summary["pts_mean"], np.nan))
+    for column in ("pts_p10", "pts_p50", "pts_p90", "pts_mean", "pts_sd"):
+        summary[column] = summary[column] * scale
+
+    note = _unpriced_note(stats)
+    evidence = np.where(
+        ~spec.has_projection, OUTCOME_EVIDENCE["no_model"],
+        np.where(~np.isfinite(scale), OUTCOME_EVIDENCE["unpriced"],
+                 OUTCOME_EVIDENCE["simulated"] + note))
+
+    out = base.copy()
+    for column in ("pts_p10", "pts_p50", "pts_p90", "pts_mean", "pts_sd",
+                   "p_top12", "p_bust"):
+        out[column] = summary[column].to_numpy()
+    out["outcome_evidence"] = evidence
+    return out
+
+
 def attach_source_spread(df: pd.DataFrame, stats: List[str],
                          prefixes: tuple = OPINION_PREFIXES) -> pd.DataFrame:
     """Bracket the blend with the range of the sources that really have a line.

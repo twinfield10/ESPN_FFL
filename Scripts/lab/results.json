@@ -2011,6 +2011,228 @@
       "hazard_reason": "weekly Brier is 0.9898 of the constant base rate's, above the 0.9800 the rule requires -- the hazard is not a weekly predictor. The pooled per-body-part rate is unaffected and may still be quoted."
     }
   },
+  "outcome_distribution": {
+    "folds": [
+      {
+        "independent_all_coverage": 0.7296137339055794,
+        "independent_all_n": 699,
+        "independent_backup_coverage": 0.7543859649122807,
+        "independent_backup_n": 114,
+        "independent_mean_ratio": 0.9416006792049307,
+        "independent_slope": 1.0494334568405812,
+        "independent_starter_coverage": 0.8070175438596491,
+        "independent_starter_n": 57,
+        "joint_all_coverage": 0.7339055793991416,
+        "joint_all_n": 699,
+        "joint_backup_coverage": 0.7807017543859649,
+        "joint_backup_n": 114,
+        "joint_mean_ratio": 0.9401040600686092,
+        "joint_slope": 1.0390462271849126,
+        "joint_starter_coverage": 0.8070175438596491,
+        "joint_starter_n": 57,
+        "n": 699,
+        "season": 2021,
+        "shares": {
+          "RB": {
+            "rank_2": 0.40712749072206633,
+            "rank_rest": 0.4074757365292583
+          },
+          "TE": {
+            "rank_2": 0.26811804959613567,
+            "rank_rest": 0.26830187632751584
+          }
+        },
+        "slate": 17
+      },
+      {
+        "independent_all_coverage": 0.73625,
+        "independent_all_n": 800,
+        "independent_backup_coverage": 0.6267605633802817,
+        "independent_backup_n": 142,
+        "independent_mean_ratio": 1.058770817346842,
+        "independent_slope": 0.9586209097647818,
+        "independent_starter_coverage": 0.7619047619047619,
+        "independent_starter_n": 63,
+        "joint_all_coverage": 0.74125,
+        "joint_all_n": 800,
+        "joint_backup_coverage": 0.6549295774647887,
+        "joint_backup_n": 142,
+        "joint_mean_ratio": 1.0503309777160688,
+        "joint_slope": 0.9657790883373422,
+        "joint_starter_coverage": 0.7619047619047619,
+        "joint_starter_n": 63,
+        "n": 800,
+        "season": 2022,
+        "shares": {
+          "RB": {
+            "rank_2": 0.41637110787339043,
+            "rank_rest": 0.4235816128950058
+          },
+          "TE": {
+            "rank_2": 0.25378214097276725,
+            "rank_rest": 0.2507480886937861
+          }
+        },
+        "slate": 17
+      },
+      {
+        "independent_all_coverage": 0.7005277044854882,
+        "independent_all_n": 758,
+        "independent_backup_coverage": 0.6976744186046512,
+        "independent_backup_n": 129,
+        "independent_mean_ratio": 0.9932605702659971,
+        "independent_slope": 1.03855889591004,
+        "independent_starter_coverage": 0.671875,
+        "independent_starter_n": 64,
+        "joint_all_coverage": 0.7031662269129287,
+        "joint_all_n": 758,
+        "joint_backup_coverage": 0.7131782945736435,
+        "joint_backup_n": 129,
+        "joint_mean_ratio": 0.9810803031983792,
+        "joint_slope": 1.0421873827473647,
+        "joint_starter_coverage": 0.671875,
+        "joint_starter_n": 64,
+        "n": 758,
+        "season": 2023,
+        "shares": {
+          "RB": {
+            "rank_2": 0.398943855653171,
+            "rank_rest": 0.409478827737881
+          },
+          "TE": {
+            "rank_2": 0.24986340309178853,
+            "rank_rest": 0.23132895343009563
+          }
+        },
+        "slate": 17
+      },
+      {
+        "independent_all_coverage": 0.7247706422018348,
+        "independent_all_n": 763,
+        "independent_backup_coverage": 0.68,
+        "independent_backup_n": 125,
+        "independent_mean_ratio": 0.9085136627769792,
+        "independent_slope": 1.1152839535401784,
+        "independent_starter_coverage": 0.6451612903225806,
+        "independent_starter_n": 62,
+        "joint_all_coverage": 0.727391874180865,
+        "joint_all_n": 763,
+        "joint_backup_coverage": 0.696,
+        "joint_backup_n": 125,
+        "joint_mean_ratio": 0.8932438747288045,
+        "joint_slope": 1.1280567318059922,
+        "joint_starter_coverage": 0.6451612903225806,
+        "joint_starter_n": 62,
+        "n": 763,
+        "season": 2024,
+        "shares": {
+          "RB": {
+            "rank_2": 0.40043431964083237,
+            "rank_rest": 0.40600172659458633
+          },
+          "TE": {
+            "rank_2": 0.252335907170047,
+            "rank_rest": 0.22502039078893588
+          }
+        },
+        "slate": 17
+      },
+      {
+        "independent_all_coverage": 0.7386215864759428,
+        "independent_all_n": 769,
+        "independent_backup_coverage": 0.7202380952380952,
+        "independent_backup_n": 168,
+        "independent_mean_ratio": 0.8510062662338698,
+        "independent_slope": 1.1986163499544804,
+        "independent_starter_coverage": 0.734375,
+        "independent_starter_n": 64,
+        "joint_all_coverage": 0.7425227568270482,
+        "joint_all_n": 769,
+        "joint_backup_coverage": 0.7380952380952381,
+        "joint_backup_n": 168,
+        "joint_mean_ratio": 0.8422609553326212,
+        "joint_slope": 1.1860411100673647,
+        "joint_starter_coverage": 0.734375,
+        "joint_starter_n": 64,
+        "n": 769,
+        "season": 2025,
+        "shares": {
+          "RB": {
+            "rank_2": 0.40739932431534787,
+            "rank_rest": 0.4039251377902706
+          },
+          "TE": {
+            "rank_2": 0.25604324786547517,
+            "rank_rest": 0.22089599459030274
+          }
+        },
+        "slate": 17
+      }
+    ],
+    "gates": {
+      "MIN_JOINT_COVERAGE_GAIN_PP": 5.0,
+      "MIN_MOVED_SHARE": 0.05,
+      "MIN_PICK_MOVE": 12,
+      "MIN_VACANCY_SPECIFICITY_PP": 3.0,
+      "OUTCOME_COVERAGE_RANGE": [
+        0.72,
+        0.88
+      ],
+      "OUTCOME_SLOPE_RANGE": [
+        0.85,
+        1.15
+      ]
+    },
+    "league": "winfield_football",
+    "metrics": {
+      "backup_coverage_gain_pp": 2.064896755162249,
+      "backup_coverage_independent": 0.6946902654867256,
+      "backup_coverage_joint": 0.7153392330383481,
+      "board_interval_n": 200,
+      "board_interval_width": 0.12879284314106199,
+      "calibration_slope": 1.0722221080285952,
+      "coverage": 0.7297439957772499,
+      "independent_coverage": 0.7260490894695171,
+      "moved_n": 133,
+      "moved_share": 0.13533834586466165,
+      "starter_coverage_gain_pp": 0.0,
+      "starter_coverage_independent": 0.7225806451612903,
+      "starter_coverage_joint": 0.7225806451612903
+    },
+    "n_sims": 2000,
+    "ordering": {
+      "by_position": {
+        "QB": {
+          "moved": 6,
+          "n": 26
+        },
+        "RB": {
+          "moved": 0,
+          "n": 33
+        },
+        "TE": {
+          "moved": 1,
+          "n": 26
+        },
+        "WR": {
+          "moved": 11,
+          "n": 48
+        }
+      },
+      "moved": 18,
+      "moved_share": 0.13533834586466165,
+      "n": 133
+    },
+    "ran_at": "2026-08-24T23:42:20+00:00",
+    "verdict": {
+      "distribution": "merge",
+      "distribution_reason": "80% coverage 0.730 with calibration slope 1.072, both inside the pre-committed windows.",
+      "joint": "reject",
+      "joint_reason": "the joint draw is +2.1pp closer to nominal for depth-rank >= 2 RBs and TEs, below the 5.0pp the rule requires, so the room-level machinery does not earn its complexity and phase 1 ships alone. Entrenched starters move +0.0pp, so the effect is exactly as specific as the mechanism claims; it is the size that fails, not the direction.",
+      "relevance": "merge",
+      "relevance_reason": "13.5% of draftable players move by 12+ picks under p_top12, above the 5% the rule requires."
+    }
+  },
   "rejected_before_plan_22": [],
   "weekly_transfer": {
     "routes": [

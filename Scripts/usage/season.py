@@ -38,6 +38,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import polars as pl
+from scipy import stats
 
 from Scripts.paths import DATA_DIR
 from Scripts.usage import availability as av
@@ -339,7 +340,13 @@ HOLDOUT_SEASONS: int = 2
 #: count of games, removing the 16-to-17-game bias described in
 #: :data:`GAMES_REGRESSORS`. The coefficients are on a different scale from 1.0.0's
 #: and are not interchangeable with them, which is what the bump is for.
-MODEL_VERSION = "1.1.0"
+#:
+#: 1.2.0 -- two new blocks, both fitted on the same held-out residuals the dispersions
+#: already use and neither of which moves a projected mean: ``stat_dispersion_conditional``
+#: (the spread *given* games played) and ``stat_correlation`` (how the eight stats'
+#: residuals move together). Plan 28 needs both, and 1.1.0 files load fine without them
+#: -- the fields default empty and every caller falls back explicitly.
+MODEL_VERSION = "1.2.0"
 
 #: Positions the season head declines to project, whatever features it has for them.
 #:
@@ -415,6 +422,38 @@ class SeasonUsageModel:
     #: ``{"phi": ..., "k": ...}`` for ``Var = phi * mu + mu^2 / k``. See
     #: :mod:`Scripts.usage.predictive`.
     stat_dispersion: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    #: The same coefficients, fitted **conditional on games played**.
+    #:
+    #: :attr:`stat_dispersion` is fitted against ``USG_<stat>``, which already carries
+    #: ``expected_games`` inside it, so its spread contains the availability variance.
+    #: That is the right object for "what will this player actually score"; it is the
+    #: wrong one for two other questions the repo asks. An if-healthy interval built by
+    #: rescaling it (:func:`Scripts.usage.project.to_full_slate`) carries availability
+    #: variance around a mean that has availability divided out, and a simulation that
+    #: draws games explicitly and then applies it counts availability **twice**.
+    #:
+    #: Fitted against ``USG_<stat> * y_games / mu_games`` -- the projection re-based onto
+    #: the games the player really had -- this is ``Var(total | games)``. Evaluated at a
+    #: full slate it is the if-healthy spread; mixed over the Beta-Binomial it rebuilds
+    #: the unconditional one. See ``docs/plans/28-outcome-distributions.md``.
+    stat_dispersion_conditional: Dict[str, Dict[str, float]] = field(
+        default_factory=dict)
+    #: Per ``"<position>|<stat>"``, how much of ``expected_games`` is availability
+    #: rather than role -- the exponent in ``(games / expected_games) ** e``. Fitted at
+    #: 0.32-0.49; assuming the 1.0 it looks like it should be over-projects a realised
+    #: total by up to 27%. See :func:`_conditional_mean`.
+    games_elasticity: Dict[str, float] = field(default_factory=dict)
+    #: Residual correlation across stats, per position, as
+    #: ``{position: {"stats": [...], "matrix": [[...]]}}``.
+    #:
+    #: The dispersions above describe each stat's spread on its own, and a season points
+    #: total is a **sum** of them -- so summing independent marginals understates the
+    #: spread by exactly the covariance. A player who beats his target projection beats
+    #: his receiving-yard projection too; those are one event, not two.
+    #:
+    #: Stored as normal-score (PIT) correlations so a Gaussian copula reproduces the
+    #: fitted marginals exactly rather than approximately.
+    stat_correlation: Dict[str, Dict[str, object]] = field(default_factory=dict)
     train_seasons: Tuple[int, ...] = ()
     version: str = MODEL_VERSION
     fitted_at: Optional[str] = None
@@ -1030,6 +1069,9 @@ class SeasonUsageModel:
             "rookie_efficiency": self.rookie_efficiency,
             "games_dispersion": self.games_dispersion,
             "stat_dispersion": self.stat_dispersion,
+            "games_elasticity": self.games_elasticity,
+            "stat_dispersion_conditional": self.stat_dispersion_conditional,
+            "stat_correlation": self.stat_correlation,
         }
 
     def save(self, path=None):
@@ -1098,6 +1140,12 @@ class SeasonUsageModel:
             rookie_efficiency=payload.get("rookie_efficiency", {}),
             games_dispersion=payload.get("games_dispersion", {}),
             stat_dispersion=payload.get("stat_dispersion", {}),
+            # Absent from every 1.1.0 file. Empty means "not fitted", and each reader
+            # falls back explicitly rather than inventing a dispersion.
+            games_elasticity=payload.get("games_elasticity", {}),
+            stat_dispersion_conditional=payload.get(
+                "stat_dispersion_conditional", {}),
+            stat_correlation=payload.get("stat_correlation", {}),
             train_seasons=tuple(payload.get("train_seasons", ())),
             version=payload.get("version", MODEL_VERSION),
             fitted_at=payload.get("fitted_at"),
@@ -1369,6 +1417,303 @@ def _fit_stat_dispersion(holdout: pl.DataFrame,
                 phi, k, bust = fitted
                 out[pv.key(position, stat)] = {
                     "phi": float(phi), "k": float(k), "bust": float(bust)}
+    return out
+
+
+#: Seed for the randomised probability transform the correlation fit uses.
+#:
+#: Fixed rather than passed in, because the correlation matrix is part of a *fitted
+#: model* and a model that came out different on a refit of identical data would not be
+#: a model. See :func:`Scripts.usage.predictive.pit` for why the randomisation exists at
+#: all.
+CORRELATION_SEED: int = 28
+
+#: Rows a position needs, with every included stat present, before its correlation is fitted.
+#:
+#: Higher than :data:`Scripts.usage.predictive.MIN_FIT_ROWS` because a correlation matrix
+#: estimates ``n(n-1)/2`` numbers where a dispersion estimates two -- up to 28 for the
+#: eight stats -- and a matrix fitted on 30 rows is mostly sampling noise wearing a
+#: covariance structure. A position below this gets no matrix and the caller falls back
+#: to independence, which is wrong in a known direction (too narrow) rather than wrong in
+#: an unknown one.
+MIN_CORRELATION_ROWS: int = 150
+
+
+#: Grid the games elasticity is searched over.
+#:
+#: Coarse and exhaustive rather than an optimiser, because the objective is a
+#: one-dimensional sum of squares over a bounded parameter and a grid is deterministic,
+#: has no starting point to get wrong, and cannot return a local minimum. 0.01 resolution
+#: is far finer than the standard error on a few hundred rows.
+_ELASTICITY_GRID = np.linspace(0.0, 1.5, 151)
+
+#: Elasticity used for a (position, stat) with too few rows to fit its own.
+#:
+#: The pooled value, which lands near 0.45 across every position and stat measured. A
+#: neutral-looking 1.0 would be the *worst* available default: it is exactly the
+#: assumption the fit exists to reject.
+DEFAULT_GAMES_ELASTICITY: float = 0.45
+
+
+def _conditional_mean(projected: str, elasticity: float) -> pl.Expr:
+    """``USG_<stat>`` re-based from the games the model expected onto the games he had.
+
+    ``USG_<stat>`` is ``expected_games x volume x rate``, so the obvious re-basing is to
+    divide by ``_mu_games`` and multiply by ``y_games`` -- assume the per-game line is
+    what it is and let the games vary. **That assumption is measurably false**, and it
+    was the first thing this fit was written to do. Measured on held-out residuals, the
+    proportional re-base over-projects the realised total by **+8.8% to +26.7%** and
+    drops the regression slope of realised on projected from ~1.00 to 0.32-0.70, while
+    the unconditional projection on the same rows is unbiased with a slope of 0.92-1.10.
+    The degradation is real, not the regression dilution a slope alone would suggest.
+
+    The cause is that ``expected_games`` **carries role as well as health**, which
+    ``docs/DATA_CATALOGUE.md`` states and this quantifies: a low number on a backup means
+    buried, not fragile, and his per-game line is a buried player's line. Scaling him up
+    to a starter's slate grants him a starter's games at a backup's rate and calls the
+    product a projection.
+
+    So the exponent is fitted rather than assumed::
+
+        E[total | games] = USG_<stat> * (y_games / _mu_games) ** elasticity
+
+    and it lands at **0.32 to 0.49** with the bias falling to within +-6% and the slope
+    returning to 0.91-1.04. Read plainly: about half of the expected-games term is role
+    rather than availability, so a player who plays twice the games the model expected
+    produces roughly the square root of twice the output, not twice.
+
+    Args:
+        projected: The ``USG_<stat>`` column name.
+        elasticity: The fitted exponent.
+
+    Returns:
+        pl.Expr: The conditional mean, null where ``_mu_games`` or ``y_games`` is
+        missing or non-positive.
+    """
+    ratio = (pl.col("y_games").cast(pl.Float64)
+             / pl.col("_mu_games").cast(pl.Float64))
+    return (pl.when((pl.col("_mu_games").cast(pl.Float64) > 0)
+                    & (pl.col("y_games").cast(pl.Float64) > 0))
+            .then(pl.col(projected).cast(pl.Float64) * ratio.pow(float(elasticity)))
+            .otherwise(None))
+
+
+def _fit_games_elasticity(holdout: pl.DataFrame, positions: Sequence[str]
+                          ) -> Dict[str, float]:
+    """How much of the expected-games term is availability rather than role.
+
+    See :func:`_conditional_mean` for what the number means and why assuming 1.0 is
+    wrong. Fitted by least squares on the realised total, per (position, stat), because
+    the answer differs by position in the direction plan 31 would predict -- quarterback
+    is lowest, and quarterback expected-games is the most role-contaminated of the four.
+
+    Args:
+        holdout: Rows from :func:`_holdout_residuals`.
+        positions: Positions to fit.
+
+    Returns:
+        dict: :func:`Scripts.usage.predictive.key` to elasticity. A pair with too few
+        rows is absent; the caller falls back to
+        :data:`DEFAULT_GAMES_ELASTICITY` explicitly.
+    """
+    if any(c not in holdout.columns for c in ("y_games", "_mu_games")):
+        return {}
+
+    out: Dict[str, float] = {}
+    for stat, outcome in STAT_OUTCOMES.items():
+        projected = f"{USAGE_PREFIX}{stat}"
+        if any(c not in holdout.columns for c in (projected, outcome)):
+            continue
+        for position in positions:
+            block = holdout.filter(
+                (pl.col("position") == position)
+                & pl.col(projected).is_not_null() & (pl.col(projected) > 0)
+                & pl.col(outcome).is_not_null()
+                & (pl.col("_mu_games").cast(pl.Float64) > 0)
+                & (pl.col("y_games").cast(pl.Float64) > 0))
+            if block.height < pv.MIN_FIT_ROWS:
+                continue
+            observed = block[outcome].cast(pl.Float64).to_numpy()
+            mu = block[projected].cast(pl.Float64).to_numpy()
+            ratio = (block["y_games"].cast(pl.Float64).to_numpy()
+                     / block["_mu_games"].to_numpy())
+            errors = [float(((observed - mu * ratio ** beta) ** 2).sum())
+                      for beta in _ELASTICITY_GRID]
+            out[pv.key(position, stat)] = float(
+                _ELASTICITY_GRID[int(np.argmin(errors))])
+    return out
+
+
+def _fit_stat_dispersion_conditional(holdout: pl.DataFrame,
+                                     positions: Sequence[str],
+                                     elasticity: Dict[str, float]
+                                     ) -> Dict[str, Dict[str, float]]:
+    """Predictive dispersion per (position, stat), **given games played**.
+
+    The same fit as :func:`_fit_stat_dispersion` against a different mean, and the
+    difference between the two is the availability variance. Plan 28 needs them apart
+    for two reasons that are really one:
+
+    * An if-healthy interval cannot be made by rescaling an availability-inclusive one.
+      :func:`Scripts.usage.project.to_full_slate` divides ``expected_games`` out of the
+      *mean* so the blend compares like with like; rescaling the spread the same way
+      leaves availability variance sitting around a quantity that no longer has any.
+    * A simulation that draws games explicitly and then applies the unconditional
+      dispersion counts availability twice, and would then pass a coverage gate by being
+      too wide rather than by being right.
+
+    Args:
+        holdout: Rows from :func:`_holdout_residuals`, carrying the projected
+            ``USG_<stat>``, the realised ``y_tot_<column>``, ``y_games`` and
+            ``_mu_games``.
+        positions: Positions to fit.
+
+    Returns:
+        dict: :func:`Scripts.usage.predictive.key` to ``{"phi", "k", "bust"}``. A pair
+        with too few rows is absent rather than defaulted, so a missing fit cannot be
+        mistaken for a measured one.
+    """
+    if any(c not in holdout.columns for c in ("y_games", "_mu_games")):
+        return {}
+
+    out: Dict[str, Dict[str, float]] = {}
+    for stat, outcome in STAT_OUTCOMES.items():
+        projected = f"{USAGE_PREFIX}{stat}"
+        if any(c not in holdout.columns for c in (projected, outcome)):
+            continue
+        for position in positions:
+            beta = elasticity.get(pv.key(position, stat), DEFAULT_GAMES_ELASTICITY)
+            rebased = holdout.with_columns(
+                _conditional_mean(projected, beta).alias("_mu_cond"))
+            block = rebased.filter(
+                (pl.col("position") == position)
+                & pl.col("_mu_cond").is_not_null()
+                & pl.col(outcome).is_not_null())
+            if block.height < pv.MIN_FIT_ROWS:
+                continue
+            fitted = pv.fit_variance(
+                block[outcome].cast(pl.Float64).to_numpy(),
+                block["_mu_cond"].to_numpy(),
+                family=pv.family_for(stat))
+            if fitted is not None:
+                phi, k, bust = fitted
+                out[pv.key(position, stat)] = {
+                    "phi": float(phi), "k": float(k), "bust": float(bust)}
+    return out
+
+
+def _nearest_correlation(matrix: np.ndarray) -> np.ndarray:
+    """Force a correlation matrix to be positive semi-definite.
+
+    A matrix of pairwise correlations estimated from real data is not guaranteed to be
+    one -- rounding, and the fact that the eight stats are not all observed on the same
+    rows, can leave a slightly negative eigenvalue. A Cholesky factorisation is what
+    consumes this, and it simply fails on such a matrix, so the repair happens here
+    where it can be explained rather than at the call site where it would look like a
+    workaround.
+
+    Clips the eigenvalues at zero, rebuilds, and renormalises the diagonal back to one.
+
+    Args:
+        matrix: A symmetric matrix with a unit diagonal.
+
+    Returns:
+        np.ndarray: The nearest positive semi-definite correlation matrix.
+    """
+    symmetric = (matrix + matrix.T) / 2.0
+    values, vectors = np.linalg.eigh(symmetric)
+    rebuilt = (vectors * np.clip(values, 0.0, None)) @ vectors.T
+    scale = np.sqrt(np.clip(np.diag(rebuilt), _CORRELATION_EPS, None))
+    return np.clip(rebuilt / np.outer(scale, scale), -1.0, 1.0)
+
+
+_CORRELATION_EPS = 1e-12
+
+
+def _fit_stat_correlation(holdout: pl.DataFrame, positions: Sequence[str],
+                          dispersion: Dict[str, Dict[str, float]],
+                          elasticity: Dict[str, float]
+                          ) -> Dict[str, Dict[str, object]]:
+    """Residual correlation across stats, per position, on the probability scale.
+
+    Each stat's dispersion says how far a player can land from his own projection. It
+    says nothing about whether the stats miss *together*, and they do: a receiver who
+    beats his target projection beats his receiving-yard projection by the same event.
+    Summing the marginals into season points without this understates the spread by
+    exactly the covariance, which is the failure mode plan 18 already hit from the other
+    direction when it tried to compose a season line out of independent factors and got
+    negative variances back.
+
+    Correlated on the **probability integral transform** rather than on raw residuals, so
+    a Gaussian copula built from this reproduces the fitted marginals exactly: the
+    transform is uniform by construction when the marginal is right, and the normal
+    scores of a uniform are standard normal. Correlating raw residuals instead would mix
+    the dependence with each stat's own skew.
+
+    Args:
+        holdout: Rows from :func:`_holdout_residuals`.
+        positions: Positions to fit.
+        dispersion: The conditional dispersions, since the correlation is used with them.
+
+    Returns:
+        dict: Position to ``{"stats": [...], "matrix": [[...]], "n": int}``. A position
+        with fewer than :data:`MIN_CORRELATION_ROWS` complete rows is absent, and the
+        caller falls back to independence.
+    """
+    if any(c not in holdout.columns for c in ("y_games", "_mu_games")):
+        return {}
+
+    rng = np.random.default_rng(CORRELATION_SEED)
+    out: Dict[str, Dict[str, object]] = {}
+
+    for position in positions:
+        block = holdout.filter(pl.col("position") == position)
+        if block.height < MIN_CORRELATION_ROWS:
+            continue
+
+        names, columns = [], []
+        for stat, outcome in STAT_OUTCOMES.items():
+            projected = f"{USAGE_PREFIX}{stat}"
+            coefficients = dispersion.get(pv.key(position, stat))
+            if coefficients is None or any(
+                    c not in block.columns for c in (projected, outcome)):
+                continue
+            rebased = block.with_columns(
+                _conditional_mean(
+                    projected,
+                    elasticity.get(pv.key(position, stat),
+                                   DEFAULT_GAMES_ELASTICITY)).alias("_mu_cond"))
+            mu = rebased["_mu_cond"].to_numpy()
+            observed = rebased[outcome].cast(pl.Float64).to_numpy()
+            # A stat this position does not accumulate -- a receiver's pass attempts --
+            # has no mean to transform against, and including it would correlate an
+            # arbitrary fill with everything else.
+            usable = np.isfinite(mu) & np.isfinite(observed) & (mu > 0)
+            if usable.sum() < MIN_CORRELATION_ROWS:
+                continue
+            transformed = np.full(mu.shape, np.nan)
+            transformed[usable] = pv.pit(
+                stat, mu[usable], coefficients["phi"], coefficients["k"],
+                observed[usable], bust=coefficients.get("bust", 0.0), rng=rng)
+            names.append(stat)
+            columns.append(transformed)
+
+        if len(names) < 2:
+            continue
+
+        stacked = np.column_stack(columns)
+        # Complete rows only. A pairwise-complete matrix is assembled from different
+        # subpopulations per cell and is routinely not positive semi-definite, which is
+        # a harder problem than the rows it saves are worth.
+        complete = np.isfinite(stacked).all(axis=1)
+        if complete.sum() < MIN_CORRELATION_ROWS:
+            continue
+
+        scores = stats.norm.ppf(stacked[complete])
+        matrix = _nearest_correlation(np.corrcoef(scores, rowvar=False))
+        out[position] = {"stats": names,
+                         "matrix": [[float(v) for v in row] for row in matrix],
+                         "n": int(complete.sum())}
     return out
 
 
@@ -1765,10 +2110,16 @@ def fit(train: pl.DataFrame, train_seasons: Sequence[int],
     if holdout is None:
         return fitted
 
+    elasticity = _fit_games_elasticity(holdout, positions)
+    conditional = _fit_stat_dispersion_conditional(holdout, positions, elasticity)
     return replace(
         fitted,
         games_dispersion=_fit_dispersion(holdout, positions),
         stat_dispersion=_fit_stat_dispersion(holdout, positions),
+        games_elasticity=elasticity,
+        stat_dispersion_conditional=conditional,
+        stat_correlation=_fit_stat_correlation(
+            holdout, positions, conditional, elasticity),
     )
 
 

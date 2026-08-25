@@ -207,3 +207,40 @@ def test_dispersion_survives_a_save_and_load(tmp_path):
                         {"phi": 100.0, "k": 10.0, "bust": 0.1}})
     back = sn.SeasonUsageModel.load(model.save(tmp_path / "m.json"))
     assert back.stat_dispersion == model.stat_dispersion
+
+
+# --- the probability transform, added for plan 28 -------------------------
+
+def test_the_transform_of_a_draw_from_the_fitted_law_is_uniform():
+    """``pit`` is the inverse of ``quantile``, and that is what makes a copula honest.
+
+    :mod:`Scripts.outcomes.distribution` correlates stats by correlating their
+    probability transforms. If the transform is not uniform on draws from the fitted
+    law, the correlations it measures are attenuated by whatever the non-uniformity is
+    doing -- worst for the low-count stats, which have the most ties. Both families put
+    mass on atoms, so the randomisation is not a refinement, it is the thing that makes
+    this true at all.
+    """
+    rng = np.random.default_rng(4)
+    for stat, bust in (("receivingYards", 0.12), ("receivingYards", 0.0),
+                       ("receivingReceptions", 0.0), ("rushingTouchdowns", 0.0)):
+        mu = np.full(40000, 700.0 if "Yards" in stat else 8.0)
+        drawn = pv.quantile(stat, mu, 3.0, 4.0, rng.random(mu.size), bust=bust)
+        transformed = pv.pit(stat, mu, 3.0, 4.0, drawn, bust=bust, rng=rng)
+        for target in (10, 50, 90):
+            assert np.percentile(transformed, target) == pytest.approx(
+                target / 100, abs=0.015), f"{stat} bust={bust} at p{target}"
+
+
+def test_the_transform_is_ordered_in_the_observation():
+    """A bigger season transforms higher. Cheap, and it catches a swapped bound."""
+    mu = np.full(5, 500.0)
+    got = pv.pit("receivingYards", mu, 3.0, 4.0,
+                 np.array([0.0, 100.0, 500.0, 900.0, 2000.0]), bust=0.1)
+    assert list(got) == sorted(got)
+
+
+def test_a_stat_with_no_family_has_no_transform():
+    """Same contract as ``quantile``: None rather than an invented number."""
+    assert pv.pit("passingCompletions", np.array([10.0]), 1.0, 1.0,
+                  np.array([9.0])) is None

@@ -219,6 +219,9 @@ board = dv.with_injury_code(board)
 # What the injury is and how long for, which the status alone cannot say: ESPN had
 # Jeremiyah Love ACTIVE at ADP 18 while the override file had him four to six weeks out.
 board = dv.with_injury_severity(board)
+# The 0-1 probabilities into the 0-100 their `%` formats expect. Without it every one
+# of them renders as 0% -- see `with_percent_columns`.
+board = dv.with_percent_columns(board)
 
 # Which currency the Draft Metric group speaks: a snake draft has a queue, so the
 # comparison is rank against rank; an auction has a price. Read from the league's

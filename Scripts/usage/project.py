@@ -42,10 +42,12 @@ from __future__ import annotations
 import json
 from typing import List, Optional, Sequence
 
+import numpy as np
 import polars as pl
 
 from Scripts.paths import season_dir
 from Scripts.usage import features as ft
+from Scripts.usage import predictive as pv
 from Scripts.usage import role as rl
 from Scripts.usage import season as sn
 
@@ -262,6 +264,105 @@ def attach_evidence(frame: pl.DataFrame) -> pl.DataFrame:
               + [f"_reason_{i}" for i in range(len(reasons))]))
 
 
+def healthy_intervals(frame: pl.DataFrame, model: sn.SeasonUsageModel,
+                      stat_columns: Sequence[str],
+                      slate: float = sn.DEFAULT_TARGET_SLATE,
+                      lower: float = 0.1, upper: float = 0.9) -> pl.DataFrame:
+    """Recompute the stat intervals on the if-healthy basis, rather than rescaling them.
+
+    **This replaces a defect, and the defect was invisible because the numbers looked
+    reasonable.** :meth:`SeasonUsageModel.stat_intervals` fits its quantiles around
+    ``USG_<stat>``, which carries ``expected_games`` inside it, so the spread it reports
+    is the spread of the season a player *realises* -- availability included, which is
+    correct for what it describes. :func:`to_full_slate` then multiplied the mean **and
+    those quantiles** by ``slate / expected_games``. Multiplying a quantile by a constant
+    is the right way to rescale a random variable, but the if-healthy line is not the
+    realised line times a constant: it is a *different* random variable, one with the
+    availability variance taken out. The published ``USG_<stat>_low``/``_high`` therefore
+    carried realised-season spread around an if-healthy centre -- systematically too
+    wide, for a quantity it did not describe, and worst for exactly the players whose
+    ``expected_games`` is lowest and whose multiplier is largest.
+
+    The fix uses :attr:`SeasonUsageModel.stat_dispersion_conditional`, fitted on the same
+    held-out residuals but against the games the player actually had. Evaluated at a full
+    slate it is the if-healthy spread by construction.
+
+    **The centre does not move**, and the interval is evaluated at it. The published
+    if-healthy mean is ``USG_<stat> * slate / expected_games``, so that is the mean the
+    dispersion is evaluated at: given the number the blend is shown, how far can the
+    season land from it. Evaluating instead at the elasticity-corrected mean and
+    rescaling the width onto the published one was tried and is wrong -- the fitted
+    variance function is deliberately **not** scale-invariant (its whole purpose is a
+    coefficient of variation that falls as the projection grows, 1.90 to 0.48 across the
+    quartiles of WR receiving yards), so a width measured at one mean does not transfer
+    to another. It made receiving-yard intervals 8% *wider* rather than narrower.
+
+    The elasticity belongs to the *fit* -- it is what stops the conditional dispersion
+    absorbing a systematic bias as if it were variance -- not to the evaluation.
+
+    **The if-healthy mean has a separate and larger problem**, named here because this
+    function is the natural place to look for it and it is deliberately not fixed here:
+    :func:`Scripts.usage.season._conditional_mean` measures the proportional rescale
+    over-projecting a realised total by **+8.8% to +26.7%**, because ``expected_games``
+    carries role as well as health. Correcting that would move ``TRUE_Points``.
+
+    Args:
+        frame: Prediction frame, **before** :func:`to_full_slate`, carrying
+            ``expected_games``, ``position`` and the ``USG_<stat>`` columns.
+        model: The fitted model. A model with no conditional block leaves the frame
+            alone, so a 1.1.0 file degrades to the old behaviour rather than failing.
+        stat_columns: The ``USG_<stat>`` columns to rebuild intervals for.
+        slate: Games a healthy season offers.
+        lower: Lower quantile.
+        upper: Upper quantile.
+
+    Returns:
+        pl.DataFrame: ``frame`` with ``USG_<stat>_sd``/``_low``/``_high`` on the
+        if-healthy basis, in levels. Null wherever the conditional dispersion has no
+        fit, which is the contract :meth:`stat_intervals` already has.
+    """
+    if not model.stat_dispersion_conditional or "expected_games" not in frame.columns:
+        return frame
+
+    positions = frame["position"].to_list()
+    expected = frame["expected_games"].cast(pl.Float64).to_numpy()
+    columns = []
+
+    for column in stat_columns:
+        stat = column[len(sn.USAGE_PREFIX):]
+        if pv.family_for(stat) is None:
+            continue
+        mu = frame[column].cast(pl.Float64).to_numpy()
+        sd = np.full(mu.shape, np.nan)
+        low = np.full(mu.shape, np.nan)
+        high = np.full(mu.shape, np.nan)
+
+        for position in set(positions):
+            coefficients = model.stat_dispersion_conditional.get(pv.key(position, stat))
+            if coefficients is None:
+                continue
+            rows = (np.array([p == position for p in positions])
+                    & np.isfinite(mu) & (mu > 0) & np.isfinite(expected) & (expected > 0))
+            if not rows.any():
+                continue
+            # The mean the blend is actually shown, which is what the interval has to
+            # bracket. See the docstring on why this is not the elasticity-corrected one.
+            healthy = mu[rows] * float(slate) / expected[rows]
+            phi, k = coefficients["phi"], coefficients["k"]
+            bust = coefficients.get("bust", 0.0)
+            _, variance = pv.moments(stat, healthy, phi, k)
+            sd[rows] = np.sqrt(variance)
+            low[rows] = pv.quantile(stat, healthy, phi, k, lower, bust=bust)
+            high[rows] = pv.quantile(stat, healthy, phi, k, upper, bust=bust)
+
+        columns += [
+            pl.Series(f"{column}_sd", sd).fill_nan(None),
+            pl.Series(f"{column}_low", low).fill_nan(None),
+            pl.Series(f"{column}_high", high).fill_nan(None),
+        ]
+    return frame.with_columns(columns) if columns else frame
+
+
 def to_full_slate(frame: pl.DataFrame, columns: Sequence[str],
                   slate: float = sn.DEFAULT_TARGET_SLATE) -> pl.DataFrame:
     """Rescale the stat lines from expected games to a full healthy season.
@@ -408,11 +509,15 @@ def build(season: int, refit: bool = False,
     # The interval columns travel with the stat lines but are not stat lines: they
     # must not be scored by `proj_to_score` or blended, so they are carried through
     # `CONTEXT_COLUMNS` rather than picked up by the `USG_` prefix scan.
+    # Rebuilt from the games-conditional dispersion rather than rescaled -- see
+    # `healthy_intervals` for what rescaling them was getting wrong. It emits levels on
+    # the if-healthy basis directly, so only the stat lines go through `to_full_slate`.
+    predicted = healthy_intervals(predicted, model, stat_columns)
     interval_columns = [f"{c}{suffix}" for c in stat_columns
                         for suffix in ("_sd", "_low", "_high")
                         if f"{c}{suffix}" in predicted.columns]
 
-    predicted = to_full_slate(predicted, stat_columns + interval_columns)
+    predicted = to_full_slate(predicted, stat_columns)
 
     # The provenance flags, and the reason this function exists. A null here means
     # the model declined -- no prior season, a declined position, or no opportunity
