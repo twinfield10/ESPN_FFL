@@ -327,10 +327,17 @@ def pit(stat: str, mu, phi: float, k: float, observed, bust: float = 0.0,
     return np.clip(lower + spread * (upper - lower), _EPS, 1.0 - _EPS)
 
 
-def key(position: str, stat: str) -> str:
-    """Dictionary key for a fitted (position, stat) dispersion.
+def key(position: str, stat: str, cohort: Optional[str] = None) -> str:
+    """Dictionary key for a fitted dispersion.
 
     A string rather than a tuple because these persist to JSON, which has no tuple
     keys -- and a silently stringified tuple would not survive a round trip.
+
+    Args:
+        position: Modelled position.
+        stat: Stat name without the ``USG_`` prefix.
+        cohort: ``settled``, ``mover`` or ``rookie``. None gives the pooled key, which
+            is what every caller wanted before plan 33 phase 3 and is still the fallback
+            wherever a cohort cell is too thin to fit.
     """
-    return f"{position}|{stat}"
+    return f"{position}|{stat}" if cohort is None else f"{position}|{stat}|{cohort}"

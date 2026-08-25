@@ -316,3 +316,96 @@ def test_a_board_without_the_probability_columns_passes_through():
 
     board = pl.DataFrame({"player_name": ["a"], "TRUE_Points": [1.0]})
     assert dv.with_percent_columns(board).equals(board)
+
+
+# --- plan 33 phase 3, measured and rejected ------------------------------
+
+def test_the_cohort_split_is_off_and_the_pooled_cell_is_what_ships():
+    """G-R2 measured the split at -0.3pp, so it does not bind by default.
+
+    The cells stay fitted and persisted so the measurement is reproducible; a caller
+    has to ask for them. If this ever flips silently, every published interval changes
+    for a reason nobody chose.
+    """
+    dispersion = {
+        pv.key("WR", "receivingYards"): {"phi": 100.0, "k": 1000.0, "bust": 0.0},
+        pv.key("WR", "receivingYards", "rookie"): {"phi": 400.0, "k": 1000.0,
+                                                   "bust": 0.0},
+    }
+    m = sn.SeasonUsageModel(volume={}, stat_dispersion=dispersion,
+                            stat_dispersion_conditional=dispersion, version="1.2.0")
+    rows = pl.DataFrame({"gsis_id": ["a"], "position": ["WR"],
+                         "USG_receivingYards": [500.0],
+                         "usg_role_cohort": ["rookie"]})
+
+    assert dist.COHORT_DISPERSION is False
+    index = dist.STAT_ORDER.index("receivingYards")
+    assert dist.player_spec(rows, m, conditional=True).phi[0, index] == 100.0
+    # ... and the split is still reachable, or the rejection could not be re-measured.
+    forced = dist.player_spec(rows, m, conditional=True, use_cohort=True)
+    assert forced.phi[0, index] == 400.0
+    assert forced.cohort_share == pytest.approx(1.0)
+
+
+def test_a_cohort_with_no_fitted_cell_falls_back_to_pooled():
+    """A thin cohort must not lose its interval entirely -- partial coverage is
+    visible, a missing one reads as the model declining to speak."""
+    dispersion = {
+        pv.key("WR", "receivingYards"): {"phi": 100.0, "k": 1000.0, "bust": 0.0},
+        pv.key("WR", "receivingYards", "settled"): {"phi": 60.0, "k": 1000.0,
+                                                    "bust": 0.0},
+    }
+    m = sn.SeasonUsageModel(volume={}, stat_dispersion=dispersion,
+                            stat_dispersion_conditional=dispersion, version="1.2.0")
+    rows = pl.DataFrame({"gsis_id": ["a", "b"], "position": ["WR", "WR"],
+                         "USG_receivingYards": [500.0, 500.0],
+                         "usg_role_cohort": ["settled", "mover"]})
+    spec = dist.player_spec(rows, m, conditional=True, use_cohort=True)
+    index = dist.STAT_ORDER.index("receivingYards")
+    assert spec.phi[0, index] == 60.0     # has its own cell
+    assert spec.phi[1, index] == 100.0    # falls back to pooled
+    assert spec.cohort_share == pytest.approx(0.5)
+
+
+def test_coverage_is_scored_on_players_worth_projecting():
+    """The artefact that passed G-D1 and then inverted plan 33's result.
+
+    A third of the scored sample projects near zero and realises exactly zero, so its
+    interval contains the outcome by construction and it counts as covered. Pooling that
+    with real projections pulled reported coverage from 0.687 to 0.730 and across the
+    gate's lower bound. Coverage has to be measured where a forecast means something.
+    """
+    from Scripts.lab import registry as reg
+
+    assert reg.MIN_SCORED_PROJECTION > 0
+
+    # The gate reads the draftable figure when one is present, and only falls back to
+    # the whole-pool one when it is not -- so a harness that forgets to compute it
+    # cannot silently restore the flattering number.
+    passing = {"coverage": 0.730, "coverage_draftable": 0.80,
+               "calibration_slope": 1.0}
+    failing = {"coverage": 0.730, "coverage_draftable": 0.687,
+               "calibration_slope": 1.0}
+    assert reg.outcome_verdict(passing)[0] == "merge"
+    call, reason = reg.outcome_verdict(failing)
+    assert call == "reject"
+    assert "25 points" in reason and "too narrow" in reason
+
+    # The threshold itself is untouched from its pre-commitment. Only the population
+    # moved, and it moved in the direction that makes the gate harder.
+    assert reg.OUTCOME_COVERAGE_RANGE == (0.72, 0.88)
+
+
+def test_the_gate_scores_the_arm_the_board_actually_publishes():
+    """G-D1 asks whether the *published* distribution is fit to publish.
+
+    The board runs without the room transfer, because G-D2 rejected it. The first version
+    of the harness pooled its headline coverage from the joint arm instead -- both land at
+    0.68 and both fail, so no verdict moved, but the number being reported was not the
+    number on the board. These two constants have to agree.
+    """
+    from Scripts.outcomes import backtest as obt
+    from Scripts.season_projections import BOARD_USES_JOINT_DRAW
+
+    expected = "joint" if BOARD_USES_JOINT_DRAW else "independent"
+    assert obt.SHIPPED_ARM == expected

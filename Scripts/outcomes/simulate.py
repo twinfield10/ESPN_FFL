@@ -55,6 +55,18 @@ from Scripts.usage import season as sn
 #: that bucket. Sending them to rank 1 would hand every room several leads.
 UNLISTED_RANK: int = 3
 
+#: Whether the shipped simulation draws a role rather than trusting the depth chart.
+#:
+#: **False, measured.** Plan 33 phase 3's G-R2 asked whether drawing the true rank from
+#: ``P(true | listed, cohort)`` makes the interval better. Walk-forward 2021-2025 it is
+#: worth **+0.1pp** of coverage overall -- +1.3pp for a room's lead, whose job turns out
+#: to be the uncertain one, and **-0.7pp** for the backups it was expected to help.
+#:
+#: The interval it would have to improve sits at 0.730 against a nominal 0.800, seven
+#: points out, so it fails G-R2's five-point bar on its own before any comparison. Kept
+#: and tested so the measurement is reproducible; off by default.
+ROLE_DRAW: bool = False
+
 #: Positions whose rooms are simulated jointly.
 #:
 #: Quarterbacks are absent and it is not an oversight: a quarterback room has one job and
@@ -237,6 +249,88 @@ def room_order(frame: pl.DataFrame, season: int,
     return rooms
 
 
+def draw_role_order(rng: np.random.Generator, frame: pl.DataFrame,
+                    rooms: Sequence[Room], n_sims: int,
+                    probabilities: Optional[Dict[Tuple[str, int], List[float]]] = None,
+                    cohort_column: str = "usg_role_cohort"
+                    ) -> List[np.ndarray]:
+    """Who leads each room, drawn per simulation rather than read off the chart.
+
+    **Plan 33 phase 3.** The rest of this module treats the pre-season depth chart as a
+    fact. ``docs/plans/33-role-resolution.md`` measures how often it is one: a listed
+    *settled* rank-1 really leads his room **58.8%** of the time, a mover **44.8%**, and a
+    **rookie 35.6%** -- and the remainder is not noise, it is a distribution
+    (a listed rookie RB1 is rank 2 22.6% of the time and rank 3 **41.8%**). Treating that
+    as certain removes a variance channel that is largest exactly where a projection is
+    least knowable, which is the finding plan 33 says is worth building on.
+
+    Each member draws a true rank from his own ``P(true | listed, cohort)`` row,
+    independently, and the room is ordered by the draw. **Independent draws do not
+    constrain a room to exactly one rank-1**, and that is deliberate rather than
+    overlooked: the ordering is what the simulation consumes, not the raw ranks, and two
+    men drawing rank 1 is resolved by the same projected-opportunity tie-break that
+    resolves the chart's own ties. The effect is that a listed lead keeps his job somewhat
+    more often than his diagonal alone implies, which is the right direction -- the
+    calibration's "true rank" is realised early-season opportunity, and the tie-break is
+    projected opportunity.
+
+    Args:
+        rng: Explicit generator.
+        frame: The player frame, carrying ``cohort_column``.
+        rooms: From :func:`room_order`.
+        n_sims: Simulations.
+        probabilities: :func:`Scripts.usage.role.rank_probabilities` output. None loads
+            it; empty leaves every room at its listed order, which is the behaviour
+            before this existed.
+        cohort_column: Where the player's cohort lives.
+
+    Returns:
+        list: One ``(n_sims, len(room.players))`` array per room, holding **positions
+        within the room** ordered best-first. The listed order repeated ``n_sims`` times
+        wherever the calibration has nothing to say.
+    """
+    from Scripts.usage import role as rl
+
+    if probabilities is None:
+        probabilities = rl.rank_probabilities()
+    cohorts = (frame[cohort_column].to_list() if cohort_column in frame.columns
+               else [None] * frame.height)
+
+    out: List[np.ndarray] = []
+    for room in rooms:
+        size = len(room.players)
+        listed = np.tile(np.arange(size), (n_sims, 1))
+        if not probabilities:
+            out.append(listed)
+            continue
+
+        drawn = np.empty((n_sims, size), dtype=float)
+        known = False
+        for position, (player, rank) in enumerate(zip(room.players, room.rank)):
+            cohort = cohorts[player]
+            vector = probabilities.get((str(cohort), int(rank))) if cohort else None
+            if vector is None:
+                # No cell for him -- an unlisted cohort, or a rank the table never saw.
+                # He keeps his listed rank rather than being handed a distribution
+                # nobody measured.
+                drawn[:, position] = float(rank)
+                continue
+            known = True
+            drawn[:, position] = rng.choice(
+                len(vector), size=n_sims, p=vector) + 1.0
+
+        if not known:
+            out.append(listed)
+            continue
+
+        # Ties inside a drawn rank fall back to the listed order, which `room_order`
+        # already resolved by projected opportunity and then by `gsis_id`. Adding the
+        # position as a fractional term makes that a total order in one sort.
+        keys = drawn + np.arange(size)[None, :] / (size + 1.0)
+        out.append(np.argsort(keys, axis=1, kind="stable"))
+    return out
+
+
 def draw_weeks(rng: np.random.Generator, expected_games: np.ndarray,
                kappa: np.ndarray, slate: int, n_sims: int) -> np.ndarray:
     """Which weeks each player is available for, in each simulation.
@@ -288,7 +382,9 @@ def opportunity_multiplier(rng: np.random.Generator, frame: pl.DataFrame,
                            model: sn.SeasonUsageModel, slate: int, n_sims: int,
                            baseline: np.ndarray,
                            transfer: bool = True,
-                           centre: bool = True) -> "Modulation":
+                           centre: bool = True,
+                           role_order: Optional[Sequence[np.ndarray]] = None
+                           ) -> "Modulation":
     """Each player's season opportunity, as a multiple of what the model projected.
 
     The quantity :mod:`Scripts.outcomes.distribution` consumes as ``mu_scale``. One number
@@ -320,6 +416,9 @@ def opportunity_multiplier(rng: np.random.Generator, frame: pl.DataFrame,
             is what earns the complexity.
         centre: Passed to :class:`Modulation`. Leave True unless deliberately measuring
             the double-count it removes.
+        role_order: From :func:`draw_role_order`, one array per room. None treats the
+            depth chart as certain, which is what plan 33 measures as wrong about a third
+            of the time.
 
     Returns:
         Modulation: the availability and transfer factors kept **apart**, because they
@@ -342,22 +441,35 @@ def opportunity_multiplier(rng: np.random.Generator, frame: pl.DataFrame,
                           elasticity=model.games_elasticity, centre=centre)
 
     own = np.where(np.isfinite(baseline) & (baseline > 0), baseline, 0.0)
-    for room in rooms:
+    orders = (role_order if role_order is not None
+              else [None] * len(rooms))
+
+    for room, order in zip(rooms, orders):
         rule = shares.get(room.position)
         if rule is None or len(room.players) < 2:
             continue
         members = np.array(room.players)
-        lead, rest = members[0], members[1:]
-        if not rest.size:
-            continue
+        size = members.size
 
-        lead_present = available[:, lead, :]
-        vacated = own[lead] * (~lead_present)                     # (n_sims, slate)
+        # **Everything below is in role order, not listed order**, because with a role
+        # draw who leads varies by simulation. With no draw the order is the identity and
+        # this reduces exactly to indexing `members[0]` and `members[1:]` -- a test pins
+        # that equivalence, so the generalisation cannot silently change the base case.
+        if order is None:
+            order = np.tile(np.arange(size), (n_sims, 1))
+
+        present = np.take_along_axis(available[:, members, :], order[:, :, None], axis=1)
+        own_ord = np.take_along_axis(np.tile(own[members], (n_sims, 1)), order, axis=1)
+        safe_ord = np.take_along_axis(np.tile(safe[members], (n_sims, 1)), order, axis=1)
+
+        vacated = own_ord[:, 0][:, None] * (~present[:, 0, :])    # (n_sims, slate)
         if not vacated.any():
             continue
 
-        present_rest = available[:, rest, :]                      # (n_sims, |rest|, slate)
-        own_rest = own[rest]
+        present_rest = present[:, 1:, :]                          # (n_sims, |rest|, slate)
+        own_rest = own_ord[:, 1:]                                 # (n_sims, |rest|)
+        if not present_rest.shape[1]:
+            continue
 
         # The understudy's share goes to the best *available* man below the lead, which
         # is how the cascade falls out: if the rank-2 back is himself out, the first
@@ -369,14 +481,14 @@ def opportunity_multiplier(rng: np.random.Generator, frame: pl.DataFrame,
         # projected role -- and explicitly **not** to the man who just took the rank-2
         # share, or he would be paid twice out of one vacancy.
         eligible = present_rest & ~understudy
-        weights = own_rest[None, :, None] * eligible
+        weights = own_rest[:, :, None] * eligible
         total = weights.sum(axis=1, keepdims=True)
 
         # Nobody behind the understudy is available: the work he cannot cover falls back
         # to him rather than evaporating, because a team with one healthy back gives him
         # the carries. Nobody at all available and it leaves the room, which is the group
         # shrinkage the closure table measures anyway.
-        fallback = own_rest[None, :, None] * understudy
+        fallback = own_rest[:, :, None] * understudy
         empty = total <= 0
         weights = np.where(empty, fallback, weights)
         total = np.where(empty, fallback.sum(axis=1, keepdims=True), total)
@@ -386,11 +498,16 @@ def opportunity_multiplier(rng: np.random.Generator, frame: pl.DataFrame,
 
         # Back into per-projected-season units: sum the inherited per-game opportunity
         # over weeks, divide by what a full projected season of his own would have been.
-        denominator = own[rest] * safe[rest]
-        gained = np.divide(inherited.sum(axis=2), denominator[None, :],
-                           out=np.zeros((n_sims, rest.size)),
-                           where=denominator[None, :] > 0)
-        gains[:, rest] += gained
+        denominator = own_rest * safe_ord[:, 1:]
+        gained = np.divide(inherited.sum(axis=2), denominator,
+                           out=np.zeros_like(denominator), where=denominator > 0)
+
+        # Scatter back out of role order onto the room's own positions, then onto the
+        # frame. `members` is unique, so the fancy-index assignment cannot collide.
+        buffer = np.zeros((n_sims, size))
+        np.put_along_axis(buffer, order[:, 1:], gained, axis=1)
+        gains[:, members] += buffer
+
     return Modulation(availability=multiplier, gain=gains,
                       elasticity=model.games_elasticity, centre=centre)
 

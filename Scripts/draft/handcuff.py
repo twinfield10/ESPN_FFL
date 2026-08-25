@@ -237,9 +237,26 @@ def attach_handcuff(board: pl.DataFrame, season: int,
     is_back = ((pl.col("primaryPosition") == "RB")
                & pl.col(points_column).is_not_null()
                & on_a_team)
+    # **The tie-break is explicit, and it has to be.** ``rank("ordinal")`` numbers ties
+    # in row order, and row order out of a ``group_by``/``over`` is not stable -- so two
+    # builds of an unchanged board returned different ranks for 22 players across ten
+    # teams, every one of them a deep reserve sitting at exactly 0.0 projected points.
+    # Ranks 3 to 7 shuffled. It has not yet reached rank 2, which is the only rank
+    # ``handcuff_carries`` attaches to, but on a team with one priced back and several at
+    # zero it would -- and the handcuff column would then name a different player each
+    # night for no reason.
+    #
+    # Subtracting a vanishing multiple of a *stable* key makes the order total without
+    # changing any real comparison: `player_id` is unique per row and the offset is far
+    # below the resolution of a points total. Same discipline as
+    # ``Scripts.outcomes.evidence._ranked``, which learned it when tied reserves moved a
+    # room's measured volume between runs.
+    stable = (pl.col("player_id").cast(pl.Float64).rank("ordinal")
+              if "player_id" in out.columns else pl.lit(0.0))
     out = out.with_columns(
         pl.when(is_back)
-        .then(pl.col(points_column).rank("ordinal", descending=True)
+        .then((pl.col(points_column) - stable * 1e-9)
+              .rank("ordinal", descending=True)
               .over(["pro_team", "primaryPosition"]))
         .otherwise(None)
         .cast(pl.Int32)

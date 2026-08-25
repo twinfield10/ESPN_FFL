@@ -45,6 +45,7 @@ from Scripts.usage import availability as av
 from Scripts.usage import context as ctx
 from Scripts.usage import features as ft
 from Scripts.usage import predictive as pv
+from Scripts.usage import role as rl
 
 #: Prefix the model's output carries into the blend, beside ``ESPN_``/``FP_``/
 #: ``PINNY_``/``BOL_``.
@@ -1439,6 +1440,9 @@ CORRELATION_SEED: int = 28
 MIN_CORRELATION_ROWS: int = 150
 
 
+#: Cohorts the conditional dispersion is split by, matching plan 33's calibration.
+COHORTS: Tuple[str, ...] = ("settled", "mover", "rookie")
+
 #: Grid the games elasticity is searched over.
 #:
 #: Coarse and exhaustive rather than an optimiser, because the objective is a
@@ -1576,6 +1580,22 @@ def _fit_stat_dispersion_conditional(holdout: pl.DataFrame,
     if any(c not in holdout.columns for c in ("y_games", "_mu_games")):
         return {}
 
+    # Plan 33 phase 3. The pooled cell is fitted first and always; the cohort cells are
+    # fitted on top and used where they exist. **Cohort is a real axis of this spread and
+    # the shipped interval did not vary along it at all** -- measured on held-out
+    # residuals, a rookie's coefficient of variation is 1.6x to 2.3x a settled player's
+    # (RB rushing yards 0.70 settled against 1.28 rookie; TE receiving yards 0.57 against
+    # 1.29), in exactly the order the role calibration predicts, since a listed settled
+    # rank-1 really leads 58.8% of the time and a rookie 35.6%.
+    #
+    # It goes in the *dispersion* rather than into a separate role draw because the
+    # residuals already contain role loss -- they are fitted end to end on the finished
+    # line. Adding an explicit role effect on top of them would count it twice, which is
+    # the same trap the vacancy transfer fell into.
+    scoped = (holdout.with_columns(rl.cohort_expression().alias("_cohort"))
+              if {"is_rookie", "team_changed"}.issubset(holdout.columns)
+              else holdout.with_columns(pl.lit(None, dtype=pl.String).alias("_cohort")))
+
     out: Dict[str, Dict[str, float]] = {}
     for stat, outcome in STAT_OUTCOMES.items():
         projected = f"{USAGE_PREFIX}{stat}"
@@ -1583,22 +1603,27 @@ def _fit_stat_dispersion_conditional(holdout: pl.DataFrame,
             continue
         for position in positions:
             beta = elasticity.get(pv.key(position, stat), DEFAULT_GAMES_ELASTICITY)
-            rebased = holdout.with_columns(
+            rebased = scoped.with_columns(
                 _conditional_mean(projected, beta).alias("_mu_cond"))
-            block = rebased.filter(
+            usable = rebased.filter(
                 (pl.col("position") == position)
                 & pl.col("_mu_cond").is_not_null()
                 & pl.col(outcome).is_not_null())
-            if block.height < pv.MIN_FIT_ROWS:
-                continue
-            fitted = pv.fit_variance(
-                block[outcome].cast(pl.Float64).to_numpy(),
-                block["_mu_cond"].to_numpy(),
-                family=pv.family_for(stat))
-            if fitted is not None:
-                phi, k, bust = fitted
-                out[pv.key(position, stat)] = {
-                    "phi": float(phi), "k": float(k), "bust": float(bust)}
+
+            for cohort in (None,) + COHORTS:
+                block = (usable if cohort is None
+                         else usable.filter(pl.col("_cohort") == cohort))
+                if block.height < pv.MIN_FIT_ROWS:
+                    continue
+                fitted = pv.fit_variance(
+                    block[outcome].cast(pl.Float64).to_numpy(),
+                    block["_mu_cond"].to_numpy(),
+                    family=pv.family_for(stat))
+                if fitted is not None:
+                    phi, k, bust = fitted
+                    out[pv.key(position, stat, cohort)] = {
+                        "phi": float(phi), "k": float(k), "bust": float(bust),
+                        "n": int(block.height)}
     return out
 
 
