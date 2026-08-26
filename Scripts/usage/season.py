@@ -125,6 +125,37 @@ VOLUME_REGRESSORS: Tuple[str, ...] = (
 #: :data:`VOLUME_REGRESSORS` now.
 VETERAN_SITUATIONAL_REJECTED: Tuple[str, ...] = ("coach_volume", "staff_continuity")
 
+#: Why ``peak3_volume`` is **defined and switched off**, beside ``mean3_volume`` and
+#: ``peak5_volume``.
+#:
+#: Plan 32 predicted a quarterback-only feature. It shipped briefly as a feature for
+#: every position on the strength of a pooled walk-forward MAE gain -- QB +1.8%, RB
+#: +1.0%, WR +1.0%, TE +0.7%, and 6 of 6 folds at quarterback. **Re-measured on
+#: 2026-08-26, the quarterback half of that does not reproduce.**
+#:
+#: ==========  ==========  ==========
+#: position     claimed     re-measured
+#: ==========  ==========  ==========
+#: QB           +1.8%       **+0.34%**  (4/6 folds)
+#: QB movers    +4.4%       **+0.03%**  (bar was +3%)
+#: RB           +1.0%       +0.94%
+#: WR           +1.0%       +1.28%
+#: TE           +0.7%       +0.59%
+#: ==========  ==========  ==========
+#:
+#: The skill positions reproduce closely and quarterback does not, which is the
+#: opposite of what the plan and its correction both said. Measured at the original
+#: commit in a detached worktree, the numbers are identical fold for fold, so this is
+#: not drift: the claim was never reproducible from this code. The **fit** does improve
+#: at quarterback -- R-squared 0.4503 to 0.4698, ``peak3_volume`` entering at +0.33 and
+#: outweighing ``p1_volume`` -- so the window explains more variance there without that
+#: converting into out-of-sample accuracy.
+#:
+#: **G-M1 was the affirmative gate and it fails**, so nothing turns on. G-M2 was a guard
+#: against regression elsewhere, not a reason to ship, and the ~1% it now measures at
+#: RB, WR and TE is real but needs a gate of its own before it earns a refit. Turning
+#: this back on is one line here plus a ``MODEL_VERSION`` bump.
+
 #: Depth rank used where the chart lists nobody, and the reason it is not zero.
 #:
 #: ``depth_rank`` is ordinal and *ascending* -- 1 is the starter -- so the zero that
@@ -347,6 +378,7 @@ HOLDOUT_SEASONS: int = 2
 #: (the spread *given* games played) and ``stat_correlation`` (how the eight stats'
 #: residuals move together). Plan 28 needs both, and 1.1.0 files load fine without them
 #: -- the fields default empty and every caller falls back explicitly.
+#:
 MODEL_VERSION = "1.2.0"
 
 #: Positions the season head declines to project, whatever features it has for them.
@@ -830,6 +862,18 @@ class SeasonUsageModel:
             "moved_contract_apy": column("team_changed") * column("contract_apy_pct"),
             "moved_contract_gtd": column("team_changed") * column("contract_guaranteed"),
             "moved_contract_new": column("team_changed") * column("contract_is_new"),
+            # --- plan 32 phase 1: the window, all three off -----------------
+            # Two lags cannot separate "lost the job for eight weeks" from "is not
+            # a starter" -- both are a low `p1_volume`, and a peak over three
+            # seasons can. That mechanism is real and the fit agrees with it; what
+            # does not follow is out-of-sample accuracy at quarterback. **None of
+            # the three is in `VOLUME_REGRESSORS`** -- see the note on
+            # `peak3_volume` there for the re-measurement that switched it off.
+            # They stay defined because the feature layer is leak-guarded and
+            # tested, and turning one on is a line there plus a version bump.
+            "peak3_volume": column(f"{ft.PEAK_PREFIXES[3]}{target}"),
+            "mean3_volume": column(f"{ft.MEAN3_PREFIX}{target}"),
+            "peak5_volume": column(f"{ft.PEAK_PREFIXES[5]}{target}"),
         }
 
     def predict_volume(self, frame: pl.DataFrame, target: str) -> pl.Expr:

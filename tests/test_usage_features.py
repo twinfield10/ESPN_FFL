@@ -430,3 +430,85 @@ def test_age_never_falls_back_to_zero():
     frame = pl.DataFrame({"position": ["RB"], "age": [None]}).with_columns(
         pl.col("age").cast(pl.Float64))
     assert frame.select(sn.age_expr(frame).alias("age"))["age"][0] > 20.0
+
+
+# --- the windowed history (plan 32 phase 1) ------------------------------
+
+def prior_rows(seasons_and_targets):
+    """A ``prior_season_frame``-shaped frame: ``(season, targets_pg)`` for one player."""
+    return pl.DataFrame({
+        "gsis_id": ["a"] * len(seasons_and_targets),
+        "season": [s for s, _ in seasons_and_targets],
+        "targets_pg": [float(t) for _, t in seasons_and_targets],
+    })
+
+
+def test_the_window_stops_at_the_season_being_predicted():
+    """The boundary the whole feature layer turns on, applied to the aggregate.
+
+    ``prior_season_frame`` raises if history reaches the target; this is the second
+    half -- an aggregate over it must not reach forward either.
+    """
+    frame = prior_rows([(2023, 4.0), (2024, 6.0), (2025, 8.0), (2026, 99.0)])
+    out = ft.windowed_history(frame, 2026)
+    assert out["peak3_targets_pg"][0] == pytest.approx(8.0)
+
+
+def test_the_three_season_window_excludes_the_fourth():
+    frame = prior_rows([(2022, 99.0), (2023, 4.0), (2024, 6.0), (2025, 8.0)])
+    out = ft.windowed_history(frame, 2026)
+    assert out["peak3_targets_pg"][0] == pytest.approx(8.0)
+    assert out["peak5_targets_pg"][0] == pytest.approx(99.0)
+
+
+def test_the_mean_is_over_seasons_played_not_seasons_elapsed():
+    """A missed season contributes nothing rather than a zero.
+
+    This is the distinction the feature exists to make. A quarterback who was hurt
+    in 2024 and a quarterback who was a healthy backup taking no snaps both look
+    like a low ``p1_``; averaging a fabricated zero into the first would erase
+    exactly the difference the window is here to carry.
+    """
+    frame = prior_rows([(2024, 4.0), (2025, 8.0)])
+    out = ft.windowed_history(frame, 2026)
+    assert out["mean3_targets_pg"][0] == pytest.approx(6.0)
+    assert out["peak3_seasons"][0] == 2
+
+
+def test_a_player_with_no_window_is_absent_rather_than_zero():
+    """A rookie's peak of zero and a veteran's are different facts."""
+    frame = prior_rows([(2019, 9.0)])
+    out = ft.windowed_history(frame, 2026)
+    assert out.filter(pl.col("gsis_id") == "a")["peak3_targets_pg"].to_list() in ([], [None])
+
+
+def test_every_volume_stat_gets_its_own_window():
+    """`_veteran_terms` picks the column matching the target being fitted, so all
+    three have to exist or a position silently fits on a zero."""
+    frame = pl.DataFrame({
+        "gsis_id": ["a"], "season": [2025],
+        "targets_pg": [5.0], "carries_pg": [12.0], "pass_attempts_pg": [30.0]})
+    out = ft.windowed_history(frame, 2026)
+    for stat in ("targets_pg", "carries_pg", "pass_attempts_pg"):
+        assert f"peak3_{stat}" in out.columns
+        assert f"peak5_{stat}" in out.columns
+        assert f"mean3_{stat}" in out.columns
+
+
+def test_the_window_survives_the_leakage_guard(nfl_root):
+    """Allowed by prefix, derived from the constants -- so widening the window
+    cannot slip past the check the way the coordinator prior once did."""
+    full_season(nfl_root, 2024, ["a", "b"])
+    full_season(nfl_root, 2025, ["a", "b"])
+    write_rosters(nfl_root, 2026,
+                  [(p, 1, "SEA", "WR", 2021) for p in ("a", "b")])
+    out = ft.season_features(2026, [2024, 2025])
+    assert ft.leakage_columns(out, 2026) == []
+    assert "peak3_targets_pg" in out.columns
+
+
+def test_a_bare_window_name_would_still_be_caught():
+    """The allowance is a prefix, not a blanket: `peak3_x` passes, `peak_x` does not."""
+    frame = pl.DataFrame({"gsis_id": ["a"], "season": [2026],
+                          "peak3_targets_pg": [5.0], "peak_targets_pg": [5.0]})
+    assert ft.leakage_columns(frame, 2026) == ["peak_targets_pg"]
