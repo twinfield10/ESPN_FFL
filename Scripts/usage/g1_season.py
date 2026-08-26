@@ -71,7 +71,9 @@ import polars as pl
 from Scripts.crosswalk import id_map
 from Scripts.projection_utils import IMPUTED_SUFFIX
 from Scripts.usage import backtest as bt
+from Scripts.usage import coherence
 from Scripts.usage import evalset
+from Scripts.usage import role as rl
 
 #: External sources, in the order the tables print them.
 SOURCES: Tuple[str, ...] = ("ESPN", "FP", "PINNY", "BOL")
@@ -273,7 +275,9 @@ def blend(frame: pl.DataFrame, stats: Sequence[str],
 def run(season: int = 2025,
         weights: Optional[Sequence[float]] = None,
         league_key: str = bt.SCORING_LEAGUE,
-        basis: str = "preseason") -> Dict:
+        basis: str = "preseason",
+        coherent: bool = True,
+        allocate: bool = True) -> Dict:
     """Measure the blend with and without the shipped season head.
 
     Args:
@@ -283,6 +287,11 @@ def run(season: int = 2025,
         basis: ``"preseason"`` for genuine pre-season sources, or ``"summed-weekly"``
             for the contaminated one -- see the module docstring, and do not report a
             result from it.
+        allocate: Use plan 31 phase 2's role allocation for the quarterback room
+            rather than phase 1's uniform cap. Only meaningful when ``coherent``.
+        coherent: Run TOMCAT's line through :mod:`Scripts.usage.coherence` first, as
+            the shipping path does. This is G-T1 and G-T2 of plan 31: pass False to
+            measure the same fold without it and read the difference.
 
     Returns:
         dict: ``frame`` (the joined evaluation frame) and ``rows`` (one record per
@@ -294,10 +303,35 @@ def run(season: int = 2025,
     from Scripts.season_projections import normalise_name
 
     model_frame, _ = bt.run_season(season)
-    keep = (["gsis_id", "position", "full_name"]
+    # `depth_rank`, `is_rookie` and `team_changed` are the phase 2 allocation's inputs.
+    # They are on the feature frame already; the board path has to have `depth_rank`
+    # written into the parquet to see it at all -- see `project.CONTEXT_COLUMNS`.
+    keep = (["gsis_id", "position", "full_name", "team", "expected_games",
+             "depth_rank", "is_rookie", "team_changed"]
             + [f"USG_{s}" for s in stats if f"USG_{s}" in model_frame.columns]
             + [c for c in bt.OUTCOME_COLUMNS.values() if c in model_frame.columns])
     model_frame = model_frame.select([c for c in keep if c in model_frame.columns])
+
+    # Plan 31 phase 1, on the fold rather than on the board.
+    #
+    # The two bases are not the same and the difference is worth naming. This frame
+    # is an *expected-value* line -- `predict` multiplies per-game production by
+    # expected games and leaves it there, which is what a realised season is scored
+    # against. The board's line has had that term divided back out by
+    # `Scripts.usage.project.to_full_slate`. The over-subscribed quarterback room is
+    # the same double-count on both, which is what the cap removes; the *short* room
+    # deletes real volume here and merely looks short there, and neither is touched
+    # -- see the cap's rationale in `Scripts.usage.coherence`.
+    if coherent:
+        # The board path gets its cohort from `usg_role_cohort`, written by
+        # `Scripts.usage.role.attach_confidence`. Here it is rebuilt from the same
+        # two flags that define it, so both paths allocate on one definition.
+        if {"is_rookie", "team_changed"}.issubset(model_frame.columns):
+            model_frame = model_frame.with_columns(rl.cohort_expression()
+                                                   .alias("usg_role_cohort"))
+        model_frame = coherence.make_coherent(
+            model_frame, team_column="team", position_column="position",
+            games_column="expected_games", allocate=allocate)
 
     if basis == "summed-weekly":
         external = external_season(season, stats)
@@ -361,13 +395,15 @@ def run(season: int = 2025,
             sub = usable.filter(pl.col("position") == position)
             record[position] = bt.spearman(sub, "blend_points", "actual_points")
         rows.append(record)
-    return {"frame": joined, "rows": rows, "dropped_no_external": dropped}
+    return {"frame": joined, "rows": rows, "dropped_no_external": dropped,
+            "coherent": coherent, "allocate": allocate}
 
 
 def report(season: int = 2025, weights: Optional[Sequence[float]] = None,
-           league_key: str = bt.SCORING_LEAGUE, basis: str = "preseason") -> str:
+           league_key: str = bt.SCORING_LEAGUE, basis: str = "preseason",
+           coherent: bool = True) -> str:
     """Human-readable G1 for the shipped head."""
-    result = run(season, weights, league_key, basis)
+    result = run(season, weights, league_key, basis, coherent)
     rows = result["rows"]
     base = rows[0]
     used = sorted({c.split("_")[0] for c in result["frame"].columns
@@ -375,7 +411,8 @@ def report(season: int = 2025, weights: Optional[Sequence[float]] = None,
 
     lines = [
         f"===== G1, shipped season head — {season} walk-forward, priced by {league_key} =====",
-        f"  basis: {basis}   baseline sources: {', '.join(used) or 'none'}",
+        f"  basis: {basis}   baseline sources: {', '.join(used) or 'none'}"
+        f"   team-coherent: {'yes' if result['coherent'] else 'no'}",
         f"  {result['dropped_no_external']} players dropped: no external source has an "
         f"opinion about them, so there is no blend to compare against",
         "",
@@ -438,11 +475,15 @@ def main(argv: Optional[List[str]] = None) -> int:
                         choices=["preseason", "summed-weekly"])
     parser.add_argument("--hindsight", action="store_true",
                         help="print the contamination diagnostic and exit")
+    parser.add_argument("--incoherent", action="store_true",
+                        help="skip the plan-31 team-coherence pass, to read G-T1 "
+                             "and G-T2 as a difference against it")
     args = parser.parse_args(argv)
     if args.hindsight:
         print(hindsight_report(args.season))
         return 0
-    print(report(args.season, args.weights, args.league, args.basis))
+    print(report(args.season, args.weights, args.league, args.basis,
+                 coherent=not args.incoherent))
     return 0
 
 

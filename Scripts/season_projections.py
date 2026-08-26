@@ -585,7 +585,11 @@ def load_usage_season(season: int) -> pd.DataFrame:
                # themselves -- listed here rather than picked up by a prefix scan
                # because this dict is the whole contract for what crosses over.
                "usg_role_cohort": "usg_role_cohort",
-               "usg_role_confidence": "usg_role_confidence"}
+               "usg_role_confidence": "usg_role_confidence",
+               # Plan 31 phase 2, which allocates a team's starts by depth rank and
+               # cohort. Absent from any parquet written before that phase, which is
+               # why `_make_usage_coherent` treats it as optional rather than a key.
+               "depth_rank": "usg_depth_rank"}
     out = df[[c for c in ["player_id", "name_key"] if c in df.columns]
              + [c for c in df.columns if c.startswith("USG_")]].copy()
     for source_col, target_col in context.items():
@@ -1142,6 +1146,74 @@ def _withdraw_usage_on_role(base: pd.DataFrame, season: int) -> pd.DataFrame:
           f"out ({shown}).")
     return base
 
+
+
+def _make_usage_coherent(base: pd.DataFrame,
+                         prefix: str = "USG_") -> pd.DataFrame:
+    """Run the usage column through :mod:`Scripts.usage.coherence`.
+
+    A pandas shim over a polars implementation, so the shipping path and the gate
+    path in :mod:`Scripts.usage.g1_season` reconcile by the same code rather than by
+    two hand-matched copies of the same arithmetic. Only the columns the operation
+    touches cross the boundary -- three keys and the ``USG_`` block, roughly 40 of the
+    board's 1,355 columns.
+
+    ``TRUE_`` is deliberately not passed here. It has its own reconciliation
+    *after* the blend, in :func:`reconcile_team_totals`, and doing it twice would
+    mean the second pass reconciling a frame the first already closed.
+
+    Args:
+        base: Merged frame, post role-withdrawal, carrying ``pro_team``.
+        prefix: Stat-line prefix to make coherent.
+
+    Returns:
+        pd.DataFrame: ``base`` with the usage lines scaled and the two room
+        diagnostics attached. Unchanged if the usage source never joined.
+    """
+    from Scripts.usage import coherence
+
+    keys = ["pro_team", "primaryPosition", "usg_expected_games"]
+    if not set(keys).issubset(base.columns):
+        return base
+
+    # Phase 2's inputs are carried only if the parquet was written with them. A
+    # parquet from before plan 31 phase 2 has no `usg_depth_rank`, and the allocation
+    # declines rather than fails -- `make_coherent` falls back to the phase 1 cap. So
+    # these are appended to the slice when present and never gate the pass itself.
+    optional = [c for c in ("usg_role_cohort", "usg_depth_rank")
+                if c in base.columns]
+
+    lines = [c for c in base.columns
+             if c.startswith(prefix) and not c.endswith(IMPUTED_SUFFIX)
+             and pd.api.types.is_numeric_dtype(base[c])]
+    if not lines:
+        return base
+
+    slice_ = base[keys + optional + lines].copy()
+    slice_["pro_team"] = slice_["pro_team"].astype("string")
+    slice_["primaryPosition"] = slice_["primaryPosition"].astype("string")
+    for column in ["usg_expected_games"] + lines:
+        slice_[column] = pd.to_numeric(slice_[column], errors="coerce")
+
+    before = coherence.identity_report(pl.from_pandas(slice_), prefix=prefix)
+    out = coherence.make_coherent(pl.from_pandas(slice_), prefix=prefix,
+                                  rank_column="usg_depth_rank")
+    after = coherence.identity_report(out, prefix=prefix)
+
+    for column in lines + [coherence.TEAM_GAMES_COLUMN,
+                           coherence.ROOM_SCALE_COLUMN,
+                           coherence.ALLOCATED_STARTS_COLUMN]:
+        if column in out.columns:
+            base[column] = out[column].to_numpy()
+
+    def _span(report):
+        ratios = report["ratio"].drop_nulls()
+        return (f"{ratios.min():.3f}-{ratios.max():.3f}"
+                if len(ratios) else "n/a")
+
+    print(f"  Usage: team-coherent -- identity ratio {_span(before)} "
+          f"-> {_span(after)} across {after.height} team(s).")
+    return base
 
 #: Stat pairs that are the *same event* counted from each end, and must therefore sum
 #: to the same team total. A completed pass is one team's passing yard and one of its
@@ -1802,6 +1874,17 @@ def build_season_projections(league, season: Optional[int] = None,
         flag = f"{stat_col}{IMPUTED_SUFFIX}"
         if flag in base.columns:
             base[flag] = base[flag].fillna(True).astype(bool)
+
+    # Phase 1 of plan 31: make the model's own column describe a team that plays
+    # seventeen games, *before* the blend reads it.
+    #
+    # Here rather than in `Scripts.usage.project` for two reasons. The model's own
+    # `team` is correct -- it is the current pre-season roster team, which is the
+    # whole point of the join in `Scripts.usage.scheme.attach` -- but `project.build`
+    # does not carry it into the parquet, and `pro_team` is already on this frame.
+    # And this is downstream of `_withdraw_usage_on_role`, so a backup ESPN has
+    # priced out has already left the frame and is not counted into his room's games.
+    base = _make_usage_coherent(base)
 
     scoring = get_scoring_table(league)
     stats = [c for c in scoring["colName"].dropna().unique()]
