@@ -269,9 +269,38 @@ BetOnline's `anytimeTouchdown` split is the first place to look.
 
 ### Owed
 
-- **The six milestone-bonus column names.** Needs one live probe of ESPN's
-  `projected_breakdown` keys for a player with a 100-yard game. Until then that league's
-  points are short by a median 0.48 a row, and now say so.
+- **The six milestone bonuses need a model, not a column name.** Recorded 2026-08-26 and
+  **not to be acted on** — this is a note, not a queued task.
+
+  The first reading of F4(b) was that the projection side is a naming problem: find the
+  key ESPN's `projected_breakdown` uses and the number arrives. That is wrong about the
+  half that matters. **A milestone bonus is a non-linear function of the stat line.**
+  "3 points for a 100-199 yard rushing game" is not a rate on rushing yards, so it cannot
+  be expressed as a column times a constant — which is precisely the constraint
+  `proj_to_score` operates under, and `REPL_SCORING`'s own comment in
+  `Scripts/scrape_player_stats.py` states it: *"proj_to_score can only multiply a stat
+  column by a constant."* 1,400 rushing yards over 17 games buys a different number of
+  100-yard games depending on how they are distributed, and a season total cannot say.
+
+  So the projection side wants a **separate model over the player's per-game
+  distribution**, counting how often he crosses the threshold: expected bonus games
+  = Σ over the slate of P(stat in the band that week). The output is an expected count,
+  which `proj_to_score` can then price linearly.
+
+  **The repo already has this shape twice.** `Scripts/dst/model.py` calls it out
+  explicitly — points allowed and yards allowed are *"step functions of a weekly
+  quantity, so a season projection has to carry the weekly distribution and integrate
+  the ladder over it"* — and emits expected **games in each tier**, summing to the slate.
+  `PA_TIERS` and `YD_TIERS` are the same object as these six bonuses. The kicker model
+  does the same with distance buckets. A yardage-milestone arm is that pattern applied to
+  a third ladder, and its natural home is a **per-game** distribution, which is
+  [plan 19](19-weekly-usage-model.md)'s grain rather than the season head's.
+
+  Two halves, and only one of them is modelling. The **actual** columns are also zero for
+  all 3,095 player-weeks, and a realised 100-yard game is a fact rather than an
+  expectation — so that half probably *is* a naming problem, and it is what a backtest of
+  any such model would be scored against. Until either is done that league's points are
+  short by a median 0.48 a row, and now say so out loud.
 - **The efficiency shrinkage constants** are all below their measured floor (F3). Refitting
   them moves `USG_` and therefore `TRUE_`.
 - **`Scripts/usage/weekly.py`** — [plan 19](19-weekly-usage-model.md), unchanged in scope

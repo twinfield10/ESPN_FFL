@@ -874,9 +874,20 @@ def report_silent_zero_stats(df, scoring_df, prefix="ESPN_"):
     Found in john_pc_league 2025, which scores six yardage-milestone bonuses
     (``rushingYards100-199Game`` and five siblings, worth 1 to 5 points each). All
     six are zero for all 3,095 player-weeks, in the *actuals* as well as the
-    projections, so the name this pipeline reads is not the name ESPN's breakdown
-    uses. It cost that league a median 0.48 points a row, and the points-space
-    patch downstream hid every one of them.
+    projections. It cost that league a median 0.48 points a row, and the
+    points-space patch downstream hid every one of them.
+
+    **The two halves need different things, and only the actuals are a naming
+    problem.** A realised 100-yard game is a fact, so a zero there means the key
+    read here is not the key ESPN's breakdown uses. The *projection* cannot be
+    fixed that way at all: a milestone bonus is a **non-linear** function of the
+    stat line -- 1,400 rushing yards buys a different number of 100-yard games
+    depending how they are distributed -- and :func:`proj_to_score` can only
+    multiply a stat column by a constant. What it wants is a per-game distribution
+    counted across the threshold, emitted as an expected *count* that can then be
+    priced linearly. :mod:`Scripts.dst.model` already integrates exactly this shape
+    for ``PA_TIERS``. Recorded, deliberately not built -- see
+    ``docs/plans/34-stat-first-audit.md``.
 
     Args:
         df: The merged frame.

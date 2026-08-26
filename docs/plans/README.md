@@ -173,9 +173,12 @@ each plan doc carries its own evidence and postscript.
 ### Before week 1
 
 - **[34](34-stat-first-audit.md)'s owed items.** Three, in order of how cheap they are.
-  **The six milestone-bonus column names** need one live probe of ESPN's
-  `projected_breakdown` for a player with a 100-yard game; until then `john_pc_league`'s
-  points are short by a median 0.48 a row and now say so out loud. **The eight efficiency
+  **The six milestone bonuses need a model, not a column name** — a bonus is a *non-linear*
+  function of the stat line, so it cannot be a column times a constant, and the projection
+  side wants a per-game distribution counted across the threshold. Same object as
+  `Scripts/dst/model.py`'s `PA_TIERS`, and its grain is [19](19-weekly-usage-model.md)'s.
+  **Noted, deliberately not queued.** Until then `john_pc_league`'s points are short by a
+  median 0.48 a row and now say so out loud. **The eight efficiency
   shrinkage constants** are all below their measured credibility floor and refitting them
   moves `USG_` and so `TRUE_`. **The quarterback passing interval** covers 58.9% against a
   nominal 80% and misses asymmetrically — either refit the QB dispersion in
