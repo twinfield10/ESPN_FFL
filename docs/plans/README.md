@@ -7,6 +7,32 @@ Phase 0 (2026 rollover, pipeline de-duplication, season-scoped paths, docs,
 tests) is already done — see [`../STATE_OF_THE_REPO.md`](../STATE_OF_THE_REPO.md).
 These are what the scan turned up *beyond* that.
 
+## Which numbers in here drift
+
+A number in a plan is one of two kinds, and confusing them wastes a re-measurement.
+
+**Fitted-artifact numbers are stable and should reproduce exactly.** They come off a
+persisted fit — `Data/NFL/vacancy_transfer.parquet`, `injury_episodes.parquet`, the model
+files under `Data/NFL/models/` — and they only move when something is deliberately
+refitted. Audited 2026-08-26, these reproduce to the digit: plan 27's 3,056 episodes,
+1,555 returns, 580 long absences and hamstring recurrence at 9.9% on n=223; plan 28's
+recapture shares of 0.814 / 0.452 / 0.471; plan 33's 59% / 45% / 36%. If one of these
+does not reproduce, something is wrong.
+
+**Live-board numbers are a snapshot and will not reproduce.** They are measured against
+whatever the board held that morning, and rosters, depth charts, injuries and ADP all
+move daily through camp. Plan 31's TOMCAT identity range read 0.658–1.704 on 2026-08-24
+and 0.612–1.704 two days later, from the same code. Quote these with an *as at* date and
+read the shape rather than the endpoints.
+
+**A third kind is neither, and it is the one to watch: a number that never reproduced.**
+Plan 32's phase 1 claimed +1.8% at quarterback and +4.4% on quarterback movers. Measured
+at its own original commit in a detached worktree, before anything else had landed, it
+comes back +0.34% and +0.03% — identical fold for fold. It was wrong when written rather
+than overtaken, and the way that was established was to check out the commit that made
+the claim and re-run it there. That is the test worth applying before building on any
+measurement whose code has since been deleted.
+
 Every plan carries one of three statuses, recorded in **two** places that must agree:
 a `**Status:**` line under the plan's own title, and the section it sits in below.
 **IN PROGRESS** means partly built with work owed; **TO DO** means not started;

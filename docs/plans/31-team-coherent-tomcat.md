@@ -17,6 +17,12 @@ badly.
 
 **A team cannot throw for 5,652 yards and catch 3,718.** On the 2026 board:
 
+**Measured on the 2026 board as at 2026-08-24.** These are live-board numbers and they
+move: rebuilding hours apart on 2026-08-26 gave a TOMCAT floor of 0.612 and then 0.658 as
+the depth chart and rosters refreshed. The *shape* is the finding and it is stable; the
+endpoints are a snapshot. See the note on reading numbers in
+[`README.md`](README.md#which-numbers-in-here-drift).
+
 | source | `Σ receivingYards / Σ passingYards` | teams off by >5% |
 |---|---|---|
 | ESPN | 1.000 – 1.000 | **0 / 32** |
