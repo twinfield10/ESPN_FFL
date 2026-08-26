@@ -22,6 +22,8 @@
 #     once the season starts if you want the phone view refreshed nightly.
 #   * No board rebuild when a pull failed. That is the whole point of the guard
 #     below -- see "Why this fails loudly".
+#   * No run at all off a branch other than main -- see "Why this refuses to run
+#     off main". The board is published from merged code or not at all.
 #
 # Why this fails loudly. This repo's recurring failure mode, documented across plans
 # 01, 03 and 22, is an absent source reading as agreement: something upstream stops
@@ -30,6 +32,12 @@
 # a month. So: `set -e` stops at the first failure, the board is only rebuilt if
 # every pull succeeded, and the run ends by checking that the depth chart actually
 # moved rather than that the command exited zero.
+#
+# Why this refuses to run off main. There is no `git checkout` anywhere below, so
+# this runs whatever branch happens to be checked out. A branch that changes the
+# projections -- a MODEL_VERSION bump forcing a refit, a new blend input -- would
+# therefore reach all nine boards and S3 through cron alone, unmerged and untyped.
+# The branch check is the first thing the run does, before any pull.
 #
 # Install (matches the existing crontab pattern):
 #
@@ -80,6 +88,34 @@ fail() {
 }
 
 log "=== daily refresh starting ==="
+
+# --- 0. The branch, before anything else --------------------------------
+# This script has no `git checkout`. It runs whatever is sitting in the working
+# tree, which means the branch left checked out at 05:59 is the code that rebuilds
+# nine boards and pushes them to S3 at 06:00.
+#
+# That is a live footgun rather than a hypothetical. Both open PRs at the time of
+# writing -- #21 (team-coherent TOMCAT) and #24 (the three-season window) -- move
+# `USG_` and therefore `TRUE_`, and #24 bumps MODEL_VERSION, which makes
+# `load_or_fit` miss and refit the model from scratch. Neither has to be *merged*
+# to reach the board. Leaving either checked out overnight is enough, and the
+# result is a silently different board with no command typed and nothing in the
+# log that looks wrong.
+#
+# So: refuse, loudly, and name the fix. A skipped night is cheap -- every pull is
+# a full snapshot and tomorrow catches up -- and a board republished off an
+# unmerged branch during draft season is not.
+#
+# ALLOW_ANY_BRANCH=1 overrides, for a deliberate run off a branch. It is not for
+# getting past this in a hurry.
+BRANCH="$(git -C "${REPO}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+if [ "${ALLOW_ANY_BRANCH:-0}" = "1" ]; then
+  log "WARNING: branch check overridden, running off '${BRANCH}'"
+elif [ "${BRANCH}" != "main" ]; then
+  fail "refusing to run off branch '${BRANCH}' -- boards publish from main only. \
+Run 'git -C ${REPO} checkout main', or set ALLOW_ANY_BRANCH=1 to override deliberately."
+fi
+log "branch ${BRANCH}"
 
 # The season comes from config.yaml rather than being hardcoded, so the annual
 # rollover is one edit in one place. See docs/SEASON_ROLLOVER.md.

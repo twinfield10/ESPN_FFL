@@ -236,7 +236,11 @@ Ordered by when it has to happen, not by size.
 - [ ] Re-run `python -m Scripts.injury.review` the morning of. A Friday injury to a
       third-round pick is exactly the case the override file exists for.
 - [ ] **Freeze the code.** No further blend-weight changes, no turning `KIK_` on, no
-      dependency upgrades. Everything in this repo's own *Known issues* about absent
+      dependency upgrades. **Leave the repo on `main`** — the 6am job has no
+      `git checkout` and runs whatever is in the working tree, so a projection-moving
+      branch left checked out is enough to republish every board without a merge.
+      `run_daily_refresh.sh` now refuses to run off anything but `main`, which makes
+      that a failed run and a notification rather than a silently different board. Everything in this repo's own *Known issues* about absent
       sources reading as agreement applies double to a change made the day of a draft.
 
 ### Draft night
