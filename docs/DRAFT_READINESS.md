@@ -235,8 +235,13 @@ Ordered by when it has to happen, not by size.
       ```
 - [ ] Re-run `python -m Scripts.injury.review` the morning of. A Friday injury to a
       third-round pick is exactly the case the override file exists for.
-- [ ] **Freeze the code.** No further blend-weight changes, no turning `KIK_` on, no
-      dependency upgrades. **Leave the repo on `main`** — the 6am job has no
+- [ ] **Freeze the code — on draft day, and not before.** No further blend-weight
+      changes, no turning `KIK_` on, no dependency upgrades. This is a *draft-week*
+      item and was being read as a standing ban: plan 31 sat finished on a branch for
+      that reason when the right move was to merge it a fortnight out and let the
+      nightly rebuilds find anything wrong. **Ship projection changes early in camp,
+      not late** — a change that has been live for two weeks is one you have looked at
+      on a real board twenty times. **Leave the repo on `main`** — the 6am job has no
       `git checkout` and runs whatever is in the working tree, so a projection-moving
       branch left checked out is enough to republish every board without a merge.
       You no longer have to: cron runs `~/bin/espn_ffl_nightly.sh`, which drives a
