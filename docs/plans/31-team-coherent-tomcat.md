@@ -2,7 +2,7 @@
 
 **Status:** IN PROGRESS
 
-**Priority:** High · **Effort:** M · **Where it stands:** **Phase 1 shipped on `feat/team-coherent-tomcat`, 2026-08-24** — three gates pass, G-T2 misses, so the false-positive clause does not fire and phases 2–3 stay open. Evidence measured 2026-08-24
+**Priority:** High · **Effort:** M · **Where it stands:** **Phases 1–2 built on `feat/team-coherent-tomcat`** — phase 1 shipped 2026-08-24 and missed G-T2; phase 2 (2026-08-26) clears it at +0.0305 on a +0.02 bar and takes G-T0's QB-games half from 1 of 32 to 32 of 32, though its separation from phase 1 is inside the noise at n=92. G-T3 is owed and phase 3 is open.
 **Depends on:** [18](18-season-usage-model.md) (the season head) ·
 [28](28-outcome-distributions.md) (the redistribution evidence this needs)
 **Feeds:** [19](19-weekly-usage-model.md) · [03](03-projection-source-coverage.md)
@@ -146,11 +146,63 @@ putting it on the projected starter's row would be wrong at the player level to 
 tidiness at the team level. That is phase 3, and it needs a replacement row to move it
 to.
 
-### Phase 2 — a team snap budget
+### Phase 2 — a team snap budget — **shipped**
 
 Constrain expected games so a team's quarterback-games sum to the slate, and its
 skill-position snaps to a plausible team total, rather than each player being estimated
-alone. This is where the Cleveland and Atlanta failures actually live.
+alone. ~~This is where the Cleveland and Atlanta failures actually live.~~
+
+**As built** — `allocate_qb_starts` in `Scripts/usage/coherence.py`, the *replacement*
+for phase 1's `normalise_qb_room` rather than an addition to it. `allocate=False` keeps
+the phase 1 form so the two are read against each other rather than asserted.
+
+> **Three of this plan's premises did not survive re-measurement, and the struck
+> sentence above is the first.** Cleveland was already corrected under phase 1 —
+> shrinkage toward a positional baseline, not availability — and Atlanta was the
+> double-count the cap removed. Neither is what phase 2 turned out to be about.
+
+**Correction 1: "a no-op on thirty of the thirty-two teams" described the board, not
+the model.** The board carries ESPN-draftable players, roughly one quarterback a team.
+In the model's own universe — which is what the gate measures — it is the inverse:
+
+| universe | projected QBs | median room games | rooms over the slate |
+|---|---|---|---|
+| board (phase 1's table) | ~1 per team | 12.5 | 2 of 32 |
+| model, 2026 | 96 | 22.0 | 30 of 32 |
+| model, 2025 (the gate's frame) | 129 | 25.9 | 30 of 32 |
+
+**Correction 2: the shares are wrong, not just the total** — so "constrain the room to
+the slate", read literally, makes the starter worse. Against realised 2025:
+
+| rank in room | model | realised | proportional rescale to the slate |
+|---|---|---|---|
+| QB1 | 12.46 | **14.03** | 9.6 — *further from the truth* |
+| QB2 | 6.58 | 2.24 | 5.0 |
+| room | 25.9 | 20.0 | 17.0 |
+
+**Correction 3: the currency is starts, not appearances.** `expected_games` predicts
+appearances, and appearances do not sum to the slate — a starter who leaves injured and
+his replacement both count, so a realised room sums to a median **20**. A start, the
+passer with the most attempts in a team-week, sums to seventeen by construction.
+
+The allocation is measured, not assumed: 644 quarterback player-seasons 2018–2025, the
+same leak-free construction as [plan 33](33-role-resolution.md)'s calibration and the
+same cohort split in a different currency.
+
+| cohort | QB1 | QB2 | QB3 |
+|---|---|---|---|
+| settled | **13.88** | 2.73 | 2.00 |
+| mover | 10.11 | 2.21 | 1.02 |
+| rookie | 9.06 | 1.58 | 0.47 |
+
+**Why this is the phase that could move G-T2, when phase 1 structurally could not.**
+A per-team constant multiplier cannot reorder inside a room, and every team's factor is
+similar, so it barely reorders across them: phase 1's league-wide quarterback Spearman
+against its own input is **0.956**. Allocation gives each passer his own factor and
+moves the starter and his backup in opposite directions.
+
+It also **divides rather than lifts**, which is what stops it re-creating the Miami
+blow-up: a lone projected passer's share is one, not `slate / expected_games`.
 
 ### Phase 3 — redistribute vacated volume
 
@@ -208,7 +260,44 @@ should.
 
 ## What shipped, and what the gates said
 
-Phase 1 only, on `feat/team-coherent-tomcat`, measured 2026-08-24.
+### Phase 2, measured 2026-08-26
+
+| gate | bar | phase 1 | phase 2 | |
+|---|---|---|---|---|
+| **G-T0** identity | 0.98–1.02 on 32 teams | 1.000 on 32 | **1.000 on 32** | **pass** |
+| **G-T0** QB-games | 16–18 on every team | **1 of 32** | **32 of 32** | **pass** |
+| **G-T1** accuracy | no regression | +2.14% | **+2.30%** | **pass** |
+| **G-T2** standalone QB ordering | +0.02 Spearman | +0.0054 | **+0.0305** | **pass** |
+| **G-T2** ordering elsewhere | must not fall | RB −0.0015, WR +0.0023, TE +0.0012 | RB −0.0013, WR +0.0017, TE −0.0018 | **pass** |
+| **G-T3** blend stability | median shift < 2% every position | worst 0.45% | *not yet re-measured* | open |
+| **G-T4** conservation | — | n/a | phase 3 | n/a |
+
+**G-T0's second half is the one phase 1 recorded as "not reachable".** Lifting a short
+room to seventeen games means projecting a quarterback with no row on the board.
+Allocation reaches it from the other side — it never lifts, it divides — so the gate is
+met without inventing a player.
+
+Team passing totals land at **3,711–5,249** against phase 1's 4,604–6,368. The all-time
+record is 5,477, so phase 1's top team was still projecting past it and phase 2's is not.
+
+**The honest limit, and it is the number to argue with.** Bootstrapped over the
+evaluation frame, phase 2's gain *over phase 1* at quarterback is **+0.0252 with a 95%
+interval of [−0.0035, +0.0536]** — it includes zero. The other three positions'
+intervals include zero too, which is why the TE −0.0018 is not read as a fall.
+
+`n` is 92 quarterbacks and **cannot be raised**: `external_season` needs `lineups`, and
+the store holds those for 2025 alone because FantasyPros serves no season parameter
+(see [plan 25](25-results-backfill.md)). The gate is structurally single-season. So
+phase 2 clears a bar that was pre-committed against the *unreconciled* baseline, on
+exactly the `n` at which phase 1's +0.0054 was read as a miss, and the separation
+between the two phases is not itself significant. Both statements are true and the
+second does not cancel the first.
+
+The independent evidence does not depend on that `n`: the allocation is fitted on 644
+player-seasons, G-T0's QB-games half goes 1 of 32 to 32 of 32, and the league's team
+passing totals move inside their historical range.
+
+### Phase 1, measured 2026-08-24
 
 | gate | bar | result | |
 |---|---|---|---|
