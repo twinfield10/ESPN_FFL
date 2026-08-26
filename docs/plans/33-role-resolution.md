@@ -1,6 +1,8 @@
 # 33 — Role resolution: what the first three games say about the depth chart
 
-**Priority:** Medium · **Effort:** S–M · **Status:** **Phases 1–2 built 2026-08-24;
+**Status:** COMPLETE
+
+**Priority:** Medium · **Effort:** S–M · **Where it stands:** **Phases 1–2 built 2026-08-24;
 phase 3 built and REJECTED 2026-08-25 at G-R2.** Role uncertainty is real and is already
 in the interval — cohort does not explain the miss. On the draftable pool coverage is
 flat across settled, mover and rookie (0.676-0.689) and uniformly ~11 points too narrow,

@@ -1,7 +1,9 @@
 # 28 — Outcome distributions, and where the variance actually lives
 
+**Status:** IN PROGRESS
+
 **Priority:** High (draft-relevant, and it is the first thing on the board that would
-be *new information* rather than a better mean) · **Effort:** L · **Status:** **Phases
+be *new information* rather than a better mean) · **Effort:** L · **Where it stands:** **Phases
 1-3 built 2026-08-24. G-D0, G-D1 and G-D3 pass; G-D2 and G-D5 fail.**
 
 The board now carries `pts_p10`, `pts_p90`, `p_top12`, `p_bust` and `outcome_evidence`

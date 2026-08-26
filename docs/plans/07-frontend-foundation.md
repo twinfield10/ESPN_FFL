@@ -1,6 +1,8 @@
 # 07 — Local frontend: foundation and data store
 
-**Priority:** High · **Effort:** Medium · **Status:** **Done** (2026-08-05)
+**Status:** COMPLETE
+
+**Priority:** High · **Effort:** Medium · **Where it stands:** **Done** (2026-08-05)
 **Blocks:** [08 (weekly views)](08-frontend-weekly-views.md), [09 (draft views)](09-frontend-draft-views.md)
 
 ## Goal

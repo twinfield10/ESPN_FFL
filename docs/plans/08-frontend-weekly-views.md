@@ -1,6 +1,8 @@
 # 08 — Local frontend: week-to-week views
 
-**Priority:** High · **Effort:** Medium · **Status:** Not started
+**Status:** TO DO
+
+**Priority:** High · **Effort:** Medium · **Where it stands:** Not started
 **Depends on:** [07 (foundation)](07-frontend-foundation.md)
 
 ## Goal

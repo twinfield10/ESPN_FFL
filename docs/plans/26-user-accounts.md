@@ -1,6 +1,8 @@
 # 26 — User accounts: one app, one viewer's leagues
 
-**Priority:** Medium · **Effort:** Medium · **Status:** **Seam built 2026-08-14,
+**Status:** IN PROGRESS
+
+**Priority:** Medium · **Effort:** Medium · **Where it stands:** **Seam built 2026-08-14,
 login not started**
 **Depends on:** [07 (foundation)](07-frontend-foundation.md),
 [24 (S3 as the system of record)](24-s3-data-flow.md)

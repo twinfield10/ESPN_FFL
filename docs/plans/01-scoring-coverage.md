@@ -1,6 +1,8 @@
 # 01 — Scoring rules are silently dropped
 
-**Priority:** High · **Effort:** Small · **Status:** Done
+**Status:** COMPLETE
+
+**Priority:** High · **Effort:** Small · **Where it stands:** Done
 
 > **Implemented, with two corrections to the fix below.** The `221` rate is
 > **0.064/yd, not 0.1** — ESPN applies the rule per game on a floor, so 0.1

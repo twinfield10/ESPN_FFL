@@ -1,6 +1,8 @@
 # 12 — Season projections (draft roadmap Phase 2)
 
-**Priority:** High · **Effort:** Medium · **Status:** Done (2026-08-03)
+**Status:** COMPLETE
+
+**Priority:** High · **Effort:** Medium · **Where it stands:** Done (2026-08-03)
 **Unblocks:** [09 (draft views)](09-frontend-draft-views.md) · roadmap Phase 3 (ADP + VOR + board)
 **Blocked by, for defence only:** [11 (per-slot scoring)](11-per-slot-scoring.md)
 

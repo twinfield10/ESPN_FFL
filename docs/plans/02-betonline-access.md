@@ -1,6 +1,8 @@
 # 02 — BetOnline weekly props are blocked
 
-**Priority:** High · **Effort:** Medium · **Status:** Resolved (2026-08-03)
+**Status:** IN PROGRESS
+
+**Priority:** High · **Effort:** Medium · **Where it stands:** Resolved (2026-08-03)
 
 > **Outcome: option D, plus a correction.** The weekly block is real and confirmed
 > from two HTTP clients. The season-long endpoint works and carries the IDP props,

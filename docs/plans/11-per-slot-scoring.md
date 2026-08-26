@@ -1,6 +1,8 @@
 # 11 — Scoring is per-lineup-slot, and the pipeline treats it as flat
 
-**Priority:** High · **Effort:** Medium · **Status:** **Done (2026-08-05)**
+**Status:** COMPLETE
+
+**Priority:** High · **Effort:** Medium · **Where it stands:** **Done (2026-08-05)**
 **Found by:** [10 (scoring registry)](10-scoring-registry.md)
 **Affects:** GOP's D/ST most (-15.9%); a smaller offence correction in all nine
 leagues — see [Measured impact](#measured-impact-2026-08-05)

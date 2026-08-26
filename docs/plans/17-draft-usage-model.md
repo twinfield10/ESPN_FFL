@@ -1,6 +1,8 @@
 # 17 — The draft usage model — **superseded**
 
-**Status:** Superseded on 2026-08-06 by [18](18-season-usage-model.md).
+**Status:** COMPLETE
+
+**Where it stands:** Superseded on 2026-08-06 by [18](18-season-usage-model.md).
 Kept as a stub so existing links resolve.
 
 This was an outline of a pre-season usage model, written alongside a survey of

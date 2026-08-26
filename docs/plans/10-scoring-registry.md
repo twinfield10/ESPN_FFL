@@ -1,6 +1,8 @@
 # 10 — Scoring registry
 
-**Priority:** High · **Effort:** Small · **Status:** Done
+**Status:** COMPLETE
+
+**Priority:** High · **Effort:** Small · **Where it stands:** Done
 **Grew out of:** [01 (scoring coverage)](01-scoring-coverage.md)
 
 ## Problem

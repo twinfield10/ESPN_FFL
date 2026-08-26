@@ -1,6 +1,8 @@
 # 04 — Multi-week matchup periods lose a week of data
 
-**Priority:** Medium · **Effort:** Small · **Status:** Not started
+**Status:** TO DO
+
+**Priority:** Medium · **Effort:** Small · **Where it stands:** Not started
 
 ## Problem
 

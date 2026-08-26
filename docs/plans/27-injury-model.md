@@ -1,6 +1,8 @@
 # 27 — Injuries as duration, recovery and recurrence
 
-**Priority:** High (seasonal, and it compounds) · **Effort:** L · **Status:**
+**Status:** COMPLETE
+
+**Priority:** High (seasonal, and it compounds) · **Effort:** L · **Where it stands:**
 **Phases 1–4 done 2026-08-18. The curve and the hazard are fitted, walk-forwarded, and
 both REJECTED by their own pre-committed gates.** So the outcome is the one this plan named
 in advance: **ship the columns, multiply nothing.** The daily ESPN injury archive is running and

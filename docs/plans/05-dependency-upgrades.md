@@ -1,6 +1,8 @@
 # 05 — Dependency upgrades
 
-**Priority:** Medium · **Effort:** Medium · **Status:** espn-api **done
+**Status:** IN PROGRESS
+
+**Priority:** Medium · **Effort:** Medium · **Where it stands:** espn-api **done
 (2026-08-05)** · everything else open
 
 Everything is pinned in `requirements.txt` to what the 2025 season ran on. Most

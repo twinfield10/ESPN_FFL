@@ -1,6 +1,8 @@
 # 22 — Feature research for the season head
 
-**Status:** measured. Nothing merged. The lab that produced it is shipped, and so is
+**Status:** COMPLETE
+
+**Where it stands:** measured. Nothing merged. The lab that produced it is shipped, and so is
 the data layer under it.
 
 ## Problem

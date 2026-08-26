@@ -1,7 +1,9 @@
 # 14 — Thin the Google Sheets output (and why it isn't being retired)
 
+**Status:** IN PROGRESS
+
 **Priority:** Low · **Effort:** S
-**Status:** Investigated 2026-08-05. **Step 1 done** — Sheets is now a renderer
+**Where it stands:** Investigated 2026-08-05. **Step 1 done** — Sheets is now a renderer
 over the store. Sheets is **kept**, not deprecated.
 **Depends on:** [07 (store)](07-frontend-foundation.md) — done
 

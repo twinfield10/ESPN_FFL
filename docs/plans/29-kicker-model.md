@@ -1,11 +1,13 @@
 # 29 — Kickers: the leg is noise, the offence is the projection
 
+**Status:** COMPLETE
+
 **Priority:** **Low for the draft board, Medium-high for the weekly surface** — and that
 split is a measurement, not a hedge. Season-average environment separates the best kicker
 quintile from the worst by **27.7 points, a ratio of 1.24×**, so at draft time kickers are
 nearly undifferentiable; per game the range is **2.4 points**, which is a real start/sit
 decision. **Build the weekly path first.** · **Effort:** M ·
-**Status: BUILT and shipped at weight 0.0, 2026-08-18. Channel P passes its gate at
+**Where it stands: BUILT and shipped at weight 0.0, 2026-08-18. Channel P passes its gate at
 +45.9%; channel F FAILS at +1.2% against a 5% bar and the shrinkage selection chose
 0.00 — i.e. held-out selection said to ignore prior-season red-zone figures entirely
 and use the league mean.** That is the outcome the plan pre-registered, and the artifact
