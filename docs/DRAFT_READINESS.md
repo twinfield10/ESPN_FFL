@@ -236,7 +236,13 @@ Ordered by when it has to happen, not by size.
 - [ ] Re-run `python -m Scripts.injury.review` the morning of. A Friday injury to a
       third-round pick is exactly the case the override file exists for.
 - [ ] **Freeze the code.** No further blend-weight changes, no turning `KIK_` on, no
-      dependency upgrades. Everything in this repo's own *Known issues* about absent
+      dependency upgrades. **Leave the repo on `main`** — the 6am job has no
+      `git checkout` and runs whatever is in the working tree, so a projection-moving
+      branch left checked out is enough to republish every board without a merge.
+      You no longer have to: cron runs `~/bin/espn_ffl_nightly.sh`, which drives a
+      separate checkout pinned to `origin/main`, so the boards rebuild from reviewed
+      code no matter what you have checked out. The freeze is about not *merging*
+      projection changes, which is the thing still worth watching. Everything in this repo's own *Known issues* about absent
       sources reading as agreement applies double to a change made the day of a draft.
 
 ### Draft night

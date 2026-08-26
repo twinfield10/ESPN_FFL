@@ -22,6 +22,8 @@
 #     once the season starts if you want the phone view refreshed nightly.
 #   * No board rebuild when a pull failed. That is the whole point of the guard
 #     below -- see "Why this fails loudly".
+#   * No run at all off a branch other than main -- see "Why this refuses to run
+#     off main". The board is published from merged code or not at all.
 #
 # Why this fails loudly. This repo's recurring failure mode, documented across plans
 # 01, 03 and 22, is an absent source reading as agreement: something upstream stops
@@ -31,12 +33,23 @@
 # every pull succeeded, and the run ends by checking that the depth chart actually
 # moved rather than that the command exited zero.
 #
+# Why this refuses to run off main. There is no `git checkout` anywhere below, so
+# this runs whatever branch happens to be checked out. A branch that changes the
+# projections -- a MODEL_VERSION bump forcing a refit, a new blend input -- would
+# therefore reach all nine boards and S3 through cron alone, unmerged and untyped.
+# The branch check is the first thing the run does, before any pull.
+#
 # Install (matches the existing crontab pattern):
 #
 #   chmod +x run_daily_refresh.sh
 #   crontab -e
 #   # ESPN FFL daily data refresh (6am -- overnight roster moves have landed)
-#   0 6 * * * /Users/tommywinfield/GitRepos/ESPN_FFL/run_daily_refresh.sh
+#   0 6 * * * /Users/tommywinfield/bin/espn_ffl_nightly.sh
+#
+# Cron points at the wrapper, not at this file. The branch check below is defence in
+# depth and is absent from any branch cut before it existed -- which is exactly the
+# checkout it would need to catch. `ops/espn_ffl_nightly.sh` (live at
+# ~/bin/espn_ffl_nightly.sh) sits outside the repo, so no checkout can remove it.
 #
 # Note on a sleeping laptop: cron does not run missed jobs on wake, so a night with
 # the lid shut is a night skipped. That is usually fine here -- the next run catches
@@ -45,7 +58,12 @@
 
 set -euo pipefail
 
-REPO="/Users/tommywinfield/GitRepos/ESPN_FFL"
+# Derived from this script's own location, never hardcoded. Cron runs a second
+# checkout pinned to origin/main (see ops/espn_ffl_nightly.sh); a hardcoded path
+# would send that copy back into the interactive tree and rebuild the boards off
+# whatever branch happened to be checked out there -- the exact failure the
+# separate checkout exists to prevent.
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON="/usr/local/bin/python3.11"
 RSCRIPT="/usr/local/bin/Rscript"
 LOG_DIR="${HOME}/logs"
@@ -80,6 +98,37 @@ fail() {
 }
 
 log "=== daily refresh starting ==="
+
+# --- 0. The revision, before anything else ------------------------------
+# This script has no `git checkout`. It runs the tree it sits in, re-projects the
+# usage head, rebuilds nine boards and pushes them to S3 -- so whatever is checked
+# out here is what gets published.
+#
+# The check is against `origin/main` rather than a branch *name*, for two reasons.
+# The nightly checkout is deliberately detached (a branch cannot be checked out in
+# two worktrees at once), so a name test would reject the very tree meant to run.
+# And a name test would pass on a local `main` carrying unpushed commits, which is
+# not reviewed code.
+#
+# Belt to ops/espn_ffl_nightly.sh's braces: the wrapper already resets this tree to
+# origin/main before calling. This catches the other route in -- someone running
+# this script by hand from the interactive checkout, on a branch.
+#
+# ALLOW_ANY_BRANCH=1 overrides, for a deliberate run off an unpublished revision.
+BRANCH="$(git -C "${REPO}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+HEAD_SHA="$(git -C "${REPO}" rev-parse HEAD 2>/dev/null || echo unknown)"
+MAIN_SHA="$(git -C "${REPO}" rev-parse origin/main 2>/dev/null || echo unknown)"
+
+if [ "${ALLOW_ANY_BRANCH:-0}" = "1" ]; then
+  log "WARNING: revision check overridden, running ${BRANCH} at ${HEAD_SHA:0:8}"
+elif [ "${HEAD_SHA}" = "unknown" ] || [ "${MAIN_SHA}" = "unknown" ]; then
+  fail "cannot resolve HEAD or origin/main in ${REPO} -- refusing to publish blind."
+elif [ "${HEAD_SHA}" != "${MAIN_SHA}" ]; then
+  fail "${REPO} is at ${HEAD_SHA:0:8} (${BRANCH}), not origin/main ${MAIN_SHA:0:8} \
+-- boards publish from reviewed, pushed main only. Set ALLOW_ANY_BRANCH=1 to override."
+else
+  log "revision ${HEAD_SHA:0:8} (${BRANCH}), matching origin/main"
+fi
 
 # The season comes from config.yaml rather than being hardcoded, so the annual
 # rollover is one edit in one place. See docs/SEASON_ROLLOVER.md.
