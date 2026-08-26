@@ -930,6 +930,18 @@ def _apply_injury_adjustment(base: pd.DataFrame, season: int) -> pd.DataFrame:
     else:
         unknown_and_out = pd.Series(False, index=base.index)
 
+    # Plan 28's vacancy transfer needs the line this scaling is about to remove. A
+    # season-ending absence withdraws `USG_` outright, and after that the board has no
+    # healthy line for the player at all -- ESPN and FantasyPros price him near zero
+    # too. A vacancy nobody can size is a vacancy that silently fails to redistribute,
+    # which is the largest case rather than an edge one.
+    from Scripts.injury.transfer import HEALTHY_PREFIX, TRANSFER_STATS
+    for stat in TRANSFER_STATS:
+        column = f"USG_{stat}"
+        if column in base.columns:
+            base[f"{HEALTHY_PREFIX}{stat}"] = pd.to_numeric(
+                base[column], errors="coerce")
+
     scaled = share < 1.0
     withdrawn = share <= 0.0
     for column in columns:
@@ -1896,6 +1908,20 @@ def build_season_projections(league, season: Optional[int] = None,
     # from a stat line a real team could actually produce. Blending first is what
     # makes this possible at all: the identities are team-level and no single source
     # is complete enough to hold them on its own.
+    final = reconcile_team_totals(final)
+
+    # Plan 28's vacancy transfer, applied to the mean rather than only to the
+    # simulation. Here rather than earlier because `reconcile_team_totals` scales a
+    # team's passing and receiving sides to their midpoint, and a transfer made before
+    # it would be dragged straight back out across the roster; here rather than later
+    # because `proj_to_score` is what turns a stat line into every league's points.
+    from Scripts.injury.transfer import redistribute as _redistribute_vacancy
+    final = _redistribute_vacancy(final)
+    # Reconciled a second time, and the second pass is not a tidy-up. A back who
+    # inherits his lead's receiving work was thrown to by somebody: the transfer adds
+    # to the receiving side only, and the identity is what carries the matching volume
+    # onto the quarterbacks who threw it. Without this the transfer leaves the team it
+    # touched outside the 0.98-1.02 band plan 31 closed.
     final = reconcile_team_totals(final)
 
     # Score every source's line, so they can be compared, not just the blend.
