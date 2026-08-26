@@ -73,6 +73,7 @@ from Scripts.projection_utils import IMPUTED_SUFFIX
 from Scripts.usage import backtest as bt
 from Scripts.usage import coherence
 from Scripts.usage import evalset
+from Scripts.usage import role as rl
 
 #: External sources, in the order the tables print them.
 SOURCES: Tuple[str, ...] = ("ESPN", "FP", "PINNY", "BOL")
@@ -275,7 +276,8 @@ def run(season: int = 2025,
         weights: Optional[Sequence[float]] = None,
         league_key: str = bt.SCORING_LEAGUE,
         basis: str = "preseason",
-        coherent: bool = True) -> Dict:
+        coherent: bool = True,
+        allocate: bool = True) -> Dict:
     """Measure the blend with and without the shipped season head.
 
     Args:
@@ -285,6 +287,8 @@ def run(season: int = 2025,
         basis: ``"preseason"`` for genuine pre-season sources, or ``"summed-weekly"``
             for the contaminated one -- see the module docstring, and do not report a
             result from it.
+        allocate: Use plan 31 phase 2's role allocation for the quarterback room
+            rather than phase 1's uniform cap. Only meaningful when ``coherent``.
         coherent: Run TOMCAT's line through :mod:`Scripts.usage.coherence` first, as
             the shipping path does. This is G-T1 and G-T2 of plan 31: pass False to
             measure the same fold without it and read the difference.
@@ -299,7 +303,11 @@ def run(season: int = 2025,
     from Scripts.season_projections import normalise_name
 
     model_frame, _ = bt.run_season(season)
-    keep = (["gsis_id", "position", "full_name", "team", "expected_games"]
+    # `depth_rank`, `is_rookie` and `team_changed` are the phase 2 allocation's inputs.
+    # They are on the feature frame already; the board path has to have `depth_rank`
+    # written into the parquet to see it at all -- see `project.CONTEXT_COLUMNS`.
+    keep = (["gsis_id", "position", "full_name", "team", "expected_games",
+             "depth_rank", "is_rookie", "team_changed"]
             + [f"USG_{s}" for s in stats if f"USG_{s}" in model_frame.columns]
             + [c for c in bt.OUTCOME_COLUMNS.values() if c in model_frame.columns])
     model_frame = model_frame.select([c for c in keep if c in model_frame.columns])
@@ -315,9 +323,15 @@ def run(season: int = 2025,
     # deletes real volume here and merely looks short there, and neither is touched
     # -- see the cap's rationale in `Scripts.usage.coherence`.
     if coherent:
+        # The board path gets its cohort from `usg_role_cohort`, written by
+        # `Scripts.usage.role.attach_confidence`. Here it is rebuilt from the same
+        # two flags that define it, so both paths allocate on one definition.
+        if {"is_rookie", "team_changed"}.issubset(model_frame.columns):
+            model_frame = model_frame.with_columns(rl.cohort_expression()
+                                                   .alias("usg_role_cohort"))
         model_frame = coherence.make_coherent(
             model_frame, team_column="team", position_column="position",
-            games_column="expected_games")
+            games_column="expected_games", allocate=allocate)
 
     if basis == "summed-weekly":
         external = external_season(season, stats)
@@ -382,7 +396,7 @@ def run(season: int = 2025,
             record[position] = bt.spearman(sub, "blend_points", "actual_points")
         rows.append(record)
     return {"frame": joined, "rows": rows, "dropped_no_external": dropped,
-            "coherent": coherent}
+            "coherent": coherent, "allocate": allocate}
 
 
 def report(season: int = 2025, weights: Optional[Sequence[float]] = None,

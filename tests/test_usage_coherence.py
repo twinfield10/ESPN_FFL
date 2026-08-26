@@ -193,3 +193,109 @@ def test_a_frame_with_no_team_column_is_returned_unchanged():
     """The shipping path guards on this; so does the operation itself."""
     frame = pl.DataFrame({"primaryPosition": ["QB"], PASS: [4000.0]})
     assert ch.make_coherent(frame).equals(frame)
+
+
+# --- plan 31 phase 2: allocating the room rather than scaling it ----------
+#
+# Phase 1 scaled every passer on a team by one number, which closes the team total
+# and cannot touch the order inside the room. These pin the three ways the
+# replacement goes wrong quietly: a room that stops summing to a season, a starter
+# who is scaled down instead of up, and a passer who silently leaves the room and
+# hands his starts to everyone else.
+
+def _room(rows):
+    return pl.DataFrame(rows, schema_overrides={"depth_rank": pl.Int64})
+
+
+def test_a_room_is_allocated_the_whole_slate_and_no_more():
+    frame = _room([
+        {"team": "MIN", "position": "QB", "usg_role_cohort": "settled",
+         "depth_rank": 1, "USG_passingYards": 4000.0},
+        {"team": "MIN", "position": "QB", "usg_role_cohort": "mover",
+         "depth_rank": 2, "USG_passingYards": 3000.0},
+        {"team": "MIN", "position": "QB", "usg_role_cohort": "rookie",
+         "depth_rank": 3, "USG_passingYards": 2000.0},
+    ])
+    out = ch.allocate_qb_starts(frame, team_column="team", position_column="position")
+    assert out[ch.ALLOCATED_STARTS_COLUMN].sum() == pytest.approx(17.0)
+
+
+def test_the_starter_gains_where_a_uniform_scale_would_only_shrink_him():
+    """The phase 1 failure this replaces. A room over the slate is scaled down
+    uniformly, so the starter loses; allocating by role moves him the other way."""
+    frame = _room([
+        {"team": "MIN", "position": "QB", "usg_role_cohort": "settled",
+         "depth_rank": 1, "USG_passingYards": 4000.0},
+        {"team": "MIN", "position": "QB", "usg_role_cohort": "settled",
+         "depth_rank": 2, "USG_passingYards": 4000.0},
+        {"team": "MIN", "position": "QB", "usg_role_cohort": "settled",
+         "depth_rank": 3, "USG_passingYards": 4000.0},
+    ])
+    out = ch.allocate_qb_starts(frame, team_column="team", position_column="position")
+    starter, backup = out["USG_passingYards"][0], out["USG_passingYards"][1]
+    assert starter > backup, "the listed starter must not come out behind his backup"
+    share = out[ch.ALLOCATED_STARTS_COLUMN][0] / 17.0
+    assert starter == pytest.approx(4000.0 * share)
+
+
+def test_a_lone_passer_keeps_his_line_rather_than_being_multiplied_up():
+    """Miami. The uncapped phase 1 rule multiplied a 3.7-game backup by
+    ``slate / expected_games`` and reached 8,268 passing yards. A share is bounded
+    by one, so the short room stays short instead of blowing up."""
+    frame = _room([{"team": "MIA", "position": "QB", "usg_role_cohort": "mover",
+                    "depth_rank": 2, "USG_passingYards": 3000.0}])
+    out = ch.allocate_qb_starts(frame, team_column="team", position_column="position")
+    assert out["USG_passingYards"][0] == pytest.approx(3000.0)
+    assert out[ch.ALLOCATED_STARTS_COLUMN][0] == pytest.approx(17.0)
+
+
+def test_an_unranked_passer_still_takes_a_share():
+    """A room that silently loses a member reallocates his starts to everyone else,
+    which is the double-count coming back in through the gap."""
+    frame = _room([
+        {"team": "LV", "position": "QB", "usg_role_cohort": "settled",
+         "depth_rank": 1, "USG_passingYards": 4000.0},
+        {"team": "LV", "position": "QB", "usg_role_cohort": "settled",
+         "depth_rank": None, "USG_passingYards": 1000.0},
+    ])
+    out = ch.allocate_qb_starts(frame, team_column="team", position_column="position")
+    assert out[ch.ALLOCATED_STARTS_COLUMN][1] == pytest.approx(
+        17.0 * ch.UNLISTED_START_PRIOR / (13.88 + ch.UNLISTED_START_PRIOR))
+    assert out[ch.ALLOCATED_STARTS_COLUMN].sum() == pytest.approx(17.0)
+
+
+def test_cohort_separates_a_rookie_starter_from_an_entrenched_one():
+    """Plan 33's finding in the currency phase 2 spends. Ignoring cohort would hand a
+    rookie first-stringer the same season as a settled veteran."""
+    def one(cohort):
+        frame = _room([
+            {"team": "T", "position": "QB", "usg_role_cohort": cohort,
+             "depth_rank": 1, "USG_passingYards": 4000.0},
+            {"team": "T", "position": "QB", "usg_role_cohort": "settled",
+             "depth_rank": 2, "USG_passingYards": 4000.0},
+        ])
+        out = ch.allocate_qb_starts(frame, team_column="team", position_column="position")
+        return out[ch.ALLOCATED_STARTS_COLUMN][0]
+    assert one("settled") > one("mover") > one("rookie")
+
+
+def test_non_quarterbacks_are_left_for_the_identity_pass():
+    frame = _room([
+        {"team": "T", "position": "QB", "usg_role_cohort": "settled",
+         "depth_rank": 1, "USG_passingYards": 4000.0},
+        {"team": "T", "position": "WR", "usg_role_cohort": "settled",
+         "depth_rank": 1, "USG_passingYards": 900.0},
+    ])
+    out = ch.allocate_qb_starts(frame, team_column="team", position_column="position")
+    assert out["USG_passingYards"][1] == pytest.approx(900.0)
+
+
+def test_a_frame_without_a_depth_chart_keeps_phase_one_behaviour():
+    """The board path only sees `depth_rank` once it is written into the parquet.
+    Until then the caller must fall back rather than fail."""
+    frame = pl.DataFrame([{"team": "T", "position": "QB",
+                           "usg_expected_games": 20.0, "USG_passingYards": 4000.0}])
+    out = ch.make_coherent(frame, team_column="team", position_column="position",
+                           games_column="usg_expected_games")
+    assert ch.ALLOCATED_STARTS_COLUMN not in out.columns
+    assert ch.ROOM_SCALE_COLUMN in out.columns

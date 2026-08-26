@@ -69,7 +69,11 @@ HISTORY_START = 2016
 CONTEXT_COLUMNS = ("expected_games", "games_sd", "games_low", "games_high",
                    "usg_arm", "usg_evidence", "usg_thin_evidence", "position",
                    "pred_targets_pg", "pred_carries_pg", "pred_pass_attempts_pg",
-                   "usg_role_cohort", "usg_role_confidence")
+                   "usg_role_cohort", "usg_role_confidence",
+                   # Carried for plan 31 phase 2, which allocates a team's starts by
+                   # depth rank and cohort. The gate path reads it off the feature
+                   # frame directly; the board path only has what is written here.
+                   "depth_rank")
 
 
 def projection_path(season: int, create: bool = False):
