@@ -515,3 +515,73 @@ def test_the_catch_all_group_keeps_the_word_the_writer_used():
                         "comment": "Waddle (leg) took part in Monday's practice."})
     assert found.body_part == "other"
     assert found.detail == "leg"
+
+
+# --- whose body is it -----------------------------------------------------
+#
+# Plan 27 built ATTRIBUTION_WINDOW after a comment about a teammate tagged Tyler
+# Allgeier with Jeremiyah Love's high ankle sprain, and noted that all four such
+# cases "were invisible in aggregate". Two more were invisible in aggregate until the
+# 2026 pre-draft scan: distance from the surname cannot tell that the sentence has
+# changed subject, and "back" is a job as often as it is a body part.
+
+def test_a_teammates_parenthetical_is_not_the_subjects_injury():
+    """Measured on the 2026 archive. ESPN says "teammate" in so many words and the
+    extractor read straight through it, putting Penix's knee on a projected starting
+    quarterback."""
+    found = sv.resolve({
+        "full_name": "Tua Tagovailoa", "status": "Active",
+        "comment": "Tagovailoa's teammate, Michael Penix (knee), is in line to return "
+                   "to 11-on-11 drills in Monday's practice."})
+    assert found.body_part != "knee"
+
+
+def test_a_parenthetical_hanging_off_another_surname_is_his():
+    """The convention that makes "Metcalf (knee)" readable makes "Chuba Hubbard
+    (hamstring)" readable too -- and in the second the name is not the subject's,
+    however close the bracket happens to sit."""
+    found = sv.resolve({
+        "full_name": "Jonathon Brooks", "status": "Active",
+        "comment": "The Panthers will go with a committee Week 1 with Brooks and "
+                   "Chuba Hubbard (hamstring), provided that Hubbard is healthy."})
+    assert found.body_part != "hamstring"
+
+
+def test_the_bare_word_rung_cannot_reopen_a_rejected_parenthetical():
+    """The first fix rejected the bracket and the rung below found the same word
+    inside it, which put the hamstring straight back on. Both rungs have to agree
+    about whose bracket it is."""
+    part, _ = sv._body_part_in_text(
+        "A committee with Brooks and Chuba Hubbard (hamstring), provided he is healthy.",
+        "brooks")
+    assert part is None
+
+
+@pytest.mark.parametrize("comment", [
+    "Hill is in line to be the No.2 running back on the Ravens' depth chart.",
+    "Skattebo is listed as the Giants' starting running back on the depth chart.",
+    "Demercado is the No. 2 running back heading into the season.",
+])
+def test_a_running_back_is_not_a_back_injury(comment):
+    """``back`` maps to ``back_core`` and a beat report says "running back" constantly.
+    Four of the twenty-two backs carrying an automatic reading in 2026 got it from
+    their own job title, and none of them was hurt."""
+    part, _ = sv._body_part_in_text(comment, sv._surname(comment.split()[0]))
+    assert part is None
+
+
+def test_a_real_back_injury_still_reads():
+    """The guard is on the position phrase, not on the word."""
+    part, _ = sv._body_part_in_text(
+        "Barkley tweaked his back in Sunday's win and is considered day-to-day.",
+        "barkley")
+    assert part == "back"
+
+
+def test_a_parenthetical_with_no_owner_still_belongs_to_the_subject():
+    """"is dealing with (knee) soreness" hangs off no name at all, so it belongs to
+    whoever the sentence was already about. Rejecting it would trade two false
+    positives for a pile of false negatives."""
+    part, _ = sv._body_part_in_text(
+        "Player is dealing with (knee) soreness after Sunday's game.", "player")
+    assert part == "knee"
