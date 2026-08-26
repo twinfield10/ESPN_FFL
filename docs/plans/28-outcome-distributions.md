@@ -622,11 +622,37 @@ simulation machinery survives its gates.
   place as the unconditional one. **No mean moves** — `TRUE_Points` is identical to the
   byte on a rebuilt board.
 
-- **The if-healthy *mean* has the same problem and is not fixed.** `to_full_slate` rescales
-  proportionally, which is the `e = 1` case the elasticity above rejects. On healthy
-  players it lands +15% high at WR, −0.3% at RB and **+41%** at QB. That column is in the
-  blend at weight 0.25, so correcting it moves `TRUE_Points` — it is named here and left
-  alone, deliberately, days before a draft.
+- **The if-healthy *mean* has the same problem, and it must not be "fixed" on its own.**
+  `to_full_slate` rescales proportionally, the `e = 1` case the elasticity above rejects.
+  The elasticity finding is robust — refitting with a projection floor of 50 or 200 points
+  leaves it at 0.32–0.49 and makes the proportional form look *worse* (WR bias +18.2% at no
+  floor, +20.9% above 200 points) — so this is not the population artefact that inflated
+  G-D1.
+
+  **But applying it in isolation makes the board worse where it matters most.** Measured on
+  the 2026 Winfield board, median `USG_Points / ESPN_Points` by ADP band, as shipped and
+  with the elasticity applied:
+
+  | ADP | 1–50 | 50–100 | 100–150 | 150–300 | all |
+  |---|---|---|---|---|---|
+  | shipped | 0.94 | 0.96 | 1.05 | **1.32** | 1.07 |
+  | with elasticity | **0.81** | 0.83 | 0.91 | 1.05 | 0.92 |
+
+  It fixes the tail (1.32 → 1.05) and breaks the top (0.94 → **0.81**) — a 19% haircut on
+  the players taken in the first four rounds. The reason is that **two biases in opposite
+  directions are partly cancelling.** The top of the board is already below ESPN at 0.94
+  for a reason this function's own docstring names and which has nothing to do with
+  availability: the model shrinks toward positional baselines while ESPN extrapolates, and
+  draftable players are selected on being top-of-pool. The proportional over-scale happens
+  to offset it.
+
+  So the honest statement is not "a defect owed a fix". It is: **the exponent is wrong and
+  its error is currently doing useful work**, and anyone correcting it has to correct the
+  shrinkage at the same time or the blend gets worse at the top. The well-posed version is
+  `USG × (slate / expected_games) ** e × c_position`, with `c` set to hold the top-band
+  level — the elasticity for the shape across `expected_games`, a constant for the level.
+  That is a projection change and needs its own gate. **Not before the drafts, and not
+  piecemeal after them.**
 
 - **Two of nine leagues score per-game bonuses that currently score zero.** The registry's
   `colName` is `rushingYards100-199Game`; ESPN's `projected_breakdown` key, which becomes
