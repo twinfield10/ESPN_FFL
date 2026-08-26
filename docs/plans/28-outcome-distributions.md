@@ -579,6 +579,65 @@ draft-room fact with no fitted model in it — "an RB2 is a different player whe
 sits and a WR2 is not" changes how you value a bench, whether or not any of the
 simulation machinery survives its gates.
 
+## Phase 6 — the transfer applied to a mean — **shipped 2026-08-26**
+
+The vacancy rule was fitted here and wired only into the room-level Monte Carlo, which
+failed G-D2 and is off by default. It was never applied to a *mean*, and the board was
+doing half the arithmetic:
+
+- **The absence is priced.** ESPN and FantasyPros dock a known absence themselves —
+  `_apply_injury_adjustment` names Ricky Pearsall at 0.0 — and `USG_` is scaled by
+  `games_available / 17` on top.
+- **Nobody gains it.** No mechanism credited the room, so a vacated starter's work left
+  the roster.
+
+**The market does not price the beneficiary either**, which is what makes this an edge
+rather than a double count. On the 2026 board Jeremiyah Love misses five weeks at ADP
+22.9 and his direct backup Tyler Allgeier sits at the **37th percentile of ESPN points
+among depth-rank-2 backs** — below the median, behind a lead who will miss five games.
+
+### G-V1, pre-committed: the gain must be vacancy-specific
+
+Walk-forward 2020–2025, on realised season opportunity for the beneficiaries:
+
+| | n | MAE | gain | folds |
+|---|---|---|---|---|
+| fitted share, as plan 28 published it | 320 | 26.90 → 26.44 | +1.72% | 5 of 6 |
+| **× plan 33's role-hold** | 320 | 26.90 → **26.32** | **+2.14%** | **6 of 6** |
+| **placebo — same transfer into healthy rooms** | 450 | 25.10 → 27.77 | **−10.63%** | — |
+
+**The placebo is the half that matters.** If backups were simply under-projected in
+general, crediting a healthy room would help too. It hurts them by 10.6%, so the gain is
+specific to vacancy rather than to being a backup — the same control `Scripts/lab/registry.py`
+applies to entrenched starters.
+
+### Why the published share overshoots a mean, and why the fix is not a knob
+
+Applying the share as fitted gains 1.72%; a sweep for the best flat scale lands on
+**0.50**. Choosing that by argmax would be fitting the gate. There is a cause instead:
+**this plan fitted its shares to ranks 2, 3 and 4 of a room's *realised* season order**,
+which history has and a projection does not. What a projection has is a pre-season depth
+chart, and [plan 33](33-role-resolution.md) measured that a listed second-stringer really
+is one only **47%** of the time if settled, **43%** if he moved and **32%** if he is a
+rookie — a weighted **0.437** against the sweep's 0.50.
+
+Two independent routes to the same number, so the discount is a correction rather than a
+tuned parameter. Applied per cohort it beats the raw share on every axis and turns the
+2025 fold from −1.17% to +0.11%.
+
+### What the build turned up
+
+- **A season-ending starter could not be sized at all.** `USG_` is withdrawn outright for
+  him and `TRUE_` is zero, so the board held no healthy line for the largest vacancy
+  there is, and it would have silently transferred nothing.
+  `_apply_injury_adjustment` now stashes the pre-adjustment line first.
+- **The transfer broke the identity [plan 31](31-team-coherent-tomcat.md) had just
+  closed**, taking one team of 32 to 1.0386. Skipping receiving would have been the wrong
+  fix: a back who inherits his lead's targets *was thrown to by somebody*. The frame is
+  reconciled a second time and the identity carries the matching volume onto the
+  quarterbacks — 32/32 again.
+- **WR still gets no rule**, and that remains the finding rather than a gap.
+
 ## Postscript — what measuring this turned up
 
 - **The RB2 hypothesis reversed under a leakage fix.** Defining the lead back by *this*

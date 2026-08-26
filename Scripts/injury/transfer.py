@@ -75,6 +75,52 @@ SHARES: Dict[str, Tuple[float, float]] = {
 #: Column recording what a player inherited, for the board to show and a gate to read.
 INHERITED_COLUMN = "inj_vacancy_inherited"
 
+#: Fallback probability that a listed backup is the man who actually inherits.
+#:
+#: The weighted mean of plan 33's calibration at depth rank 2, used where a player's
+#: cohort is unknown.
+DEFAULT_ROLE_HOLD: float = 0.44
+
+
+def role_hold(cohort: Optional[str], rank: int) -> float:
+    """How often a player listed at this rank really holds it, per plan 33.
+
+    **This is the discount that makes the transfer fit a mean rather than a
+    distribution, and it is measured rather than tuned.** Plan 28 fitted its shares to
+    ranks 2, 3 and 4 of a room's *realised* season order, which history has and a
+    projection does not -- what a projection has is a pre-season depth chart, and plan
+    33 measured that a listed second-stringer really is one only 47% of the time if
+    settled, 43% if he moved and 32% if he is a rookie. Applying the full share to a
+    listed backup therefore pays out on a player who is often not the inheritor.
+
+    Walked forward 2020-2025 on 320 beneficiaries, the undiscounted share gains 1.72%
+    and is positive in 5 folds of 6; discounted here it gains **2.14% and is positive in
+    all six**. A sweep for the best flat scale independently lands on 0.50 against this
+    table's weighted 0.437 -- two routes to the same number, which is why this is a
+    correction and not a knob.
+
+    Args:
+        cohort: ``"settled"``, ``"mover"``, ``"rookie"``, or None.
+        rank: Depth rank, clipped to three.
+
+    Returns:
+        float: Probability in (0, 1].
+    """
+    try:
+        from Scripts.usage import role as rl
+        payload = rl.load_calibration()
+    except Exception:                                  # pragma: no cover - fit absent
+        payload = None
+    if not payload:
+        return DEFAULT_ROLE_HOLD
+    rank = max(1, min(int(rank), 3))
+    for row in payload.get("rows", ()):
+        if row.get("cohort") == cohort and int(row.get("depth_rank", 0)) == rank:
+            value = row.get(f"p_true_{rank}")
+            if value:
+                return float(value)
+    return DEFAULT_ROLE_HOLD
+
 
 def applied_shares() -> Dict[str, Tuple[float, float]]:
     """The shares to apply, from the persisted fit where there is one.
@@ -155,7 +201,10 @@ def redistribute(base: pd.DataFrame, slate: float = SLATE,
                 vacated = healthy * (out / slate)
 
                 if len(second):
-                    per = share_two * vacated / len(second)
+                    hold = base.loc[second, "usg_role_cohort"] if \
+                        "usg_role_cohort" in base.columns else pd.Series(None, index=second)
+                    factor = hold.map(lambda c: role_hold(c, 2))
+                    per = share_two * vacated * factor / len(second)
                     base.loc[second, true_col] = (
                         pd.to_numeric(base.loc[second, true_col], errors="coerce")
                         .fillna(0.0) + per)
@@ -166,7 +215,9 @@ def redistribute(base: pd.DataFrame, slate: float = SLATE,
                         base.loc[rest, true_col], errors="coerce").fillna(0.0).clip(lower=0)
                     weights = (baseline / baseline.sum() if baseline.sum() > 0
                                else pd.Series(1.0 / len(rest), index=rest))
-                    add = share_rest * vacated * weights
+                    hold = base.loc[rest, "usg_role_cohort"] if \
+                        "usg_role_cohort" in base.columns else pd.Series(None, index=rest)
+                    add = share_rest * vacated * weights * hold.map(lambda c: role_hold(c, 3))
                     base.loc[rest, true_col] = (
                         pd.to_numeric(base.loc[rest, true_col], errors="coerce")
                         .fillna(0.0) + add)
@@ -175,9 +226,10 @@ def redistribute(base: pd.DataFrame, slate: float = SLATE,
 
     if rooms:
         gained = int((base[INHERITED_COLUMN] > 0).sum())
+        ceiling = max(s[0] + s[1] for s in shares.values())
         print(f"  Vacancy: {rooms} vacated starter(s) redistributed onto {gained} "
-              f"teammate(s); at most {max(s[0] + s[1] for s in shares.values()):.0%} "
-              f"of a vacated line reappears, the rest leaves the offence.")
+              f"teammate(s); {ceiling:.0%} of a vacated line is recoverable and each "
+              f"share is discounted by how often a listed backup holds the job.")
     return base
 
 

@@ -49,11 +49,26 @@ def _backup(rank=2, yards=418.0, **kw):
     return base
 
 
-def test_the_backup_inherits_the_fitted_share():
+def test_the_backup_inherits_the_fitted_share_discounted_by_role():
+    """Not the raw share. Plan 28 fitted it to a room's *realised* order and a
+    projection only has a pre-season chart, so the payout is scaled by how often a
+    listed backup really is the inheritor -- which is what takes the walk-forward gain
+    from 1.72% in 5 folds of 6 to 2.14% in all six."""
     frame = room([_lead(), _backup()])
     out = tr.redistribute(frame, shares=SHARES)
     vacated = 1434.0 * (5.0 / tr.SLATE)
-    assert out.loc[1, "TRUE_rushingYards"] == pytest.approx(418.0 + 0.410 * vacated)
+    expected = 418.0 + 0.410 * tr.DEFAULT_ROLE_HOLD * vacated
+    assert out.loc[1, "TRUE_rushingYards"] == pytest.approx(expected)
+
+
+def test_a_rookie_backup_inherits_less_than_a_settled_one():
+    """Plan 33's cohort split, in the currency this spends: a listed second-stringer
+    holds the job 47% of the time settled and 32% as a rookie."""
+    def inherited(cohort):
+        frame = room([_lead(), _backup(usg_role_cohort=cohort)])
+        frame["usg_role_cohort"] = [None, cohort]
+        return tr.redistribute(frame, shares=SHARES).loc[1, tr.INHERITED_COLUMN]
+    assert inherited("settled") > inherited("mover") > inherited("rookie")
 
 
 def test_the_vacating_starter_is_not_docked_again():
@@ -79,10 +94,12 @@ def test_a_receiver_room_gets_nothing():
 
 
 def test_no_more_than_the_fitted_share_ever_leaves_the_starter():
+    """81.4% is the ceiling before the role discount, and the discount only lowers it.
+    What must never happen is a room inheriting more than was vacated."""
     frame = room([_lead(), _backup(), _backup(rank=3, yards=76.0)])
     out = tr.redistribute(frame, shares=SHARES)
     vacated = 1434.0 * (5.0 / tr.SLATE)
-    assert out[tr.INHERITED_COLUMN].sum() == pytest.approx((0.410 + 0.404) * vacated)
+    assert out[tr.INHERITED_COLUMN].sum() < (0.410 + 0.404) * vacated
     assert out[tr.INHERITED_COLUMN].sum() < vacated
 
 
