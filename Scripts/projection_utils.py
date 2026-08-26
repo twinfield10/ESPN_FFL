@@ -27,7 +27,7 @@ import pandas as pd
 
 from Scripts.paths import NFL_TACKLES_CSV, resolve, season_dir
 from Scripts.scoring import get_scoring_table
-from Scripts.scrape_player_stats import SLOT_BASE, SLOT_DST
+from Scripts.scrape_player_stats import SLOT_BASE, SLOT_DST, VOLUME_STATS
 
 
 # These three are read-only lookups -- the scrapers write through season_dir()
@@ -163,6 +163,14 @@ def change_col_prefix(df, old_pfix, new_pfix):
 #: where that projection came from another source rather than from Pinnacle.
 IMPUTED_SUFFIX = "_is_imputed"
 
+#: Working name for ESPN's own published point total inside ``clean_lineups``.
+#:
+#: It exists because :func:`change_col_prefix` replaces the *substring* ``proj``
+#: rather than a prefix, so ``projPoints`` would become ``ESPNPoints`` on the way
+#: past. Any replacement name therefore has to contain no ``proj`` of its own --
+#: ``espn_projected_points`` would be mangled to ``espn_ESPNected_points``.
+ESPN_PUBLISHED_POINTS = "espn_published_points"
+
 #: Blend weights per stat, with a ``default`` fallback. Applied only across the
 #: sources that have *real* data for a given row -- see :func:`compute_weighted_stats`.
 #: Lifted to module scope so the weights can be inspected and tested without running
@@ -253,6 +261,45 @@ IMPUTED_SUFFIX = "_is_imputed"
 #: Named here rather than inlined so the callers that need the distinction (the G2
 #: counterfactual, and the tests guarding it) share one definition of it.
 POSITION_SCOPED_SOURCES: Tuple[str, ...] = ("KIK", "DST")
+
+#: Prefixes the weekly path may score, in the order the pipeline builds them.
+#:
+#: ``proj_to_score``'s default list is the *season* one and includes ``USG``,
+#: ``KIK`` and ``DST``. None of the three has a weekly stat line -- TOMCAT's
+#: weekly head does not exist (``docs/plans/19-weekly-usage-model.md`` is not
+#: started) and the kicking and defence arms are season-long -- so scoring them
+#: weekly wrote a column that was null for every row of every store. ``USG_Points``
+#: was null 3,602 of 3,602 times on Knights_FFL 2025.
+#:
+#: That is not cosmetic. ``_apply_scoring`` writes ``NaN`` for a source that
+#: projected nothing *deliberately*, to distinguish it from a source projecting
+#: zero -- so an all-NaN column is indistinguishable from a source that had an
+#: opinion and could not be reached, and every coverage count built on ``notna()``
+#: reads it the same way.
+WEEKLY_PREFIXES: Tuple[str, ...] = ("ESPN", "FP", "MEAN", "PINNY", "BOL", "TRUE")
+
+
+def present_prefixes(df, candidates=WEEKLY_PREFIXES) -> list:
+    """The candidates that actually have a stat column on this frame.
+
+    Args:
+        df: Frame to inspect.
+        candidates: Prefixes to consider, without their underscores.
+
+    Returns:
+        list: Candidates with at least one ``<prefix>_<stat>`` column, in the
+        order given. A prefix whose only column is ``<prefix>_Points`` does not
+        count -- that is the output, not a line.
+    """
+    out = []
+    for prefix in candidates:
+        start = f"{prefix}_"
+        if any(c.startswith(start) and not c.endswith(IMPUTED_SUFFIX)
+               and c != f"{prefix}_Points" and c != f"{prefix}_PosRank"
+               for c in df.columns):
+            out.append(prefix)
+    return out
+
 
 
 WEIGHTS = {
@@ -717,6 +764,170 @@ def get_match_details(df1, df2, keys, check_col2, tbl_lab, min_wk):
         print(" ")
 
 
+#: Yardage stats ESPN sometimes reports at twice their real value.
+#:
+#: The bug is upstream and long-standing -- see ``docs/STATE_OF_THE_REPO.md`` --
+#: and it is a clean factor of two on yardage rather than a general inflation,
+#: which is what makes it detectable at all.
+DOUBLED_YARDAGE = ("passingYards", "rushingYards", "receivingYards")
+
+#: How far over ESPN's own points total a line must sit before halving is tried.
+DOUBLING_MARGIN: float = 1.0
+
+#: How much closer halving must bring it before the halving is kept.
+DOUBLING_IMPROVEMENT: float = 0.5
+
+
+def espn_line_points(df, scoring_df, prefix="ESPN_", halve=()) -> "pd.Series":
+    """Score one prefix's stat line, optionally halving some columns.
+
+    A local scorer rather than :func:`_apply_scoring` because it has to price a
+    *hypothetical* line -- the one where the yardage is halved -- without writing
+    anything to the frame.
+
+    Args:
+        df: Frame carrying ``<prefix><stat>`` columns.
+        scoring_df: Scoring table with ``colName`` and ``points``.
+        prefix: Source prefix, with its underscore.
+        halve: Stat names to halve before scoring.
+
+    Returns:
+        pd.Series: Points per row, absent columns scoring zero.
+    """
+    total = pd.Series(0.0, index=df.index)
+    halve = set(halve)
+    for _, rule in scoring_df.iterrows():
+        stat = rule["colName"]
+        column = f"{prefix}{stat}" if isinstance(stat, str) else None
+        if column is None or column not in df.columns:
+            continue
+        values = pd.to_numeric(df[column], errors="coerce").fillna(0.0)
+        if stat in halve:
+            values = values / 2.0
+        total = total + values * rule["points"]
+    return total
+
+
+def halve_doubled_espn_yardage(df, scoring_df, projected_points="projPoints"):
+    """Reconcile ESPN's stat line to ESPN's own points total, at the stat level.
+
+    **This replaces a test that could not fire for most players.** The previous
+    rule was ``ESPN > FantasyPros * 1.75 and ESPN > 40``, evaluated *before* the
+    FantasyPros imputation -- so for any player FantasyPros had no line for, the
+    comparison was against NaN, came out False, and the doubled value went through
+    untouched. FantasyPros served sixty players in 2025 behind a registration
+    fence, so the correction was inert for nearly the whole board, and Deebo
+    Samuel's week 6 reached the store at 136.3 receiving yards against a
+    ``projPoints`` consistent with 68.
+
+    The test here needs no second source. ESPN publishes a stat line **and** a
+    point total for the same player-week, so when they disagree the disagreement
+    is ESPN's own, and the point total is the authoritative half -- it is the
+    number ESPN shows its users. A line is halved only when doing so brings the
+    two materially closer, which is what makes this a correction for a known
+    factor-of-two rather than a general fit to ESPN's total.
+
+    It fires on 3-8 rows per league-season out of 1,800-4,500, which is the honest
+    size of the bug: rare, and previously invisible because the points-space patch
+    downstream absorbed it.
+
+    Args:
+        df: Frame with ``ESPN_<stat>`` columns and ESPN's own projected points.
+            Modified in place.
+        scoring_df: The league's scoring table.
+        projected_points: Column holding ESPN's own projection.
+
+    Returns:
+        tuple: ``(df, rows halved)``. Unchanged with a count of 0 when the
+        projected-points column is absent, which is how a frame built without it
+        degrades rather than raising.
+    """
+    if projected_points not in df.columns:
+        return df, 0
+
+    published = pd.to_numeric(df[projected_points], errors="coerce")
+    current = espn_line_points(df, scoring_df)
+    halved = espn_line_points(df, scoring_df, halve=DOUBLED_YARDAGE)
+
+    take = (
+        published.notna()
+        & (current > published + DOUBLING_MARGIN)
+        & ((halved - published).abs() < (current - published).abs()
+           - DOUBLING_IMPROVEMENT)
+    )
+    for stat in DOUBLED_YARDAGE:
+        column = f"ESPN_{stat}"
+        if column in df.columns:
+            df.loc[take, column] = pd.to_numeric(
+                df.loc[take, column], errors="coerce") / 2.0
+    return df, int(take.sum())
+
+
+def report_silent_zero_stats(df, scoring_df, prefix="ESPN_"):
+    """Scored stats whose column is zero for every row, which is not a projection.
+
+    Plan 01 warns about a scoring rule with no ``colName``. This is the case that
+    slips past it: the rule *is* mapped, the column *does* exist, and it is
+    uniformly zero all season -- so nothing reports a gap and the points are
+    quietly short.
+
+    Found in john_pc_league 2025, which scores six yardage-milestone bonuses
+    (``rushingYards100-199Game`` and five siblings, worth 1 to 5 points each). All
+    six are zero for all 3,095 player-weeks, in the *actuals* as well as the
+    projections, so the name this pipeline reads is not the name ESPN's breakdown
+    uses. It cost that league a median 0.48 points a row, and the points-space
+    patch downstream hid every one of them.
+
+    Args:
+        df: The merged frame.
+        scoring_df: The league's scoring table.
+        prefix: Source prefix to inspect.
+
+    Returns:
+        list: Stat names that are scored, present, and identically zero.
+    """
+    silent = []
+    for _, rule in scoring_df.iterrows():
+        stat = rule["colName"]
+        if not isinstance(stat, str) or rule["points"] == 0:
+            continue
+        column = f"{prefix}{stat}"
+        if column not in df.columns:
+            continue
+        values = pd.to_numeric(df[column], errors="coerce").fillna(0.0)
+        if len(values) and (values == 0).all():
+            silent.append(stat)
+    return silent
+
+
+def blended_stats(scoring_cols) -> list:
+    """The stats to blend: everything a league scores, plus volume.
+
+    One definition shared by the weekly path (:func:`clean_lineups`) and the
+    season path (:func:`Scripts.season_projections.build_season_projections`),
+    because the two computing different stat lists is how the grains drift apart.
+
+    Order is preserved and duplicates are dropped: ``passingCompletions`` and
+    ``rushingAttempts`` are scoring rules in some leagues and volume everywhere,
+    and blending a stat twice would double its ``TRUE_`` column.
+
+    Args:
+        scoring_cols: ``colName`` values from the league's scoring table. NaN
+            entries -- plan 01's unrecognised rules -- are dropped rather than
+            becoming a ``TRUE_nan`` column.
+
+    Returns:
+        list: Stat names, scoring rules first.
+    """
+    seen, out = set(), []
+    for stat in list(scoring_cols) + list(VOLUME_STATS):
+        if not isinstance(stat, str) or stat in seen:
+            continue
+        seen.add(stat)
+        out.append(stat)
+    return out
+
+
 def compute_weighted_stats(df, stats_list, weights_dict, renormalise=True):
     """Blend each source's projection into a ``TRUE_`` column.
 
@@ -925,7 +1136,14 @@ def clean_lineups(df, lg, season=None):
     base_cols = ['league_id','year','week', 'team_owner', 'team_name', 'team_division', 'player_name', 'player_id', 'slotPosition', 'primaryPosition', 'eligiblePositions', 'pro_team', 'current_team_id' ,'player_position' ,'player_active_status', 'points', 'projPoints']
     scores_df = get_scoring_table(lg)
     actual_scoring_cols = scores_df['colName'].to_list()
-    base = df[base_cols + actual_scoring_cols]
+    # Volume is blended even where the league does not score it -- see
+    # VOLUME_STATS for why. `blend_cols` is what compute_weighted_stats averages;
+    # `proj_to_score` still iterates the scoring table, so an unscored TRUE_
+    # column cannot reach any *_Points total.
+    blend_cols = blended_stats(actual_scoring_cols)
+    volume_actuals = [c for c in VOLUME_STATS
+                      if c in df.columns and c not in actual_scoring_cols]
+    base = df[base_cols + actual_scoring_cols + volume_actuals]
 
     curr_week = lg.current_week
 
@@ -934,13 +1152,19 @@ def clean_lineups(df, lg, season=None):
     ## Defensive Positions
     d_pos = ['DL', 'DE', 'LB', 'NT', 'CB', 'S', 'DT', 'DB', 'OLB']
 
-    ## Duplicate Error
-    fix_list = ['ESPN_rushingYards', 'ESPN_receivingYards', 'ESPN_passingYards']
-
     # 1) Combine ESPN and Fantasy Pros Data
 
     ## a) Build ESPN From Raw Data
-    espn_proj = df[['week', 'player_name', 'primaryPosition', 'player_active_status']  + list(df.filter(like='proj_').columns)]
+    # `projPoints` travels with the stat line because `halve_doubled_espn_yardage`
+    # reconciles the two against each other -- and it has to be renamed *first*.
+    # `change_col_prefix` is a plain substring replace, not a prefix match, so it
+    # turns `projPoints` into `ESPNPoints` (no underscore) rather than leaving it
+    # alone, and the correction would then look for a column that no longer exists
+    # and silently never fire. The replacement name deliberately contains no "proj"
+    # substring for the same reason.
+    espn_proj = df[['week', 'player_name', 'primaryPosition', 'player_active_status',
+                    'projPoints'] + list(df.filter(like='proj_').columns)]
+    espn_proj = espn_proj.rename(columns={'projPoints': ESPN_PUBLISHED_POINTS})
     espn_proj = change_col_prefix(df=espn_proj, old_pfix="proj", new_pfix="ESPN")
 
     ## b) Build Fantasy Pros From Scrape
@@ -951,28 +1175,36 @@ def clean_lineups(df, lg, season=None):
     trans1_df = espn_proj.merge(fp_proj, how='left', on=['week', 'player_name'])
     get_match_details(df1=espn_proj, df2=fp_proj, keys=["week", "player_name"], check_col2="FP_rushingTouchdowns", min_wk=curr_week, tbl_lab="FantasyPros Table")
 
-    ## d) Correct Error Where ESPN Duplicates Yards
-    print("=============================== Correcting ESPN Doubled Yard Projections ===============================")
-    print(" ")
-    for column in fix_list:
-        FP_Col = column.replace("ESPN_", "FP_")
-        # Apply with a conditional print statement
-        trans1_df[column] = trans1_df.apply(
-            lambda row: (
-                # Check if the condition is true
-                print(f"Player: {row['player_name']}, Week: {row['week']}, "
-                      f"Original {column}: {row[column]}, "
-                      f"New {column}: {row[column] / 2}") or row[column] / 2
-                if (row[column] > (row[FP_Col] * 1.75)) and (row[column] > 40) else row[column]
-            ),
-            axis=1
-        )
+    ## d) Reconcile ESPN's stat line to ESPN's own points total.
+    ##
+    ## Against `projPoints` rather than against FantasyPros. The old rule compared
+    ## ESPN to FP *before* the FP imputation ran, so for any player FantasyPros had
+    ## no line for it compared against NaN and never fired -- and FantasyPros served
+    ## sixty players in 2025. See `halve_doubled_espn_yardage`.
+    ## The base-slot table, not `scores_df`. `get_scoring_table` defaults to the
+    ## D/ST slot, whose override map prices some rules differently; `projPoints`
+    ## for the offensive players this correction is about comes from the base
+    ## values, so the two sides of the comparison have to agree on which.
+    base_scores = get_scoring_table(lg, slot=SLOT_BASE)
+    trans1_df, halved = halve_doubled_espn_yardage(
+        trans1_df, base_scores, projected_points=ESPN_PUBLISHED_POINTS)
+    print(f"  ESPN line: halved doubled yardage on {halved} player-week(s).")
 
-    print(" ")
-    print("======================================== End Doubled Correction ========================================")
-    print(" ")
+    silent = report_silent_zero_stats(trans1_df, base_scores)
+    if silent:
+        _warn_missing(
+            "Scored stats that are identically zero for every player-week, so "
+            f"they contribute nothing to any total: {', '.join(silent)}. The rule "
+            "is mapped and the column exists, which is why nothing else reports "
+            "this -- see report_silent_zero_stats.")
 
     ## e) Impute FP with ESPN + Create Means
+    ##
+    ## The reconciliation reference is dropped first. `base` already carries
+    ## `projPoints` from `base_cols`, and leaving a second copy here would ship the
+    ## same number under two names and give `impute_columns` a non-stat column to
+    ## reason about.
+    trans1_df = trans1_df.drop(columns=[ESPN_PUBLISHED_POINTS], errors='ignore')
     trans1_df = impute_columns(trans1_df, target_prefix='FP_', source_prefix='ESPN_')
     mean_df = create_mean_cols(trans1_df, target_prefix='FP_', source_prefix='ESPN_')
 
@@ -1030,20 +1262,50 @@ def clean_lineups(df, lg, season=None):
     print_coverage_report(base, weights_dict=WEIGHTS)
 
     ## 5) Create Aggregate Columns For Each Projection Type (Manual Weights)
-    final = compute_weighted_stats(df=base, stats_list=actual_scoring_cols,
+    final = compute_weighted_stats(df=base, stats_list=blend_cols,
                                    weights_dict=WEIGHTS)
 
     ## 6) Build Score Column
-    final = proj_to_score(proj_df=final, s_league=lg)
+    ##
+    ## The prefix list is explicit rather than `proj_to_score`'s default, which
+    ## includes `USG`, `KIK` and `DST`. Those have no weekly stat columns -- there
+    ## is no weekly model (`docs/plans/19-weekly-usage-model.md` is not started) --
+    ## so scoring them wrote a `USG_Points` that was null for all 3,602 rows of
+    ## every 2025 store. A column shaped like a source that never has an opinion
+    ## reads as a source that agreed, which is this repo's oldest failure mode.
+    prefixes = present_prefixes(final, WEEKLY_PREFIXES)
+    final = proj_to_score(proj_df=final, s_league=lg, col_pfix_list=prefixes)
 
-    # a) Adjust For Extra ESPN Stats
-    final['adjustment'] = final['projPoints'] - final['ESPN_Points']
-    for i in ['ESPN', 'FP', 'MEAN', 'PINNY', 'BOL', 'TRUE']:
-        final[f'{i}_Points'] = final['adjustment'] + final[f'{i}_Points']
-
+    ## 6a) What ESPN prices that this pipeline cannot, as a named column.
+    ##
+    ## This used to be added to every source's points total, `TRUE_Points`
+    ## included, under the name `adjustment`. It is not added to anything now.
+    ##
+    ## The reason is the architecture rather than the arithmetic: points are
+    ## defined here as the league's scoring rules applied to a blended stat line,
+    ## and `TRUE_Points == score(TRUE_ stat line)` is the identity that lets one
+    ## pipeline serve nine leagues. A scalar with no stat behind it breaks that
+    ## identity, and because it was ESPN's residual it also injected an unweighted,
+    ## full-strength sixth ESPN vote *after* `compute_weighted_stats` had carefully
+    ## renormalised the imputed cells out.
+    ##
+    ## Worst of all it was load-bearing camouflage. Two genuine stat-level defects
+    ## were hiding underneath it and neither was visible until it came off: ESPN's
+    ## doubled yardage escaping a correction that could not fire (see
+    ## `halve_doubled_espn_yardage`), and six milestone-bonus rules in
+    ## john_pc_league that are mapped, present and identically zero (see
+    ## `report_silent_zero_stats`).
+    ##
+    ## Removing it costs nothing measurable: against realised 2025 points the patch
+    ## made `TRUE_Points` MAE *worse* in six of nine leagues and better by under
+    ## 0.2% in the other three. But that is a footnote. The residual stays on the
+    ## frame as `espn_unpriced` so the gap has a number to close, and closing it
+    ## belongs at the stat level -- a milestone bonus is a function of the yardage
+    ## each source already projects.
+    final['espn_unpriced'] = final['projPoints'] - final['ESPN_Points']
 
     ## 7) Build Position Rank Columns
-    for i in ['ESPN', 'FP', 'MEAN', 'PINNY', 'BOL', 'TRUE']:
+    for i in prefixes:
         final[f"{i}_PosRank"] = final.groupby(['week', 'primaryPosition'])[f'{i}_Points'].rank(ascending=False, method='dense')
 
     # Actual

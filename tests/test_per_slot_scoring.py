@@ -411,3 +411,73 @@ def test_a_dense_frame_scores_exactly_as_before(monkeypatch):
     assert out.set_index("primaryPosition")["ESPN_Points"].to_dict() == {
         "WR": 0.0, "LB": 10.0, "D/ST": 3.0,
     }
+
+
+# --- volume in the blend, plan 34 ----------------------------------------
+
+def test_blending_volume_cannot_change_any_points_total():
+    """An unscored ``TRUE_`` column must reach no ``*_Points`` total.
+
+    This is the whole safety argument for carrying volume through the blend:
+    ``_apply_scoring`` iterates the *scoring table*, not the stat list, so a
+    blended column the league does not price contributes nothing. Verified over
+    all nine 2026 boards at max |delta| 0.0 when the change landed; pinned here
+    on a frame small enough to read, because the property is what makes the
+    change safe rather than merely observed to be safe so far.
+    """
+    import pandas as pd
+
+    from Scripts import projection_utils as pu
+
+    scoring = pd.DataFrame({
+        "colName": ["passingYards", "passingTouchdowns"],
+        "points": [0.04, 4.0],
+    })
+    frame = pd.DataFrame({
+        "primaryPosition": ["QB", "QB"],
+        "ESPN_passingYards": [4000.0, 3500.0],
+        "ESPN_passingTouchdowns": [30.0, 22.0],
+        "ESPN_passingAttempts": [560.0, 480.0],
+        "FP_passingYards": [4200.0, 3400.0],
+        "FP_passingTouchdowns": [31.0, 21.0],
+        "FP_passingAttempts": [575.0, 470.0],
+    })
+
+    scored_only = pu.compute_weighted_stats(frame.copy(), ["passingYards",
+                                                           "passingTouchdowns"],
+                                            pu.WEIGHTS)
+    with_volume = pu.compute_weighted_stats(
+        frame.copy(), pu.blended_stats(["passingYards", "passingTouchdowns"]),
+        pu.WEIGHTS)
+
+    pu._apply_scoring(scored_only, scoring, ["ESPN", "FP", "TRUE"])
+    pu._apply_scoring(with_volume, scoring, ["ESPN", "FP", "TRUE"])
+
+    assert "TRUE_passingAttempts" in with_volume.columns
+    assert "TRUE_passingAttempts" not in scored_only.columns
+    for prefix in ("ESPN", "FP", "TRUE"):
+        column = f"{prefix}_Points"
+        pd.testing.assert_series_equal(scored_only[column], with_volume[column])
+
+
+def test_the_blend_list_drops_an_unmapped_scoring_rule():
+    """Plan 01's NaN ``colName`` must not become a ``TRUE_nan`` column.
+
+    It used to: ``compute_weighted_stats`` was handed the raw ``colName`` list,
+    found no ``ESPN_nan`` to read, and wrote an all-zero ``TRUE_nan``. Harmless in
+    its value and not harmless in what it did to ``_apply_scoring``'s
+    ``scored_any``, which is the flag that tells an absent source from a source
+    projecting zero.
+    """
+    from Scripts.projection_utils import blended_stats
+
+    assert "nan" not in blended_stats(["passingYards", float("nan")])
+
+
+def test_the_blend_list_never_repeats_a_stat():
+    """Two leagues score ``rushingAttempts``; it must not be blended twice."""
+    from Scripts.projection_utils import blended_stats
+
+    out = blended_stats(["rushingAttempts", "passingYards"])
+    assert len(out) == len(set(out))
+    assert out.count("rushingAttempts") == 1

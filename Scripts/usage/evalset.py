@@ -38,8 +38,29 @@ from Scripts.usage.nflverse import (
 
 #: The four weekly projection sources, in the order the pipeline builds them.
 #: ``MEAN`` and ``TRUE`` are derived from these and are not independent opinions,
-#: so they are not evaluated as sources.
+#: so they are not evaluated as *sources* -- nothing here treats them as a vote.
 SOURCES: Tuple[str, ...] = ("ESPN", "FP", "PINNY", "BOL")
+
+#: Derived columns carried through pooling so the blend can be *scored*, which is
+#: a different question from whether it is an opinion.
+#:
+#: ``TRUE_`` is the number the app, the Sheets and the draft board actually show,
+#: and until :mod:`Scripts.lab.accuracy` there was nothing in this repo that
+#: measured it against a realised stat line -- every scored evaluation judged
+#: TOMCAT or a calibration curve. Carrying it here costs one column per stat and
+#: makes the shipping blend answerable to the same evidence its inputs are.
+#:
+#: It has no ``_is_imputed`` companion and needs none: an output cannot be
+#: imputed. :func:`real_mask` therefore reads it as real wherever it is non-null,
+#: which is the correct statement, with the caveat that
+#: :func:`Scripts.projection_utils.compute_weighted_stats` 0-fills, so a
+#: ``TRUE_`` of ``0.0`` can mean "every source was silent". That is why
+#: :mod:`Scripts.lab.accuracy` scores the blend *paired* against one source at a
+#: time, on the rows that source was real for, rather than pooling.
+DERIVED: Tuple[str, ...] = ("TRUE",)
+
+#: Everything :func:`_league_columns` pulls a ``<prefix>_<stat>`` column for.
+CARRIED: Tuple[str, ...] = SOURCES + DERIVED
 
 #: Identity columns carried through pooling.
 ID_COLUMNS = ("week", "player_id", "player_name", "primaryPosition")
@@ -67,7 +88,7 @@ def _league_columns(available: Sequence[str],
             missing_stats.append(stat)
             continue
         columns.append(stat)
-        for source in SOURCES:
+        for source in CARRIED:
             for candidate in (f"{source}_{stat}", f"{source}_{stat}{IMPUTED_SUFFIX}"):
                 if candidate in have:
                     columns.append(candidate)
@@ -96,6 +117,33 @@ def league_eval_frame(season: int, league_key: str,
     out = frame.select(columns)
     return out.rename({s: f"{ACTUAL_PREFIX}{s}" for s in stats
                        if s in out.columns})
+
+
+def _worst_spread(pooled: pl.DataFrame, columns: Sequence[str]) -> float:
+    """Largest within-``(week, player_id)`` range across ``columns``.
+
+    Zero means every league that carried the column agreed exactly, which is the
+    assumption pooling rests on. Anything else is the size of the violation.
+
+    Args:
+        pooled: Rows from every league, before the duplicate collapse.
+        columns: Columns to check. An empty list scores 0.0.
+
+    Returns:
+        float: The worst absolute disagreement found.
+    """
+    columns = [c for c in columns if c in pooled.columns]
+    if not columns:
+        return 0.0
+    spread = (
+        pooled.group_by(["week", "player_id"])
+        .agg([(pl.col(c).max() - pl.col(c).min()).alias(c) for c in columns])
+        .select(pl.max_horizontal([pl.col(c).abs().max() for c in columns])
+                .alias("worst"))
+    )
+    if spread.height and spread["worst"][0] is not None:
+        return float(spread["worst"][0])
+    return 0.0
 
 
 def build_eval_set(season: int,
@@ -156,17 +204,21 @@ def build_eval_set(season: int,
     # below says so instead of the pooling quietly picking a winner.
     checked = [c for c in value_columns
                if c.startswith(ACTUAL_PREFIX) or c.startswith("ESPN_")]
-    worst = 0.0
-    if checked:
-        spread = (
-            pooled.group_by(["week", "player_id"])
-            .agg([(pl.col(c).max() - pl.col(c).min()).alias(c) for c in checked])
-            .select(pl.max_horizontal([pl.col(c).abs().max() for c in checked])
-                    .alias("worst"))
-        )
-        if spread.height and spread["worst"][0] is not None:
-            worst = float(spread["worst"][0])
-    report["worst_cross_league_disagreement"] = worst
+    report["worst_cross_league_disagreement"] = _worst_spread(pooled, checked)
+
+    # The blend is checked separately rather than folded into the number above,
+    # because it is a *derived* column and it does not hold the same guarantee.
+    # Measured on 2025: ESPN and the actuals agree to 0.0 across all nine leagues,
+    # while `TRUE_` disagrees on 13 player-weeks by up to 3.11 receiving yards.
+    # The cause is upstream of pooling -- `clean_lineups` merges its sources on
+    # `(week, player_name, primaryPosition, player_active_status)`, and a player
+    # ESPN lists at a different `primaryPosition` in one league picks up a
+    # different imputation flag, which changes the renormalised denominator. Small
+    # and real, so it is reported rather than assumed away; a caller that cares
+    # can compare it against its own tolerance.
+    report["worst_blend_disagreement"] = _worst_spread(
+        pooled, [c for c in value_columns
+                 if any(c.startswith(f"{d}_") for d in DERIVED)])
 
     collapsed = (
         pooled.group_by(["week", "player_id"])

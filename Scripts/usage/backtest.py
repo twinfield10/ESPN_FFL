@@ -407,8 +407,22 @@ def report_stat_intervals(pooled: pl.DataFrame) -> str:
     if not any_row:
         return "=== stat lines: predictive interval coverage ===\n  not computed"
 
-    lines.append("  counts read high for the same discreteness reason as games; the")
-    lines.append("  passing rows are the arm shipped code abstains on.")
+    lines.append("  counts read high for the same discreteness reason as games.")
+    if not sn.ABSTAIN_POSITIONS:
+        lines.append("  NOTE: `season.ABSTAIN_POSITIONS` is empty, so every row above "
+                     "reaches a board.")
+        lines.append("  `passingYards` covers 58.9% against a nominal 80% and misses "
+                     "asymmetrically")
+        lines.append("  (24.5% below p10, 16.6% above p90): too narrow *and* biased "
+                     "high at quarterback.")
+        lines.append("  This line used to read 'the passing rows are the arm shipped "
+                     "code abstains on'.")
+        lines.append("  That was true until 2026-08-07, when the depth chart entered "
+                     "the veteran arm and")
+        lines.append("  the abstention was lifted -- and the excuse outlived it in "
+                     "this function and in")
+        lines.append("  docs/STATE_OF_THE_REPO.md. See docs/plans/34-stat-first-audit.md "
+                     "F5.")
     return "\n".join(lines)
 
 
