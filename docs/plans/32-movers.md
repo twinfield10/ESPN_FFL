@@ -2,7 +2,7 @@
 
 **Status:** IN PROGRESS
 
-**Priority:** Medium · **Effort:** S–M · **Where it stands:** **Phase 1 built on `feat/multi-year-lookback`, 2026-08-24** — G-M1, G-M2 and G-M4 all pass, and G-M2 reversed this plan's own prediction: the window ships at **every** position, not quarterback only. Phases 2–3 not started
+**Priority:** Medium · **Effort:** S–M · **Where it stands:** **Phase 1 built, measured, and switched off.** The feature layer ships; no regressor is on and nothing refits. G-M1 failed on re-measurement 2026-08-26 — quarterback movers at **+0.03%** against a +3% bar, against a claimed +4.4% that turns out never to have been reproducible from this code. The ~1% the window really does buy at RB/WR/TE needs its own gate. Phases 2–3 not started
 **Depends on:** [18](18-season-usage-model.md) (the season head) ·
 [22](22-feature-research.md) (the contract pull this reuses)
 **Feeds:** [19](19-weekly-usage-model.md) · [31](31-team-coherent-tomcat.md)
@@ -179,8 +179,46 @@ their gate. Half a day: the panel already proves it out, and this is a features 
 rather than a new arm. Note it is not a mover fix — it is a quarterback fix that shows
 up largest on movers.
 
-**As built** — `windowed_history` in `Scripts.usage.features`, one regressor
-(`peak3_volume`) in `VOLUME_REGRESSORS`, model version **1.3.0**.
+**As built, then switched off** — `windowed_history` in `Scripts.usage.features` ships;
+**no regressor is turned on** and `MODEL_VERSION` stays **1.2.0**, so nothing refits and
+no projection moves.
+
+> ### G-M1 does not reproduce, and it was never reproducible
+>
+> Re-measured 2026-08-26, pooled walk-forward 2020–2025, `peak3` on against off:
+>
+> | | claimed | re-measured | |
+> |---|---|---|---|
+> | QB | +1.8% | **+0.34%** (4/6 folds) | |
+> | **QB movers** | **+4.4%** | **+0.03%** | **fails a +3% bar** |
+> | RB | +1.0% | +0.94% | reproduces |
+> | WR | +1.0% | +1.28% | reproduces |
+> | TE | +0.7% | +0.59% | reproduces |
+>
+> **The skill positions reproduce closely and quarterback does not** — the opposite of
+> what this plan predicted *and* of the correction that overturned it.
+>
+> **This is not drift.** Measured at the original commit `e1993c8` in a detached
+> worktree — before the rebase, before plans 28, 31 and 33 landed — the numbers are
+> identical fold for fold, including a −3.31% quarterback fold in 2025.
+> `features.py`, `backtest.py` and `context.py` have no commits on main since this
+> branch was cut. The claim was wrong when it was written, not invalidated since.
+>
+> **The fit half of the claim is sound.** R² at quarterback goes 0.4503 → 0.4698 and
+> `peak3_volume` enters at +0.33, outweighing `p1_volume` exactly as reported. So the
+> window really does explain more variance at quarterback; it just does not convert
+> into out-of-sample accuracy there. What produced the original MAE figure is unknown
+> — the per-position machinery that measured it was deleted with the branch that built
+> it, so there is nothing left to diff against.
+>
+> **G-M1 was the affirmative gate and it fails, so nothing ships.** G-M2 was a guard
+> against regression elsewhere rather than a reason to turn anything on, and the ~1%
+> it now measures at RB, WR and TE is real but has to earn its own gate before it earns
+> a refit that moves every projection on nine boards.
+>
+> `peak3_volume` therefore joins `mean3_volume` and `peak5_volume` as defined and off,
+> which is the house pattern for a measured-and-rejected candidate. Turning it back on
+> is one line in `VOLUME_REGRESSORS` plus a version bump.
 
 > **Corrected in implementation: "at quarterback only" was wrong.** That came from
 > the panel reconstruction above, which built the peak from a flat panel rather than
