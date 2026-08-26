@@ -2,7 +2,7 @@
 
 **Status:** IN PROGRESS
 
-**Priority:** High · **Effort:** M · **Where it stands:** **Phases 1–2 built on `feat/team-coherent-tomcat`** — phase 1 shipped 2026-08-24 and missed G-T2; phase 2 (2026-08-26) clears it at +0.0305 on a +0.02 bar and takes G-T0's QB-games half from 1 of 32 to 32 of 32, though its separation from phase 1 is inside the noise at n=92. G-T3 is owed and phase 3 is open.
+**Priority:** High · **Effort:** M · **Where it stands:** **All three phases built on `feat/team-coherent-tomcat`, every gate passing.** Phase 1 (2026-08-24) closed the identity and missed G-T2; phase 2 (2026-08-26) allocates the quarterback room by role and clears it at +0.0305 on a +0.02 bar, taking G-T0's QB-games half from 1 of 32 to 32 of 32; phase 3 found and fixed a phase 1 defect that was rewriting yards-per-reception on all 665 pass-catchers, and clears G-T4. Held as a draft PR until after the 2026 drafts — it moves `USG_` and therefore `TRUE_`. **Phase 2's separation from phase 1 is inside the noise at n=92**, which cannot be raised.
 **Depends on:** [18](18-season-usage-model.md) (the season head) ·
 [28](28-outcome-distributions.md) (the redistribution evidence this needs)
 **Feeds:** [19](19-weekly-usage-model.md) · [03](03-projection-source-coverage.md)
