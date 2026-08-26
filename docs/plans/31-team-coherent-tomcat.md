@@ -204,11 +204,52 @@ moves the starter and his backup in opposite directions.
 It also **divides rather than lifts**, which is what stops it re-creating the Miami
 blow-up: a lone projected passer's share is one, not `slate / expected_games`.
 
-### Phase 3 — redistribute vacated volume
+### Phase 3 — close the identity without moving a rate — **shipped**
 
-The piece that makes phase 2 correct rather than merely tidy: when a starter's expected
+~~The piece that makes phase 2 correct rather than merely tidy: when a starter's expected
 games fall short of the slate, the remaining games belong to **somebody**, and their
-production should appear on that player's row.
+production should appear on that player's row.~~
+
+> **Phase 3's premise fails the same way phase 2's did, and for the same reason.**
+> Nothing is vacated on the board. `to_full_slate` divides `expected_games` back out
+> before the parquet is written, so every published line already describes a full slate
+> and a team's rows are **over**-counted, not short. There is no vacated volume to move.
+> The redistribution phase 3 was written to perform is what phase 2's allocation already
+> does, one room at a time, by dividing a fixed budget rather than by transferring.
+
+**What was actually owed turned out to be a defect in phase 1**, found by asking what
+was still incoherent after phase 2. Team receptions ran **365–640** against a real
+300–450, and every league here scores a reception at **ten times** a receiving yard.
+
+The cause: every published stat is `volume × rate` off a *shared* volume term —
+receiving yards, receptions and receiving touchdowns are all `targets_pg` times
+something — and `reconcile_identities` scaled identity *pairs* independently.
+`receivingReceptions` has no counterpart, because `passingCompletions` is not a stat
+this model projects, so the loop skipped it while scaling the yards beside it.
+`passingInterceptions` was orphaned the same way.
+
+**It rewrote a rate the model had chosen, on all 665 projected pass-catchers** — median
+18.4%, max 33.6%, taking league yards-per-reception from a realistic 10.81 to 8.98.
+
+**As built** — one factor per *volume family*, read off `Scripts.usage.season.STAT_TERMS`
+rather than hardcoded, taken from the yards identity and applied across the family; then
+the remaining identities closed on the residual. Rushing has no counterpart and is left
+alone.
+
+| | current (per-pair) | family + residual |
+|---|---|---|
+| yards identity | 1.000 | **1.000** |
+| touchdown identity | 1.000 | **1.000** |
+| yards/reception drift | 18.40% | **0.00%** |
+| TD/reception drift | 16.77% | **2.19%** |
+| team receptions | 365–640 | **337–473** |
+
+It is strictly better on every axis rather than a trade: the residual 2.19% is the model
+disagreeing with itself about touchdown rates, surfacing instead of being papered over.
+
+**G-T4 passes.** No team's total rises on any stat — receptions, receiving yards,
+receiving touchdowns and rushing yards all have a maximum team ratio at or below 1.000.
+Vacated volume moves; it is not created.
 
 **[Plan 28](28-outcome-distributions.md) has already measured the redistribution**, which
 is why this plan is cheaper than it looks: a backfield is near zero-sum — the lead back's
@@ -270,7 +311,7 @@ should.
 | **G-T2** standalone QB ordering | +0.02 Spearman | +0.0054 | **+0.0305** | **pass** |
 | **G-T2** ordering elsewhere | must not fall | RB −0.0015, WR +0.0023, TE +0.0012 | RB −0.0013, WR +0.0017, TE −0.0018 | **pass** |
 | **G-T3** blend stability | median shift < 2% every position | worst 0.45% | **worst 0.00%** | **pass** |
-| **G-T4** conservation | — | n/a | phase 3 | n/a |
+| **G-T4** conservation | a team's total must not rise | n/a | **0 of 32 rose** | **pass** |
 
 **G-T0's second half is the one phase 1 recorded as "not reachable".** Lifting a short
 room to seventeen games means projecting a quarterback with no row on the board.

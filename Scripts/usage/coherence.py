@@ -109,6 +109,8 @@ from typing import Dict, Iterable, Sequence, Tuple
 
 import polars as pl
 
+from Scripts.usage import season as sn
+
 #: Values of the team column that are not a team.
 #:
 #: ESPN's board buckets every free agent under the literal string ``"None"`` -- 522 of
@@ -136,6 +138,31 @@ IDENTITIES: Tuple[Tuple[str, str], ...] = (
     ("passingTouchdowns", "receivingTouchdowns"),
     ("passingCompletions", "receivingReceptions"),
 )
+
+#: The identity the volume correction is anchored on.
+#:
+#: Yards rather than touchdowns, because it is the pair with real coverage on both ends
+#: and the one G-T0 is written against. The rest are closed afterwards, on the residual.
+ANCHOR: Tuple[str, str] = ("passingYards", "receivingYards")
+
+
+def volume_families(prefix: str = "USG_") -> Dict[str, Tuple[str, ...]]:
+    """Stat columns grouped by the volume term they are all built from.
+
+    Read off :data:`Scripts.usage.season.STAT_TERMS` rather than written out here, so a
+    stat added to the model joins its family without anyone remembering to come back.
+
+    Args:
+        prefix: Stat-line prefix.
+
+    Returns:
+        dict: Volume term -> the prefixed stat columns derived from it. ``targets_pg``
+        carries receiving yards, receptions and receiving touchdowns.
+    """
+    families: Dict[str, list] = {}
+    for stat, (volume, _rate) in sn.STAT_TERMS.items():
+        families.setdefault(volume, []).append(f"{prefix}{stat}")
+    return {volume: tuple(columns) for volume, columns in families.items()}
 
 
 def _real_team(team_column: str) -> pl.Expr:
@@ -369,21 +396,36 @@ def reconcile_identities(frame: pl.DataFrame,
                          prefix: str = "USG_",
                          identities: Iterable[Tuple[str, str]] = IDENTITIES,
                          ) -> pl.DataFrame:
-    """Force each team's passing and receiving lines to describe the same season.
+    """Close the team accounting identities without moving anyone's rates.
 
-    The polars twin of :func:`Scripts.season_projections.reconcile_team_totals`, and
-    the same midpoint rule for the same measured reason: against 2025 realised team
-    passing yards the receiver sum is the better single estimator (MAE 263 to 321) but
-    wins the head-to-head only 16-14, which is too thin to scale quarterbacks alone by
-    up to 20%. The midpoint takes the best MAE of the three and asserts nothing.
+    Phase 3 of :doc:`plan 31 <../../docs/plans/31-team-coherent-tomcat>`.
 
-    **Both** sides must be non-empty. A team with nothing on one side has no identity
-    to enforce, and its midpoint would be half the side that does exist -- halving that
-    side while leaving the empty one at zero is a deletion, not a reconciliation.
+    **What this used to do, and why it was wrong.** Each identity pair was scaled on its
+    own -- passing yards against receiving yards, passing touchdowns against receiving
+    touchdowns. But every published stat is ``volume x rate`` off a *shared* volume term:
+    receiving yards, receptions and receiving touchdowns are all ``targets_pg`` times
+    something. Scaling one member of a family and not another rewrites the rate between
+    them. It moved the implied yards per reception of **all 665** projected pass-catchers
+    by a median of 18.4% and up to 33.6%, taking the league median from a realistic 10.81
+    to 8.98.
 
-    Nulls are abstentions and stay null: they contribute nothing to a team's sum, and
-    multiplying them by the ratio leaves them absent, which is what the blend has to
-    see.
+    ``receivingReceptions`` was the worst of it. Its counterpart ``passingCompletions``
+    is not a stat this model projects -- :data:`IDENTITIES` names the pair, the loop
+    skipped it, and receptions were never scaled at all while the yards beside them were.
+    Team receptions ran 365-640 against a real 300-450, and **every league here scores a
+    reception at ten times a receiving yard**, so that was a systematic inflation of every
+    pass-catcher's price rather than a cosmetic gap.
+
+    **What it does instead.** A team-level disagreement about yards is a disagreement
+    about *volume*, so the correction belongs to the volume term and everything built on
+    it moves together: one factor per family from the :data:`ANCHOR` pair, applied across
+    the family, then the remaining identities closed on what is left. Rushing has no
+    counterpart to reconcile against and is left alone.
+
+    Both identities still close exactly. Yards per reception now moves by **0.00%** and
+    touchdowns per reception by 2.19% against 16.77% -- and that residual is the model
+    disagreeing with itself about touchdown rates, surfacing rather than being papered
+    over by arithmetic.
 
     Args:
         frame: Projection frame carrying the team and stat columns.
@@ -393,27 +435,58 @@ def reconcile_identities(frame: pl.DataFrame,
             skipped -- the model projects no completions column.
 
     Returns:
-        pl.DataFrame: ``frame`` with those columns scaled in place.
+        pl.DataFrame: ``frame`` with the identities closed and the rates intact.
     """
     if team_column not in frame.columns:
         return frame
 
-    for passing, receiving in identities:
-        left, right = f"{prefix}{passing}", f"{prefix}{receiving}"
+    real = _real_team(team_column)
+
+    def total(column: str) -> pl.Expr:
+        return (pl.when(real).then(pl.col(column).cast(pl.Float64))
+                  .otherwise(None).sum().over(team_column))
+
+    def factors(left: str, right: str):
+        """Midpoint factors for a pair, or None where the pair cannot be scored."""
         if left not in frame.columns or right not in frame.columns:
-            continue
+            return None
+        target = (total(left) + total(right)) / 2.0
+        usable = real & (total(left) > 0) & (total(right) > 0)
+        return tuple(pl.when(usable).then(target / total(column)).otherwise(1.0)
+                     for column in (left, right))
 
-        real = _real_team(team_column)
-        totals = {c: (pl.when(real).then(pl.col(c).cast(pl.Float64))
-                        .otherwise(None).sum().over(team_column))
-                  for c in (left, right)}
-        target = (totals[left] + totals[right]) / 2.0
-        usable = real & (totals[left] > 0) & (totals[right] > 0)
+    # Materialised because it is read twice, and because `identities` is what decides
+    # whether the anchor runs at all -- a caller asking for one pair gets that pair
+    # reconciled and nothing else.
+    wanted = tuple(identities)
+    families = volume_families(prefix)
+    anchor = (factors(f"{prefix}{ANCHOR[0]}", f"{prefix}{ANCHOR[1]}")
+              if ANCHOR in wanted else None)
 
+    if anchor is not None:
+        # The volume correction. A stat's family decides its factor, so receptions
+        # travel with the receiving yards they were counted from.
+        by_column = {}
+        for stat, factor in zip(ANCHOR, anchor):
+            for column in families.get(sn.STAT_TERMS[stat][0], ()):
+                by_column[column] = factor
         frame = frame.with_columns(
-            [(pl.col(c).cast(pl.Float64)
-              * pl.when(usable).then(target / totals[c]).otherwise(1.0)).alias(c)
-             for c in (left, right)])
+            [(pl.col(column).cast(pl.Float64) * factor).alias(column)
+             for column, factor in by_column.items() if column in frame.columns])
+
+    # Whatever the volume correction did not close, closed on the residual -- the same
+    # midpoint rule applied one level down, to a rate disagreement rather than a volume
+    # one.
+    for passing, receiving in wanted:
+        if anchor is not None and (passing, receiving) == ANCHOR:
+            continue
+        left, right = f"{prefix}{passing}", f"{prefix}{receiving}"
+        pair = factors(left, right)
+        if pair is None:
+            continue
+        frame = frame.with_columns(
+            [(pl.col(column).cast(pl.Float64) * factor).alias(column)
+             for column, factor in zip((left, right), pair)])
 
     return frame
 

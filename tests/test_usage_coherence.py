@@ -299,3 +299,86 @@ def test_a_frame_without_a_depth_chart_keeps_phase_one_behaviour():
                            games_column="usg_expected_games")
     assert ch.ALLOCATED_STARTS_COLUMN not in out.columns
     assert ch.ROOM_SCALE_COLUMN in out.columns
+
+
+# --- plan 31 phase 3: closing the identity without moving a rate ----------
+#
+# The defect these exist for: every published stat is `volume x rate` off a shared
+# volume term, and the old pass scaled identity pairs independently. Receiving yards
+# moved and the receptions beside them did not, so a rate the model chose was rewritten
+# by team arithmetic -- on all 665 pass-catchers, by a median of 18.4%.
+
+def _two_teams():
+    """One team whose receiving sum is well under its passing sum, so a real factor
+    is applied rather than a no-op 1.0."""
+    return pl.DataFrame([
+        {"team": "T", "position": "QB", "USG_passingYards": 4000.0,
+         "USG_passingTouchdowns": 30.0, "USG_passingInterceptions": 10.0,
+         "USG_receivingYards": 0.0, "USG_receivingReceptions": 0.0,
+         "USG_receivingTouchdowns": 0.0, "USG_rushingYards": 200.0},
+        {"team": "T", "position": "WR", "USG_passingYards": 0.0,
+         "USG_passingTouchdowns": 0.0, "USG_passingInterceptions": 0.0,
+         "USG_receivingYards": 2000.0, "USG_receivingReceptions": 160.0,
+         "USG_receivingTouchdowns": 20.0, "USG_rushingYards": 100.0},
+    ])
+
+
+def test_receptions_travel_with_the_yards_they_were_counted_from():
+    """The bug. `passingCompletions` does not exist, so the receptions pair was
+    skipped entirely while the yards beside it were scaled."""
+    frame = _two_teams()
+    out = ch.reconcile_identities(frame, team_column="team")
+    yards = out["USG_receivingYards"][1] / frame["USG_receivingYards"][1]
+    receptions = out["USG_receivingReceptions"][1] / frame["USG_receivingReceptions"][1]
+    assert receptions == pytest.approx(yards)
+
+
+def test_yards_per_reception_is_untouched():
+    frame = _two_teams()
+    out = ch.reconcile_identities(frame, team_column="team")
+    before = frame["USG_receivingYards"][1] / frame["USG_receivingReceptions"][1]
+    after = out["USG_receivingYards"][1] / out["USG_receivingReceptions"][1]
+    assert after == pytest.approx(before)
+
+
+def test_interceptions_travel_with_the_passing_volume():
+    """Same family, same defect: `passingInterceptions` is in no identity pair, so it
+    was the one passing stat left behind when the yards moved."""
+    frame = _two_teams()
+    out = ch.reconcile_identities(frame, team_column="team")
+    yards = out["USG_passingYards"][0] / frame["USG_passingYards"][0]
+    picks = out["USG_passingInterceptions"][0] / frame["USG_passingInterceptions"][0]
+    assert picks == pytest.approx(yards)
+
+
+def test_rushing_is_left_alone_because_it_has_no_counterpart():
+    frame = _two_teams()
+    out = ch.reconcile_identities(frame, team_column="team")
+    assert out["USG_rushingYards"].to_list() == frame["USG_rushingYards"].to_list()
+
+
+def test_both_identities_still_close():
+    frame = _two_teams()
+    out = ch.reconcile_identities(frame, team_column="team")
+    assert out["USG_receivingYards"].sum() == pytest.approx(out["USG_passingYards"].sum())
+    assert (out["USG_receivingTouchdowns"].sum()
+            == pytest.approx(out["USG_passingTouchdowns"].sum()))
+
+
+def test_g_t4_a_team_total_never_rises():
+    """G-T4. Vacated volume moves; it is not created. The midpoint can only pull the
+    larger side down and the smaller side up, so the *pair* total is conserved --
+    what must not happen is a team ending with more opportunity than it started."""
+    frame = _two_teams()
+    out = ch.reconcile_identities(frame, team_column="team")
+    before = frame["USG_receivingYards"].sum() + frame["USG_passingYards"].sum()
+    after = out["USG_receivingYards"].sum() + out["USG_passingYards"].sum()
+    assert after <= before + 1e-9
+
+
+def test_a_family_is_read_off_the_model_not_hardcoded():
+    """A stat added to `STAT_TERMS` must join its family without an edit here."""
+    families = ch.volume_families()
+    assert "USG_receivingReceptions" in families["targets_pg"]
+    assert "USG_passingInterceptions" in families["pass_attempts_pg"]
+    assert "USG_rushingYards" in families["carries_pg"]
