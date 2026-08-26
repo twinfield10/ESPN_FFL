@@ -44,7 +44,12 @@
 #   chmod +x run_daily_refresh.sh
 #   crontab -e
 #   # ESPN FFL daily data refresh (6am -- overnight roster moves have landed)
-#   0 6 * * * /Users/tommywinfield/GitRepos/ESPN_FFL/run_daily_refresh.sh
+#   0 6 * * * /Users/tommywinfield/bin/espn_ffl_nightly.sh
+#
+# Cron points at the wrapper, not at this file. The branch check below is defence in
+# depth and is absent from any branch cut before it existed -- which is exactly the
+# checkout it would need to catch. `ops/espn_ffl_nightly.sh` (live at
+# ~/bin/espn_ffl_nightly.sh) sits outside the repo, so no checkout can remove it.
 #
 # Note on a sleeping laptop: cron does not run missed jobs on wake, so a night with
 # the lid shut is a night skipped. That is usually fine here -- the next run catches
