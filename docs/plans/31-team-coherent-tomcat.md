@@ -1,6 +1,6 @@
 # 31 — A team plays seventeen games: making TOMCAT team-coherent
 
-**Status:** IN PROGRESS
+**Status:** COMPLETE
 
 **Priority:** High · **Effort:** M · **Where it stands:** **All three phases built on `feat/team-coherent-tomcat`, every gate passing.** Phase 1 (2026-08-24) closed the identity and missed G-T2; phase 2 (2026-08-26) allocates the quarterback room by role and clears it at +0.0305 on a +0.02 bar, taking G-T0's QB-games half from 1 of 32 to 32 of 32; phase 3 found and fixed a phase 1 defect that was rewriting yards-per-reception on all 665 pass-catchers, and clears G-T4. Held as a draft PR until after the 2026 drafts — it moves `USG_` and therefore `TRUE_`. **Phase 2's separation from phase 1 is inside the noise at n=92**, which cannot be raised.
 **Depends on:** [18](18-season-usage-model.md) (the season head) ·
