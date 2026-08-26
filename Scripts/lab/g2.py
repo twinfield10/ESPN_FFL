@@ -143,12 +143,20 @@ def blend(board: pd.DataFrame, league_key: str, season: int,
         pd.DataFrame: ``board`` plus recomputed ``TRUE_<stat>`` and
         ``<prefix>_Points`` columns.
     """
+    from Scripts.injury.transfer import redistribute
     from Scripts.season_projections import reconcile_team_totals
 
     scoring = scoring_table(league_key, season, SLOT_BASE)
     stats = [c for c in scoring["colName"].dropna().unique()]
     out = compute_weighted_stats(df=board.copy(), stats_list=stats,
                                  weights_dict={"default": weights})
+    # The shipping path's tail, in the same order, because a lab that reproduces a
+    # different object than the board measures the wrong thing. Plan 28 phase 6's
+    # vacancy transfer sits between the two reconciliations, and leaving it out here
+    # was caught by `test_reblend_reproduces_the_shipped_board` rather than by anyone
+    # noticing the lab and the board had drifted apart.
+    out = reconcile_team_totals(out)
+    out = redistribute(out)
     out = reconcile_team_totals(out)
     return score_offline(out, league_key, season)
 
