@@ -1,6 +1,8 @@
 # 19 — The weekly usage model (in-season head)
 
-**Priority:** High (quality) · **Effort:** M–L · **Status:** Not started
+**Status:** TO DO
+
+**Priority:** High (quality) · **Effort:** M–L · **Where it stands:** Not started
 **Depends on:** [16](16-usage-data-layer.md) — Step 0 gates and the feature layer ·
 [18](18-season-usage-model.md) — shares the availability head, but does not block
 **Feeds:** [08 (weekly views)](08-frontend-weekly-views.md) ·

@@ -1,11 +1,13 @@
 # 30 — D/ST: nine ladders, one defence, and 71% of the score is noise
 
+**Status:** COMPLETE
+
 **Priority:** **High for both surfaces**, and unlike [29](29-kicker-model.md) the draft-board
 case is measured rather than assumed: season-average environment separates the best D/ST
 quintile from the worst by **80.2 points, a ratio of 3.1×**, monotone across all five
 quintiles. A starting slot in **eight** of the nine leagues -- Twelve Dudes rosters no D/ST, which
 this plan assumed it did -- with **zero** market coverage. · **Effort:** L ·
-**Status: BUILT and shipped at weight 0.0, 2026-08-18.** Points-allowed and yards-allowed
+**Where it stands: BUILT and shipped at weight 0.0, 2026-08-18.** Points-allowed and yards-allowed
 tier means clear their gates at **+36.8%** and **+32.9%** held-out; tackles for loss,
 interceptions, solo tackles, passes defensed and sacks beat their own means by 4-7%; and
 **fumbles forced, safeties, fumble recoveries and defensive touchdowns are shrunk to the

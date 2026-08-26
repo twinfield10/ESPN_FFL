@@ -1,6 +1,8 @@
 # 09 — Local frontend: draft views
 
-**Priority:** High (seasonal) · **Effort:** Large · **Status:** **Board done
+**Status:** IN PROGRESS
+
+**Priority:** High (seasonal) · **Effort:** Large · **Where it stands:** **Board done
 2026-08-07, model columns added 2026-08-14, split into three tabs 2026-08-14,
 keeper handling and the cash lens 2026-08-17, spanners and the ESPN comparison
 2026-08-17, Calibration tab 2026-08-17**; Live not started; History unblocked

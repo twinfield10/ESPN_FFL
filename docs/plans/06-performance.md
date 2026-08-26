@@ -1,6 +1,8 @@
 # 06 — Performance and warning hygiene
 
-**Priority:** Low · **Effort:** Small · **Status:** Not started
+**Status:** TO DO
+
+**Priority:** Low · **Effort:** Small · **Where it stands:** Not started
 
 Not urgent, but the two are related: the code is slow in a specific, fixable
 way, and the warning that says so is globally muted.

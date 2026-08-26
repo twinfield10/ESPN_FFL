@@ -1,6 +1,8 @@
 # 18 — The season usage model (pre-season / draft head)
 
-**Priority:** High (seasonal) · **Effort:** M · **Status:** **Built, backtested, and
+**Status:** COMPLETE
+
+**Priority:** High (seasonal) · **Effort:** M · **Where it stands:** **Built, backtested, and
 carrying real weight since 2026-08-07.**
 `Scripts/usage/{features,season,project,backtest}.py`, 84 tests. Walk-forward
 2019–2025 beats the naive draft heuristic on ordering at RB/WR/TE; it does not improve

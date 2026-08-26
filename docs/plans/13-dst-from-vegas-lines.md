@@ -1,7 +1,9 @@
 # 13 — Model D/ST scoring from Vegas lines
 
+**Status:** COMPLETE
+
 **Priority:** Medium (High once weekly lines are posted) · **Effort:** Medium ·
-**Status: SUPERSEDED by [30](30-dst-model.md) on 2026-08-18.**
+**Where it stands: SUPERSEDED by [30](30-dst-model.md) on 2026-08-18.**
 **Depends on:** [11 (per-slot scoring)](11-per-slot-scoring.md) for the IDP league only
 **Related:** [12 (season projections)](12-season-projections.md), [03 (source coverage)](03-projection-source-coverage.md)
 

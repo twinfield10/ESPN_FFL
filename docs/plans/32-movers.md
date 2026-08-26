@@ -1,6 +1,8 @@
 # 32 — Movers: what a player does on a new team
 
-**Priority:** Medium · **Effort:** S–M · **Status:** Evidence measured 2026-08-24, not started
+**Status:** IN PROGRESS
+
+**Priority:** Medium · **Effort:** S–M · **Where it stands:** Evidence measured 2026-08-24, not started
 **Depends on:** [18](18-season-usage-model.md) (the season head) ·
 [22](22-feature-research.md) (the contract pull this reuses)
 **Feeds:** [19](19-weekly-usage-model.md) · [31](31-team-coherent-tomcat.md)

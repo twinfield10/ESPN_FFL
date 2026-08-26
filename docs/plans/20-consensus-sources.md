@@ -1,6 +1,8 @@
 # 20 — Consensus sources — **retired, on evidence that turned out to be wrong**
 
-**Status:** Retired 2026-08-24. Kept as a stub so existing links resolve, and
+**Status:** COMPLETE
+
+**Where it stands:** Retired 2026-08-24. Kept as a stub so existing links resolve, and
 because *why* it was wrong is the useful part.
 **Superseded by:** nothing. Its question is reopened, not answered — see
 *What is now owed* below.

@@ -1,6 +1,8 @@
 # 31 — A team plays seventeen games: making TOMCAT team-coherent
 
-**Priority:** High · **Effort:** M · **Status:** Not started — evidence measured 2026-08-24
+**Status:** IN PROGRESS
+
+**Priority:** High · **Effort:** M · **Where it stands:** Not started — evidence measured 2026-08-24
 **Depends on:** [18](18-season-usage-model.md) (the season head) ·
 [28](28-outcome-distributions.md) (the redistribution evidence this needs)
 **Feeds:** [19](19-weekly-usage-model.md) · [03](03-projection-source-coverage.md)

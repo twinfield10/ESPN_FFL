@@ -1,6 +1,8 @@
 # 03 — Blend weights assume coverage the sources don't have
 
-**Priority:** High · **Effort:** Medium · **Status:** Steps 1, 2, 4 done · step 3 deferred · step 5 open
+**Status:** IN PROGRESS
+
+**Priority:** High · **Effort:** Medium · **Where it stands:** Steps 1, 2, 4 done · step 3 deferred · step 5 open
 
 > **The problem was bigger than this plan estimated.** Measured provenance shows
 > FantasyPros was only **25% real** even in 2025, Pinnacle **8%**, BetOnline

@@ -1,6 +1,8 @@
 # 25 — `results`, the artifact that reaches back
 
-**Priority:** Medium · **Effort:** S · **Status:** **Done** (2026-08-14), Winfield_Football only
+**Status:** IN PROGRESS
+
+**Priority:** Medium · **Effort:** S · **Where it stands:** **Done** (2026-08-14), Winfield_Football only
 **Depends on:** [23 (draft history)](23-owner-tendencies.md) — the picks it joins against
 **Unblocks:** any question about how a past season actually went; roadmap Phase 1's
 points-over-expectation

@@ -1,6 +1,8 @@
 # 24 — S3 as the system of record
 
-**Priority:** **High** · **Effort:** M · **Status:** **Done** (2026-08-11)
+**Status:** COMPLETE
+
+**Priority:** **High** · **Effort:** M · **Where it stands:** **Done** (2026-08-11)
 **Depends on:** [07 (store)](07-frontend-foundation.md) — done
 **Unblocks:** a cloud runner for the nightly refresh; a query layer over history
 

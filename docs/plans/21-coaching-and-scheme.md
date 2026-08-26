@@ -1,7 +1,9 @@
 # 21 — Depth charts, scheme, and the play-caller problem
 
+**Status:** COMPLETE
+
 **Priority:** High (feeds [18](18-season-usage-model.md) before the draft) ·
-**Effort:** M · **Status:** **Done 2026-08-07**, all five steps. `R/GetCoaches.R` +
+**Effort:** M · **Where it stands:** **Done 2026-08-07**, all five steps. `R/GetCoaches.R` +
 `Scripts/coaches.py` build the committed coaching table including a 17-season
 coordinator crawl; `Scripts/usage/scheme.py` builds team profiles and three coach
 priors; depth-chart features are in the feature layer.

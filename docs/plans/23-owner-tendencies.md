@@ -1,6 +1,8 @@
 # 23 — Owner tendencies from draft history
 
-**Priority:** **High, date-driven** · **Effort:** M · **Status:** **Done** (2026-08-10)
+**Status:** COMPLETE
+
+**Priority:** **High, date-driven** · **Effort:** M · **Where it stands:** **Done** (2026-08-10)
 **Depends on:** [07 (store)](07-frontend-foundation.md) — done ·
 [15 (draft board)](15-draft-board.md) — done
 **Unblocks:** [09 (draft views)](09-frontend-draft-views.md)'s **Draft History**,

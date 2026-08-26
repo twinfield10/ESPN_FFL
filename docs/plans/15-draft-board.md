@@ -1,6 +1,8 @@
 # 15 — Draft board: ADP, VOR and tiers
 
-**Priority:** **High, date-driven** · **Effort:** M · **Status:** **Done** (2026-08-05)
+**Status:** COMPLETE
+
+**Priority:** **High, date-driven** · **Effort:** M · **Where it stands:** **Done** (2026-08-05)
 **Depends on:** [07 (store)](07-frontend-foundation.md) — done ·
 [12 (season projections)](12-season-projections.md) — done
 **Blocks:** [09 (draft views)](09-frontend-draft-views.md)
