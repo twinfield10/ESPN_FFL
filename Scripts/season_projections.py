@@ -585,7 +585,11 @@ def load_usage_season(season: int) -> pd.DataFrame:
                # themselves -- listed here rather than picked up by a prefix scan
                # because this dict is the whole contract for what crosses over.
                "usg_role_cohort": "usg_role_cohort",
-               "usg_role_confidence": "usg_role_confidence"}
+               "usg_role_confidence": "usg_role_confidence",
+               # Plan 31 phase 2, which allocates a team's starts by depth rank and
+               # cohort. Absent from any parquet written before that phase, which is
+               # why `_make_usage_coherent` treats it as optional rather than a key.
+               "depth_rank": "usg_depth_rank"}
     out = df[[c for c in ["player_id", "name_key"] if c in df.columns]
              + [c for c in df.columns if c.startswith("USG_")]].copy()
     for source_col, target_col in context.items():
@@ -1172,24 +1176,33 @@ def _make_usage_coherent(base: pd.DataFrame,
     if not set(keys).issubset(base.columns):
         return base
 
+    # Phase 2's inputs are carried only if the parquet was written with them. A
+    # parquet from before plan 31 phase 2 has no `usg_depth_rank`, and the allocation
+    # declines rather than fails -- `make_coherent` falls back to the phase 1 cap. So
+    # these are appended to the slice when present and never gate the pass itself.
+    optional = [c for c in ("usg_role_cohort", "usg_depth_rank")
+                if c in base.columns]
+
     lines = [c for c in base.columns
              if c.startswith(prefix) and not c.endswith(IMPUTED_SUFFIX)
              and pd.api.types.is_numeric_dtype(base[c])]
     if not lines:
         return base
 
-    slice_ = base[keys + lines].copy()
+    slice_ = base[keys + optional + lines].copy()
     slice_["pro_team"] = slice_["pro_team"].astype("string")
     slice_["primaryPosition"] = slice_["primaryPosition"].astype("string")
     for column in ["usg_expected_games"] + lines:
         slice_[column] = pd.to_numeric(slice_[column], errors="coerce")
 
     before = coherence.identity_report(pl.from_pandas(slice_), prefix=prefix)
-    out = coherence.make_coherent(pl.from_pandas(slice_), prefix=prefix)
+    out = coherence.make_coherent(pl.from_pandas(slice_), prefix=prefix,
+                                  rank_column="usg_depth_rank")
     after = coherence.identity_report(out, prefix=prefix)
 
     for column in lines + [coherence.TEAM_GAMES_COLUMN,
-                           coherence.ROOM_SCALE_COLUMN]:
+                           coherence.ROOM_SCALE_COLUMN,
+                           coherence.ALLOCATED_STARTS_COLUMN]:
         if column in out.columns:
             base[column] = out[column].to_numpy()
 

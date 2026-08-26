@@ -269,7 +269,7 @@ should.
 | **G-T1** accuracy | no regression | +2.14% | **+2.30%** | **pass** |
 | **G-T2** standalone QB ordering | +0.02 Spearman | +0.0054 | **+0.0305** | **pass** |
 | **G-T2** ordering elsewhere | must not fall | RB −0.0015, WR +0.0023, TE +0.0012 | RB −0.0013, WR +0.0017, TE −0.0018 | **pass** |
-| **G-T3** blend stability | median shift < 2% every position | worst 0.45% | *not yet re-measured* | open |
+| **G-T3** blend stability | median shift < 2% every position | worst 0.45% | **worst 0.00%** | **pass** |
 | **G-T4** conservation | — | n/a | phase 3 | n/a |
 
 **G-T0's second half is the one phase 1 recorded as "not reachable".** Lifting a short
@@ -279,6 +279,27 @@ met without inventing a player.
 
 Team passing totals land at **3,711–5,249** against phase 1's 4,604–6,368. The all-time
 record is 5,477, so phase 1's top team was still projecting past it and phase 2's is not.
+
+**G-T3 passes, and the shape of the pass is the interesting part.** Measured on a real
+`gop_degenerates` board built twice in process, writing nothing: the median
+`TRUE_Points` shift is **0.00% at every position**, because **18 of 749 rows move at
+all**. TOMCAT is one of five sources and is withdrawn wherever ESPN prices a player out,
+so a reallocation inside a quarterback room reaches the blend on a handful of rows and
+nowhere else. Where it does land it is not small — 4 of 74 quarterbacks move, by a
+median of 15.7% and a maximum of 19.2%.
+
+That is the gate behaving as designed rather than a null result. Atlanta is the worked
+example: the chart's QB1 keeps 12.91 of the seventeen starts while the QB2, whom the
+model had at 2,404 passing yards on a full slate, drops to 493.
+
+| player | rank | cohort | allocated starts | `USG_passingYards` |
+|---|---|---|---|---|
+| Tua Tagovailoa | 1 | mover | 12.91 | 3,634 → 2,760 |
+| Michael Penix Jr. | 2 | settled | 3.49 | 2,404 → **493** |
+| Jack Strand | 3 | rookie | 0.60 | 200 → 7 |
+
+The shipping path closes the identity on the same build: 0.612–1.704 → 1.000–1.000
+across 32 teams.
 
 **The honest limit, and it is the number to argue with.** Bootstrapped over the
 evaluation frame, phase 2's gain *over phase 1* at quarterback is **+0.0252 with a 95%
