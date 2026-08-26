@@ -186,6 +186,23 @@ class Severity(NamedTuple):
 #: that window the extractor abstains rather than guessing whose knee it is.
 ATTRIBUTION_WINDOW = 60
 
+#: Words that turn "back" into a position rather than a body part.
+#:
+#: ``back`` is in the lexicon as ``back_core`` and a beat report says "running back"
+#: constantly. Measured on the 2026 archive, four of the twenty-two backs carrying an
+#: automatic reading got it from their own job title -- Justice Hill from "the No.2
+#: running back", Cam Skattebo from "the starting running back". None of them was hurt.
+POSITION_BACK = re.compile(
+    r"\b(?:running|quarter|corner|half|full|tail|line|set|out|swing|third[- ]down)"
+    r"[\s-]*$", re.IGNORECASE)
+
+#: A word that says the next clause is about somebody else.
+#:
+#: ESPN writes it explicitly and the extractor was reading straight through it:
+#: "Tagovailoa's **teammate**, Michael Penix (knee), is in line to return" tagged Tua
+#: Tagovailoa with Penix's knee, on a projected starting quarterback.
+ATTRIBUTION_BREAKERS = ("teammate", "replacement for", "in place of", "backup")
+
 #: Weeks a player ESPN still calls available is expected to miss.
 #:
 #: Not zero, because he is on the injury report for a reason and camp tweaks do cost the
@@ -726,6 +743,12 @@ def _attributable(text: str, position: int, surname: Optional[str],
     lowered = text.lower()
     for match in re.finditer(rf"\b{re.escape(surname)}\b", lowered):
         if 0 <= position - match.start() <= ATTRIBUTION_WINDOW:
+            # Close enough, unless the text says in words that it has changed subject.
+            # Distance alone cannot see that -- "Tagovailoa's teammate, Michael Penix
+            # (knee)" puts the knee twenty characters after the surname.
+            between = lowered[match.start():position]
+            if any(breaker in between for breaker in ATTRIBUTION_BREAKERS):
+                continue
             return True
     return False
 
@@ -761,14 +784,69 @@ def _body_part_in_text(text: str, surname: Optional[str] = None
     for match in re.finditer(r"\(([^)]{1,40})\)", text):
         part = lexicon.normalise_body_part(match.group(1))
         if part and part in known:
+            # Whose parenthetical is it? The convention that makes "Metcalf (knee)"
+            # readable is the same one that makes "Michael Penix (knee)" readable --
+            # and in the second the name is not the subject's. A parenthetical hanging
+            # off somebody else's surname is somebody else's injury, however close it
+            # happens to sit.
+            owner = _paren_owner(text, match.start())
+            if owner and surname and owner != surname:
+                continue
             if _attributable(text, match.start(1), surname):
                 return part, match.start(1)
 
     for part in sorted(known, key=len, reverse=True):
-        match = re.search(rf"\b{re.escape(part)}\b", lowered)
-        if match and _attributable(text, match.start(), surname):
-            return part, match.start()
+        for match in re.finditer(rf"\b{re.escape(part)}\b", lowered):
+            if part == "back" and POSITION_BACK.search(text[:match.start()]):
+                continue  # his job, not his spine
+            # The bare-word rung sees inside brackets too, so a parenthetical the rung
+            # above rejected as somebody else's comes straight back through here --
+            # which is how "Chuba Hubbard (hamstring)" survived the first fix.
+            if _in_others_parenthetical(text, match.start(), surname):
+                continue
+            if _attributable(text, match.start(), surname):
+                return part, match.start()
     return None, None
+
+
+def _in_others_parenthetical(text: str, position: int,
+                             surname: Optional[str]) -> bool:
+    """Whether ``position`` sits inside a bracket hanging off somebody else's name.
+
+    Args:
+        text: The comment.
+        position: Character offset of the match.
+        surname: The subject's surname, lowercased.
+
+    Returns:
+        bool: True when the match is inside ``(...)`` whose owner is a different
+        surname. False when there is no enclosing bracket, no owner, or the owner is
+        the subject.
+    """
+    if not surname:
+        return False
+    for match in re.finditer(r"\(([^)]{1,40})\)", text):
+        if match.start(1) <= position < match.end(1):
+            owner = _paren_owner(text, match.start())
+            return bool(owner and owner != surname)
+    return False
+
+
+def _paren_owner(text: str, paren: int) -> Optional[str]:
+    """The surname a parenthetical hangs off, lowercased, if it hangs off one.
+
+    Args:
+        text: The comment.
+        paren: Offset of the opening bracket.
+
+    Returns:
+        str: The capitalised word immediately before the bracket, or None when the
+        bracket follows something that is not a name -- "is dealing with (knee)
+        soreness" belongs to whoever the sentence was already about.
+    """
+    before = text[:paren].rstrip()
+    match = re.search(r"\b([A-Z][A-Za-z'\u2019-]+)$", before)
+    return match.group(1).lower() if match else None
 
 
 def _from_report(body_part: Optional[str]) -> Optional[Severity]:
