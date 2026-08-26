@@ -300,11 +300,21 @@ def healthy_intervals(frame: pl.DataFrame, model: sn.SeasonUsageModel,
     The elasticity belongs to the *fit* -- it is what stops the conditional dispersion
     absorbing a systematic bias as if it were variance -- not to the evaluation.
 
-    **The if-healthy mean has a separate and larger problem**, named here because this
-    function is the natural place to look for it and it is deliberately not fixed here:
+    **The mean this function computes is on a wrong exponent, and the error is currently
+    doing useful work. Do not correct it on its own.**
     :func:`Scripts.usage.season._conditional_mean` measures the proportional rescale
-    over-projecting a realised total by **+8.8% to +26.7%**, because ``expected_games``
-    carries role as well as health. Correcting that would move ``TRUE_Points``.
+    over-projecting a realised total by **+8.8% to +26.7%**; the fitted exponent is
+    0.32-0.49, robust to a projection floor. Applying it here takes median
+    ``USG_Points / ESPN_Points`` from 0.94 to **0.81** in the first fifty picks while
+    fixing the tail from 1.32 to 1.05 -- because two biases in opposite directions are
+    partly cancelling. The top of the board is already below ESPN for the reason recorded
+    above, which is shrinkage toward positional baselines rather than availability, and the
+    over-scale offsets it.
+
+    The well-posed correction is ``(slate / expected_games) ** e`` times a per-position
+    constant holding the top-band level: the elasticity for the shape, a constant for the
+    level. It is a projection change and needs its own gate. See
+    ``docs/plans/28-outcome-distributions.md``.
 
     Args:
         frame: Prediction frame, **before** :func:`to_full_slate`, carrying
