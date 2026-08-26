@@ -419,9 +419,18 @@ M. Phase 1 is half a day and may be the whole plan. Phase 2 is a day. Phase 3 is
 three days and is the only part that needs new modelling, most of it already measured by
 plan 28.
 
-**Not before the 2026 drafts, and phase 1 is on a branch for exactly that reason.**
-Every phase moves `USG_` and therefore `TRUE_`, and the board is frozen — see [`DRAFT_READINESS.md`](../DRAFT_READINESS.md). The evidence above
-is reproducible today and the fix is not urgent: the blend is already reconciled, so
-nothing anyone drafts from is wrong. What is wrong is the column beside it, and the
-read-around until this ships is **compare TOMCAT by rank within position, and discount a
-quarterback whose team ratio is far from 1.0**.
+**Held on a branch until 2026-08-26, then merged twelve days before the first draft.**
+Every phase moves `USG_` and therefore `TRUE_`. The original stance here was "not before
+the 2026 drafts" at all; what actually applies is [`DRAFT_READINESS.md`](../DRAFT_READINESS.md)'s
+freeze, which is a **draft-week** item — the first draft is Mon 2026-09-07, so merging on
+2026-08-26 leaves a fortnight of nightly rebuilds to notice anything wrong, which is
+worth more than shipping it cold the morning after the last draft.
+
+`MODEL_VERSION` is unchanged and the fitted model is not stale, so this forces no refit
+and the model's own lines do not move — only the coherence pass moves them. The rollout
+is two steps and the second is deliberate; see the troubleshooting row in
+[`SEASON_ROLLOVER.md`](../SEASON_ROLLOVER.md).
+
+The read-around that applied while this sat on a branch — *compare TOMCAT by rank within
+position, and discount a quarterback whose team ratio is far from 1.0* — is retired by
+the merge.
