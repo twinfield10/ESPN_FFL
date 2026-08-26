@@ -8,21 +8,30 @@
 #
 #   cp ops/espn_ffl_nightly.sh ~/bin/espn_ffl_nightly.sh
 #
-# This wrapper exists for one reason: run_daily_refresh.sh lives inside the repo,
-# so any guard written into it is absent from every branch that predates it, and
-# from any older commit checked out for any reason. The branch check therefore has
-# to live somewhere no checkout can affect. That is here.
+# Why cron gets its own checkout. run_daily_refresh.sh has no `git checkout` -- it
+# runs the tree it sits in, re-projects the usage head, rebuilds all nine boards and
+# pushes them to S3 with a dated snapshot. Pointed at the interactive checkout, that
+# means the branch left checked out at 05:59 is the code that publishes at 06:00,
+# merged or not: a branch bumping MODEL_VERSION forces a refit and moves every
+# projection, and nothing in the log looks wrong.
 #
-# What it is guarding against. run_daily_refresh.sh has no `git checkout` -- it runs
-# the working tree, re-projects the usage head, rebuilds all nine boards and pushes
-# them to S3 with a dated snapshot. So the branch left checked out at 05:59 is the
-# code that publishes at 06:00, merged or not. A branch that bumps MODEL_VERSION
-# forces a refit and moves every projection; nothing in the log looks wrong.
+# Refusing to run in that case was the first fix, and it traded a wrong board for a
+# stale one -- days spent on a branch became days with no depth-chart update, which
+# matters because the depth chart is the only current-season input that moves and the
+# whole reason this job exists. So instead: a second checkout, pinned to origin/main,
+# reset before every run. The interactive tree can be on any branch, mid-edit,
+# mid-rebase; the boards still rebuild nightly, always from reviewed, pushed code.
 #
-# A skipped night is cheap -- every pull is a full snapshot and tomorrow catches up.
-# A board republished off an unmerged branch during draft season is not.
+# Layout, created once:
 #
-# ALLOW_ANY_BRANCH=1 overrides, for a deliberate run off a branch.
+#   git -C ~/GitRepos/ESPN_FFL worktree add --detach ~/GitRepos/ESPN_FFL-nightly origin/main
+#   ln -s ~/GitRepos/ESPN_FFL/Data        ~/GitRepos/ESPN_FFL-nightly/Data
+#   ln -s ~/GitRepos/ESPN_FFL/config.yaml ~/GitRepos/ESPN_FFL-nightly/config.yaml
+#
+# Detached on purpose: a branch cannot be checked out in two worktrees at once, and
+# a detached tree cannot drift. Data/ and config.yaml are symlinked rather than
+# copied -- both checkouts must read and write one store (727 MB), and config.yaml
+# is gitignored so the worktree would not otherwise have credentials at all.
 #
 # Install:
 #   chmod +x ~/bin/espn_ffl_nightly.sh
@@ -31,17 +40,18 @@
 
 set -euo pipefail
 
-REPO="/Users/tommywinfield/GitRepos/ESPN_FFL"
+NIGHTLY="/Users/tommywinfield/GitRepos/ESPN_FFL-nightly"
 LOG="${HOME}/logs/espn_ffl_refresh.log"
-STATUS="${REPO}/Data/refresh_status.json"
+STATUS="${NIGHTLY}/Data/refresh_status.json"
 
 mkdir -p "$(dirname "${LOG}")"
+log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "${LOG}"; }
 
 refuse() {
   local msg="$1"
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] REFUSED: ${msg}" | tee -a "${LOG}"
+  log "REFUSED: ${msg}"
   # Same shape run_daily_refresh.sh writes, so Scripts.refresh_status and the app's
-  # freshness badge read a refusal as a failed run rather than as a run that never
+  # freshness badge read a refusal as a failed run rather than as one that never
   # happened. A guard nobody can see is a guard nobody trusts.
   [ -d "$(dirname "${STATUS}")" ] && printf \
     '{"result": "failed", "at": "%s", "stage": "%s", "season": "unknown"}\n' \
@@ -50,14 +60,15 @@ refuse() {
   exit 1
 }
 
-[ -d "${REPO}/.git" ] || refuse "no git repo at ${REPO}"
+[ -e "${NIGHTLY}/.git" ]      || refuse "no nightly checkout at ${NIGHTLY} -- see the layout note in this file"
+[ -e "${NIGHTLY}/Data" ]      || refuse "${NIGHTLY}/Data is missing -- the symlink to the real store is gone"
+[ -e "${NIGHTLY}/config.yaml" ] || refuse "${NIGHTLY}/config.yaml is missing -- the symlink to credentials is gone"
 
-BRANCH="$(git -C "${REPO}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+# Fetch, then pin. `reset --hard` rather than `pull`: this tree is detached and must
+# match origin/main exactly, and a merge or a rebase here is never wanted.
+git -C "${NIGHTLY}" fetch --quiet origin main || refuse "git fetch failed -- no network, or no access to origin"
+git -C "${NIGHTLY}" reset --quiet --hard FETCH_HEAD || refuse "could not reset ${NIGHTLY} to origin/main"
 
-if [ "${ALLOW_ANY_BRANCH:-0}" = "1" ]; then
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] WARNING: branch check overridden, running off '${BRANCH}'" | tee -a "${LOG}"
-elif [ "${BRANCH}" != "main" ]; then
-  refuse "repo is on '${BRANCH}', not main -- boards publish from main only. Run: git -C ${REPO} checkout main"
-fi
+log "nightly checkout at $(git -C "${NIGHTLY}" rev-parse --short HEAD), pinned to origin/main"
 
-exec "${REPO}/run_daily_refresh.sh"
+exec "${NIGHTLY}/run_daily_refresh.sh"

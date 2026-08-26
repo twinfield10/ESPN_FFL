@@ -58,7 +58,12 @@
 
 set -euo pipefail
 
-REPO="/Users/tommywinfield/GitRepos/ESPN_FFL"
+# Derived from this script's own location, never hardcoded. Cron runs a second
+# checkout pinned to origin/main (see ops/espn_ffl_nightly.sh); a hardcoded path
+# would send that copy back into the interactive tree and rebuild the boards off
+# whatever branch happened to be checked out there -- the exact failure the
+# separate checkout exists to prevent.
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON="/usr/local/bin/python3.11"
 RSCRIPT="/usr/local/bin/Rscript"
 LOG_DIR="${HOME}/logs"
@@ -94,33 +99,36 @@ fail() {
 
 log "=== daily refresh starting ==="
 
-# --- 0. The branch, before anything else --------------------------------
-# This script has no `git checkout`. It runs whatever is sitting in the working
-# tree, which means the branch left checked out at 05:59 is the code that rebuilds
-# nine boards and pushes them to S3 at 06:00.
+# --- 0. The revision, before anything else ------------------------------
+# This script has no `git checkout`. It runs the tree it sits in, re-projects the
+# usage head, rebuilds nine boards and pushes them to S3 -- so whatever is checked
+# out here is what gets published.
 #
-# That is a live footgun rather than a hypothetical. Both open PRs at the time of
-# writing -- #21 (team-coherent TOMCAT) and #24 (the three-season window) -- move
-# `USG_` and therefore `TRUE_`, and #24 bumps MODEL_VERSION, which makes
-# `load_or_fit` miss and refit the model from scratch. Neither has to be *merged*
-# to reach the board. Leaving either checked out overnight is enough, and the
-# result is a silently different board with no command typed and nothing in the
-# log that looks wrong.
+# The check is against `origin/main` rather than a branch *name*, for two reasons.
+# The nightly checkout is deliberately detached (a branch cannot be checked out in
+# two worktrees at once), so a name test would reject the very tree meant to run.
+# And a name test would pass on a local `main` carrying unpushed commits, which is
+# not reviewed code.
 #
-# So: refuse, loudly, and name the fix. A skipped night is cheap -- every pull is
-# a full snapshot and tomorrow catches up -- and a board republished off an
-# unmerged branch during draft season is not.
+# Belt to ops/espn_ffl_nightly.sh's braces: the wrapper already resets this tree to
+# origin/main before calling. This catches the other route in -- someone running
+# this script by hand from the interactive checkout, on a branch.
 #
-# ALLOW_ANY_BRANCH=1 overrides, for a deliberate run off a branch. It is not for
-# getting past this in a hurry.
+# ALLOW_ANY_BRANCH=1 overrides, for a deliberate run off an unpublished revision.
 BRANCH="$(git -C "${REPO}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+HEAD_SHA="$(git -C "${REPO}" rev-parse HEAD 2>/dev/null || echo unknown)"
+MAIN_SHA="$(git -C "${REPO}" rev-parse origin/main 2>/dev/null || echo unknown)"
+
 if [ "${ALLOW_ANY_BRANCH:-0}" = "1" ]; then
-  log "WARNING: branch check overridden, running off '${BRANCH}'"
-elif [ "${BRANCH}" != "main" ]; then
-  fail "refusing to run off branch '${BRANCH}' -- boards publish from main only. \
-Run 'git -C ${REPO} checkout main', or set ALLOW_ANY_BRANCH=1 to override deliberately."
+  log "WARNING: revision check overridden, running ${BRANCH} at ${HEAD_SHA:0:8}"
+elif [ "${HEAD_SHA}" = "unknown" ] || [ "${MAIN_SHA}" = "unknown" ]; then
+  fail "cannot resolve HEAD or origin/main in ${REPO} -- refusing to publish blind."
+elif [ "${HEAD_SHA}" != "${MAIN_SHA}" ]; then
+  fail "${REPO} is at ${HEAD_SHA:0:8} (${BRANCH}), not origin/main ${MAIN_SHA:0:8} \
+-- boards publish from reviewed, pushed main only. Set ALLOW_ANY_BRANCH=1 to override."
+else
+  log "revision ${HEAD_SHA:0:8} (${BRANCH}), matching origin/main"
 fi
-log "branch ${BRANCH}"
 
 # The season comes from config.yaml rather than being hardcoded, so the annual
 # rollover is one edit in one place. See docs/SEASON_ROLLOVER.md.

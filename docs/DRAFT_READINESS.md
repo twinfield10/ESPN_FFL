@@ -239,10 +239,10 @@ Ordered by when it has to happen, not by size.
       dependency upgrades. **Leave the repo on `main`** — the 6am job has no
       `git checkout` and runs whatever is in the working tree, so a projection-moving
       branch left checked out is enough to republish every board without a merge.
-      Cron now runs `~/bin/espn_ffl_nightly.sh`, which refuses to run off anything
-      but `main` — a failed run and a notification rather than a silently different
-      board. It sits outside the repo on purpose: a guard inside the repo is absent
-      from every branch cut before it, which is the checkout it would need to catch. Everything in this repo's own *Known issues* about absent
+      You no longer have to: cron runs `~/bin/espn_ffl_nightly.sh`, which drives a
+      separate checkout pinned to `origin/main`, so the boards rebuild from reviewed
+      code no matter what you have checked out. The freeze is about not *merging*
+      projection changes, which is the thing still worth watching. Everything in this repo's own *Known issues* about absent
       sources reading as agreement applies double to a change made the day of a draft.
 
 ### Draft night
