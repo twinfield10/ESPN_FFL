@@ -1,0 +1,217 @@
+"""The book adapter contract: the standard row, the de-vig, and the fetch.
+
+Two of these tests exist because the de-vig came out wrong on live data, not because
+anyone reasoned their way to them in advance. Both failures were silent -- a plausible
+number in the right range, on the right row -- which is the argument for pinning them:
+
+* a *team* total posts four prices per game, two per team, and when both teams are
+  priced at the same number the four are indistinguishable without knowing whose side
+  each is. That is any pick-em, and it was true of the first game looked at.
+* a *spread* posts one market carrying opposite numbers on its two sides. Pairing on
+  each side's own number matched the away half of the -1.0 line against the home half
+  of the +1.0 line -- two different markets, quietly de-vigged against each other.
+
+Everything here runs offline. The live pull is marked and deselected by default.
+"""
+
+import polars as pl
+import pytest
+
+from Scripts.books import base, schema
+from Scripts.books.pinnacle import PinnacleSportsbook
+
+
+# --- the standard row -----------------------------------------------------
+
+def test_an_empty_pull_still_has_the_shape():
+    """A book with nothing to say must return odds-shaped nothing, or every caller
+    downstream grows its own absence branch."""
+    empty = schema.empty_frame()
+    assert empty.height == 0
+    assert list(empty.columns) == list(schema.ODDS_SCHEMA)
+
+
+def test_american_prices_convert_to_probability():
+    assert schema.american_to_probability(-110) == pytest.approx(0.5238, abs=1e-4)
+    assert schema.american_to_probability(100) == pytest.approx(0.5)
+    assert schema.american_to_probability(128) == pytest.approx(0.4386, abs=1e-4)
+
+
+def test_the_pairing_key_is_the_line_without_the_side():
+    """One market, two sides. Anything else in the grain splits a pair."""
+    assert set(schema.PAIR_KEYS) == set(schema.LINE_KEYS) - {"betSide"}
+    assert "marketLine" in schema.PAIR_KEYS
+    assert "sideOf" in schema.PAIR_KEYS
+
+
+# --- the de-vig -----------------------------------------------------------
+
+def _row(**kw):
+    base_row = dict(sportsbook="Pinnacle", officialDate="2026-09-13", matchup="A vs. B",
+                    marketTitle="Total", gamePeriod="GAME", sideOf=None, betSide="over",
+                    marketLine=44.0, propType=None, impProb=0.5)
+    base_row.update(kw)
+    return base_row
+
+
+def test_a_two_sided_market_devigs_to_one():
+    """The hold is the surplus over 1.0. Removing it proportionally is
+    Scripts.market.devig_two_way, and routing through it is the point -- this repo
+    derives de-vig in exactly one place."""
+    df = pl.DataFrame([
+        _row(betSide="over", impProb=0.534884),
+        _row(betSide="under", impProb=0.502488),
+    ])
+    out = schema.add_fair_probability(df)
+    assert out["fairProb"].sum() == pytest.approx(1.0, abs=1e-9)
+    # Proportional: the richer side stays the richer side.
+    assert out["fairProb"][0] > out["fairProb"][1]
+
+
+def test_two_teams_priced_at_the_same_total_stay_two_markets():
+    """The pick-em collision. Four rows, one number, two markets."""
+    rows = []
+    for team, over, under in (("home", 0.52381, 0.514563),
+                              ("away", 0.521531, 0.516908)):
+        rows.append(_row(marketTitle="TeamTotal", sideOf=team, betSide="over",
+                         marketLine=21.5, impProb=over))
+        rows.append(_row(marketTitle="TeamTotal", sideOf=team, betSide="under",
+                         marketLine=21.5, impProb=under))
+    out = schema.add_fair_probability(pl.DataFrame(rows))
+
+    per_team = out.group_by("sideOf").agg(pl.col("fairProb").sum().alias("s"))
+    assert per_team["s"].to_list() == pytest.approx([1.0, 1.0], abs=1e-9)
+
+
+def test_a_spread_pairs_by_the_market_not_by_each_sides_number():
+    """Both halves of a two-line alt ladder. Pairing on the side's own number matched
+    away(-1.0) with home(-1.0) -- rows from different markets."""
+    rows = [
+        _row(marketTitle="Spread", marketLine=1.0, betSide="home",
+             value=1.0, impProb=0.530516),
+        _row(marketTitle="Spread", marketLine=1.0, betSide="away",
+             value=-1.0, impProb=0.497512),
+        _row(marketTitle="Spread", marketLine=-1.0, betSide="home",
+             value=-1.0, impProb=0.470),
+        _row(marketTitle="Spread", marketLine=-1.0, betSide="away",
+             value=1.0, impProb=0.560),
+    ]
+    out = schema.add_fair_probability(pl.DataFrame(rows))
+    per_market = (out.group_by("marketLine")
+                     .agg(pl.col("fairProb").sum().alias("s")).sort("marketLine"))
+    assert per_market["s"].to_list() == pytest.approx([1.0, 1.0], abs=1e-9)
+
+
+def test_a_one_sided_market_keeps_its_vig_and_says_so():
+    """Nothing to de-vig against. Leaving impProb is honest, and the two columns
+    being equal is the signal that it happened."""
+    out = schema.add_fair_probability(pl.DataFrame([_row(impProb=0.55)]))
+    assert out["fairProb"][0] == pytest.approx(0.55)
+
+
+# --- the fetch ------------------------------------------------------------
+
+def test_requests_never_go_out_without_a_timeout():
+    """requests defaults to no timeout. A dead socket then wedged a run for thirty
+    minutes holding a shared lock, in the repo this was ported from."""
+    assert base.REQUEST_TIMEOUT is not None
+    connect, read = base.REQUEST_TIMEOUT
+    assert connect > 0 and read > 0
+
+
+def test_a_geo_block_is_not_a_transport_failure():
+    """They want opposite responses: one is permanent from this address, the other
+    clears. Collapsing them is how a book goes quietly missing."""
+    assert base.FetchFailure.GEO_BLOCK != base.FetchFailure.TRANSPORT
+    assert base.FetchFailure.GEO_BLOCK != base.FetchFailure.IP_BLOCK
+
+
+def test_a_geo_block_is_not_retried():
+    """Every address available here is in the same country, so a retry is waste."""
+    book = PinnacleSportsbook(season=2026)
+
+    class _Response:
+        status_code = 403
+        @staticmethod
+        def json():
+            return {"reason": "location", "detail": "Access from United States is prohibited"}
+
+    class _Error(Exception):
+        response = _Response()
+
+    assert book._classify_http(_Error(), 403, "http://x") is False
+    assert book.last_failure is base.FetchFailure.GEO_BLOCK
+
+
+def test_a_server_error_is_retried():
+    book = PinnacleSportsbook(season=2026)
+
+    class _Error(Exception):
+        response = None
+
+    assert book._classify_http(_Error(), 503, "http://x") is True
+    assert book.last_failure is base.FetchFailure.SERVER_ERROR
+
+
+def test_a_403_with_an_unparseable_body_is_still_classified():
+    """A book need not answer in the shape we expect when it refuses."""
+    book = PinnacleSportsbook(season=2026)
+
+    class _Response:
+        status_code = 403
+        @staticmethod
+        def json():
+            raise ValueError("not json")
+
+    class _Error(Exception):
+        response = _Response()
+
+    assert book._classify_http(_Error(), 403, "http://x") is False
+    assert book.last_failure is base.FetchFailure.IP_BLOCK
+
+
+# --- Pinnacle's key grammar -----------------------------------------------
+
+@pytest.mark.parametrize("key,expected", [
+    ("s;0;m",             ("GAME", "Moneyline", 0.0, None)),
+    ("s;0;ou;44.5",       ("GAME", "Total", 44.5, None)),
+    ("s;0;s;-2.5",        ("GAME", "Spread", -2.5, None)),
+    ("s;0;tt;20.5;home",  ("GAME", "TeamTotal", 20.5, "home")),
+    ("s;1;ou;21.5",       ("H1", "Total", 21.5, None)),
+])
+def test_pinnacle_market_keys_parse(key, expected):
+    assert PinnacleSportsbook._parse_key(key) == expected
+
+
+@pytest.mark.parametrize("key", ["s;0;kickoff", "s;9;ou;44", "malformed", "s;0"])
+def test_an_unmodelled_market_is_skipped_rather_than_guessed(key):
+    """Pinnacle posts far more families than this repo models. Skipping quietly is
+    correct; guessing at one would put a number in the store that nothing checks."""
+    assert PinnacleSportsbook._parse_key(key) is None
+
+
+def test_the_nfl_league_id_is_pinned():
+    """Plan 36 recorded this as unknown, with discovery on a blocked route. It was
+    already in Scripts/scrape_pinnacle_season.py, and it is 889."""
+    from Scripts import scrape_pinnacle_season as sps
+    from Scripts.books import pinnacle
+    assert pinnacle.NFL_LEAGUE_ID == sps.NFL_LEAGUE_ID == 889
+
+
+# --- live ------------------------------------------------------------------
+
+@pytest.mark.live
+def test_pinnacle_answers_and_prices_the_four_markets():
+    """Deselected by default. The assertion is market *coverage*, never a game count:
+    Pinnacle prices about the upcoming week and sometimes lookahead lines, so a count
+    is context rather than a bar."""
+    views = PinnacleSportsbook(season=2026).get_df_dict()
+    main = views["Pinnacle"]
+    assert main.height > 0, "Pinnacle returned nothing"
+    assert set(main["marketTitle"].unique()) == set(schema.MARKET_TITLES)
+
+    paired = (views["All_Bets"].group_by(list(schema.PAIR_KEYS))
+              .agg(pl.col("fairProb").sum().alias("s"), pl.len().alias("n"))
+              .filter(pl.col("n") == 2))
+    assert paired["s"].max() == pytest.approx(1.0, abs=1e-9)
+    assert paired["s"].min() == pytest.approx(1.0, abs=1e-9)
