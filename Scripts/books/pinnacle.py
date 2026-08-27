@@ -31,7 +31,7 @@ from zoneinfo import ZoneInfo
 
 import polars as pl
 
-from Scripts.books.base import BaseSportsbook
+from Scripts.books.base import BaseSportsbook, FetchFailure
 from Scripts.books.schema import ODDS_SCHEMA, american_to_probability
 
 GUEST_API = "https://guest.api.arcadia.pinnacle.com/0.1"
@@ -129,11 +129,17 @@ class PinnacleSportsbook(BaseSportsbook):
             Dict[str, pl.DataFrame]: The four views named in the class docstring.
         """
         matchups, markets = self._league_route()
-        if not matchups:
-            # Only worth a second route if the first was refused rather than empty --
-            # an empty league feed and a blocked one are different findings, and the
-            # classification is what tells them apart.
-            print(f"  league route returned nothing ({self.last_failure.value}); "
+        if not matchups and self.last_failure in (FetchFailure.GEO_BLOCK,
+                                                  FetchFailure.IP_BLOCK):
+            # Only a *block* is worth a second route, which is the whole reason the
+            # fallback exists -- the sport-level feed carries the same games and is
+            # not geo-restricted. Falling back on a transport failure or a 5xx just
+            # spends the same broken request twice: when DNS is dead for the league
+            # route it is dead for the sport route too, and the retries make that
+            # twelve wasted seconds rather than one. An empty feed with no failure at
+            # all means the league has no games, which a second route cannot fix
+            # either.
+            print(f"  league route refused ({self.last_failure.value}); "
                   f"falling back to the sport-level feed")
             self.used_fallback = True
             matchups, markets = self._sport_route()

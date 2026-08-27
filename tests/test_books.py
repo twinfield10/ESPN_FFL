@@ -375,3 +375,36 @@ def test_fourcasters_answers_when_credentials_are_set():
     assert df.height > 0
     assert set(df["bookType"].unique()) == {schema.EXCHANGE}
     assert {"Spread", "Total", "Moneyline"} <= set(df["marketTitle"].unique())
+
+
+def test_the_sport_level_fallback_is_only_for_a_block():
+    """It exists because the league routes are geo-restricted upstream and the
+    sport feed carries the same games. Falling back on a transport failure or a 5xx
+    spends the same broken request twice -- when DNS is dead for one route it is dead
+    for the other, and with retries that was twelve wasted seconds."""
+    import inspect
+    src = inspect.getsource(PinnacleSportsbook.fetch_odds)
+    assert "GEO_BLOCK" in src and "IP_BLOCK" in src
+    assert "_sport_route" in src
+
+
+def test_a_dead_book_fails_the_run_rather_than_storing_nothing(monkeypatch):
+    """The failure this whole plan is about. In an append-only store a book that
+    stopped answering writes exactly what a book with no movement writes."""
+    from Scripts.books import pull as pull_mod
+
+    class _Dead(PinnacleSportsbook):
+        def fetch_odds(self):
+            return {"All_Bets": schema.empty_frame()}
+
+    monkeypatch.setitem(pull_mod.BOOKS, "Pinnacle",
+                        {"adapter": _Dead, "expect_markets": set(schema.MARKET_TITLES)})
+    assert pull_mod.main(["--season", "2026", "--book", "Pinnacle", "--dry-run"]) == 1
+
+
+def test_a_book_missing_a_market_family_fails_the_run():
+    """A book that renames a market does not error -- its rows stop arriving."""
+    from Scripts.books.pull import CoverageError, assert_coverage
+    df = pl.DataFrame({"marketTitle": ["Spread", "Total"]})
+    with pytest.raises(CoverageError, match="TeamTotal"):
+        assert_coverage(df, "Pinnacle", set(schema.MARKET_TITLES))
