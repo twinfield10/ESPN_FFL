@@ -6,8 +6,10 @@
 **Depends on:** [16](16-usage-data-layer.md) — Step 0 gates and the feature layer ·
 [18](18-season-usage-model.md) — shares the availability head, but does not block ·
 [34](34-stat-first-audit.md) — supplies the per-stat baseline this has to beat
-**Feeds:** [08 (weekly views)](08-frontend-weekly-views.md) ·
-[03 (weight re-tune)](03-projection-source-coverage.md)
+**Feeds:** [08 (weekly views)](08-frontend-weekly-views.md)
+**Fed by:** [03](03-projection-source-coverage.md) — its rejected weight re-tune
+measured what a crude weekly head costs the blend, which is a pre-registered bar for
+step 5 (see below)
 
 ## What plan 34 handed this plan, 2026-08-26
 
@@ -267,8 +269,39 @@ numbers here.
    `clean_pinny` / `clean_bol` pattern in `Scripts/projection_utils.py` including
    its absent-source path.
 6. Walk-forward backtest; write the tables into this document.
-7. Hand the enlarged source set to
-   [plan 03](03-projection-source-coverage.md)'s weight re-tune.
+7. ~~Hand the enlarged source set to
+   [plan 03](03-projection-source-coverage.md)'s weight re-tune.~~ **Plan 03 ran
+   first, on 2026-08-27, and handed something back instead — see below.**
+
+## What plan 03's weight re-tune handed this plan, 2026-08-27
+
+Plan 03 measured whether the blend weights can be fitted. They cannot, but doing it
+put a **crude weekly usage head into the weekly blend and scored it**, which is this
+plan's step 5 rehearsed with a deliberately bad model. The result is a
+pre-registered bar rather than an observation, and it is unusually specific:
+
+**A weekly head as crude as `Scripts/usage/baseline.py` makes the blend worse, and
+the damage is availability rather than accuracy.** Giving it an equal fifth vote
+costs mean MAE **+16.91%** over all rostered player-weeks, **+11.24%** once byes are
+excluded, and **+1.55%** on players who actually took a snap. Read the three numbers
+as a decomposition: roughly nine tenths of the harm is the model confidently
+projecting production for players who were not on the field.
+
+Three things follow for this plan's step 5, and they are cheap to check early:
+
+- **The availability head is not a refinement, it is the gate.** A weekly stat line
+  that is right conditional on playing still loses if it is published unconditionally.
+  This plan already names the injury report as its distinguishing input; the number
+  above sizes what it is worth before any modelling.
+- **Score on all three populations from the first backtest**, not just on players who
+  played. The `played` population flatters a weekly head by exactly the margin that
+  matters, and `+1.55%` versus `+16.91%` is how large the flattery is.
+- **`+1.55%` on `played` is the real bar to beat, and it is not zero.** Even holding
+  availability constant the crude head was a net cost, so "better than the trailing
+  baseline" is not sufficient — the test is whether it is better than *not voting*.
+
+Reproduce with `python -m Scripts.lab.blend`; the figures are in the ledger under
+`blend_weights.populations.*.usage_vote`.
 
 ## Risks
 

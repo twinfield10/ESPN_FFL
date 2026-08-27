@@ -132,8 +132,12 @@ Not scheduled here, because this plan is retired and its question belongs to the
 that own the blend:
 
 1. ~~**Re-run plan 16 step 0's independence matrix.**~~ **Done 2026-08-24** — see above.
-2. **[Plan 03](03-projection-source-coverage.md)'s weight re-tune**, which the re-run has
-   now given something real to fit against.
+2. ~~**[Plan 03](03-projection-source-coverage.md)'s weight re-tune**, which the re-run has
+   now given something real to fit against.~~ **Measured 2026-08-27: rejected.** The
+   re-run did give it something real to fit against — FantasyPros at 90% real instead
+   of 13% — and that is precisely what makes the verdict informative. Four times the
+   sample, and the fitted weights still disagree between two halves of one season by
+   up to the entire simplex, because this source set's problem was never coverage.
 
    **A correction to the first version of this line.** It said G1 in the same run showed
    the best TOMCAT weight to be 0.05 rather than the 0.25 it carries, and called that

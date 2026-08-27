@@ -292,8 +292,16 @@ stat and lose on another. Three reasons, none fixable by fitting harder:
   question is the *season* blend's usage weight. There is no historical season blend
   to fit against — plan 18 records that as permanent.
 
-`python -m Scripts.lab.blend` reproduces it. The weights stay where plan 03 will
-consider them with better evidence.
+`python -m Scripts.lab.blend` reproduces it. The weights stay where they are.
+
+**Re-measured 2026-08-27 with better evidence, and the verdict held — but only one of
+these three reasons survived it.** The sample-collapse objection is obsolete:
+FantasyPros went from 13% real to 90% on the key stats, and fitting the estimator the
+pipeline actually publishes (renormalised per row, rather than a plain linear
+combination on the all-real intersection) uses 78–93% of rows. The collinearity
+objection is the one that still binds, and it now binds harder — folds disagree by up
+to the whole simplex. The season objection is unchanged and permanent. See
+[03](03-projection-source-coverage.md#step-3-the-weight-re-tune-measured-2026-08-27).
 
 ## Rejected, and why not to retry it
 

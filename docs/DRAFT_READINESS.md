@@ -144,7 +144,7 @@ week-1 problem. → [plan 02](plans/02-betonline-access.md).
 | **Outcome distributions** ([28](plans/28-outcome-distributions.md)) | **Built 2026-08-24.** The board now shows `p10`/`p90`, `Top` and `Bust` beside every projection the usage model covers — 290 players a league, every one it prices | Use them. Read the evidence below too |
 | **Weekly views** ([08](plans/08-frontend-weekly-views.md)) | None | After week 1 |
 | **Weekly usage head** ([19](plans/19-weekly-usage-model.md)) | None — comes online ~week 3 | After the draft |
-| **Blend weight re-tune** ([03](plans/03-projection-source-coverage.md)) | Would move `TRUE_Points` days before a draft on an untested change | **Do not touch before the draft** |
+| ~~**Blend weight re-tune**~~ ([03](plans/03-projection-source-coverage.md)) | **Measured 2026-08-27 and rejected — so it moves `TRUE_Points` by exactly nothing.** The fitted alternative fails all four clauses of its own pre-registered rule in all six population × split cells | **Nothing to freeze.** No longer a draft item |
 
 ### Plan 28's columns, and what they are not
 

@@ -417,49 +417,103 @@ def ridge_sweep_section(results: Dict) -> str:
 def blend_section(ledger: Dict) -> str:
     """Whether the blend weights can be fitted. They cannot, and why."""
     block = ledger.get("blend_weights")
-    if not block or not block.get("results"):
+    if not block or not block.get("populations"):
         return ""
+
+    # The time-ordered split on players who took a snap: the honest shape for a
+    # forecast, on the population that isolates accuracy from availability.
+    population = block["populations"].get("played") or next(
+        iter(block["populations"].values()))
+    payload = population["splits"].get("early/late") or next(
+        iter(population["splits"].values()))
+    entries = payload["stats"]
+    if not entries:
+        return ""
+    decision = payload["verdict"]
+
+    # The free-fit end of the segment, read off the payload rather than imported, so
+    # this renderer does not pull the fitting module (and scipy) in to draw a table.
+    end = max(entries[0]["segment_degenerate_rows"], key=float)
 
     show = lambda w: " ".join(f"{k}={v:.2f}" for k, v in w.items())
     rows = [
         [entry["stat"],
-         f"{entry['n_odd']} / {entry['n_even']}",
-         f'<code>{esc(show(entry["odd_weights"]))}</code>',
-         f'<code>{esc(show(entry["even_weights"]))}</code>',
-         fmt(entry["max_half_disagreement"], 2),
-         fmt(entry["out_of_sample_mae_change_pct"], 1, signed=True) + "%"]
-        for entry in block["results"]
+         f'<code>{esc(show(entry["fold_weights"][0]))}</code>',
+         f'<code>{esc(show(entry["fold_weights"][1]))}</code>',
+         fmt(entry["fold_disagreement"], 2),
+         fmt(entry["near_free_mae_change_pct"], 2, signed=True) + "%",
+         fmt(entry["free_fit_mae_change_pct"], 2, signed=True) + "%",
+         f'{entry["segment_degenerate_rows"][end]:,}']
+        for entry in entries
     ]
-    total = block["results"][0]["n_total_evalset"]
+    clauses = [[name.replace("_", " "), fmt(c["value"], 2), str(c["bar"]),
+                "pass" if c["pass"] else "<strong>FAIL</strong>", esc(c["what"])]
+               for name, c in decision["clauses"].items()]
+
     return f"""
 <section id="blend-weights">
   <h2>Can the blend weights be fitted?</h2>
-  <p>The weights are ESPN, FantasyPros and the usage head at a third each, set by
-  hand. Fitting them against realised outcomes is the obvious improvement. The
-  answer is that <strong>this data does not identify them</strong> — which is a
-  more useful result than "the current weights are fine".</p>
-  {table(["stat", "n odd / even", "fitted on odd weeks", "fitted on even weeks",
-          "max gap", "OOS MAE"], rows, 1)}
-  <p>Two halves of one season, the same quantity, and the fits do not agree.
-  Receiving receptions goes from <code>PINNY=0.63</code> on odd weeks to
-  <code>PINNY=0.00, FP=1.00</code> on even weeks. Out of sample the fitted weights
-  beat the shipped ones by 2.1% on one stat and lose on another.</p>
-  <p>Three reasons, and none of them is fixable by fitting harder:</p>
+  <p>The weights state a <em>rule</em> — one equal vote per source that has an
+  opinion — rather than a table of numbers. Plan 03 asked for that rule to be
+  replaced by weights fitted against realised outcomes. Measured twice now, the
+  answer is <strong>no</strong>, and the second measurement fails for entirely
+  different reasons than the first.</p>
+  <p>Below: the time-ordered split on players who took a snap, re-weighting the four
+  universal sources. <code>t=0.999</code> is the honest weighting gain;
+  <code>t=1.0</code> is the free fit, which is allowed to zero a source
+  <em>exactly</em>. The gap between those two columns is not weighting — it is the
+  renormalised denominator collapsing, after which the blend stops blending.</p>
+  {table(["stat", "fitted on fold A", "fitted on fold B", "fold gap",
+          "OOS MAE at t=0.999", "OOS MAE at t=1.0", "degenerate rows"], rows, 1)}
+  <p>Read the touchdown rows. A free fit puts <code>PINNY=1.00</code> on rushing
+  touchdowns and posts a fold-stable
+  {esc(fmt(next((e["free_fit_mae_change_pct"] for e in entries
+                 if e["stat"] == "rushingTouchdowns"), 0.0), 2, signed=True))}% —
+  which is the most convincing result this harness ever produced, and it is an
+  artifact. Pinnacle covers a small share of rows; on the rest there is no
+  denominator left, production falls back to its face-value sum, and MAE on a rare
+  count rewards a projection of nothing. Hold every weight a hair off zero and the
+  same ratios are worth
+  {esc(fmt(next((e["near_free_mae_change_pct"] for e in entries
+                 if e["stat"] == "rushingTouchdowns"), 0.0), 2, signed=True))}%.</p>
+  <h3>The decision rule, applied mechanically</h3>
+  {table(["clause", "measured", "bar", "verdict", "what it protects"], clauses, 1)}
+  <p>Three reasons the fit does not survive, and none is fixable by fitting
+  harder:</p>
   <ul>
-    <li><strong>The sample collapses.</strong> Requiring every source to be real
-    rather than imputed takes {esc(f"{total:,}")} player-weeks down to 110–236 per
-    half — and the survivors are the heavily-covered stars, not the population the
-    weights get applied to.</li>
-    <li><strong>The sources are collinear.</strong> Plan 16's G0 measured
-    FantasyPros' residuals at <strong>+0.988</strong> against ESPN's. No procedure
-    can say how to split weight between two near-copies; non-negative least squares
-    responds by giving one of them everything, and which one depends on the half.</li>
-    <li><strong>The season question is not this question.</strong> These are weekly
-    rows. The open question is the <em>season</em> blend's usage weight, and there
-    is no historical season blend to fit against — plan 18 records that as a
+    <li><strong>The four universal sources are not identified.</strong> Two halves
+    of one season disagree by up to
+    {esc(fmt(max(e["fold_disagreement"] for e in entries), 2))} on a simplex whose
+    equal point is 0.25. The cause is collinearity, not sample size — plan 16's G0
+    measured FantasyPros' residuals at <strong>+0.988</strong> against ESPN's — and
+    the first attempt's sample-collapse objection is now obsolete, because a free
+    FantasyPros account took that source from 13% real to 90% on the key stats. Four
+    times the data, same verdict.</li>
+    <li><strong>The one large, stable signal is about a source with no weekly
+    vote.</strong> Adding the usage model's equal vote moves weekly MAE by
+    {esc(fmt(min((v["adding_usage_mae_change_pct"] for v in
+                  (population.get("usage_vote") or {}).values()
+                  if v["adding_usage_mae_change_pct"] is not None), default=0.0),
+             2, signed=True))}% to
+    {esc(fmt(max((v["adding_usage_mae_change_pct"] for v in
+                  (population.get("usage_vote") or {}).values()
+                  if v["adding_usage_mae_change_pct"] is not None), default=0.0),
+             2, signed=True))}% on this population — and TOMCAT has no weekly head,
+    so that weight already renormalises away. The column measured is the crude
+    trailing baseline, not the shipped season head. What it is good for is a
+    pre-registered warning for plan 19: most of the effect is availability, which is
+    why it shrinks so far between the <code>team_played</code> and
+    <code>played</code> populations.</li>
+    <li><strong>The season question still cannot be asked.</strong>
+    <code>USG</code> and <code>DST</code> vote only on the season board, and there
+    is no historical season blend to score against — plan 18 records that as a
     permanent limitation of the data rather than a gap in the work.</li>
   </ul>
-  <p class="note">Reproduce with <code>python -m Scripts.lab.blend</code>.</p>
+  <p class="note">Reproduce with <code>python -m Scripts.lab.blend</code>. Score it
+  against a store rebuilt by current code: measured on the store as it stood before
+  plans 34 and 35, BetOnline over-projected touchdowns by 21% and "drop BetOnline"
+  looked like a finding. Rebuilt, that column sits at 0.88 of consensus — the bias
+  reversed sign.</p>
 </section>"""
 
 
