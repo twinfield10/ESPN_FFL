@@ -336,3 +336,85 @@ def test_the_gate_refuses_to_report_the_espn_baseline_it_cannot_run():
     import inspect
     printed = inspect.getsource(gates.report)
     assert "G-DST2(b) vs ESPN is NOT run" in printed
+
+
+# --- quoted team totals ---------------------------------------------------
+#
+# vegas.py derived every team's implied points as total_line/2 +/- margin/2, an
+# identity exact only if the book's two team totals are symmetric about the game
+# total. Measured against Pinnacle's own quotes on 2026-08-27 they are not: a mean
+# 0.734 points apart, and the two sides summing to 0.25 *under* the game total.
+# See docs/plans/36-sportsbook-scrapes.md.
+
+
+def test_a_quoted_team_total_wins_over_the_derivation(monkeypatch):
+    """And the swap is recorded, because it is small enough to hide. The quoted and
+    derived numbers differ by well under a point, so a subtly broken join would look
+    entirely normal downstream."""
+    import polars as pl
+    from Scripts import vegas
+
+    quotes = pl.DataFrame({
+        "season": [2026], "week": [1], "team": ["BAL"],
+        "quoted_own": [26.5], "quoted_allowed": [21.5],
+    }).cast({"season": pl.Int32, "week": pl.Int32})
+    monkeypatch.setattr(vegas, "book_team_totals", lambda season, book=None: quotes)
+
+    tg = vegas.team_games([2026])
+    row = tg.filter((pl.col("team") == "BAL") & (pl.col("week") == 1))
+    assert row["implied_own"][0] == 26.5
+    assert row["implied_source"][0] == "quoted"
+
+    other = tg.filter(pl.col("implied_source") == "derived")
+    assert other.height > 0, "nothing should be quoted but the row we injected"
+
+
+def test_with_no_quotes_stored_every_row_is_derived(monkeypatch):
+    """The normal state for a completed season, and it must not change behaviour."""
+    import polars as pl
+    from Scripts import vegas
+
+    monkeypatch.setattr(vegas, "book_team_totals",
+                        lambda season, book=None: pl.DataFrame())
+    tg = vegas.team_games([2025])
+    assert set(tg["implied_source"].unique()) == {"derived"}
+    row = tg.filter(pl.col("priced")).head(1)
+    assert row["implied_own"][0] == pytest.approx(
+        row["total_line"][0] / 2 + row["margin"][0] / 2)
+
+
+def test_the_historical_fit_never_sees_a_book_quote(monkeypatch):
+    """A full-season average is ground truth, and no book quote exists for a season
+    already played. Mixing them would make the fitted slope depend on when the odds
+    store happened to start."""
+    from Scripts import vegas
+
+    seen = {}
+    real = vegas.team_games
+
+    def spy(seasons=None, verify=True, use_book_quotes=True):
+        seen["use_book_quotes"] = use_book_quotes
+        return real(seasons, verify=verify, use_book_quotes=use_book_quotes)
+
+    monkeypatch.setattr(vegas, "team_games", spy)
+    vegas.fit_shrinkage([2024, 2025])
+    assert seen["use_book_quotes"] is False
+
+
+def test_every_schedule_team_maps_from_its_book_name():
+    """team_names.parquet carries every historical abbreviation, so two rows map to
+    "Los Angeles Rams" -- LA and LAR. A plain dict(zip(...)) kept LAR, the schedule
+    says LA, and the Rams silently vanished from a 32-team join that returned 31.
+    OAK/LV, SD/LAC and STL/LA are the same trap."""
+    import polars as pl
+    from Scripts import paths, vegas
+
+    sched = vegas.load_schedules([2026])
+    in_use = set(sched["home_team"].to_list()) | set(sched["away_team"].to_list())
+    names = pl.read_parquet(paths.DATA_DIR / "NFL" / "team_names.parquet")
+
+    mapped = {row["team_name"] for row in names.iter_rows(named=True)
+              if row["team_abbr"] in in_use}
+    covered = {row["team_abbr"] for row in names.iter_rows(named=True)
+               if row["team_name"] in mapped and row["team_abbr"] in in_use}
+    assert covered == in_use, f"no book name maps to {sorted(in_use - covered)}"
