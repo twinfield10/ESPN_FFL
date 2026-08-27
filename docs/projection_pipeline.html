@@ -375,6 +375,29 @@
         The test guarding this asserts <em>equality</em>, not a total — an earlier version
         asserted the weights summed to 1.0 and broke twice in one day as sources joined.</p>
     </div>
+
+    <div class="callout">
+      <p><span class="lede">The rule is measured, not just asserted.</span>
+        Fitting the weights against realised 2025 outcomes was tried twice and rejected
+        twice. The second attempt matters more, because the first one's main objection —
+        too few rows where every source is real — no longer holds: FantasyPros went from
+        13% real to 90% on the key stats, and fitting the estimator the pipeline actually
+        publishes uses 78–93% of rows rather than the 2–30% carrying every source. With
+        four times the data the fitted weights still disagree between two halves of one
+        season by <strong>up to the entire simplex</strong>, so the constraint was never
+        coverage — it is that the sources are near-copies of each other
+        (<span class="mono">+0.988</span> residual correlation between FantasyPros and
+        ESPN). Judged against a rule written beforehand, the fit fails all four clauses in
+        all six population &times; split cells.</p>
+      <p style="font-size:.88rem;color:var(--ink-soft);margin-top:10px">One warning for
+        anyone who retries it: a weight of <em>exactly</em> zero is not a small weight. It
+        collapses the renormalised denominator on every row the surviving sources do not
+        cover, the blend falls back to its face-value sum, and error on a rare count
+        <em>improves</em> — so an optimiser finds a large, fold-stable
+        &minus;5% that is the blend switching itself off. A hair off zero, the same ratios
+        are worth &minus;1.5%. Reproduce with
+        <span class="mono">python -m Scripts.lab.blend</span>.</p>
+    </div>
   </section>
 
   <!-- ============ SOURCES ============ -->

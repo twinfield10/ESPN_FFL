@@ -33,6 +33,22 @@ than overtaken, and the way that was established was to check out the commit tha
 the claim and re-run it there. That is the test worth applying before building on any
 measurement whose code has since been deleted.
 
+**A fourth kind reproduces perfectly and is still wrong: a number measured against a
+stale artifact.** The store under a measurement has its own build date, and it is not
+the date of the code being measured. Plan 03's weight re-tune first measured that
+BetOnline over-projects touchdowns by **21%**, fold-stable and with a plausible
+mechanism — against a 2025 store built 2026-08-24, three days before plans 34 and 35
+corrected exactly that column. Rebuilt by current code the same figure reads **0.88**
+of consensus: the bias reversed sign rather than shrinking, and a weight fitted to it
+would have pointed the wrong way. Nothing about the first number was irreproducible —
+it comes back every time, off a stale input. **So before scoring anything against a
+past season, rebuild that season's store first** (`python -m Scripts.refresh --all
+--season <y> --what lineups`, ~3.5 minutes for nine leagues) and check
+`Data/Store/<y>/*/meta.json`'s `built_at` against the commits you are testing. Note
+what a rebuild *cannot* recover: corrections applied in the **scrapers** are baked
+into the archived `proj_*` columns, so plan 35's de-vig is permanently unscoreable on
+2025, while corrections applied at **blend** time do replay.
+
 Every plan carries one of three statuses, recorded in **two** places that must agree:
 a `**Status:**` line under the plan's own title, and the section it sits in below.
 **IN PROGRESS** means partly built with work owed; **TO DO** means not started;
@@ -49,7 +65,7 @@ Partly built, with work still owed. The **Status** column says what landed; the 
 | # | Plan | Status | Why it mattered / what is left |
 |---|---|---|---|
 | 02 | [BetOnline access](02-betonline-access.md) | **Partly resolved** | Season props wired up with IDP; the **weekly** props API still 403s and needs a decision |
-| 03 | [Projection source coverage](03-projection-source-coverage.md) | **Partly done** | Renormalisation and provenance landed. Left: the weight re-tune (now unblocked by 16) and `scrape_pinnacle.py`'s import-time Selenium scrape |
+| 03 | [Projection source coverage](03-projection-source-coverage.md) | **Steps 1–4 done; step 3 measured 2026-08-27 and the answer is no** | Renormalisation and provenance landed. **The weight re-tune is closed by rejection: the weights do not move, and the equal-vote rule is now measured rather than asserted.** The fitted alternative fails all four clauses of its own pre-registered rule in **all six** population × split cells, missing the stability bar by **7–10×** — two halves of one season disagree by up to the entire simplex, because the cause is collinearity (FantasyPros' residuals at **+0.988** against ESPN's) and not sample size. That last point is the useful one: the first attempt's main objection was sample collapse, and a free FantasyPros account has since taken that source from **13% real to 90%** on the key stats, while fitting the estimator that actually ships uses the **78–93%** of rows with two real sources instead of the 1.9–29.7% with five. Four times the data, same verdict. **Both candidates that looked like findings were not.** `USG`'s equal vote costs the weekly blend **+1.96% to +30.87%** — the largest effect here and unactionable twice over, since TOMCAT has no weekly head (`USG_Points` was null 3,602 of 3,602 times, so the weight already renormalises away) and the column measured is the crude trailing baseline rather than the shipped season head; it survives as a **pre-registered warning for [19](19-weekly-usage-model.md)**, because the cost falls from **+16.91%** over all rostered player-weeks to **+1.55%** on players who took a snap, so roughly nine tenths of it is availability rather than accuracy. And zeroing BetOnline on the touchdown stats read as a fold-stable **−5.34%** with the folds agreeing to **0.00** — an artifact of the estimator's own fallback, since an **exact** zero collapses the renormalised denominator on ~1,000 rows and MAE on a rare count rewards projecting nothing; a hair off zero the same ratios are worth **−1.49%**, and the collapsed denominator accounts for −0.58 to −0.84 points of the apparent gain across all stats. Production cannot reach that branch, so it is a harness hazard, now pinned by a test. **Two methodological findings outlast the verdict**: `Scripts.lab.blend.predict` now reproduces `compute_weighted_stats` cell for cell (verified to **1.1e-13** against the production function), and **a measurement is only as fresh as the store under it** — measured on the 2026-08-24 store, BetOnline over-projected touchdowns by 21% and "drop BetOnline" looked real; rebuilt by current code after [34](34-stat-first-audit.md) and [35](35-market-lines-and-vig.md), that column sits at **0.88** of consensus, so the bias reversed sign rather than shrinking. The **season** weights, where `USG` and `DST` actually vote, remain unanswerable — no historical season blend exists to score against ([18](18-season-usage-model.md)). Left: only `scrape_pinnacle.py`'s import-time Selenium scrape |
 | 05 | [Dependency upgrades](05-dependency-upgrades.md) | **espn-api done** | 0.46.0 also silently swapped stats for points, caught by the equivalence harness. Rest of the upgrades open |
 | 09 | [Draft views](09-frontend-draft-views.md) | **Board + tendencies done** | Board page renders for all nine leagues, with owner tendencies on it ([23](23-owner-tendencies.md)). Split into **Board / Values / League** tabs on 2026-08-14, with search, team and bye filters. 2026-08-17 started reading ESPN's `draftSettings`, which nothing had: **GOP is a 2-keeper $250 auction** and its board was hiding 252 carried-over players as "unavailable" before a single keeper had been declared, while every league's `$` column was denominated in ESPN's $200 rather than its own. Adds the keeper price (measured to be *what the current holder paid*), and a **Cash** value lens for auction leagues — under ADP, GOP's best values were three negative-VOR backup tight ends. Turned up that every *second* league change in the sidebar was being silently discarded. Left: **Live Draft** |
 | 14 | [Thin Google Sheets](14-thin-google-sheets.md) | **Step 1 done** | Sheets is a renderer over the store. **Kept**, not retired — readable on a phone with the laptop shut. Left: step 2.3, `oauth2client` → `google-auth` |
@@ -139,10 +155,10 @@ each plan doc carries its own evidence and postscript.
 
 ### Before week 1
 
-- **[03](03-projection-source-coverage.md)** — the weight re-tune, now unblocked by
-  plan 16. Also holds `scrape_pinnacle.py`'s Selenium scrape at **module import
-  time** (no `__main__` guard), which launches Chrome on import and currently times
-  out.
+- **[03](03-projection-source-coverage.md)** — ~~the weight re-tune~~ **measured
+  2026-08-27 and rejected; the weights do not move.** What is left is
+  `scrape_pinnacle.py`'s Selenium scrape at **module import time** (no `__main__`
+  guard), which launches Chrome on import and currently times out.
 - **[04](04-matchup-periods.md)** — Winfield_Football silently loses a week.
 - **[08](08-frontend-weekly-views.md)** — the weekly views. Unblocked since plan 07.
 - **[13](13-dst-from-vegas-lines.md)** — its `E[f(X)]`-over-tiers piece can be built
@@ -226,8 +242,9 @@ each plan doc carries its own evidence and postscript.
   real for 60 players — the top ten per position, where every source agrees. At 592
   players its disagreement with ESPN runs 6.0% inside ADP 50 and **31.6%** outside 150.
   What is owed is a re-run of **plan 16 step 0's independence matrix — the whole table,
-  not one row** — and then [03](03-projection-source-coverage.md)'s weight re-tune. Both
-  move `TRUE_Points` and are frozen until after the drafts.
+  not one row**. [03](03-projection-source-coverage.md)'s weight re-tune is **no longer
+  owed: measured 2026-08-27 and rejected**, so it moves `TRUE_Points` by nothing and
+  needed no freeze.
 - **Roadmap Phases 4, 5** — the Monte Carlo mock-draft simulator and the live
   terminal assistant. Phase 1 (draft history) landed as
   [23](23-owner-tendencies.md); what is still missing from it is *outcomes*,

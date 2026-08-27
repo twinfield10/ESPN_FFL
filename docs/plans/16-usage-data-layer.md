@@ -770,8 +770,14 @@ pre-draft version of G2 belongs to [plan 18](18-season-usage-model.md) against t
    passed until it does.
 6. Hand off to [18](18-season-usage-model.md), then
    [19](19-weekly-usage-model.md).
-7. Then, and only then, [03](03-projection-source-coverage.md)'s weight re-tune
-   over the enlarged source set.
+7. ~~Then, and only then, [03](03-projection-source-coverage.md)'s weight re-tune
+   over the enlarged source set.~~ **Done 2026-08-27, and the answer is no.** The
+   enlarged source set did not identify the weights — the binding constraint is
+   collinearity, not coverage. This step's own data layer is what made that
+   answerable, and the one actionable thing it produced is a warning aimed back at
+   [19](19-weekly-usage-model.md): a crude weekly usage head costs the blend
+   +16.91% on all rows and +1.55% on players who took a snap, so the gap is
+   availability.
 
 ## Risks
 

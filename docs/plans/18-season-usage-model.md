@@ -1467,8 +1467,12 @@ name to `WEIGHTS` makes the blend harder to reason about for nothing.
 6. ~~A QB arm, or abstention there — see §Ship criteria.~~ **Abstention, done
    2026-08-07.** `season.ABSTAIN_POSITIONS = ("QB",)`. The backtest passes
    `abstain_positions=()` so the table that justifies it stays reproducible.
-7. Hand the enlarged source set to
-   [plan 03](03-projection-source-coverage.md)'s weight re-tune.
+7. ~~Hand the enlarged source set to
+   [plan 03](03-projection-source-coverage.md)'s weight re-tune.~~ **Handed over and
+   measured 2026-08-27: rejected, and this plan's own limitation is why the *season*
+   half of it could not be asked at all.** There is no historical season blend to
+   score against, so the 0.25 the season head carries stays a judgement call. What
+   was measurable was the weekly path, where the fitted weights are not identified.
 
 ## Risks
 
