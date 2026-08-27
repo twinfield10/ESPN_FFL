@@ -36,15 +36,16 @@ from Scripts.paths import DATA_DIR, store_dir
 #: Where ``run_daily_refresh.sh`` records each run's outcome.
 STATUS_PATH = DATA_DIR / "refresh_status.json"
 
-#: Where ``run_odds_refresh.sh`` records its own. Separate on purpose: the two jobs
-#: run on different clocks and have different fixes, and one file for both would let
-#: the six-hourly job overwrite the nightly's verdict four times a day.
+#: Where ``run_odds_refresh_nfl.sh`` records its own. Separate on purpose: the two
+#: jobs have different fixes, and one file for both would let whichever ran last
+#: overwrite the other's verdict.
 ODDS_STATUS_PATH = DATA_DIR / "odds_status.json"
 
-#: Age past which the odds pull counts as missed. Seven rather than six, for the same
-#: reason the nightly allows 25 rather than 24 -- slack for a slow run, not tolerance
-#: for a skipped one.
-ODDS_MAX_AGE_HOURS = 7.0
+#: Age past which the odds pull counts as missed. It runs daily, so 25 for the same
+#: reason as the nightly: an hour of slack for a slow run, not tolerance for a skipped
+#: one. Raise the cadence and lower this together, or a six-hourly job that stopped
+#: firing would read healthy for a day.
+ODDS_MAX_AGE_HOURS = 25.0
 
 #: Every projection source the draft board blends, and the command that refreshes it.
 #:
@@ -203,7 +204,7 @@ def _report_odds(season: int) -> bool:
         bool: True if the pull is missing, failed or overdue.
     """
     if not ODDS_STATUS_PATH.is_file():
-        print("  odds        never run — ./run_odds_refresh.sh")
+        print("  odds        never run — ./run_odds_refresh_nfl.sh")
         return False  # Not stale: nothing on the draft board depends on it yet.
 
     status = json.loads(ODDS_STATUS_PATH.read_text())

@@ -1,11 +1,21 @@
 #!/usr/bin/env bash
 #
-# run_odds_refresh.sh -- pull sportsbook game lines and store what moved.
+# run_odds_refresh_nfl.sh -- pull NFL sportsbook game lines and store what moved.
 #
-# Separate from run_daily_refresh.sh, and on a different clock, because it answers a
-# different question. The nightly rebuilds the boards from projections that change
-# once a day; a line moves all day, and the value of storing one is the *sequence*.
-# Four runs a day is the cadence plan 36 asked for.
+# Separate from run_daily_refresh.sh, and on its own clock, because it answers a
+# different question. The nightly rebuilds the boards; this one accumulates a *record*
+# of where the market was, and only appends rows whose number or price moved.
+#
+# Named for the sport on purpose. Nothing here is NFL-specific by accident -- the
+# adapters pin NFL league ids and the store is keyed to the NFL schedule -- so a
+# sibling for another sport would be a second script, not a flag on this one.
+#
+# Daily. Plan 36 proposed six-hourly and that is the better cadence for *line
+# movement*, since four snapshots a day resolve an intraday move that one cannot. One
+# a day was chosen deliberately anyway: it is four times less traffic against someone
+# else's book for a repo whose consumer -- a season-long fantasy draft board -- reads
+# the level rather than the path. Raise it to `0 */6 * * *` if intraday movement ever
+# becomes the question.
 #
 # What it does NOT do, deliberately:
 #
@@ -29,18 +39,20 @@
 #
 # Install:
 #
-#   chmod +x run_odds_refresh.sh
+#   chmod +x run_odds_refresh_nfl.sh
 #   crontab -e
-#   # Sportsbook game lines, four times a day
-#   0 */6 * * * /Users/tommywinfield/GitRepos/ESPN_FFL/run_odds_refresh.sh
+#   # NFL sportsbook game lines, daily at 07:00 (after the 06:00 nightly)
+#   0 7 * * * ODDS_ENV_FILE=/Users/tommywinfield/GitRepos/Rebirtha/.env /Users/tommywinfield/GitRepos/ESPN_FFL/run_odds_refresh_nfl.sh
 #
 # Unlike the nightly this points at the working checkout rather than a second one
 # pinned to origin/main. Nothing it writes is published, so a branch cannot ship a
 # bad board -- the revision guard below is a warning rather than a refusal.
 #
-# 4Casters needs CAST4_USER and CAST4_PASS in the environment. Cron does not read
-# your shell profile, so set them in the crontab or a file this sources. Without them
-# the book is skipped with a reason and the run still succeeds.
+# 4Casters needs CAST4_USER and CAST4_PASS, and cron does not read your shell profile.
+# Point ODDS_ENV_FILE at a file holding them and this reads the CAST4_* lines out of
+# it -- only those, so pointing at a larger .env does not import everything in it.
+# Nothing is copied into this repo. Without the credentials 4Casters is skipped with a
+# reason and the run still succeeds; Pinnacle and BetOnline need none.
 
 set -euo pipefail
 
@@ -48,6 +60,18 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON="/usr/local/bin/python3.11"
 LOG_DIR="${HOME}/logs"
 LOG="${LOG_DIR}/espn_ffl_odds.log"
+
+# Credentials, if a file was named. Parsed rather than sourced: sourcing someone
+# else's .env imports every variable in it, and this needs exactly two.
+ODDS_ENV_FILE="${ODDS_ENV_FILE:-${HOME}/.espn_ffl_odds.env}"
+if [ -f "${ODDS_ENV_FILE}" ]; then
+  while IFS='=' read -r key value; do
+    case "${key}" in
+      CAST4_USER|CAST4_PASS|CAST4_AUTH_TOKEN)
+        export "${key}=$(printf '%s' "${value}" | tr -d '"'"'"'\r')" ;;
+    esac
+  done < "${ODDS_ENV_FILE}"
+fi
 
 # Its own status file. An odds failure must not read as a nightly failure -- they run
 # on different clocks and have different fixes, and one status file for both would

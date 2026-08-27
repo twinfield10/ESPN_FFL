@@ -308,8 +308,8 @@ ESPN, so the two outputs cannot disagree.
 
 **Two jobs run themselves, so they are not in that list.** `run_daily_refresh.sh` at
 06:00 pulls the season's projection sources and rebuilds the boards;
-`run_odds_refresh.sh` every six hours pulls sportsbook game lines into
-`Data/Odds/` and stores only what moved, so line history accumulates for free.
+`run_odds_refresh_nfl.sh` at 07:00 pulls NFL sportsbook game lines into `Data/Odds/`
+and stores only what moved, so line history accumulates for free.
 
 `python -m Scripts.refresh_status` reports both, plus every projection source by name
 and how old it is. That last part exists because it did not before: both books once

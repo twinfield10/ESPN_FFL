@@ -196,15 +196,26 @@ down every night.
 
 ### Sportsbook game lines
 
-`run_odds_refresh.sh` pulls Pinnacle, BetOnline and 4Casters every six hours and stores
+`run_odds_refresh_nfl.sh` pulls Pinnacle, BetOnline and 4Casters once a day and stores
 what moved, so there is nothing recurring to remember here either. Install it the same
 way as the nightly:
 
 ```bash
 crontab -e
-# Sportsbook game lines, four times a day
-0 */6 * * * /Users/tommywinfield/GitRepos/ESPN_FFL/run_odds_refresh.sh
+# NFL sportsbook game lines, daily at 07:00 (after the 06:00 nightly)
+0 7 * * * ODDS_ENV_FILE=/Users/tommywinfield/GitRepos/Rebirtha/.env /Users/tommywinfield/GitRepos/ESPN_FFL/run_odds_refresh_nfl.sh
 ```
+
+07:00 keeps it clear of the nightly, which starts at 06:00 and takes a few minutes.
+The two are independent -- this one rebuilds no boards and pushes nothing -- so the
+ordering is tidiness rather than a dependency.
+
+Plan 36 proposed six-hourly, and for *line movement* that is the better cadence: four
+snapshots a day resolve an intraday move that one cannot. Daily is a deliberate trade
+-- a quarter of the traffic against someone else's book, for a consumer that reads
+where the market is rather than how it got there. `0 */6 * * *` if that changes, and
+lower `ODDS_MAX_AGE_HOURS` in `Scripts/refresh_status.py` with it, or a six-hourly job
+that stopped firing would read healthy for a day.
 
 It writes `Data/Odds/<season>/<book>/<gamedate>.parquet`, appending only rows whose
 number or price has moved, so line history accumulates without a second mechanism. It
@@ -214,9 +225,12 @@ does **not** rebuild boards or push to S3 -- game lines reach the board through
 `python -m Scripts.books.pull --history "Buffalo" --market Total` prints a line's
 stored history. `--dry-run` pulls and checks without writing.
 
-**4Casters needs credentials** and cron does not read your shell profile, so set
-`CAST4_USER` and `CAST4_PASS` in the crontab or a file the script sources. Without them
-that one book is skipped with a reason and the run still succeeds -- it is an exchange
+**4Casters needs credentials** and cron does not read your shell profile. Point
+`ODDS_ENV_FILE` at a file holding `CAST4_USER` and `CAST4_PASS` -- the crontab line
+above uses `Rebirtha/.env` -- and the script reads those lines out of it. Parsed
+rather than sourced, so pointing at a larger `.env` does not import everything in it,
+and nothing is copied into this repo. Without them that one book is skipped with a
+reason and the run still succeeds -- it is an exchange
 rather than a book, kept at arm's length for that reason. Pinnacle and BetOnline are
 required, and a required book returning nothing fails the run.
 
@@ -259,8 +273,8 @@ run succeeded — `refresh` also exits non-zero and names the failures.
 > User-Agent problem. [Plan 02](plans/02-betonline-access.md) is closed season-only.
 >
 > Nothing else BetOnline is broken. Its **season** props run nightly, and its **game
-> lines** are on a different host entirely and are pulled every six hours by
-> `run_odds_refresh.sh`.
+> lines** are on a different host entirely and are pulled daily by
+> `run_odds_refresh_nfl.sh`.
 
 `populateGoogleSheet.py` **reads the store**, so `Scripts.refresh` must have run
 first. A league with no store is skipped with the command that would build it,

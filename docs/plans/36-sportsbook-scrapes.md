@@ -276,7 +276,7 @@ unchanged.
 Carry the exchange caveat into the schema rather than into a comment: an exchange
 price is a different quantity from a book price, and the code should be able to say so.
 
-**6. Schedule at six hours.** — **DONE.** `run_odds_refresh.sh`, local, four runs a day, its own status file. No EIP rotation, no shared lock, no seed fallbacks. `Scripts/refresh_status.py` now carries a per-source manifest, which it never had — the reason it reported everything healthy while both books sat thirteen days stale. Four runs a day, locally, not on EC2 — the other repo's
+**6. Schedule at six hours.** — **DONE, at daily rather than six-hourly.** `run_odds_refresh_nfl.sh`, local, its own status file. The cadence is a deliberate departure: six-hourly is better for *line movement*, since four snapshots a day resolve an intraday move that one cannot, but this repo's consumer is a season-long draft board that reads where the market is rather than how it got there, and daily is a quarter of the traffic against someone else's book. Raising it is a one-line change, with `ODDS_MAX_AGE_HOURS` to match. No EIP rotation, no shared lock, no seed fallbacks. `Scripts/refresh_status.py` now carries a per-source manifest, which it never had — the reason it reported everything healthy while both books sat thirteen days stale. Locally, not on EC2 — the other repo's
 EIP-rotation machinery is an EC2 answer to an IP-block problem and should not be
 ported. Reuse this repo's own conventions: `run_daily_refresh.sh`'s branch guard and
 `|| fail` discipline, and `Scripts/refresh_status.py` so a silently dead book is

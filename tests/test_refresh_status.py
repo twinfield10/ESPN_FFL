@@ -151,10 +151,16 @@ def test_the_season_is_substituted_into_the_fix(tmp_path, monkeypatch, capsys):
 
 
 def test_the_odds_pull_has_its_own_status_file():
-    """One file for both jobs would let the six-hourly one overwrite the nightly's
-    verdict four times a day."""
+    """One file for both jobs would let whichever ran last overwrite the other's
+    verdict, and they have different fixes."""
     assert rs.ODDS_STATUS_PATH != rs.STATUS_PATH
-    assert rs.ODDS_MAX_AGE_HOURS < rs.DEFAULT_MAX_AGE_HOURS
+
+
+def test_the_odds_threshold_matches_its_cadence():
+    """Both jobs run daily, so both allow a day plus an hour of slack. If the odds
+    pull ever goes six-hourly this has to come down with it, or a job that stopped
+    firing would read healthy for a day."""
+    assert rs.ODDS_MAX_AGE_HOURS == rs.DEFAULT_MAX_AGE_HOURS == 25.0
 
 
 def test_an_odds_pull_that_never_ran_is_not_a_failure(tmp_path, monkeypatch, capsys):
@@ -176,10 +182,10 @@ def test_a_failed_odds_pull_is_stale(tmp_path, monkeypatch, capsys):
 
 
 def test_an_overdue_odds_pull_is_stale(tmp_path, monkeypatch, capsys):
-    """It runs every six hours, so twelve hours of silence is a missed run."""
+    """It runs daily, so a day and a half of silence is a missed run."""
     import json
     path = tmp_path / "odds_status.json"
-    path.write_text(json.dumps({"result": "ok", "at": _iso_hours_ago(12),
+    path.write_text(json.dumps({"result": "ok", "at": _iso_hours_ago(36),
                                 "stage": "complete", "season": "2026"}))
     monkeypatch.setattr(rs, "ODDS_STATUS_PATH", path)
     assert rs._report_odds(2026) is True
