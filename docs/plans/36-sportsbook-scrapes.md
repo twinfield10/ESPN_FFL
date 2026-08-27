@@ -1,9 +1,44 @@
 # 36 — Sportsbook scrapes: one contract, and game lines as a first-class source
 
-**Status:** TO DO
+**Status:** IN PROGRESS
 
-**Priority:** Medium · **Effort:** Large · **Where it stands:** Not started. Absorbs
+**Priority:** Medium · **Effort:** Large · **Where it stands:** Steps 1, 2, 4, 5, 6
+and 7 built 2026-08-27. Step 3 deferred with a reason. Absorbs
 [03](03-projection-source-coverage.md)'s step 5, which is closed there and owned here.
+
+> **What this plan got wrong, corrected against live data on 2026-08-27.** Four of its
+> premises did not survive contact, and one of them would have done damage. Kept in
+> place rather than rewritten away, because the plan's *diagnosis* being wrong while
+> its *finding* was right is the useful part.
+>
+> 1. **Step 1 named the wrong files, and doing what it said would have broken the
+>    nightly.** The staleness is real. The cause is not the missing `__main__` guard.
+>    The stale artifacts are `Pinnacle_SeasonProps.parquet` and
+>    `BetOnline_SeasonProps_All.csv`, whose producers are `Scripts.scrape_pinnacle_season`
+>    (already guarded) and `Rscript R/GetSeasonProps.R` — **both of which worked
+>    already**, verified by running them. Nobody had added them to the nightly. The two
+>    unguarded scrapers this plan named write *weekly* props and are both **broken**
+>    (Selenium times out; the weekly API 403s), so adding *those* with `|| fail`, eleven
+>    days before a draft, would have stopped the boards rebuilding every night.
+> 2. **The "one hard blocker" does not bite here.** From a US residential address,
+>    `/sports`, `/sports/15/matchups` **and** the supposedly geo-blocked
+>    `/leagues/889/matchups` all return 200. No `reason: "location"` anywhere. The
+>    classification is kept as insurance, since the block is real upstream, but it is
+>    the fallback rather than the plan.
+> 3. **NFL's league ID was never unknown.** It is **889**, and it was already in this
+>    repo at `Scripts/scrape_pinnacle_season.py:36`, which has used these routes all
+>    along. Football is sport **15**; preseason is league 4347.
+> 4. **"A live book prices the full slate much earlier" is backwards.** Pinnacle prices
+>    **16 games**, about the upcoming week, occasionally with lookahead — against
+>    nflverse's 52. BetOnline offers 34, out to November. nflverse is currently the
+>    *broader* source and stays the base frame; a book is depth, not breadth. Nothing
+>    built here gates on a game count, because that number moves for ordinary reasons.
+>
+> **One blocker the plan did not have.** Pinnacle has posted **no weekly player props**
+> — zero across all 16 week-1 games, checked individually. So step 3 cannot be
+> validated end-to-end and is deferred rather than half-built; the Selenium path stays
+> until the JSON path has returned real props at least once, which is what this plan
+> itself asks for.
 
 > **Two books feed the draft board and neither is refreshed.** Pinnacle's 2026 props
 > and BetOnline's 2026 season props were both last written **2026-08-14**, thirteen
@@ -112,7 +147,11 @@ Two consequences already visible in the code:
 * `Scripts/vegas.py` computes `implied_own = total_line/2 + margin/2` and
   `implied_allowed = total_line/2 − margin/2`. That identity is exact only if the
   market's team totals are symmetric about the game total, which is an assumption a
-  team-total market would replace with a quote.
+  team-total market would replace with a quote. **Now measured against Pinnacle's own
+  quotes over 16 games: the quoted number differs from the derived one by a mean
+  0.734 points and a maximum of 1.75, and `TT_home + TT_away − total` averages
+  −0.25.** So the symmetry assumption is wrong, and wrong by about the amount the
+  identity is worth.
 * The same module documents having to shrink a season estimate built from three or
   four priced games, because that is all nflverse offers pre-season: *"a season model
   therefore cannot average seventeen lines; it averages three and shrinks."* A live
@@ -150,7 +189,15 @@ Pinnacle's adapter returns four views from one fetch: `Pinnacle` (main lines),
 `Prop` (player props), `Pinnacle_Alts` (alternate spreads and totals), `All_Bets`.
 Everything this plan wants from Pinnacle is already in that return value.
 
-### The one hard blocker, named up front
+### The one hard blocker, named up front — and not reproduced
+
+**Measured 2026-08-27: this does not happen here.** `/sports` → 200,
+`/sports/15/matchups` → 200 (816 KB), `/leagues/889/matchups` → **200** (356 KB). The
+section below is left as written because the block is real in the repo it comes from
+and was rolled out progressively from 2026-07-30; it is now implemented as the
+*fallback* path plus a failure classification, so a location 403 arriving later is
+recognised rather than read as a transport error. The claim that NFL's league ID is
+unknown was wrong on arrival — see the correction at the top.
 
 Pinnacle **geo-blocks US IPs on its league routes**. From the adapter's own comments:
 `/leagues/{id}` and `/leagues/{id}/matchups` return 403 with `reason: "location"`, and
@@ -184,7 +231,7 @@ the expensive way in the other repo:
 Ordered so each step ships and is useful alone. Steps 1 and 2 are worth doing even if
 the rest is never built.
 
-**1. Guard the two scrapers, and put them in the nightly.** Absorbs
+**1. Guard the two scrapers, and put them in the nightly.** — **DONE 2026-08-27, but not as written.** The staleness fix and the guard turned out to be two different jobs on two different sets of files; see the correction at the top. `Scripts.scrape_pinnacle_season` and `Rscript R/GetSeasonProps.R` are now nightly stages 2c and 2d, fatal only pre-season because books retire season-long markets once games are played. Both weekly scrapers are behind `main()` with the AST guard generalised over every `Scripts/scrape_*.py`, and are deliberately *not* in the nightly while broken. The blend also now raises `StaleProjectionSourceWarning` past 48 hours, because the loaders only ever asked whether a file existed. Absorbs
 [03](03-projection-source-coverage.md) step 5. Move each module's top-level work into
 `main()` behind `if __name__ == "__main__":`, following
 `scrape_pinnacle_season.py`. Add a test asserting **no bare top-level calls in any
@@ -195,7 +242,7 @@ four lines of pytest, and it is what stops this recurring. Then add the two to
 This is the step that fixes the staleness, and it is small. Do not let it wait for
 the architecture.
 
-**2. Adopt one adapter contract.** Port `BaseSportsbook` into
+**2. Adopt one adapter contract.** — **DONE.** `Scripts/books/`: `BaseSportsbook`, the standard row, and a shared fetch with explicit `(connect, read)` timeouts and a failure classification. De-vig routes through `Scripts.market` by construction. Port `BaseSportsbook` into
 `Scripts/books/base.py`: `fetch_odds()` returning a dict of frames,
 `transform_to_standard()` returning the schema above, shared implied-probability and
 team-name helpers. Then make the existing scrapers implement it rather than rewriting
@@ -207,14 +254,14 @@ holds this repo's *single* derivation of de-vig and threshold-to-expectation
 treatment by construction instead of inventing its own, which is precisely the defect
 plan 35 was created to fix — three different juice coefficients in three files.
 
-**3. Pinnacle weekly over the guest API; retire the Selenium path.** Discover and pin
+**3. Pinnacle weekly over the guest API; retire the Selenium path.** — **DEFERRED, with a measurement.** Pinnacle has posted no weekly player props at all: zero across all 16 week-1 games, each checked individually via `/matchups/{id}/related`. The JSON path cannot be validated end-to-end until they post, and this plan's own instruction is not to delete Selenium until it has returned real props once. Revisit closer to week 1. Discover and pin
 the NFL league ID, add the sport-level fallback, port the geo-block classification so
 a location 403 does not look like a transport failure. Success criterion: the weekly
 Pinnacle props that `clean_pinny()` consumes arrive from JSON, and
 `scrape_pinnacle.py`'s Selenium code is **deleted rather than left dormant**. One book,
 one mechanism.
 
-**4. Game lines as a first-class artifact.** The new capability, and the reason the
+**4. Game lines as a first-class artifact.** — **DONE.** `Data/Odds/<season>/<book>/<date>.parquet`, append-only with change detection, so line history is a by-product. `vegas.py` prefers a quoted team total and records `implied_source`. nflverse stays the base frame — it is the only source for completed seasons *and* currently the broader one. The new capability, and the reason the
 rest is worth doing. Ingest spread, total, **team totals**, moneyline and alternates
 per game, with prices and a timestamp, from every book that quotes them. Persist
 date-partitioned with change detection, so line *movement* accrues for free.
@@ -225,17 +272,17 @@ games — keeping nflverse as the historical backstop, since it is the only sour
 completed seasons and its `assert_sign_convention` guard must survive the change
 unchanged.
 
-**5. Add 4Casters, and BetOnline's game lines.** Both are adapters once step 2 exists.
+**5. Add 4Casters, and BetOnline's game lines.** — **DONE.** Both on the contract. 4Casters is stored as `bookType="exchange"` and is optional, since it needs credentials from the environment. Its overround is the *wider* of the two against Pinnacle (1.078 vs 1.040), which is the opposite of what this plan assumed — an exchange takes no position, but crossing its bid-ask twice costs more than a hold. Both are adapters once step 2 exists.
 Carry the exchange caveat into the schema rather than into a comment: an exchange
 price is a different quantity from a book price, and the code should be able to say so.
 
-**6. Schedule at six hours.** Four runs a day, locally, not on EC2 — the other repo's
+**6. Schedule at six hours.** — **DONE.** `run_odds_refresh.sh`, local, four runs a day, its own status file. No EIP rotation, no shared lock, no seed fallbacks. `Scripts/refresh_status.py` now carries a per-source manifest, which it never had — the reason it reported everything healthy while both books sat thirteen days stale. Four runs a day, locally, not on EC2 — the other repo's
 EIP-rotation machinery is an EC2 answer to an IP-block problem and should not be
 ported. Reuse this repo's own conventions: `run_daily_refresh.sh`'s branch guard and
 `|| fail` discipline, and `Scripts/refresh_status.py` so a silently dead book is
 visible rather than absorbed.
 
-**7. Decide what plan 02 owns.** [02](02-betonline-access.md) is still IN PROGRESS on
+**7. Decide what plan 02 owns.** — **DONE, by measurement.** Retested: the weekly props API still answers 403 `invalid_security_headers`, and full browser-shaped headers do not clear it. It wants a *signed* request header. [02](02-betonline-access.md) is closed as season-only. [02](02-betonline-access.md) is still IN PROGRESS on
 one question — whether BetOnline's weekly props API (403
 `invalid_security_headers`) is worth another attempt. That question is a member of
 this plan's set, and keeping it in 02 splits book-scraping across two plans. **Fold it

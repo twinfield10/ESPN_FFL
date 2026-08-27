@@ -1,6 +1,6 @@
 # 02 — BetOnline weekly props are blocked
 
-**Status:** IN PROGRESS
+**Status:** COMPLETE
 
 **Priority:** High · **Effort:** Medium · **Where it stands:** Resolved (2026-08-03)
 

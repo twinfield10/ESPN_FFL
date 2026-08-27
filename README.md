@@ -306,6 +306,17 @@ runbook has the decision rule.
 `refresh` must come first: `populateGoogleSheet.py` reads the store rather than
 ESPN, so the two outputs cannot disagree.
 
+**Two jobs run themselves, so they are not in that list.** `run_daily_refresh.sh` at
+06:00 pulls the season's projection sources and rebuilds the boards;
+`run_odds_refresh.sh` every six hours pulls sportsbook game lines into
+`Data/Odds/` and stores only what moved, so line history accumulates for free.
+
+`python -m Scripts.refresh_status` reports both, plus every projection source by name
+and how old it is. That last part exists because it did not before: both books once
+sat **thirteen days stale** on a live draft board while this reported everything
+healthy — truthfully, in its own terms, since the nightly it watched was fine and
+simply never ran them. A source is only as visible as something that names it.
+
 **Why both outputs exist.** The app is a service — fast, rich, and alive only
 while your laptop is. The Sheet is a published artifact: readable from a phone,
 away from home, with the laptop shut. That is a real capability the app cannot
