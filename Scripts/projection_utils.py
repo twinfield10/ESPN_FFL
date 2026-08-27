@@ -884,9 +884,16 @@ def report_silent_zero_stats(df, scoring_df, prefix="ESPN_"):
     stat line -- 1,400 rushing yards buys a different number of 100-yard games
     depending how they are distributed -- and :func:`proj_to_score` can only
     multiply a stat column by a constant. What it wants is a per-game distribution
-    counted across the threshold, emitted as an expected *count* that can then be
-    priced linearly. :mod:`Scripts.dst.model` already integrates exactly this shape
-    for ``PA_TIERS``. Recorded, deliberately not built -- see
+    counted across the threshold -- ``E[bonus games] = sum over the slate of
+    P(that week's yardage lands in the band)`` -- emitted as an expected *count*
+    that can then be priced linearly. So it is a **variance** problem before it is
+    a mean one, and the weekly dispersion cannot be divided out of the season one
+    that :mod:`Scripts.usage.predictive` fits: that module already records
+    composing variances failing here, at correlations of +0.48 to +0.63 and
+    negative fitted variances for quarterbacks. :mod:`Scripts.dst.model` already
+    integrates exactly this shape for ``PA_TIERS``, and
+    ``docs/plans/13-dst-from-vegas-lines.md`` prices the error of not doing so at a
+    16.5-point compression. Recorded, deliberately not built -- see
     ``docs/plans/34-stat-first-audit.md``.
 
     Args:

@@ -296,6 +296,41 @@ BetOnline's `anytimeTouchdown` split is the first place to look.
   a third ladder, and its natural home is a **per-game** distribution, which is
   [plan 19](19-weekly-usage-model.md)'s grain rather than the season head's.
 
+  **The mechanism, as the owner put it: variance and the probability of hitting the
+  milestone each week.** Not a yardage total scaled by anything --
+
+      E[bonus games] = sum over the slate of P(week's yardage lands in the band)
+
+  and a probability needs a distribution, so this is a variance problem before it is a
+  mean problem. Four constraints, every one of which this repo has already paid for
+  somewhere else:
+
+  1. **It is a ladder, not a threshold.** `rushingYards100-199Game` is worth 3 and
+     `rushingYards200+Game` worth 5, so the quantity is `P(100 <= Y < 200)` and
+     `P(Y >= 200)` -- expected *counts per band*, summing over the slate. Structurally
+     identical to `PA_TIERS`.
+  2. **The weekly variance cannot be derived from the season one.**
+     `Scripts/usage/predictive.py` fits dispersion on **season totals**, and dividing by
+     17 assumes independent weeks. That module already records what happens when parts
+     are composed rather than fitted end to end: games and per-game volume correlate
+     **+0.48 to +0.63**, and backing one variance out of another *produced negative
+     numbers for quarterbacks*. A weekly arm needs its own fit on weekly residuals.
+  3. **The tail shape is most of the answer.** `P(Y >= 100)` is dominated by the right
+     tail, not by the variance alone, so the family matters more here than it does for an
+     80% interval. `predictive.py` chose a Gamma for yardage on the skew of the
+     *per-opportunity rate*; weekly yardage is a different and far more skewed object,
+     and it has real mass at exactly zero -- the same fact that already forced a fix
+     there, since a Gamma has none.
+  4. **Availability compounds it.** The sum runs over games *played*, so it needs the
+     Beta-Binomial games distribution beside the yardage one. Both already exist.
+
+  **The size of getting this wrong is already measured, in this repo, on this pattern.**
+  [Plan 13](13-dst-from-vegas-lines.md) evaluated a scoring ladder at the season mean
+  instead of integrating it and found a **16.5-point compression** of the range the
+  component exists to create; `E[f(X)]` beat `f(E[X])` on bias *and* RMSE, per league, on
+  held-out data. Plan 01's FGY50 floor is named there as the same error class. A
+  milestone bonus priced off a season mean would be the third instance.
+
   Two halves, and only one of them is modelling. The **actual** columns are also zero for
   all 3,095 player-weeks, and a realised 100-yard game is a fact rather than an
   expectation — so that half probably *is* a naming problem, and it is what a backtest of
