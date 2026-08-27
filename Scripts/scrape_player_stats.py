@@ -51,6 +51,35 @@ VOLUME_STATS = (
     "receivingTargets",
 )
 
+#: Scored stats that are **derived** from a blended line rather than projected by
+#: any source, so they are computed after the blend and never inside it.
+#:
+#: The six yardage-milestone bonuses. A milestone is a step function of a *weekly*
+#: quantity -- "3 points for a 100-199 yard rushing game" -- so it is not a rate on
+#: a season total and ``proj_to_score`` cannot express it: 1,400 rushing yards buys
+#: a different number of 100-yard games depending how they are distributed.
+#:
+#: Measured over 2016-2025, pricing the ladder at the season mean recovers only
+#: **13-18% of the first tier and none of the second** -- 117 rushing games against
+#: 690 realised, 0 against 18 in the tier above -- because a mean can award a band
+#: in every game or in none, and almost no player's mean sits above an edge. A back
+#: averaging 80+ yards a game hits 100 in 41.5% of them, worth ~21 points a season
+#: at 3 points a game. :mod:`Scripts.usage.milestones` computes the expectation from
+#: a fitted weekly distribution; the names here are the registry's, so whatever it
+#: writes is priced with no mapping in between.
+#:
+#: Listed in this module rather than beside the model because
+#: :func:`Scripts.projection_utils.blended_stats` has to *exclude* them, and the
+#: blend layer must not import the usage stack to find that out.
+DERIVED_STATS = (
+    "passingYards300to399Game",
+    "passingYards400PlusGame",
+    "rushingYards100-199Game",
+    "rushingYards200+Game",
+    "receivingYards100-199Game",
+    "receivingYards200+Game",
+)
+
 
 class ScoringCoverageWarning(UserWarning):
     """A league scores a stat this pipeline cannot model.

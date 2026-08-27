@@ -331,6 +331,91 @@ BetOnline's `anytimeTouchdown` split is the first place to look.
   held-out data. Plan 01's FGY50 floor is named there as the same error class. A
   milestone bonus priced off a season mean would be the third instance.
 
+  **BUILT 2026-08-27.** `Scripts/usage/milestones.py`, and the notes above turned out
+  to be right about the mechanism and wrong about one number.
+
+  `python -m Scripts.usage.milestones --fit --report`. Walk-forward 2019-2025,
+  population totals with no selection:
+
+  | band | realised | predicted | ratio | `f(E[X])` |
+  |---|---|---|---|---|
+  | passingYards300to399Game | 651 | 584.3 | 0.90 | 116 |
+  | passingYards400PlusGame | 75 | 80.7 | 1.08 | 0 |
+  | rushingYards100-199Game | 690 | 657.0 | 0.95 | 117 |
+  | rushingYards200+Game | 18 | 16.9 | 0.94 | 0 |
+  | receivingYards100-199Game | 1,262 | 1,192.4 | 0.94 | 160 |
+  | receivingYards200+Game | 19 | 24.0 | 1.26 | 0 |
+
+  **The number that was wrong.** The note above said the linear reading awards
+  *exactly zero, always*. It recovers **13-18% of the first tier and none of the
+  second**. The original figure came from a binned table read at each bin's lower
+  edge rather than each player's own mean; `report` now computes the column instead
+  of asserting it, and the docstrings that repeated the claim are corrected. The
+  conclusion is unaffected -- 117 against 690 is still most of a scoring rule going
+  unpriced -- but it was an assertion dressed as a measurement.
+
+  **Two things had to be measured out of the way, and a pooled metric hid both.**
+
+  1. **The Gamma tail understates the top tiers by 20-25x** -- 1.0 predicted rushing
+     games over 200 yards against 18 realised. An exponential tail is the wrong shape
+     that far out, and a 20x multiplier is not a calibration. Above the first step the
+     ladder is climbed by a *counted* conditional rate instead:
+     `P(>= 200) = P(>= 100) x P(>= 200 | >= 100)`, the second factor counted off the
+     training weeks (0.0257 for rushing, 0.0175 for receiving, 0.1090 for passing).
+     That took the 200+ tier from a ratio of 0.05 to 0.94.
+  2. **The fitted zero point mass is misspecified, and the population total could not
+     see it.** With `bust` carried through, the totals calibrated at 1.02 and 1.00
+     while the *top of the range* -- the only place bonus points exist -- over-predicted
+     by **1.7x**, because the errors cancel against ten thousand players for whom every
+     method gives zero. Per per-game-mean bin against ten seasons of WR receiving:
+
+     | per-game mean | empirical | with bust | without |
+     |---|---|---|---|
+     | 65-80 | 0.215 | 0.224 | **0.205** |
+     | 80-90 | 0.354 | 0.470 | **0.314** |
+     | 90-100 | 0.412 | 0.700 | **0.384** |
+     | 100-200 | 0.510 | 0.583 | **0.489** |
+
+     With the mass the curve is also **non-monotone** -- a receiver projected for 110
+     yards a game got a *lower* probability than one projected for 90. Shipped, the
+     model tracks the measurement at 0.87-1.07 across the whole range for both stats,
+     and monotonically.
+
+  **That non-monotonicity is a bug in shipped code, not only in this model.** Past
+  `CV^2 = s/(1-s)` the zero-inflated mixture in
+  `Scripts.usage.predictive._reparameterise` has a **negative** conditional variance;
+  it was clipped to epsilon, which collapsed the Gamma to a point mass. So
+  `P(>= 100 | mu = 110)` read 0.820 where the plain Gamma gives 0.522 and ten seasons
+  of football give 0.510. The guard now drops the zero mass where the mixture is
+  infeasible -- the limiting case of the same family, needing no tuning constant.
+  Measured on the shipped 2026 boards, **81 of 3,508 projected yardage cells (2.31%)
+  carry a zero-width interval today**: Puka Nacua's receiving yards go from a p10 and
+  p90 both equal to 1,631 to a 1,128-yard interval around it. This is the residual
+  [plan 28](28-outcome-distributions.md) could not reach when it took the same symptom
+  from 14.0% to 0.5%, because the cause is the mixture's feasibility rather than the
+  basis that plan corrected.
+
+  **How it is wired.** Bands are **derived, not blended** -- `DERIVED_STATS` in
+  `Scripts/scrape_player_stats.py`, excluded by `blended_stats`, computed after
+  reconciliation by `attach_milestone_bands`. A non-linear function of a line has
+  nothing to average, and ESPN's own six columns are identically zero, so blending
+  them would have halved every band. Derived for **every prefix** from that prefix's
+  own yardage rather than for `TRUE_` alone, so `points_delta` against ESPN does not
+  show a fabricated six-to-twenty-point disagreement.
+
+  Effect, replaying blend-and-score over the stored 2026 boards: `john_pc_league`
+  +0.73 points mean and **+17.6 max**, with within-position rank moving for 17% of
+  top-40 players and the largest move 2 places; `john_atl_league` +0.22 mean, +5.9
+  max, 5% moved. The seven leagues that score no milestones are **bit-identical**,
+  max delta 0.0000.
+
+  Residual, stated: a consistent 5-8% under-prediction at the very top, which is the
+  expected sign -- the dispersion is fitted against a player's *realised* per-game
+  mean, so it has never seen the extra spread a projected mean carries. And
+  `passingYards300to399Game` sits at 0.90; the 400+ tier above it is 1.08, so the
+  understatement is in the Gamma's P(>= 300) for quarterbacks rather than in the
+  ladder.
+
   Two halves, and only one of them is modelling. The **actual** columns are also zero for
   all 3,095 player-weeks, and a realised 100-yard game is a fact rather than an
   expectation — so that half probably *is* a naming problem, and it is what a backtest of

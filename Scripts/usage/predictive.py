@@ -209,7 +209,11 @@ def quantile(stat: str, mu, phi: float, k: float, q: float,
         return stats.nbinom.ppf(q, *parameters)
 
     shape, scale = parameters
-    if share > 0.0:
+    # `share` is per-element: `_reparameterise` drops the zero mass only on the rows
+    # where the mixture is infeasible, so one call can carry both cases. The `np.where`
+    # below is already correct for a zero share -- `rescaled` becomes `q` and `q > 0`
+    # selects the plain Gamma -- so the guard only has to ask whether any row needs it.
+    if np.any(share > 0.0):
         # A mixture: mass `share` at zero, a Gamma for the rest, the Gamma scaled so
         # the mixture's mean is still `mu` -- the point estimate is what plan 18
         # measured and must not move when an interval is put around it. Below the
@@ -220,6 +224,67 @@ def quantile(stat: str, mu, phi: float, k: float, q: float,
         return np.where(q > share,
                         stats.gamma.ppf(rescaled, shape, scale=scale), 0.0)
     return stats.gamma.ppf(q, shape, scale=scale)
+
+
+def band_probability(stat: str, mu, phi: float, k: float,
+                     low: float, high: Optional[float] = None,
+                     bust: float = 0.0) -> Optional[np.ndarray]:
+    """``P(low <= Y < high)`` under the fitted family. Closed form, no sampling.
+
+    Here for the same reason :func:`quantile` and :func:`pit` are here: they all go
+    through :func:`_reparameterise`, so a probability this returns and a decile the
+    board prints cannot disagree about the same distribution.
+
+    **What needs it.** A yardage-milestone scoring rule -- "3 points for a 100-199
+    yard rushing game" -- is a step function of a *weekly* quantity, so its expected
+    value is a band probability times the games played, and it cannot be expressed
+    as a rate on a season total. Measured over 2016-2025, evaluating the ladder at
+    the season mean instead of integrating it recovers **13-18% of the first tier
+    and none of the second** -- a mean can award a band in every game or in none,
+    and almost no player's mean sits above an edge. A back averaging 80+ yards a
+    game hits 100 in 41.5% of them. See :mod:`Scripts.usage.milestones`.
+
+    The zero point mass is handled explicitly rather than folded into the Gamma,
+    matching :func:`quantile`: mass ``share`` sits at zero and the Gamma carries the
+    rest, so a band whose lower edge is above zero simply never sees it, and one that
+    includes zero does.
+
+    Args:
+        stat: Stat name without the ``USG_`` prefix.
+        mu: Mean per player, on the same footing the dispersion was fitted at --
+            per *game* for a weekly band, not per season.
+        phi: Poisson-like coefficient.
+        k: Shape coefficient.
+        low: Lower edge, inclusive.
+        high: Upper edge, exclusive. None means unbounded above.
+        bust: Zero point mass, yardage only.
+
+    Returns:
+        np.ndarray | None: Probability per element of ``mu``, or None when the stat
+        is in neither family.
+    """
+    reparameterised = _reparameterise(stat, mu, phi, k, bust)
+    if reparameterised is None:
+        return None
+    family, parameters, share = reparameterised
+
+    if family == "count":
+        # Counts are integers, so the band is inclusive of `low` and exclusive of
+        # `high` on the integer lattice: sf(low - 1) - sf(high - 1).
+        upper = (0.0 if high is None
+                 else stats.nbinom.sf(np.ceil(high) - 1.0, *parameters))
+        return np.clip(stats.nbinom.sf(np.ceil(low) - 1.0, *parameters) - upper,
+                       0.0, 1.0)
+
+    shape, scale = parameters
+    survival = stats.gamma.sf(np.clip(low, _EPS, None), shape, scale=scale)
+    if high is not None and np.isfinite(high):
+        survival = survival - stats.gamma.sf(high, shape, scale=scale)
+    # The point mass is at exactly zero, so it is inside the band only when the band
+    # is. `low <= 0` cannot happen for a milestone but the mixture has to be right
+    # for any caller. `share` is per-element, so this stays an array expression.
+    mass = np.where(low <= 0.0, share, 0.0)
+    return np.clip((1.0 - share) * survival + mass, 0.0, 1.0)
 
 
 def _reparameterise(stat: str, mu, phi: float, k: float,
@@ -255,14 +320,40 @@ def _reparameterise(stat: str, mu, phi: float, k: float,
 
     share = min(max(float(bust), 0.0), MAX_BUST)
     if share > 0.0:
+        # **The mixture is not always feasible, and clipping the impossible case was
+        # producing a point mass rather than a distribution.**
+        #
+        # A share `s` at zero plus a Gamma whose mixture mean is `mu` and mixture
+        # variance is `variance` requires a positive conditional variance, and
+        # rearranging gives the condition exactly:
+        #
+        #     Var(1 - s) > mu^2 * s     i.e.     CV^2 > s / (1 - s)
+        #
+        # `bust` is fitted pooled -- the share of *all* weekly or seasonal rows that
+        # realised zero -- while CV falls as the projection grows. So at a large `mu`
+        # a pooled share of 0.18 against a CV of 0.45 fails it, the conditional
+        # variance comes out **negative**, and clipping it to _EPS collapsed the
+        # Gamma to a spike: P(>= 100 | mu = 110) came out 0.820 where the plain
+        # Gamma gives 0.522 and ten seasons of football give 0.510.
+        #
+        # Where the mixture is infeasible the zero mass is dropped rather than
+        # forced. That is the limiting case of the same family and needs no tuning
+        # constant, and the alternative on offer was a distribution with no width.
+        # The low-`mu` end -- where the zero mass was measured to matter, and where
+        # 10.5% of rows really do realise nothing -- is unaffected, because CV is
+        # large there.
+        feasible = variance * (1.0 - share) > mu ** 2 * share
         conditional_mean = mu / (1.0 - share)
-        conditional_var = np.clip(
+        conditional_var = np.where(
+            feasible,
             (variance + mu ** 2) / (1.0 - share) - conditional_mean ** 2,
-            _EPS, None)
+            variance)
+        conditional_mean = np.where(feasible, conditional_mean, mu)
+        conditional_var = np.clip(conditional_var, _EPS, None)
         return (family,
                 (conditional_mean ** 2 / conditional_var,
                  conditional_var / conditional_mean),
-                share)
+                np.where(feasible, share, 0.0))
     return family, (mu ** 2 / variance, variance / mu), 0.0
 
 
@@ -311,7 +402,7 @@ def pit(stat: str, mu, phi: float, k: float, observed, bust: float = 0.0,
         size, probability = parameters
         upper = stats.nbinom.cdf(x, size, probability)
         lower = stats.nbinom.cdf(x - 1.0, size, probability)
-    elif share > 0.0:
+    elif np.any(share > 0.0):
         shape, scale = parameters
         positive = x > 0.0
         upper = np.where(positive,

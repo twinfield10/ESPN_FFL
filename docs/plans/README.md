@@ -173,12 +173,13 @@ each plan doc carries its own evidence and postscript.
 ### Before week 1
 
 - **[34](34-stat-first-audit.md)'s owed items.** Three, in order of how cheap they are.
-  **The six milestone bonuses need a model, not a column name** — a bonus is a *non-linear*
-  function of the stat line, so it cannot be a column times a constant, and the projection
-  side wants a per-game distribution counted across the threshold. Same object as
-  `Scripts/dst/model.py`'s `PA_TIERS`, and its grain is [19](19-weekly-usage-model.md)'s.
-  **Noted, deliberately not queued.** Until then `john_pc_league`'s points are short by a
-  median 0.48 a row and now say so out loud. **The eight efficiency
+  ~~**The six milestone bonuses need a model, not a column name.**~~ **Built 2026-08-27**
+  — `Scripts/usage/milestones.py`, calibrated 0.90-1.26 on walk-forward population totals
+  and 0.87-1.07 per per-game-mean bin, worth +17.6 points to the top receiver in the one
+  league that scores all six. The Gamma tail understated the top tiers 20-25x and the
+  fitted zero mass over-predicted the top of the range 1.7x while the *population total*
+  read 1.00 — both measured out. Left: the **actuals** column names, which are a live-probe
+  naming problem, and a 5-8% under-prediction at the very top whose sign is expected. **The eight efficiency
   shrinkage constants** are all below their measured credibility floor and refitting them
   moves `USG_` and so `TRUE_`. **The quarterback passing interval** covers 58.9% against a
   nominal 80% and misses asymmetrically — either refit the QB dispersion in

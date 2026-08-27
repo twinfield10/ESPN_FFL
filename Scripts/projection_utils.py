@@ -27,7 +27,12 @@ import pandas as pd
 
 from Scripts.paths import NFL_TACKLES_CSV, resolve, season_dir
 from Scripts.scoring import get_scoring_table
-from Scripts.scrape_player_stats import SLOT_BASE, SLOT_DST, VOLUME_STATS
+from Scripts.scrape_player_stats import (
+    DERIVED_STATS,
+    SLOT_BASE,
+    SLOT_DST,
+    VOLUME_STATS,
+)
 
 
 # These three are read-only lookups -- the scrapers write through season_dir()
@@ -929,6 +934,13 @@ def blended_stats(scoring_cols) -> list:
     ``rushingAttempts`` are scoring rules in some leagues and volume everywhere,
     and blending a stat twice would double its ``TRUE_`` column.
 
+    :data:`DERIVED_STATS` are excluded. A yardage milestone is a non-linear
+    function of a line rather than a projection any source makes, so averaging four
+    sources' readings of it is meaningless -- and ESPN's own columns for the six are
+    identically zero, which would have dragged every blended band to a fraction of
+    itself. They are computed *after* the blend instead, by
+    :func:`Scripts.season_projections.attach_milestone_bands`.
+
     Args:
         scoring_cols: ``colName`` values from the league's scoring table. NaN
             entries -- plan 01's unrecognised rules -- are dropped rather than
@@ -937,9 +949,10 @@ def blended_stats(scoring_cols) -> list:
     Returns:
         list: Stat names, scoring rules first.
     """
+    derived = set(DERIVED_STATS)
     seen, out = set(), []
     for stat in list(scoring_cols) + list(VOLUME_STATS):
-        if not isinstance(stat, str) or stat in seen:
+        if not isinstance(stat, str) or stat in seen or stat in derived:
             continue
         seen.add(stat)
         out.append(stat)
@@ -1282,6 +1295,16 @@ def clean_lineups(df, lg, season=None):
     ## 5) Create Aggregate Columns For Each Projection Type (Manual Weights)
     final = compute_weighted_stats(df=base, stats_list=blend_cols,
                                    weights_dict=WEIGHTS)
+
+    ## 5b) The milestone bands, derived from each source's own line.
+    ##
+    ## A weekly line is already a one-game mean, so the slate is 1.0 and the band
+    ## value *is* the probability of crossing it this week -- which is the quantity a
+    ## start/sit decision wants anyway. Deferred import: the blend layer must not
+    ## drag the usage feature stack into the Sheets renderer's process.
+    from Scripts.season_projections import attach_milestone_bands
+    final = attach_milestone_bands(final, actual_scoring_cols,
+                                   WEEKLY_PREFIXES, slate=1.0)
 
     ## 6) Build Score Column
     ##
