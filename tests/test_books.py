@@ -310,3 +310,68 @@ def test_betonline_answers_and_prices_its_three_markets():
                 .filter(pl.col("n") == 2))
     assert paired["s"].min() == pytest.approx(1.0, abs=1e-9)
     assert paired["s"].max() == pytest.approx(1.0, abs=1e-9)
+
+
+# --- 4Casters, the exchange -----------------------------------------------
+
+from Scripts.books.fourcasters import FourCastersSportsbook
+
+
+def test_an_exchange_is_labelled_as_one():
+    """Plan 36 asked that the caveat live in the schema rather than a comment. An
+    exchange price is a different quantity and a consumer has to be able to tell."""
+    assert FourCastersSportsbook.book_type == schema.EXCHANGE
+    assert PinnacleSportsbook.book_type == schema.BOOK
+
+
+def test_the_best_offer_needs_real_money_behind_it():
+    """An order book always has a "best" price. Without a floor it is whoever left a
+    five-dollar limit order at a silly number, which is not a market view."""
+    best = FourCastersSportsbook._best([
+        {"odds": 500, "sumUntaken": 2.0},      # dust at a silly price
+        {"odds": -110, "sumUntaken": 400.0},
+        {"odds": -105, "sumUntaken": 300.0},
+    ])
+    assert best["odds"] == -105
+
+
+def test_no_offer_with_real_money_means_no_price():
+    assert FourCastersSportsbook._best([{"odds": 500, "sumUntaken": 1.0}]) is None
+    assert FourCastersSportsbook._best([]) is None
+    assert FourCastersSportsbook._best(None) is None
+
+
+def test_missing_credentials_are_a_named_failure_not_a_crash():
+    import os
+    book = FourCastersSportsbook(season=2026)
+    saved = {k: os.environ.pop(k, None)
+             for k in ("CAST4_USER", "CAST4_PASS", "CAST4_AUTH_TOKEN")}
+    try:
+        with pytest.raises(base.BookFetchError, match="CAST4_USER"):
+            book._authenticate()
+    finally:
+        for k, v in saved.items():
+            if v is not None:
+                os.environ[k] = v
+
+
+def test_an_optional_book_does_not_take_the_run_down():
+    """A book needing credentials that may not be configured is optional. A
+    *required* book failing stays fatal -- the whole point is that a missing source
+    must not read as agreement."""
+    from Scripts.books.pull import BOOKS
+    assert BOOKS["FourCasters"].get("optional") is True
+    assert not BOOKS["Pinnacle"].get("optional")
+    assert not BOOKS["BetOnline"].get("optional")
+
+
+@pytest.mark.live
+def test_fourcasters_answers_when_credentials_are_set():
+    """Skipped without credentials rather than failed -- they are not in the repo."""
+    import os
+    if not (os.getenv("CAST4_USER") and os.getenv("CAST4_PASS")):
+        pytest.skip("CAST4_USER/CAST4_PASS not set")
+    df = FourCastersSportsbook(season=2026).get_df_dict()["All_Bets"]
+    assert df.height > 0
+    assert set(df["bookType"].unique()) == {schema.EXCHANGE}
+    assert {"Spread", "Total", "Moneyline"} <= set(df["marketTitle"].unique())

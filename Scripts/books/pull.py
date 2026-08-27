@@ -25,8 +25,10 @@ from typing import Dict, List
 import polars as pl
 
 from Scripts.books.betonline import BetOnlineSportsbook
+from Scripts.books.fourcasters import FourCastersSportsbook
 from Scripts.books.pinnacle import PinnacleSportsbook
 from Scripts.books.schema import MARKET_TITLES, PAIR_KEYS
+from Scripts.books.base import BookFetchError
 from Scripts.books.store import EmptyPullError, line_history, write_snapshot
 from Scripts.nfl_utils import current_season
 
@@ -48,6 +50,14 @@ BOOKS = {
         # here would fail every run on a book that is answering perfectly well.
         # This is why expectations are per book rather than one shared list.
         "expect_markets": {"Spread", "Total", "Moneyline"},
+    },
+    "FourCasters": {
+        "adapter": FourCastersSportsbook,
+        # An exchange, stored with bookType="exchange". No team totals, and its
+        # prices are best-available offers rather than a book's two-sided quote.
+        # Needs CAST4_USER/CAST4_PASS in the environment; see the adapter.
+        "expect_markets": {"Spread", "Total", "Moneyline"},
+        "optional": True,
     },
 }
 
@@ -116,7 +126,17 @@ def pull(season: int = None, write: bool = True,
     for name in wanted:
         spec = BOOKS[name]
         adapter = spec["adapter"](season=season)
-        views = adapter.get_df_dict()
+        try:
+            views = adapter.get_df_dict()
+        except BookFetchError as exc:
+            # An optional book is one this repo can run without -- today that means
+            # one needing credentials that may not be configured. A *required* book
+            # failing is still fatal, because the whole point is that a missing
+            # source must not read as agreement.
+            if spec.get("optional") and not books:
+                print(f"  {name}: skipped -- {exc}")
+                continue
+            raise
         df = views["All_Bets"]
 
         if df.is_empty():
