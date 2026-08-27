@@ -1469,7 +1469,28 @@ OUTCOME_EVIDENCE = {
     "no_dispersion": "no fitted dispersion",
     "unpriced": "no blended projection",
     "simulated": "simulated",
+    # The points interval inherits a marginal this repo has withdrawn from
+    # publication on its own. `predictive.UNCALIBRATED` holds `QB|passingYards` at
+    # 58.9% coverage against a nominal 80%, with the skew inverted rather than the
+    # width wrong -- and passing yards are most of a quarterback's points, so the
+    # copula in `Scripts.outcomes.distribution` cannot simply drop it without
+    # leaving quarterbacks with no interval at all.
+    #
+    # Flagged rather than withdrawn, and the asymmetry is the useful part: the miss
+    # is 24.5% below p10 against 16.6% above p90, so a quarterback's floor is the
+    # half not to trust. Fixing it needs a left-skewed family or the room-level
+    # draw, not a wider Gamma. See docs/plans/34-stat-first-audit.md F5.
+    "uncalibrated_marginal": "simulated; QB floor not calibrated",
 }
+
+#: Positions whose points interval carries an uncalibrated marginal.
+#:
+#: Derived from :data:`Scripts.usage.predictive.UNCALIBRATED` rather than restated,
+#: so withdrawing another pair flags the right position without a second edit.
+def _uncalibrated_positions() -> Tuple[str, ...]:
+    """Positions with at least one withdrawn stat interval."""
+    from Scripts.usage import predictive as pv
+    return tuple(sorted({position for position, _ in pv.UNCALIBRATED}))
 
 #: Scored rules the season-points simulation does **not** price, by league.
 #:
@@ -1692,10 +1713,14 @@ def attach_outcome_distribution(base: pd.DataFrame, season: int, league,
         summary[column] = summary[column] * scale
 
     note = _unpriced_note(stats)
+    flagged = np.isin(np.asarray(spec.positions, dtype=object),
+                      np.asarray(_uncalibrated_positions(), dtype=object))
     evidence = np.where(
         ~spec.has_projection, OUTCOME_EVIDENCE["no_model"],
         np.where(~np.isfinite(scale), OUTCOME_EVIDENCE["unpriced"],
-                 OUTCOME_EVIDENCE["simulated"] + note))
+                 np.where(flagged,
+                          OUTCOME_EVIDENCE["uncalibrated_marginal"] + note,
+                          OUTCOME_EVIDENCE["simulated"] + note)))
 
     out = base.copy()
     for column in ("pts_p10", "pts_p50", "pts_p90", "pts_mean", "pts_sd",

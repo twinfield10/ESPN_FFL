@@ -244,3 +244,47 @@ def test_a_stat_with_no_family_has_no_transform():
     """Same contract as ``quantile``: None rather than an invented number."""
     assert pv.pit("passingCompletions", np.array([10.0]), 1.0, 1.0,
                   np.array([9.0])) is None
+
+
+# --- the withdrawn interval, plan 34 F5 ----------------------------------
+
+def test_the_quarterback_passing_interval_is_withdrawn_not_widened():
+    """It covers 58.9% against a nominal 80%, and no dispersion fixes that.
+
+    Realised QB season passing yards are **left**-skewed as a ratio of a 3,000+
+    prior season -- p10 0.43, p50 0.90, p90 1.17, so
+    ``(p90-p50)/(p50-p10) = 0.57`` -- while a Gamma at the matching shape gives
+    1.57. Matched to the empirical p10 its p90 lands 44% too high; matched to the
+    p90 its p10 lands at 0.84 against 0.43. The family has the skew inverted, so
+    the interval is withdrawn on the principle ``stat_intervals`` already applies
+    to a stat with no fitted dispersion.
+    """
+    assert not pv.is_calibrated("QB", "passingYards")
+    assert pv.is_calibrated("QB", "passingTouchdowns")
+    assert pv.is_calibrated("WR", "receivingYards")
+
+
+def test_only_the_measured_pair_is_withdrawn():
+    """A blanket withdrawal would take seven calibrated intervals with it."""
+    assert pv.UNCALIBRATED == (("QB", "passingYards"),)
+
+
+def test_a_gamma_cannot_hold_the_quarterback_shape():
+    """The claim the withdrawal rests on, checked rather than asserted."""
+    from scipy import optimize, stats
+
+    empirical = {10: 0.43, 50: 0.90, 90: 1.17}
+    shape = optimize.brentq(
+        lambda s: stats.gamma.ppf(0.10, s, scale=1.0 / s) - empirical[10],
+        0.5, 200.0)
+    gamma_p90 = stats.gamma.ppf(0.90, shape, scale=1.0 / shape)
+    assert gamma_p90 > empirical[90] * 1.30, "matched at p10, p90 must overshoot badly"
+
+    def skew(p10, p50, p90):
+        return (p90 - p50) / (p50 - p10)
+
+    assert skew(**{"p10": empirical[10], "p50": empirical[50],
+                   "p90": empirical[90]}) < 1.0, "the outcome is left-skewed"
+    assert skew(p10=stats.gamma.ppf(0.10, shape, scale=1.0 / shape),
+                p50=stats.gamma.ppf(0.50, shape, scale=1.0 / shape),
+                p90=gamma_p90) > 1.0, "a Gamma is right-skewed"

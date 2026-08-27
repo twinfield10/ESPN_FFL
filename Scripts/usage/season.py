@@ -750,6 +750,9 @@ class SeasonUsageModel:
 
         A stat with no fitted dispersion for its position gets no interval rather
         than a pooled one. Partial coverage is visible; an invented number is not.
+        The same rule now withdraws a pair whose interval is *measured* not to cover
+        -- :data:`Scripts.usage.predictive.UNCALIBRATED`, which holds
+        ``QB|passingYards`` at 58.9% against a nominal 80%.
 
         Args:
             frame: Output of :meth:`predict`.
@@ -776,7 +779,14 @@ class SeasonUsageModel:
             low = np.full(mu.shape, np.nan)
             high = np.full(mu.shape, np.nan)
 
-            usable = np.isfinite(mu) & has_fit & (mu > 0)
+            # A pair whose interval is measured not to cover is withdrawn here, the
+            # same way a pair with no fitted dispersion is: see
+            # `predictive.UNCALIBRATED`. QB passing yards covers 58.9% against a
+            # nominal 80% and the Gamma has the skew inverted, so there is no
+            # dispersion that fixes it -- publishing a narrower or wider one would
+            # still be publishing a false claim.
+            calibrated = np.array([pv.is_calibrated(p, stat) for p in positions])
+            usable = np.isfinite(mu) & has_fit & calibrated & (mu > 0)
             # One call per position rather than per player, since the coefficients
             # vary only by position.
             for position in {p for p, keep in zip(positions, usable) if keep}:

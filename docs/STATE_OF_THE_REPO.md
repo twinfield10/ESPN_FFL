@@ -431,6 +431,15 @@ Fixed this cycle:
   narrow *and* biased high at quarterback. The excuse had outlived itself inside
   `Scripts/usage/backtest.py` too, which printed it beneath the table; that function now
   checks `ABSTAIN_POSITIONS` and says so instead.
+  **Resolved 2026-08-27: withdrawn rather than refitted.** The miss is the *skew*, not the
+  width -- realised QB season passing yards run p10 0.43 / p50 0.90 / p90 1.17 as a ratio
+  of a 3,000+ prior season, so `(p90-p50)/(p50-p10)` is 0.57 while a Gamma at the matching
+  shape gives 1.57. Matched to that p10 the Gamma's p90 is 44% too high; matched to the p90
+  its p10 is 0.84 against 0.43. No dispersion fits a left-skewed outcome with a
+  right-skewed family. `predictive.UNCALIBRATED` withdraws the published interval; the
+  points interval cannot be dropped (passing yards are most of a QB's points) and is
+  flagged `"simulated; QB floor not calibrated"` instead. A left-skewed family or the
+  room-level draw would fix it.
   -> [plan 34](plans/34-stat-first-audit.md) F5
 
   One finding worth carrying: conditional on the opportunity count the bounded rates

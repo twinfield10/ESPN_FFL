@@ -1,8 +1,15 @@
 # 34 — Stat-first, audited: where points leaked back into a stat-line pipeline
 
-**Status:** IN PROGRESS
+**Status:** COMPLETE
 
-**Priority:** High · **Effort:** M · **Where it stands:** **Phases 1–3 built 2026-08-26.**
+**Priority:** High · **Effort:** M · **Where it stands:** **Phases 1–6 done; the three
+owed items closed 2026-08-27, and two of them closed by rejecting what the audit
+proposed.** The milestone model shipped and calibrates 0.90–1.26. The shrinkage
+argument was **wrong in its direction** — `implied_k` is a ceiling, not a floor — and
+three walk-forward experiments rejected the change. The QB interval was **withdrawn
+rather than refitted**, because the Gamma has the skew inverted and no dispersion fixes
+that. Building the milestone model also found a bug in shipped code: 81 of 3,508 board
+interval cells ship p10 == p90. Previous status: **Phases 1–3 built 2026-08-26.**
 The per-stat scoreboard and the persistence study exist and both found something; volume
 is in the blend at max |Δ| **0.0** on every `<prefix>_Points` column across all nine 2026
 boards; the weekly points patch is gone and the two defects it was hiding are named. Source
@@ -200,6 +207,41 @@ abstains on, so it never reaches a board."*
 seventy lines further down. Verified on `Data/Store/2026/winfield_football/board.parquet`:
 Josh Allen, Jayden Daniels, Drake Maye and every other top quarterback carry `pts_p10`,
 `pts_p50` and `pts_p90` today.
+
+**Resolved 2026-08-27: withdrawn, not widened, because the family has the skew
+inverted.** Re-measured on a fresh walk-forward it is **58.9%** against a nominal 80%,
+missing asymmetrically -- 24.5% below p10 against 16.6% above p90.
+
+The question the note left open was refit or withdraw. Measured, refitting cannot work.
+Realised quarterback season passing yards, as a ratio of a 3,000+ prior season over 183
+pairs:
+
+| p5 | p10 | p25 | p50 | p75 | p90 | p95 |
+|---|---|---|---|---|---|---|
+| 0.23 | 0.43 | 0.70 | 0.90 | 1.03 | 1.17 | 1.23 |
+
+A long left tail -- 13.1% below half, 6.6% below a quarter, which is losing the job or
+getting hurt -- against a compressed upper end. `(p90-p50)/(p50-p10)` is **0.57**, i.e.
+left-skewed. A Gamma matched to that p10 gives **1.57**, right-skewed: its p90 comes out
+1.68 against 1.17 (**44% too high**), and matched to the p90 instead its p10 comes out
+0.84 against 0.43. **There is no dispersion that makes a right-skewed family fit a
+left-skewed outcome**, so widening it would buy coverage by making the ceiling absurd.
+
+So `predictive.UNCALIBRATED` withdraws the published `USG_passingYards_low`/`_high` at
+quarterback, on the principle `stat_intervals` already applies to a stat with no fitted
+dispersion: partial coverage is visible, an invented number is not.
+
+**The points interval cannot be withdrawn the same way and is flagged instead.**
+`pts_p10`/`pts_p90` come from a copula over all eight stats, and passing yards are most
+of a quarterback's points -- dropping the marginal would leave quarterbacks with no
+interval at all. `outcome_evidence` now reads *"simulated; QB floor not calibrated"* for
+them, and the board's column help says to read `p10` at quarterback as indicative. The
+asymmetry is the useful part: the miss is on the **floor**, not the ceiling.
+
+**What would fix it** is a family that can hold a compressed upper tail and a long lower
+one, or the room-level draw in `Scripts/outcomes/simulate.py` -- since the left tail *is*
+the quarterback losing the job, which is a thing that machinery already models and
+[plan 28](28-outcome-distributions.md) has off by default. Not a wider Gamma.
 
 ### F6 · The weekly grain has no model, and carried a null column shaped like one
 

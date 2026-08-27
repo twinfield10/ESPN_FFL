@@ -608,9 +608,14 @@ COLUMNS: List[Column] = [
            how="Whether the range was simulated, and which of that league's scored "
                "rules the simulation cannot price.",
            caveat="The simulation covers the eight stats the usage model projects. "
-                  "Two-point conversions are in no source at all, GOP scores rushing "
-                  "attempts and completions, and two leagues price per-game yardage "
-                  "bonuses that a season-total simulation structurally cannot express."),
+                  "Two-point conversions are in no source at all, and GOP scores "
+                  "rushing attempts and completions. The two leagues that price "
+                  "per-game yardage bonuses now have them in the **projection** — "
+                  "`Scripts/usage/milestones.py` integrates a weekly distribution "
+                  "over the ladder — but not yet in this **range**, which is drawn "
+                  "over season totals. And a quarterback's floor carries a marginal "
+                  "measured at 58.9% coverage against a nominal 80%: read `p10` at "
+                  "quarterback as indicative, not as a tenth."),
     Column("usg_expected_games", "Notes", "Exp G", "number", fmt="%.1f",
            source_of="Usage model",
            how="Games out of 17 the model expects him to play — its own estimate, "

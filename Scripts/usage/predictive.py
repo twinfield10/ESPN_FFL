@@ -64,6 +64,51 @@ YARDAGE_STATS: Tuple[str, ...] = (
     "receivingYards", "rushingYards", "passingYards",
 )
 
+#: (position, stat) pairs whose fitted interval is **not** calibrated and is
+#: therefore not published.
+#:
+#: One entry, and it is measured rather than suspected. ``QB|passingYards`` covers
+#: **58.9% against a nominal 80%** on the walk-forward, and it misses
+#: asymmetrically -- 24.5% below p10 against 16.6% above p90.
+#:
+#: **The family has the skew inverted, so refitting the dispersion cannot fix it.**
+#: Realised quarterback season passing yards, as a ratio of a 3,000+ prior season
+#: over 183 pairs, run p10 = 0.43, p50 = 0.90, p90 = 1.17: a long left tail (13.1%
+#: below half, 6.6% below a quarter -- lost the job, or got hurt) against a
+#: compressed upper end. ``(p90 - p50) / (p50 - p10)`` is **0.57**, which is
+#: left-skewed; a Gamma matched to that p10 gives **1.57**, right-skewed. Matched to
+#: the empirical p10 its p90 comes out 1.68 against 1.17 (**44% too high**); matched
+#: to the empirical p90 its p10 comes out 0.84 against 0.43. There is no dispersion
+#: that makes a right-skewed family fit a left-skewed outcome.
+#:
+#: So the interval is withdrawn rather than widened, on the principle
+#: :meth:`Scripts.usage.season.SeasonUsageModel.stat_intervals` already states for a
+#: stat with no fitted dispersion: partial coverage is visible, an invented number is
+#: not.
+#:
+#: **Fixing it needs a different family, not a different constant** -- something that
+#: can hold a compressed upper tail and a long lower one, or the room-level draw in
+#: :mod:`Scripts.outcomes.simulate`, since the left tail *is* the quarterback losing
+#: the job. Recorded in ``docs/plans/34-stat-first-audit.md`` F5.
+#:
+#: The excuse this replaces said the model abstains at quarterback. It stopped
+#: abstaining on 2026-08-07 and the note outlived the fact by three weeks.
+UNCALIBRATED: Tuple[Tuple[str, str], ...] = (("QB", "passingYards"),)
+
+
+def is_calibrated(position: str, stat: str) -> bool:
+    """Whether ``(position, stat)``'s interval may be published.
+
+    Args:
+        position: ``primaryPosition``.
+        stat: Stat name without the ``USG_`` prefix.
+
+    Returns:
+        bool: False for a pair in :data:`UNCALIBRATED`.
+    """
+    return (str(position), str(stat)) not in set(UNCALIBRATED)
+
+
 #: Rows a (position, stat) pair needs before its dispersion is fitted.
 MIN_FIT_ROWS: int = 30
 
