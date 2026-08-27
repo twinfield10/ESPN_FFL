@@ -145,6 +145,7 @@ week-1 problem. → [plan 02](plans/02-betonline-access.md).
 | **Weekly views** ([08](plans/08-frontend-weekly-views.md)) | None | After week 1 |
 | **Weekly usage head** ([19](plans/19-weekly-usage-model.md)) | None — comes online ~week 3 | After the draft |
 | ~~**Blend weight re-tune**~~ ([03](plans/03-projection-source-coverage.md)) | **Measured 2026-08-27 and rejected — so it moves `TRUE_Points` by exactly nothing.** The fitted alternative fails all four clauses of its own pre-registered rule in all six population × split cells | **Nothing to freeze.** No longer a draft item |
+| **Both book sources are 13 days stale** ([36](plans/36-sportsbook-scrapes.md) step 1) | Found 2026-08-27. Pinnacle and BetOnline 2026 props were both last written **2026-08-14**, while ESPN, FantasyPros and TOMCAT refresh at 06:00 daily. Neither scraper has a `__main__` guard, so neither can be invoked as a module and neither is in `run_daily_refresh.sh`. The blend gives each book an **equal vote** on rows it covers, so this is a stale *opinion* carrying a quarter of the projection for those players — not a missing column, which is why nothing flagged it | **Worth fixing before the draft.** Guarding the two scrapers is a small, contained change; the rest of 36 waits |
 
 ### Plan 28's columns, and what they are not
 
