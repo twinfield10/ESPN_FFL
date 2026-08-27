@@ -39,6 +39,7 @@ See ``docs/plans/29-kicker-model.md`` and ``docs/plans/30-dst-model.md``.
 
 from __future__ import annotations
 
+import warnings
 from typing import Dict, Optional, Sequence, Tuple
 
 import polars as pl
@@ -116,19 +117,27 @@ def assert_sign_convention(schedules: Optional[pl.DataFrame] = None) -> float:
 
 
 def team_games(seasons: Optional[Sequence[int]] = None,
-               verify: bool = True) -> pl.DataFrame:
+               verify: bool = True,
+               use_book_quotes: bool = True) -> pl.DataFrame:
     """One row per team per game, with that team's own line and implied totals.
 
     Args:
         seasons: Season years to keep. All seasons when None.
         verify: Run :func:`assert_sign_convention` first. Only turn this off in a test
             that is deliberately feeding a synthetic frame.
+        use_book_quotes: Prefer a quoted team total over the halved-total derivation
+            where a book has posted one. False forces the derivation everywhere, which
+            is what a historical fit wants -- no book quotes exist for a season that
+            has already been played, and mixing the two within one fit would make the
+            estimate depend on when the store happened to start.
 
     Returns:
         pl.DataFrame: ``season``, ``week``, ``team``, ``opponent``, ``is_home``,
         ``total_line``, ``margin`` (this team's spread, positive = favoured),
         ``implied_own``, ``implied_allowed``, ``points_scored``, ``points_allowed``,
-        ``actual_margin``, and ``priced`` (whether a line exists at all).
+        ``actual_margin``, ``priced`` (whether a line exists at all), and
+        ``implied_source`` (``quoted`` where a book posted a team total, ``derived``
+        where the halved-total identity was used).
 
     Raises:
         ValueError: From :func:`assert_sign_convention`.
@@ -152,15 +161,157 @@ def team_games(seasons: Optional[Sequence[int]] = None,
         pl.col("away_score").alias("points_scored"),
         pl.col("home_score").alias("points_allowed"),
         (-pl.col("result")).alias("actual_margin"))
-    return (pl.concat([home, away])
-            .with_columns(
-                # The identity: a team's implied points is half the total plus half its
-                # own margin, and its implied points allowed is half the total minus it.
-                (pl.col("total_line") / 2 + pl.col("margin") / 2).alias("implied_own"),
-                (pl.col("total_line") / 2 - pl.col("margin") / 2).alias("implied_allowed"),
-                (pl.col("total_line").is_not_null()
-                 & pl.col("margin").is_not_null()).alias("priced"))
-            .sort(["season", "week", "team"]))
+    both = pl.concat([home, away]).with_columns(
+        # The identity: a team's implied points is half the total plus half its
+        # own margin, and its implied points allowed is half the total minus it.
+        (pl.col("total_line") / 2 + pl.col("margin") / 2).alias("implied_own"),
+        (pl.col("total_line") / 2 - pl.col("margin") / 2).alias("implied_allowed"),
+        (pl.col("total_line").is_not_null()
+         & pl.col("margin").is_not_null()).alias("priced"))
+
+    if use_book_quotes:
+        both = _prefer_quoted_totals(both)
+    else:
+        both = both.with_columns(pl.lit("derived").alias("implied_source"))
+
+    return both.sort(["season", "week", "team"])
+
+
+def _prefer_quoted_totals(df: pl.DataFrame) -> pl.DataFrame:
+    """Replace the halved-total derivation with a book's quote where one exists.
+
+    nflverse stays the base frame and is not going anywhere: it is the only source for
+    completed seasons, and pre-season it is currently the *broader* one -- 52 priced
+    games for 2026 against a book's 16, because a book prices about the upcoming week.
+    So this is depth on the games that are quoted, not a replacement.
+
+    ``implied_source`` records which happened per row. A silent swap would be worse
+    than no swap: the two numbers differ by well under a point, so nothing downstream
+    would look wrong if the join were subtly broken.
+
+    Args:
+        df: Team-game rows carrying the derived ``implied_own``/``implied_allowed``.
+
+    Returns:
+        pl.DataFrame: The same rows plus ``implied_source``, with quoted values
+        substituted where a book has posted them.
+    """
+    seasons = df["season"].unique().to_list()
+    quotes = [book_team_totals(int(s)) for s in seasons]
+    quotes = [q for q in quotes if not q.is_empty()]
+    if not quotes:
+        return df.with_columns(pl.lit("derived").alias("implied_source"))
+
+    joined = df.join(pl.concat(quotes), on=["season", "week", "team"], how="left")
+    return joined.with_columns([
+        pl.coalesce("quoted_own", "implied_own").alias("implied_own"),
+        pl.coalesce("quoted_allowed", "implied_allowed").alias("implied_allowed"),
+        pl.when(pl.col("quoted_own").is_not_null())
+          .then(pl.lit("quoted")).otherwise(pl.lit("derived")).alias("implied_source"),
+    ]).drop("quoted_own", "quoted_allowed")
+
+
+def book_team_totals(season: int, book: Optional[str] = None) -> pl.DataFrame:
+    """Quoted team totals from the odds store, keyed the way the schedule is.
+
+    The market this function exists for. ``team_games`` derives a team's implied points
+    as ``total_line/2 + margin/2``, an identity that is exact only if the book's two
+    team totals are symmetric about the game total. Measured against Pinnacle's own
+    quotes on 2026-08-27 they are not: the quoted number differs from the derived one
+    by a mean 0.734 points and a maximum of 1.75, and the two sides sum to 0.25 points
+    *under* the game total. A team-total market replaces the assumption with a price.
+
+    Joined on ``(season, gameday, team)`` rather than on a week the book supplies,
+    because books do not carry a week -- and the date is the only key the two sources
+    already agree on.
+
+    Args:
+        season: Season year.
+        book: One book, or None to take whatever is stored. With several books this
+            averages their quotes, which is the same equal-vote treatment the
+            projection blend gives each source.
+
+    Returns:
+        pl.DataFrame: ``season``, ``week``, ``team``, ``quoted_own``,
+        ``quoted_allowed``. Empty when nothing is stored, which is the normal state
+        for a completed season and for any week no book has posted yet.
+    """
+    from Scripts.books.store import read_current
+
+    quotes = read_current(season, book)
+    if quotes.is_empty():
+        return pl.DataFrame(schema={"season": pl.Int32, "week": pl.Int32,
+                                    "team": pl.Utf8, "quoted_own": pl.Float64,
+                                    "quoted_allowed": pl.Float64})
+
+    # The main team-total line only. An alternate is a different question -- "how
+    # likely is 27.5" rather than "what is the number" -- and averaging a ladder in
+    # would drag the estimate toward wherever the book chose to stop posting.
+    quotes = quotes.filter(
+        (pl.col("marketTitle") == "TeamTotal")
+        & (~pl.col("isAlt"))
+        & (pl.col("betSide") == "over")
+        & pl.col("sideOf").is_not_null())
+    if quotes.is_empty():
+        return pl.DataFrame(schema={"season": pl.Int32, "week": pl.Int32,
+                                    "team": pl.Utf8, "quoted_own": pl.Float64,
+                                    "quoted_allowed": pl.Float64})
+
+    sched = (load_schedules([season])
+             .select("season", "week", "gameday", "home_team", "away_team"))
+    long_sched = pl.concat([
+        sched.select("season", "week", "gameday", pl.col("home_team").alias("team")),
+        sched.select("season", "week", "gameday", pl.col("away_team").alias("team")),
+    ])
+    in_use = set(long_sched["team"].unique().to_list())
+
+    # Restricted to the abbreviations this season actually uses, which is not a
+    # tidiness measure. ``team_names.parquet`` carries every historical abbreviation,
+    # so two rows map to "Los Angeles Rams" -- ``LA`` and ``LAR`` -- and a plain
+    # ``dict(zip(...))`` keeps whichever comes last. It kept ``LAR``; the schedule
+    # says ``LA``; the Rams silently vanished from a 32-team join that returned 31.
+    # The same trap is waiting on OAK/LV, SD/LAC and STL/LA.
+    names = pl.read_parquet(paths.DATA_DIR / "NFL" / "team_names.parquet")
+    to_abbr = {row["team_name"]: row["team_abbr"]
+               for row in names.iter_rows(named=True)
+               if row["team_abbr"] in in_use}
+
+    quotes = quotes.with_columns([
+        pl.when(pl.col("sideOf") == "home").then(pl.col("Home"))
+          .otherwise(pl.col("Away"))
+          .replace_strict(to_abbr, default=None).alias("team"),
+        pl.when(pl.col("sideOf") == "home").then(pl.col("Away"))
+          .otherwise(pl.col("Home"))
+          .replace_strict(to_abbr, default=None).alias("opponent"),
+    ])
+
+    unmapped = sorted(quotes.filter(pl.col("team").is_null())
+                            .select(pl.when(pl.col("sideOf") == "home")
+                                      .then(pl.col("Home")).otherwise(pl.col("Away")))
+                            .to_series().unique().to_list())
+    if unmapped:
+        # Loud, because a team quietly missing from a team-total join is exactly the
+        # shape of failure that made this plan necessary in the first place.
+        warnings.warn(
+            f"{len(unmapped)} book team name(s) map to no {season} abbreviation and "
+            f"are dropped: {unmapped}. Add them to team_names.parquet.",
+            RuntimeWarning, stacklevel=2)
+    quotes = quotes.drop_nulls("team")
+
+    own = (quotes.select(pl.col("officialDate").alias("gameday"), "team", "opponent",
+                         pl.col("marketLine").alias("quoted"))
+                 .group_by(["gameday", "team", "opponent"])
+                 .agg(pl.col("quoted").mean())
+                 .join(long_sched, on=["gameday", "team"], how="inner"))
+
+    allowed = own.select("season", "week",
+                         pl.col("opponent").alias("team"),
+                         pl.col("quoted").alias("quoted_allowed"))
+    return (own.select("season", "week", "team",
+                       pl.col("quoted").alias("quoted_own"))
+               .join(allowed, on=["season", "week", "team"], how="left")
+               .with_columns(pl.col("season").cast(pl.Int32),
+                             pl.col("week").cast(pl.Int32)))
 
 
 #: Quantities :func:`team_strength` averages and shrinks.
@@ -192,7 +343,12 @@ def fit_shrinkage(seasons: Optional[Sequence[int]] = None,
     Returns:
         dict: ``{column: {"mean", "slope", "r", "sd_early", "sd_full", "n"}}``.
     """
-    tg = team_games(seasons).filter(pl.col("priced"))
+    # Derivation only, never a book quote. The fit's ground truth is a *full* season
+    # average, which only a completed season has -- and no book quote exists for one,
+    # because the store starts when it starts. Mixing the two would make the fitted
+    # slope depend on which weeks happened to be scraped, so the early and full
+    # estimates are held to the same definition.
+    tg = team_games(seasons, use_book_quotes=False).filter(pl.col("priced"))
     early = (tg.filter(pl.col("week") <= max_week)
              .group_by(["season", "team"])
              .agg(*[pl.col(c).mean().alias(f"{c}_early") for c in STRENGTH_COLUMNS],

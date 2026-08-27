@@ -173,6 +173,67 @@ python populateGoogleSheet.py          # render the store to Sheets
 Run from the repo root. Scrapers use `-m` because modules import as
 `Scripts.<name>`.
 
+**The two season-long book feeds are nightly and are not in that list.**
+`python -m Scripts.scrape_pinnacle_season` and `Rscript R/GetSeasonProps.R` run as part
+of `run_daily_refresh.sh`, so there is nothing recurring to remember here. They were
+added 2026-08-27, and the reason is worth keeping: both had only ever been run by hand,
+so on the day it was found each was **thirteen days stale** against a 09-07 draft while
+every other source refreshed at 06:00. The blend gives each book an equal vote on the
+rows it prices, so that was a stale *opinion* carrying a fifth of those players'
+projections rather than a missing column -- which is why nothing flagged it.
+
+The blend now says so itself: a source file older than 48 hours raises a
+`StaleProjectionSourceWarning` naming the command that refreshes it. If you see one,
+the nightly has not been firing -- check `python -m Scripts.refresh_status`.
+
+Both stages are fatal **only before the season opens**. Once games are played, books
+retire their season-long markets outright, so an empty pull becomes expected and the
+nightly logs a `NOTE:` and carries on rather than stopping the boards rebuilding.
+
+The *weekly* Pinnacle and BetOnline scrapers above are deliberately still manual. Both
+are broken -- see the warning below -- and a `|| fail` on either would take the nightly
+down every night.
+
+### Sportsbook game lines
+
+`run_odds_refresh_nfl.sh` pulls Pinnacle, BetOnline and 4Casters once a day and stores
+what moved, so there is nothing recurring to remember here either. Install it the same
+way as the nightly:
+
+```bash
+crontab -e
+# NFL sportsbook game lines, daily at 07:00 (after the 06:00 nightly)
+0 7 * * * ODDS_ENV_FILE=/Users/tommywinfield/GitRepos/Rebirtha/.env /Users/tommywinfield/GitRepos/ESPN_FFL/run_odds_refresh_nfl.sh
+```
+
+07:00 keeps it clear of the nightly, which starts at 06:00 and takes a few minutes.
+The two are independent -- this one rebuilds no boards and pushes nothing -- so the
+ordering is tidiness rather than a dependency.
+
+Plan 36 proposed six-hourly, and for *line movement* that is the better cadence: four
+snapshots a day resolve an intraday move that one cannot. Daily is a deliberate trade
+-- a quarter of the traffic against someone else's book, for a consumer that reads
+where the market is rather than how it got there. `0 */6 * * *` if that changes, and
+lower `ODDS_MAX_AGE_HOURS` in `Scripts/refresh_status.py` with it, or a six-hourly job
+that stopped firing would read healthy for a day.
+
+It writes `Data/Odds/<season>/<book>/<gamedate>.parquet`, appending only rows whose
+number or price has moved, so line history accumulates without a second mechanism. It
+does **not** rebuild boards or push to S3 -- game lines reach the board through
+`Scripts/vegas.py` and the special-teams heads, which the nightly already re-runs.
+
+`python -m Scripts.books.pull --history "Buffalo" --market Total` prints a line's
+stored history. `--dry-run` pulls and checks without writing.
+
+**4Casters needs credentials** and cron does not read your shell profile. Point
+`ODDS_ENV_FILE` at a file holding `CAST4_USER` and `CAST4_PASS` -- the crontab line
+above uses `Rebirtha/.env` -- and the script reads those lines out of it. Parsed
+rather than sourced, so pointing at a larger `.env` does not import everything in it,
+and nothing is copied into this repo. Without them that one book is skipped with a
+reason and the run still succeeds -- it is an exchange
+rather than a book, kept at arm's length for that reason. Pinnacle and BetOnline are
+required, and a required book returning nothing fails the run.
+
 **FantasyPros needs a logged-in session or it returns a tenth of the data.** Anonymously
 it serves ten rows per position behind a registration fence -- 60 players, which is what
 every board built before 2026-08-24 was blended on. A *free* account lifts it to 592 and
@@ -205,10 +266,15 @@ The sidebar shows the build time and turns red past an hour. A league that fails
 to refresh keeps its previous store, so check the badge rather than assuming the
 run succeeded — `refresh` also exits non-zero and names the failures.
 
-> **BetOnline is currently broken.** `scrape_BOL.py` fails with
-> `BetOnlineAccessError` — their API now requires a signed security header.
-> Skip it; the pipeline still runs on ESPN + FantasyPros + Pinnacle. See
-> `docs/STATE_OF_THE_REPO.md`.
+> **BetOnline's weekly props are permanently unavailable, and that is now settled.**
+> `scrape_BOL.py` fails with `BetOnlineAccessError`: the markets API answers 403
+> `invalid_security_headers` and wants a *signed* request header. Retested 2026-08-27
+> with full browser-shaped headers, which do not clear it, so this is not a
+> User-Agent problem. [Plan 02](plans/02-betonline-access.md) is closed season-only.
+>
+> Nothing else BetOnline is broken. Its **season** props run nightly, and its **game
+> lines** are on a different host entirely and are pulled daily by
+> `run_odds_refresh_nfl.sh`.
 
 `populateGoogleSheet.py` **reads the store**, so `Scripts.refresh` must have run
 first. A league with no store is skipped with the command that would build it,

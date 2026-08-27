@@ -2,6 +2,7 @@
 
 import ast
 import json
+import warnings
 
 import pandas as pd
 import pytest
@@ -468,3 +469,78 @@ def test_reallocate_book_touchdowns_runs_inside_the_weekly_blend():
     called = body.index("reallocate_book_touchdowns(base)")
     blended = body.index("compute_weighted_stats(df=base")
     assert called < blended
+
+
+# --- source freshness -----------------------------------------------------
+#
+# Both books sat thirteen days stale on the 2026 draft board while every other
+# source refreshed nightly, and nothing anywhere said so: the loaders only ever
+# asked whether a file *existed*. Under an equal-vote blend that is a stale
+# opinion carrying a fifth of the projection, not a missing column, so it is
+# invisible by construction. See docs/plans/36-sportsbook-scrapes.md.
+
+
+def _aged_file(tmp_path, hours):
+    """A file whose mtime is *hours* in the past."""
+    import os
+    import time
+    p = tmp_path / "source.parquet"
+    p.write_text("x")
+    past = time.time() - hours * 3600
+    os.utime(p, (past, past))
+    return p
+
+
+def test_a_fresh_source_does_not_warn(tmp_path):
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        pu.check_source_freshness("Book", _aged_file(tmp_path, 3), "run the thing")
+    assert not [w for w in caught
+                if issubclass(w.category, pu.StaleProjectionSourceWarning)]
+
+
+def test_a_stale_source_warns_and_names_the_fix(tmp_path):
+    """The warning has to carry the command, or it is a nag rather than a fix."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        pu.check_source_freshness("Pinnacle season props",
+                                  _aged_file(tmp_path, 13 * 24),
+                                  "python -m Scripts.scrape_pinnacle_season")
+    stale = [w for w in caught
+             if issubclass(w.category, pu.StaleProjectionSourceWarning)]
+    assert len(stale) == 1
+    msg = str(stale[0].message)
+    assert "Pinnacle season props" in msg
+    assert "13.0 days" in msg
+    assert "python -m Scripts.scrape_pinnacle_season" in msg
+
+
+def test_one_missed_nightly_is_not_stale(tmp_path):
+    """The threshold is two days, not one. A single skipped run is not an
+    emergency, and a warning that fires every time it rains gets filtered out."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        pu.check_source_freshness("Book", _aged_file(tmp_path, 26), "run it")
+    assert not caught
+    assert pu.STALE_AFTER_HOURS == 48.0
+
+
+def test_a_missing_file_is_missing_rather_than_stale(tmp_path):
+    """Absent and stale are different findings with different fixes, and the
+    loaders report absence themselves before ever asking about age."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        age = pu.check_source_freshness("Book", tmp_path / "nope.parquet", "run it")
+    assert age is None
+    assert not caught
+
+
+def test_the_stale_warning_survives_the_global_filter(tmp_path):
+    """Scripts/fetch_utils.py calls warnings.filterwarnings("ignore") at module
+    scope, which would swallow a plain warnings.warn -- the exact failure mode
+    this warning exists to prevent. Mirrors the missing-source guard above."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.filterwarnings("ignore")
+        pu.check_source_freshness("Book", _aged_file(tmp_path, 200), "run it")
+    assert len(caught) == 1
+    assert issubclass(caught[0].category, pu.StaleProjectionSourceWarning)

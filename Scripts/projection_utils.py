@@ -20,7 +20,9 @@ where ``TRUE_*`` is the weighted blend and ``*_Points`` applies the league's own
 ESPN scoring settings via :func:`proj_to_score`.
 """
 
+import time
 import warnings
+from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 import numpy as np
@@ -84,6 +86,67 @@ def _warn_missing(msg: str) -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("always", MissingProjectionSourceWarning)
         warnings.warn(msg, MissingProjectionSourceWarning, stacklevel=3)
+
+
+#: How old a projection source's file may be before the blend says so. The nightly
+#: writes daily, so one missed run is not an emergency and two is. Deliberately not
+#: an error: a stale source is still a real line, and dropping it would renormalise
+#: the remaining books upward, which is worse than using yesterday's number.
+STALE_AFTER_HOURS = 48.0
+
+
+class StaleProjectionSourceWarning(UserWarning):
+    """A projection source's file is older than :data:`STALE_AFTER_HOURS`."""
+
+
+def _warn_stale(msg: str) -> None:
+    """Warn about a stale source, past the global filter. See :func:`_warn_missing`."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("always", StaleProjectionSourceWarning)
+        warnings.warn(msg, StaleProjectionSourceWarning, stacklevel=3)
+
+
+def source_age_hours(path) -> Optional[float]:
+    """How long ago a source file was written.
+
+    Args:
+        path: Path to the source file.
+
+    Returns:
+        float | None: Age in hours, or None when the file does not exist.
+    """
+    path = Path(path)
+    if not path.is_file():
+        return None
+    return (time.time() - path.stat().st_mtime) / 3600.0
+
+
+def check_source_freshness(label: str, path, fix_hint: str,
+                           max_age_hours: float = STALE_AFTER_HOURS) -> Optional[float]:
+    """Warn if a source's file is stale, and say how to refresh it.
+
+    The loaders only ever checked whether a file *existed*, so a thirteen-day-old
+    book read exactly like one written this morning -- which is how both books sat
+    stale on the 2026 draft board while every other source refreshed nightly. An
+    equal-vote blend makes that a stale opinion rather than a missing column, and a
+    stale opinion is invisible by construction. See ``docs/plans/36-sportsbook-scrapes.md``.
+
+    Args:
+        label: Human-readable source name, used in the warning.
+        path: Path to the source file.
+        fix_hint: The command that refreshes it.
+        max_age_hours: Age past which to warn.
+
+    Returns:
+        float | None: The file's age in hours, or None when it does not exist.
+    """
+    age = source_age_hours(path)
+    if age is not None and age > max_age_hours:
+        _warn_stale(
+            f"{label} is {age / 24:.1f} days old ({Path(path).name}); "
+            f"the nightly refresh writes daily. Run `{fix_hint}`."
+        )
+    return age
 
 
 def absent_weekly_source(label: str, path) -> pd.DataFrame:

@@ -100,3 +100,93 @@ def test_a_recent_success_is_not_stale_on_its_own(status, capsys):
     status.write_text('{"result": "ok", "at": "%s", "stage": "complete"}' % now)
     rs.main([])
     assert "refresh    ok" in capsys.readouterr().out
+
+
+def _iso_hours_ago(hours):
+    """An ISO timestamp that many hours in the past."""
+    return (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+
+
+# --- per-source freshness and the odds pull -------------------------------
+#
+# This module knew whether the *job* ran and what the boards were built from, and
+# nothing about the individual sources underneath. So when both books sat thirteen
+# days stale on the 2026 draft board it reported everything healthy -- correctly, in
+# its own terms: the nightly it was watching was healthy, it simply never ran them.
+# A source is only as visible as something that names it.
+
+
+def test_every_blended_source_is_named_in_the_manifest():
+    """The manifest is the whole point. A source absent from it is a source this
+    report cannot see, which is exactly how the books went missing."""
+    named = {name for name, _, _ in rs.PROJECTION_SOURCES}
+    assert {"FantasyPros", "Pinnacle", "BetOnline", "Usage"} <= named
+
+
+def test_each_source_carries_a_runnable_fix():
+    """A report that says something is stale without saying how to fix it makes the
+    reader go and find out, which is how a warning becomes background noise."""
+    for name, filename, fix in rs.PROJECTION_SOURCES:
+        assert fix.startswith(("python -m", "Rscript")), name
+        assert filename.endswith((".parquet", ".csv")), name
+
+
+def test_a_missing_source_is_reported_and_makes_the_run_stale(tmp_path, monkeypatch,
+                                                              capsys):
+    monkeypatch.setattr(rs, "PROJECTION_SOURCES",
+                        (("Nobody", "nothing.parquet", "python -m Scripts.nothing"),))
+    assert rs._report_sources(2026, 25.0) is True
+    out = capsys.readouterr().out
+    assert "MISSING" in out and "Scripts.nothing" in out
+
+
+def test_the_season_is_substituted_into_the_fix(tmp_path, monkeypatch, capsys):
+    """`Rscript R/GetSeasonProps.R <season>` is not a command anyone can run."""
+    monkeypatch.setattr(rs, "PROJECTION_SOURCES",
+                        (("Nobody", "nothing.parquet", "Rscript R/Thing.R <season>"),))
+    rs._report_sources(2026, 25.0)
+    out = capsys.readouterr().out
+    assert "Rscript R/Thing.R 2026" in out
+    assert "<season>" not in out
+
+
+def test_the_odds_pull_has_its_own_status_file():
+    """One file for both jobs would let whichever ran last overwrite the other's
+    verdict, and they have different fixes."""
+    assert rs.ODDS_STATUS_PATH != rs.STATUS_PATH
+
+
+def test_the_odds_threshold_matches_its_cadence():
+    """Both jobs run daily, so both allow a day plus an hour of slack. If the odds
+    pull ever goes six-hourly this has to come down with it, or a job that stopped
+    firing would read healthy for a day."""
+    assert rs.ODDS_MAX_AGE_HOURS == rs.DEFAULT_MAX_AGE_HOURS == 25.0
+
+
+def test_an_odds_pull_that_never_ran_is_not_a_failure(tmp_path, monkeypatch, capsys):
+    """Nothing on the draft board depends on it yet, so its absence is worth saying
+    and not worth failing over."""
+    monkeypatch.setattr(rs, "ODDS_STATUS_PATH", tmp_path / "absent.json")
+    assert rs._report_odds(2026) is False
+    assert "never run" in capsys.readouterr().out
+
+
+def test_a_failed_odds_pull_is_stale(tmp_path, monkeypatch, capsys):
+    import json
+    path = tmp_path / "odds_status.json"
+    path.write_text(json.dumps({"result": "failed", "at": _iso_hours_ago(1),
+                                "stage": "Scripts.books.pull", "season": "2026"}))
+    monkeypatch.setattr(rs, "ODDS_STATUS_PATH", path)
+    assert rs._report_odds(2026) is True
+    assert "FAILED" in capsys.readouterr().out
+
+
+def test_an_overdue_odds_pull_is_stale(tmp_path, monkeypatch, capsys):
+    """It runs daily, so a day and a half of silence is a missed run."""
+    import json
+    path = tmp_path / "odds_status.json"
+    path.write_text(json.dumps({"result": "ok", "at": _iso_hours_ago(36),
+                                "stage": "complete", "season": "2026"}))
+    monkeypatch.setattr(rs, "ODDS_STATUS_PATH", path)
+    assert rs._report_odds(2026) is True
+    assert "DID NOT RUN" in capsys.readouterr().out

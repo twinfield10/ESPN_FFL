@@ -14,16 +14,18 @@ from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 from Scripts import market as mk
-from Scripts.nfl_utils import DATE_WEEK, current_season
+from Scripts.nfl_utils import current_season, date_week
 from Scripts.paths import landing_dir, season_dir
 
-# Season being scraped, derived from the schedule file. All outputs are scoped
-# to it so a new season cannot merge into the previous one's files.
-SEASON = current_season()
-
-chrome_options  = webdriver.ChromeOptions()
-chrome_options .add_argument('--ignore-certificate-errors')
-chrome_options .add_argument('--ignore-ssl-errors')
+def chrome_options():
+    """Options for the scrape's browser. A function, not a module constant: building
+    it at import is harmless in itself, but it sat directly above the block that
+    launched a browser and scraped, and the whole point is that this module now does
+    nothing until asked."""
+    opts = webdriver.ChromeOptions()
+    opts.add_argument('--ignore-certificate-errors')
+    opts.add_argument('--ignore-ssl-errors')
+    return opts
 
 # Constants
 prop_to_stat={
@@ -39,23 +41,8 @@ prop_to_stat={
     "Interceptions": "passingInterceptions"
 }
 
-name_changes={
-        # Pinny -> ESPN #
-        "Tre Harris": "Tre' Harris",
-        "Marvin Mims": "Marvin Mims Jr.",
-        "Travis Etienne": "Travis Etienne Jr.",
-        "Aaron Jones": "Aaron Jones Sr.",
-        "Kyle Pitts": "Kyle Pitts Sr.",
-        "Calvin Austin": "Calvin Austin III",
-        "Ollie Gordon":"Ollie Gordon II",
-        "Marvin Harrison": "Marvin Harrison Jr.",
-        "Kyle Pitts": "Kyle Pitts Sr.",
-        "Marvin Mims": "Marvin Mims Jr.",
-        "Travis Etienne": "Travis Etienne Jr.",
-        "Aaron Jones": "Aaron Jones Sr."
-    }
 
-def get_links_soup():
+def get_links_soup(driver, start_time):
     # Get the page's HTML and parse it with Beautiful Soup
     page_source = driver.page_source
     soup = BeautifulSoup(page_source, 'html.parser')
@@ -80,100 +67,10 @@ def get_links_soup():
     print("")
     return links_list
 
-def get_links():
-    # Loop
-    links_list = []
-    matchups = driver.find_elements(By.CSS_SELECTOR, 'a:has(div[class*="matchupMetadata"])')
-    for e in matchups:
-        link = e.get_attribute('href')
-        if link is not None and "games" not in link:
-            for f in e.find_elements(By.CSS_SELECTOR, 'div[class*="matchupDate"] span'):
-                live_text = f.text if f.text else None
-                if live_text != 'Live Now':
-                    links_list.append(link)
-    return links_list
 
-def get_raw_pinny(links_list):
-    type_list = ["#all"]
-    df_list = []
 
-    for i in type_list:
-        all_links = [link + i for link in links_list]
-        for url in all_links:
-
-            try:
-                # Load URL
-                driver.get(url)
-                print(url)
-
-                # Get Game Date
-                try:
-                    full_date = WebDriverWait(driver, 10).until(
-                        EC.presence_of_element_located((By.CSS_SELECTOR, 'div[class*="startTime"] span'))
-                    ).text
-                    date = datetime.strptime(full_date, "%A, %B %d, %Y at %H:%M").strftime("%Y-%m-%d")
-                except TimeoutException:
-                    print(f"Failed to retrieve date for {url}")
-                    continue
-
-                # Show All Bets
-                try:
-                    show_all_button = WebDriverWait(driver, 10).until(
-                        EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[class*="showAllButton"]'))
-                    )
-                    if show_all_button.text == "Show All":
-                        show_all_button.click()
-                        time.sleep(1)
-                except TimeoutException:
-                    print(f"Show All button not found for {url}")
-
-                # Expand More Markets
-                for btns in driver.find_elements(By.CSS_SELECTOR, 'button[class*="toggleMarkets"]'):
-                    if btns.text == 'See more':
-                        btns.click()
-                        time.sleep(1)
-
-                # Market Elements
-                market_elements_list = driver.find_elements(By.CSS_SELECTOR, 'div[class*="primary"]')
-                for melem in market_elements_list:
-                    # Get Bet Title
-                    bet_titles = [m.text for m in melem.find_elements(By.CSS_SELECTOR, 'span[class*="titleText"]') if m.text]
-                    # Get Bet Labels (teams, over/under, etc.)
-                    lab_list = [lab.text for lab in melem.find_elements(By.CSS_SELECTOR, 'span[class*="label"]') if lab.text]
-                    # Get Bet Prices (as Decimal Format)
-                    price_list = [price.text for price in melem.find_elements(By.CSS_SELECTOR, 'span[class*="price"]') if price.text]
-                    if bet_titles and lab_list and price_list:
-
-                        # Create Data Frame    
-                        bet_data = {'title': [bet_titles[0]] * len(price_list),
-                                    'label': lab_list,
-                                    'Price': price_list}
-
-                        bet_df = pl.DataFrame(bet_data).with_columns(
-                            pl.lit(date).alias('officialDate'),
-                            pl.lit(url).alias('url'),
-                            pl.lit(datetime.now().strftime('%Y-%m-%d %H:%M:%S')).alias('BetTimeStamp'),
-                        )
-
-                        # Append to Large List
-                        df_list.append(bet_df)
-
-            except Exception as e:
-                print(f"An error occurred with {url}: {e}")
-
-    # Quit Driver
-    driver.quit()
-
-    # Create DataFrame
-    df = pl.concat(df_list)
-    df = df.join(DATE_WEEK, left_on='officialDate', right_on='gameday', how = 'left')
-    df = df.with_columns(pl.col("title").str.replace("Josh Allen \\(BUF\\)", "Josh Allen").alias("title"))
-
-    df.write_csv(landing_dir("Pinnacle", SEASON, "Raw_Pinnacle.csv"))
-
-    return df
-
-def get_raw_pinny_soup(links_list):
+def get_raw_pinny_soup(driver, links_list, season=None):
+    season = current_season() if season is None else season
     type_list = ["#all"]
     df_list = []
 
@@ -250,15 +147,14 @@ def get_raw_pinny_soup(links_list):
                 print(f"An error occurred with {url}: {e}")
 
     # Quit Driver
-    driver.quit()
 
     # Small Clean and Join To NFL Schedule
     df = pl.concat(df_list)
-    df = df.join(DATE_WEEK, left_on='gameday', right_on='gameday', how='left').drop('gameday')
+    df = df.join(date_week(), left_on='gameday', right_on='gameday', how='left').drop('gameday')
     df = df.with_columns(pl.col("title").str.replace("Josh Allen \\(BUF\\)", "Josh Allen").alias("title"))
 
-    df.write_csv(landing_dir("Pinnacle", SEASON, "Raw_Pinnacle_New.csv"))
-    archive_raw(df, SEASON)
+    df.write_csv(landing_dir("Pinnacle", season, "Raw_Pinnacle_New.csv"))
+    archive_raw(df, season)
 
     return df
 
@@ -318,7 +214,8 @@ def clean_raw_pinny(df):
     print(final_df.filter(pl.col('title').str.contains_any(['Touchdowns', 'Anytime', 'Interceptions', 'Reception', 'Yards', 'Receptions', 'Kicking', 'Completion', 'Attempts', 'Passes'])).head())
     return final_df
 
-def clean_props(df):
+def clean_props(df, season=None):
+    season = current_season() if season is None else season
     ## Build + Save Prop DF
     prop_df = df.filter(pl.col('title').str.contains_any(['Touchdowns', 'Anytime', 'Interceptions', 'Reception', 'Yards', 'Receptions', 'Kicking', 'Completion', 'Attempts', 'Passes']))
     print(prop_df)
@@ -493,9 +390,9 @@ def clean_props(df):
     
     clean = clean.rename(rename_mapping)
     
-    prop_path = landing_dir("Pinnacle", SEASON, "Pinnacle_Props_Week_New.csv")
+    prop_path = landing_dir("Pinnacle", season, "Pinnacle_Props_Week_New.csv")
     clean.write_csv(prop_path)
-    clean.write_parquet(landing_dir("Pinnacle", SEASON, "Pinnacle_Props_Week_New.parquet"))
+    clean.write_parquet(landing_dir("Pinnacle", season, "Pinnacle_Props_Week_New.parquet"))
     print(clean.head())
     
     return clean
@@ -510,7 +407,7 @@ def reconcile_props(prop_df: pl.DataFrame, season: int = None):
     Returns:
         None. Writes the combined file plus one parquet per week.
     """
-    season = SEASON if season is None else season
+    season = current_season() if season is None else season
 
     # Load Previous
     all_path = season_dir("Pinnacle", season, "Pinnacle_Props_Week_All.parquet")
@@ -587,7 +484,8 @@ def reconcile_props(prop_df: pl.DataFrame, season: int = None):
         week_df.write_parquet(week_path)
         print(f"WEEK {w} Pinnacle Player Prop File Contains {week_df.height} Rows ({n_games} Games)")
 
-def clean_base(df):
+def clean_base(df, season=None):
+    season = current_season() if season is None else season
     # Build
     clean_df = df.filter(pl.col('Period') != 'PlayerProp')\
                        .with_columns(pl.when(~pl.col('title').str.contains(' –')).then(pl.col('title'))
@@ -633,34 +531,86 @@ def clean_base(df):
                         .select('officialDate', 'week', 'Home', 'Away', 'Period', 'BetType', 'BetSide', 'BetValue', 'Price', 'IsPrimary', 'BetImpProb', 'BetTimeStamp')
 
     print(clean_df.head())
-    clean_path = landing_dir("Pinnacle", SEASON, "Pinnacle_Base_New.csv")
+    clean_path = landing_dir("Pinnacle", season, "Pinnacle_Base_New.csv")
     clean_df.write_csv(clean_path)
 
     return clean_df
 
-# Driver
-start_time = time.time()
-driver = webdriver.Chrome(options=chrome_options)
+MATCHUPS_URL = 'https://www.pinnacle.com/en/football/nfl/matchups/#period:0'
 
-driver.get('https://www.pinnacle.com/en/football/nfl/matchups/#period:0')
-WebDriverWait(driver, 5).until(EC.visibility_of_element_located((By.CSS_SELECTOR, 'div[class*="matchupMetadata"]')))
-print("Link Element Located")
 
-# Execute
-links = get_links_soup()
-raw_pinny = get_raw_pinny_soup(links_list=links)
+def scrape_weekly_props(season: int = None, write: bool = True) -> pl.DataFrame:
+    """Drive Pinnacle's matchups page and reconcile this week's player props.
 
-base_clean = clean_raw_pinny(df = raw_pinny)
-props_df = clean_props(df = base_clean)
-base_df = clean_base(df = base_clean)
+    All of this used to run at module scope, so importing this module launched Chrome
+    and scraped -- which is why ``tests/test_market.py`` had to read this file as text
+    to reach ``prop_to_stat``. See ``docs/plans/36-sportsbook-scrapes.md``.
 
-reconcile_props(prop_df = props_df)
+    The driver's lifetime is a ``try/finally`` here rather than a ``driver.quit()``
+    buried inside the parsing helper. A failure between launching the browser and
+    reaching that line used to leave a Chrome process alive.
 
-end_time = time.time()
-elap_time = round((end_time - start_time)/60, 2)
+    Args:
+        season: Season to scrape. None derives it from the schedule file.
+        write: Unused today -- every helper below writes as it goes. Present so the
+            signature matches the other scrapers, and so the flag exists once the
+            guest-API path replaces the Selenium one.
 
-print(f"{base_clean.height} Rows in Base Bets Table")
-print(f"{props_df.height} Rows in Player Props Table")
+    Returns:
+        pl.DataFrame: The cleaned player props, empty if the page yielded no games.
+    """
+    season = current_season() if season is None else season
+    start_time = time.time()
 
-print(f"Scraper Elapsed Time: {elap_time} Minutes")
-print(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    driver = webdriver.Chrome(options=chrome_options())
+    try:
+        driver.get(MATCHUPS_URL)
+        WebDriverWait(driver, 5).until(
+            EC.visibility_of_element_located(
+                (By.CSS_SELECTOR, 'div[class*="matchupMetadata"]')))
+        print("Link Element Located")
+
+        links = get_links_soup(driver, start_time)
+        raw_pinny = get_raw_pinny_soup(driver, links_list=links, season=season)
+    finally:
+        driver.quit()
+
+    base_clean = clean_raw_pinny(df=raw_pinny)
+    props_df = clean_props(df=base_clean, season=season)
+    clean_base(df=base_clean, season=season)
+
+    reconcile_props(prop_df=props_df, season=season)
+
+    elap_time = round((time.time() - start_time) / 60, 2)
+    print(f"{base_clean.height} Rows in Base Bets Table")
+    print(f"{props_df.height} Rows in Player Props Table")
+    print(f"Scraper Elapsed Time: {elap_time} Minutes")
+    print(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    return props_df
+
+
+def main(argv=None) -> int:
+    """Command-line entry point.
+
+    Usage::
+
+        python -m Scripts.scrape_pinnacle
+        python -m Scripts.scrape_pinnacle --season 2026
+    """
+    import argparse
+
+    p = argparse.ArgumentParser(
+        prog="python -m Scripts.scrape_pinnacle",
+        description="Scrape Pinnacle weekly NFL player props.",
+    )
+    p.add_argument("--season", type=int, help="defaults to the schedule's season")
+    p.add_argument("--dry-run", action="store_true", help="do not write files")
+    args = p.parse_args(argv)
+
+    df = scrape_weekly_props(season=args.season, write=not args.dry_run)
+    # An empty scrape is a failure, matching scrape_pinnacle_season.
+    return 0 if not df.is_empty() else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -138,6 +138,61 @@ print(load_config()['season'])
 " 2>/dev/null)" || fail "could not read season from config.yaml"
 log "season ${SEASON}"
 
+# Has a regular-season game actually been played? It decides whether an empty book
+# scrape is an emergency or a Tuesday.
+#
+# Pre-season, the two season-long props feeds below *are* the book half of the draft
+# board, and a silent zero there is the whole failure this script exists to catch.
+# Once the season is under way, books retire their season-long markets -- Pinnacle
+# pulls "Season Long Player Props" outright -- so the identical empty result becomes
+# expected, and failing the run on it would take the boards down every night for the
+# rest of the year. Same evidence, opposite meaning, so the stages ask this first.
+SEASON_STARTED="$("${PYTHON}" -c "
+from Scripts.nfl_utils import load_schedule
+import polars as pl
+sched = load_schedule()
+played = sched.filter(pl.col('away_score').cast(pl.Utf8, strict=False) != 'NA')
+print(1 if played.height else 0)
+" 2>/dev/null)" || SEASON_STARTED=0
+log "season started: ${SEASON_STARTED}"
+
+# Run a book's season-props pull, fatal only while it is still the draft input.
+#
+# Deliberately *not* the bare `|| fail` every other stage gets. A book that has moved
+# on from season-long markets is not a broken pipeline, and the note keeps the
+# distinction in the log rather than in someone's memory.
+book_stage() {
+  local label="$1"
+  shift
+  if "$@" >>"${LOG}" 2>&1; then
+    return 0
+  fi
+  if [ "${SEASON_STARTED}" = "1" ]; then
+    log "NOTE: ${label} returned nothing, and the season is under way -- books retire \
+season-long markets once games are played. Carrying on; the weekly props path is what \
+feeds the board from here."
+    return 0
+  fi
+  fail "${label}"
+}
+
+# Fail if a season-props file came back at a fraction of its size, the same way the
+# FantasyPros stage below fails on the registration teaser. Advisory once the season
+# has started, for the reason above.
+book_rows_guard() {
+  local label="$1" rows="$2" floor="$3" fixhint="$4"
+  log "${label} rows: ${rows}"
+  if [ "${rows}" -ge "${floor}" ]; then
+    return 0
+  fi
+  if [ "${SEASON_STARTED}" = "1" ]; then
+    log "NOTE: ${label} returned ${rows} rows against a floor of ${floor}. Expected \
+in-season as the book winds the market down."
+    return 0
+  fi
+  fail "${label} returned ${rows} rows against a floor of ${floor}. ${fixhint}"
+}
+
 # The depth-chart snapshot as it stands now, to compare against afterwards. Read
 # before the pull so a pull that quietly returns yesterday's file is visible.
 depth_snapshot() {
@@ -216,6 +271,56 @@ if [ "${FP_ROWS}" -le 60 ]; then
   fail "FantasyPros returned ${FP_ROWS} rows -- the registration fence is back, which \
 means the session cookie in config.yaml has expired. Log in again and replace it."
 fi
+
+# --- 2c. Pinnacle season-long player props ------------------------------
+# Added 2026-08-27. Both books that vote on the draft board were last written
+# 2026-08-14 -- thirteen days stale against a 09-07 draft, while everything else in
+# this script refreshed at 06:00. The blend gives each source an equal vote on every
+# row it has a real line for, so a stale book is not a stale column, it is a stale
+# *opinion* carrying a fifth of the projection for those players. Nothing flagged it
+# because a stale file and a fresh one are the same file.
+#
+# Plan 36 diagnosed this as the missing `__main__` guard in `Scripts/scrape_pinnacle.py`
+# and `Scripts/scrape_BOL.py`. That is a real defect and it is fixed elsewhere in this
+# branch, but it is not this one: those two write *weekly* props. The board's season
+# numbers come from the two pulls below, and both were already runnable. Nobody had
+# added them here, which is the entire cause.
+#
+# The weekly pair are deliberately still absent. Both are broken -- Pinnacle's Selenium
+# path times out, BetOnline's weekly API answers 403 -- and a `|| fail` on either would
+# stop the boards rebuilding every night. They go in when they answer.
+log "pulling Pinnacle season-long player props"
+book_stage "Scripts.scrape_pinnacle_season" "${PYTHON}" -m Scripts.scrape_pinnacle_season
+
+PINNY_ROWS="$("${PYTHON}" -c "
+import polars as pl
+from Scripts.paths import season_dir
+p = season_dir('Pinnacle', ${SEASON}, 'Pinnacle_SeasonProps.parquet', create=False)
+print(pl.read_parquet(p).height if p.is_file() else 0)
+" 2>/dev/null)" || PINNY_ROWS=0
+# 76 props over 76 players measured 2026-08-27. The floor catches a collapse, not the
+# ordinary trimming a book does to its board week to week.
+book_rows_guard "Pinnacle season props" "${PINNY_ROWS}" 40 \
+  "Check the guest API is still answering: python -m Scripts.scrape_pinnacle_season --dry-run"
+
+# --- 2d. BetOnline season-long player props -----------------------------
+# The other half of the same gap, and still the R path -- `Scripts/season_projections.py`
+# names this exact command when the file is missing, so the two agree.
+#
+# This is the *season* endpoint, which answers. BetOnline's weekly props API is the one
+# returning 403 `invalid_security_headers`; see plan 02.
+log "pulling BetOnline season-long player props"
+book_stage "R/GetSeasonProps.R" "${RSCRIPT}" R/GetSeasonProps.R "${SEASON}"
+
+BOL_ROWS="$("${PYTHON}" -c "
+import polars as pl
+from Scripts.paths import season_dir
+p = season_dir('BetOnline', ${SEASON}, 'BetOnline_SeasonProps_All.csv', create=False)
+print(pl.read_csv(p).height if p.is_file() else 0)
+" 2>/dev/null)" || BOL_ROWS=0
+# 546 rows measured 2026-08-27, across 32 teams.
+book_rows_guard "BetOnline season props" "${BOL_ROWS}" 200 \
+  "Check the futures endpoint still answers: Rscript R/GetSeasonProps.R ${SEASON}"
 
 # --- 3. Re-project the usage head ---------------------------------------
 # Reads the fresh depth chart and roster. Refits only if the stored model is stale;

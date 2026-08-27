@@ -1,6 +1,6 @@
 # 02 — BetOnline weekly props are blocked
 
-**Status:** IN PROGRESS
+**Status:** COMPLETE
 
 **Priority:** High · **Effort:** Medium · **Where it stands:** Resolved (2026-08-03)
 
@@ -8,6 +8,17 @@
 > from two HTTP clients. The season-long endpoint works and carries the IDP props,
 > so it is now the pre-season/draft source: 546 props over 273 players and 32
 > teams, 123 of them defensive. See [Resolution](#resolution).
+
+> **This plan's one remaining question is a candidate to fold into
+> [36](36-sportsbook-scrapes.md).** What is still open here is whether the weekly
+> `403 invalid_security_headers` is worth another attempt — which is a
+> book-scraping question, and 36 now owns book scraping. Scoping 36 also found
+> something this plan should have caught: **`scrape_BOL.py` has no `__main__`
+> guard**, so importing it performs a live scrape *and overwrites* the archived
+> parquet and CSV, and it is consequently absent from the nightly — leaving
+> BetOnline's 2026 season props **13 days stale** on the draft board. Either fold
+> this plan's open question into 36 when 36 is picked up, or close it explicitly as
+> "season-only, permanently". It is a scope call, deliberately not made here.
 
 ## Problem
 

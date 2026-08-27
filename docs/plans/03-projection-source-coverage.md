@@ -1,9 +1,10 @@
 # 03 — Blend weights assume coverage the sources don't have
 
-**Status:** IN PROGRESS
+**Status:** COMPLETE
 
-**Priority:** High · **Effort:** Medium · **Where it stands:** Steps 1, 2, 4 done ·
-**step 3 measured 2026-08-27 and the answer is no** · step 5 open
+**Priority:** High · **Effort:** Medium · **Where it stands:** Steps 1, 2, 4 built ·
+**step 3 measured 2026-08-27 and the answer is no** · step 5 moved to
+[36](36-sportsbook-scrapes.md), where it turned out to be two scrapers rather than one
 
 > **The problem was bigger than this plan estimated.** Measured provenance shows
 > FantasyPros was only **25% real** even in 2025, Pinnacle **8%**, BetOnline
@@ -95,22 +96,26 @@ this *after* the BetOnline decision in plan 02, since the source set may change.
 players. Extend it to print per-source coverage as a percentage, so a source
 quietly degrading is visible rather than absorbed by imputation.
 
-**5. Fix `scrape_pinnacle.py`'s import-time scrape.** Found 2026-08-03 while
-verifying the season rollover. Lines 538-559 are module-level statements —
-`driver.get()`, `WebDriverWait(...).until()`, `reconcile_props()` — with no
-`if __name__ == "__main__":` guard. So merely *importing* the module launches
-Chrome and scrapes Pinnacle, which means no tool or test can touch it without
-triggering a live scrape, and a scrape failure surfaces as an `ImportError`.
+**5. ~~Fix `scrape_pinnacle.py`'s import-time scrape.~~ Moved to
+[36](36-sportsbook-scrapes.md) on 2026-08-27.** Found 2026-08-03 while verifying the
+season rollover: the module's tail is bare top-level statements — `driver.get()`,
+`WebDriverWait(...).until()`, `reconcile_props()` — with no `if __name__ ==
+"__main__":` guard, so merely *importing* it launches Chrome and scrapes Pinnacle.
 
-It currently times out on `div[class*="matchupMetadata"]`, so Pinnacle is
-effectively a second dead source alongside BetOnline (plan 02) and needs the same
-kind of decision. Wrap the driver work in a `main()` behind a `__main__` guard
-before diagnosing whether the selector or the pre-season page is the cause —
-otherwise the two failure modes are indistinguishable.
+It moved because it is not a coverage problem and it is not one file. Scoping it
+found that **`scrape_BOL.py` has the same defect with a worse blast radius** — its
+import-time statements *write* the archived parquet and CSV — and that the
+consequence is shared: neither book is in the nightly, so both were **thirteen days
+stale** on a board eleven days from a draft. That is a plan about how this repo talks
+to sportsbooks, which is what 36 is. The odds work the owner actually wants next —
+game lines, totals, team totals, 4Casters, Pinnacle over its API instead of
+Selenium — lives there too.
 
-Note `SEASON = current_season()` at line 18 is also import-time, so it is bound
-before any caller can override it. Correct now that the schedule file says 2026,
-but it makes the module unusable for backfilling another season.
+Two details this plan had slightly wrong, corrected in 36: the lines are 645–666
+rather than 538–559 (the file moved under the citation), and the guard is missing from
+two scrapers rather than one. Also still true and recorded there: `SEASON =
+current_season()` is bound at import, before any caller can override it, which makes
+the module unusable for backfilling another season.
 
 ## Measured coverage (2026-08-03)
 
@@ -177,10 +182,12 @@ deferred twice — once for the plan 02 source-mix decision, once for plan 34's
 condition that the stat lines be right first. Both conditions were met, so it was
 built. Full account below.
 
-**Step 5 (Pinnacle's import-time scrape) is still open.** `scrape_pinnacle.py`
-lines 538-559 remain module-level. `Scripts/scrape_pinnacle_season.py` is the
-pattern to follow: everything behind `main()`, guarded by `__main__`, with a test
-asserting no bare module-level calls.
+**Step 5 (the import-time scrape) is not open here any more — it is
+[36](36-sportsbook-scrapes.md) step 1.** `scrape_pinnacle_season.py` is still the
+pattern to follow (everything behind `main()`, guarded by `__main__`, with a test
+asserting no bare module-level calls), and 36 generalises that test across every
+`Scripts/scrape_*.py` rather than fixing the two known offenders — which is what
+scoping it found: `scrape_BOL.py` is the second one, and it writes files on import.
 
 ## Step 3: the weight re-tune, measured (2026-08-27)
 
