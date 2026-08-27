@@ -371,3 +371,100 @@ def test_weekly_sources_present_reports_each_file():
     assert present == {"fantasypros": False, "pinnacle": False, "betonline": False}
     assert set(pu.weekly_sources_present(2025)) == {
         "fantasypros", "pinnacle", "betonline"}
+
+
+# --- the touchdown allocation --------------------------------------------
+#
+# A sportsbook prices *any* scrimmage touchdown and this pipeline carries a rushing
+# column and a receiving one, so something has to allocate it. BetOnline sent 100%
+# to rushing for every back -- 988 of 995 RB player-weeks carried
+# `BOL_receivingTouchdowns == 0` -- and Pinnacle split by yardage share, which needs
+# both yardage columns and so gave a pure receiver nothing at all. Split by the
+# ESPN/FantasyPros consensus, the blend's RB calibration moves from 0.597 to 0.897
+# on receiving and 1.099 to 1.022 on rushing. See docs/plans/34-stat-first-audit.md
+# F2 and `Scripts.market.allocate_touchdowns`.
+
+def _td_frame():
+    """Three players: a back the books mis-split, a passer, and a bench receiver
+    the consensus has no opinion on."""
+    return pd.DataFrame({
+        "player_name": ["back", "passer", "bench"],
+        "ESPN_rushingTouchdowns": [0.40, 0.15, 0.0],
+        "ESPN_receivingTouchdowns": [0.10, 0.00, 0.0],
+        "FP_rushingTouchdowns": [0.40, 0.15, 0.0],
+        "FP_receivingTouchdowns": [0.10, 0.00, 0.0],
+        # BetOnline's crude split: everything on rushing.
+        "BOL_rushingTouchdowns": [0.60, 0.20, 0.30],
+        "BOL_receivingTouchdowns": [0.00, 0.00, 0.00],
+    })
+
+
+def test_reallocate_book_touchdowns_uses_the_consensus_ratio():
+    out = pu.reallocate_book_touchdowns(_td_frame())
+    back = out.iloc[0]
+    assert back["BOL_rushingTouchdowns"] == pytest.approx(0.48)   # 0.60 * 0.8
+    assert back["BOL_receivingTouchdowns"] == pytest.approx(0.12)
+
+
+def test_reallocate_book_touchdowns_preserves_each_book_total():
+    """It changes *which* stat, never how many. All nine leagues score both types at
+    6, so this is worth exactly zero points and every bit of its value is in being
+    right about the stat line."""
+    before = _td_frame()
+    after = pu.reallocate_book_touchdowns(before.copy())
+    for frame in (before, after):
+        frame["total"] = (frame["BOL_rushingTouchdowns"]
+                          + frame["BOL_receivingTouchdowns"])
+    assert after["total"].tolist() == pytest.approx(before["total"].tolist())
+
+
+def test_reallocate_book_touchdowns_leaves_a_passer_alone():
+    out = pu.reallocate_book_touchdowns(_td_frame())
+    passer = out.iloc[1]
+    assert passer["BOL_rushingTouchdowns"] == pytest.approx(0.20)
+    assert passer["BOL_receivingTouchdowns"] == 0.0
+
+
+def test_reallocate_book_touchdowns_keeps_the_book_split_where_consensus_is_silent():
+    """The consensus projects this player nothing, so there is no ratio. The book's
+    own guess stands rather than a made-up one."""
+    out = pu.reallocate_book_touchdowns(_td_frame())
+    bench = out.iloc[2]
+    assert bench["BOL_rushingTouchdowns"] == pytest.approx(0.30)
+    assert bench["BOL_receivingTouchdowns"] == 0.0
+
+
+def test_reallocate_book_touchdowns_does_not_touch_the_consensus():
+    """ESPN and FantasyPros are the ruler, not the thing being measured."""
+    before = _td_frame()
+    after = pu.reallocate_book_touchdowns(before.copy())
+    for column in ("ESPN_rushingTouchdowns", "ESPN_receivingTouchdowns",
+                   "FP_rushingTouchdowns", "FP_receivingTouchdowns"):
+        assert after[column].tolist() == before[column].tolist()
+
+
+def test_reallocate_book_touchdowns_without_a_consensus_is_a_no_op():
+    """A frame built without ESPN or FantasyPros has no ratio to split by, and
+    inventing one would be worse than each book's own guess."""
+    frame = _td_frame().drop(columns=[
+        "ESPN_rushingTouchdowns", "ESPN_receivingTouchdowns",
+        "FP_rushingTouchdowns", "FP_receivingTouchdowns"])
+    out = pu.reallocate_book_touchdowns(frame.copy())
+    assert out["BOL_rushingTouchdowns"].tolist() == [0.60, 0.20, 0.30]
+
+
+def test_reallocate_book_touchdowns_skips_a_book_that_is_absent():
+    """Pinnacle covers a third of the players BetOnline does; a missing pair of
+    columns is normal and must not raise."""
+    out = pu.reallocate_book_touchdowns(_td_frame())
+    assert "PINNY_rushingTouchdowns" not in out.columns
+
+
+def test_reallocate_book_touchdowns_runs_inside_the_weekly_blend():
+    """The wiring, not the arithmetic: `clean_lineups` must call this before
+    `compute_weighted_stats`, or the blend averages the uncorrected columns."""
+    source = (REPO_ROOT / "Scripts" / "projection_utils.py").read_text()
+    body = source[source.index("def clean_lineups("):]
+    called = body.index("reallocate_book_touchdowns(base)")
+    blended = body.index("compute_weighted_stats(df=base")
+    assert called < blended

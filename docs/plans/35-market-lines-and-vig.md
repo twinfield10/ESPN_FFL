@@ -8,6 +8,8 @@ defects and two bugs the build found that the evaluation had not. **Measured aga
 realised 2025 outcomes on the markets that can be scored, every calibration ratio moves
 toward 1.00 and three move a long way: BetOnline quarterback interceptions 0.712 →
 1.011, Pinnacle running-back rushing touchdowns 0.679 → 0.996, receiving 0.591 → 0.894.**
+**Fed straight into:** [plan 34](34-stat-first-audit.md) F2, the touchdown allocation,
+landed in the same branch once the price arithmetic under it was right.
 **Depends on:** nothing · **Feeds:** [03](03-projection-source-coverage.md) ·
 [19](19-weekly-usage-model.md) · [28](28-outcome-distributions.md) ·
 [34](34-stat-first-audit.md)
@@ -253,14 +255,13 @@ calibration waits for archived prices.
 
 ## What is left, and where it belongs
 
-* **BetOnline's touchdown allocation.** All of a back's anytime market goes to the rushing
-  column and none to receiving, so BOL@RB receiving touchdowns calibrates at **0.0** on
-  910 player-weeks and rushing stays 40% high after de-vigging. That is
-  [plan 34](34-stat-first-audit.md) F2's open item, measured there as worth 0.597 → 0.891.
-  Deliberately untouched here.
-* **Pinnacle's touchdown split needs both yardage columns**, so a receiver with no rushing
-  line gets no touchdown projection at all — Drake London and Kyle Pitts get none in the
-  archived week. Same allocation question, same owner.
+* ~~**BetOnline's touchdown allocation.**~~ **Landed in the same branch**, as
+  [plan 34](34-stat-first-audit.md) F2 — see that plan for the measurements. Both books'
+  anytime totals are now split by the ESPN/FantasyPros ratio in
+  `Scripts.projection_utils.reallocate_book_touchdowns`, which takes the blend's
+  running-back calibration from 0.597 to **0.897** on receiving and 1.099 to **1.022** on
+  rushing. It also fixes the Pinnacle side: its yardage-share split needed *both* yardage
+  columns, so a pure receiver got no touchdown projection at all.
 * **The season/draft path is untouched, on purpose.** `Scripts/scrape_pinnacle_season.py`
   computes `no_vig_over_prob` and `Scripts/season_projections.py:_pivot_props` then
   projects the raw `line`, discarding it. That is the same class of defect on the draft

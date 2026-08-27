@@ -4875,6 +4875,56 @@
           23609
         ]
       },
+      "touchdown_allocation": {
+        "TRUE@QB|rushingTouchdowns": {
+          "after": 94.7,
+          "after_ratio": 0.9758,
+          "before": 94.7,
+          "before_ratio": 0.9758,
+          "n": 453,
+          "realised": 97.0
+        },
+        "TRUE@RB|receivingTouchdowns": {
+          "after": 79.0,
+          "after_ratio": 0.8974,
+          "before": 52.5,
+          "before_ratio": 0.5965,
+          "n": 921,
+          "realised": 88.0
+        },
+        "TRUE@RB|rushingTouchdowns": {
+          "after": 348.3,
+          "after_ratio": 1.0215,
+          "before": 374.8,
+          "before_ratio": 1.0991,
+          "n": 921,
+          "realised": 341.0
+        },
+        "TRUE@TE|receivingTouchdowns": {
+          "after": 134.8,
+          "after_ratio": 0.9236,
+          "before": 135.9,
+          "before_ratio": 0.931,
+          "n": 444,
+          "realised": 146.0
+        },
+        "TRUE@WR|receivingTouchdowns": {
+          "after": 394.1,
+          "after_ratio": 1.1523,
+          "before": 397.0,
+          "before_ratio": 1.1609,
+          "n": 1107,
+          "realised": 342.0
+        },
+        "TRUE@WR|rushingTouchdowns": {
+          "after": 7.2,
+          "after_ratio": 0.6589,
+          "before": 4.3,
+          "before_ratio": 0.3915,
+          "n": 1107,
+          "realised": 11.0
+        }
+      },
       "two_way": {
         "max": 1.0658,
         "median_overround": 1.064,

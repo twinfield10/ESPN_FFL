@@ -4,7 +4,10 @@
 
 **Priority:** High · **Effort:** M · **Where it stands:** **Phases 1–6 done; the three
 owed items closed 2026-08-27, and two of them closed by rejecting what the audit
-proposed.** The milestone model shipped and calibrates 0.90–1.26. The shrinkage
+proposed. F2's touchdown allocation landed 2026-08-27** on top of
+[plan 35](35-market-lines-and-vig.md), taking the blend's running-back calibration from
+0.597 to **0.897** on receiving touchdowns and 1.099 to **1.022** on rushing — the
+largest error in the audit's own table, closed.** The milestone model shipped and calibrates 0.90–1.26. The shrinkage
 argument was **wrong in its direction** — `implied_k` is a ceiling, not a floor — and
 three walk-forward experiments rejected the change. The QB interval was **withdrawn
 rather than refitted**, because the Gamma has the skew inverted and no dispersion fixes
@@ -15,6 +18,8 @@ is in the blend at max |Δ| **0.0** on every `<prefix>_Points` column across all
 boards; the weekly points patch is gone and the two defects it was hiding are named. Source
 bias adjustment and any weight movement are **deliberately deferred** — the owner's
 direction is to get individual stat-line projections right first and re-compute after.
+With F2 landed and plan 35 shipped, that condition is now met: the weight re-tune
+([plan 03](03-projection-source-coverage.md)) is answerable on a clean base.
 **Depends on:** nothing · **Feeds:** [19](19-weekly-usage-model.md) ·
 [03](03-projection-source-coverage.md) · [01](01-scoring-coverage.md) ·
 [31](31-team-coherent-tomcat.md)
@@ -125,21 +130,58 @@ story:
 it as +0.7% against ESPN, i.e. fine.** The `rushingTouchdowns` defect this plan led with
 is real but is the *smaller* half of one mis-split market.
 
-**And the fix is measured but not landed**, because it is source construction and the
-owner's sequencing puts bias adjustment after the stat lines. Splitting each book's
-anytime total by the **ESPN+FantasyPros TD ratio** — both project the two types
-separately, so the columns are already on the frame — cuts RB share MAE from 0.202 to
-**0.113** and moves calibration from 0.597 to **0.891** on receiving and 1.124 to
-**1.046** on rushing. Red-zone opportunity share is comparable (0.125 over ten seasons)
-and needs a new join plus a fitted shrinkage, so the consensus ratio is the cheaper of
-the two.
+**Landed 2026-08-27**, after [plan 35](35-market-lines-and-vig.md) fixed the price
+arithmetic underneath it — the sequencing the owner asked for, stat lines before bias
+adjustment, and this is the last of the stat-line fixes.
 
-Three things to know before landing it. It is **weekly-only** — BetOnline's *season*
-endpoint publishes both TD types separately (Jahmyr Gibbs 12.5 rushing / 3.74
-receiving), so no draft board is affected. It is worth **zero points directly**: all
-nine leagues score both types at 6. And it makes weekly per-stat *MAE slightly worse*
-(rushing −0.9%, receiving +2.3%, net zero) for exactly the reason above, so it must be
-judged on calibration or it will look like a regression.
+Splitting each book's anytime total by the **ESPN+FantasyPros TD ratio** — both project
+the two types separately, so the columns are already on the frame, no new join and no
+fitted parameter. `Scripts.market.allocate_touchdowns` holds the argument;
+`Scripts.projection_utils.reallocate_book_touchdowns` runs it on the blended frame,
+which is the first point all four sources are present. Re-measured on the archived 2025
+store, blend calibration on played rows:
+
+| stat | pos | n | realised | before | after |
+|---|---|---|---|---|---|
+| rushingTouchdowns | RB | 921 | 341 | 1.099 | **1.022** |
+| rushingTouchdowns | WR | 1,107 | 11 | 0.392 | **0.659** |
+| rushingTouchdowns | QB | 453 | 97 | 0.976 | 0.976 |
+| receivingTouchdowns | RB | 921 | 88 | 0.597 | **0.897** |
+| receivingTouchdowns | WR | 1,107 | 342 | 1.161 | 1.152 |
+| receivingTouchdowns | TE | 444 | 146 | 0.931 | 0.924 |
+
+Six positions, five improve and one (TE receiving) moves 0.007 the wrong way. The
+0.897 and 1.022 are this audit's own predictions of 0.891 and 1.046, reproduced. Red-zone
+opportunity share is comparable (0.125 over ten seasons) and needs a new join plus a
+fitted shrinkage, so the consensus ratio was the cheaper of the two and it is enough.
+
+Four things that turned out to be true of it.
+
+It is **weekly-only** — BetOnline's *season* endpoint publishes both TD types separately
+(Jahmyr Gibbs 12.5 rushing / 3.74 receiving), so no draft board is affected.
+
+It is worth **zero points directly**, and this is now checked rather than asserted: all
+nine leagues score both types at **6.0**, in both the base and the D/ST slot, verified
+against `Data/Scoring/scoring.csv`. Every bit of its value is in being right about
+*which* stat, which is what the coherence checks, the outcome simulator and anyone
+reading a player's row consume.
+
+It makes weekly per-stat **MAE slightly worse** — rushing −0.9%, receiving **+2.1%**,
+net zero — for exactly the reason above. Receiving clears the lab's 2.0% bar, so it will
+appear in `Scripts/lab/accuracy.py`'s defect list once the store is rebuilt; the flag
+that says *"MAE cannot judge this stat alone; read the calibration above"* already fires
+for it, because `receivingTouchdowns` is in `CALIBRATION_STATS`.
+
+**It needs no provenance gate, and that is measured.** A cell imputed from `MEAN_`
+carries the average of the same two consensus sources, so its own split already *is*
+this ratio: across 2,609 imputed player-weeks the largest difference is **0.0**. And it
+needs no position rule — ESPN and FantasyPros give a passer no receiving touchdowns, so
+a quarterback's share comes out 0 and the total stays on rushing by itself.
+
+**It also fixes something this audit did not name.** Pinnacle's yardage-share split
+needs *both* yardage columns, so a pure receiver got **no Pinnacle touchdown projection
+at all** — Drake London and Kyle Pitts have none in the archived week. The consensus
+ratio does not depend on a rushing column existing.
 
 ### F3 · What persists, and what the model shrinks, disagree everywhere
 

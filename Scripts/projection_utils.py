@@ -23,6 +23,7 @@ ESPN scoring settings via :func:`proj_to_score`.
 import warnings
 from typing import Dict, Optional, Tuple
 
+import numpy as np
 import pandas as pd
 
 from Scripts import market as mk
@@ -896,6 +897,74 @@ def blended_stats(scoring_cols) -> list:
     return out
 
 
+def reallocate_book_touchdowns(df, books=mk.TD_ALLOCATION_BOOKS,
+                               consensus=mk.TD_CONSENSUS):
+    """Re-split each sportsbook's anytime-touchdown total by the consensus ratio.
+
+    A book prices *any* scrimmage touchdown; this pipeline carries a rushing column
+    and a receiving one, and until this existed each book invented the split.
+    :func:`Scripts.market.allocate_touchdowns` holds the argument and the
+    measurements; this is the frame plumbing, and it runs on the blended frame
+    rather than in either scraper because that is the first point where ESPN and
+    FantasyPros are both present.
+
+    **Worth zero points directly.** All nine leagues score both touchdown types at
+    6, so no ``*_Points`` column moves by a cent. It is worth a projection that is
+    right about *which* stat, which matters to every consumer that reads a stat
+    line rather than a total -- the coherence checks, the outcome simulator, and
+    anyone reading a player's row.
+
+    **And it makes per-stat MAE slightly worse**, by design: rushing -0.9%,
+    receiving +2.1%, net zero. A weekly receiving-touchdown count is 0 about 95% of
+    the time, so MAE is minimised by projecting zero and BetOnline was doing exactly
+    that. Judge it on calibration -- see
+    :data:`Scripts.lab.accuracy.CALIBRATION_STATS`.
+
+    Args:
+        df: Blended frame with ``<source>_rushingTouchdowns`` and
+            ``<source>_receivingTouchdowns`` columns. Modified in place.
+        books: Sources whose touchdown columns came from one anytime market.
+        consensus: Sources that project the two types separately.
+
+    Returns:
+        pd.DataFrame: ``df``, with each book's two touchdown columns reallocated
+        wherever the consensus states a ratio, and left alone where it does not.
+    """
+    def _totals(prefixes, stat):
+        found = pd.Series(0.0, index=df.index)
+        seen = False
+        for prefix in prefixes:
+            column = f"{prefix}_{stat}"
+            if column in df.columns:
+                found = found + pd.to_numeric(df[column], errors="coerce").fillna(0.0)
+                seen = True
+        return found if seen else None
+
+    rushing = _totals(consensus, "rushingTouchdowns")
+    receiving = _totals(consensus, "receivingTouchdowns")
+    if rushing is None or receiving is None:
+        # No consensus source on this frame, so there is no ratio to split by and
+        # inventing one would be worse than each book's own guess.
+        return df
+
+    for book in books:
+        rush_col = f"{book}_rushingTouchdowns"
+        rec_col = f"{book}_receivingTouchdowns"
+        if rush_col not in df.columns or rec_col not in df.columns:
+            continue
+        total = (pd.to_numeric(df[rush_col], errors="coerce").fillna(0.0)
+                 + pd.to_numeric(df[rec_col], errors="coerce").fillna(0.0))
+        split_rush, split_rec = mk.allocate_touchdowns(total, rushing, receiving)
+        # Written positionally with `np.where` rather than through `.loc`, because
+        # `allocate_touchdowns` returns plain arrays and this frame's index is
+        # whatever a chain of merges left behind. NaN marks a row the consensus had
+        # no opinion on, and there the book's own split survives.
+        keep = np.isfinite(split_rush)
+        df[rush_col] = np.where(keep, split_rush, df[rush_col].to_numpy())
+        df[rec_col] = np.where(keep, split_rec, df[rec_col].to_numpy())
+    return df
+
+
 def compute_weighted_stats(df, stats_list, weights_dict, renormalise=True):
     """Blend each source's projection into a ``TRUE_`` column.
 
@@ -1218,6 +1287,11 @@ def clean_lineups(df, lg, season=None):
     ## Clean Missing COlumns
     base = impute_columns(base, target_prefix='PINNY_', source_prefix='MEAN_')
     base = impute_columns(base, target_prefix='BOL_', source_prefix='MEAN_')
+
+    ## 4a) Re-split each book's anytime-touchdown market by the ESPN/FantasyPros
+    ## ratio. Runs here because this is the first point all four sources are on one
+    ## frame, and before the blend because the blend must see the corrected columns.
+    base = reallocate_book_touchdowns(base)
 
 
     ## 4b) Report how much of each source is real rather than imputed.

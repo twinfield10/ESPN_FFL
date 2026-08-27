@@ -576,6 +576,100 @@ def _calibration_pair(frame, acc, source: str, stat: str, new_column: str,
             "new_ratio": round(new_total / realised, 4)}
 
 
+def touchdown_allocation(season: int = 2025) -> Tuple[List[str], Dict]:
+    """Blend calibration before and after re-splitting each book's anytime market.
+
+    **The one part of this work that scores end to end on the archived store**, and
+    it does so because the split needs no prices: ESPN's and FantasyPros' two
+    touchdown columns are archived and 972/972 complete, so the shipping function
+    can be run on the stored frame and the blend recomputed from it. Everything else
+    here had to be verified on arithmetic, because the raw prices were overwritten.
+
+    It runs :func:`Scripts.projection_utils.reallocate_book_touchdowns` itself
+    rather than a copy of it, so the number reported is the number that ships.
+
+    Args:
+        season: Season to score.
+
+    Returns:
+        tuple: ``(text lines, entry)``.
+    """
+    from Scripts import projection_utils as pu
+    from Scripts.lab import accuracy as acc
+
+    frame, _ = acc.build(season)
+    before = frame.to_pandas()
+    after = pu.reallocate_book_touchdowns(before.copy())
+
+    stats = ["rushingTouchdowns", "receivingTouchdowns"]
+    before = pu.compute_weighted_stats(before, stats, pu.WEIGHTS)
+    after = pu.compute_weighted_stats(after, stats, pu.WEIGHTS)
+
+    lines = ["--- 6. the touchdown allocation, "
+             f"{season} ------------------------------",
+             "  A book prices any scrimmage touchdown; this pipeline carries two",
+             "  columns. BetOnline sent 100% one way and Pinnacle split by yardage",
+             "  share. Now split by the ESPN/FantasyPros ratio, which is the only",
+             "  consensus on the frame that projects the two types separately.",
+             f"  {'stat':22}{'pos':>5}{'n':>7}{'realised':>10}{'before':>9}"
+             f"{'after':>9}{'before cal':>12}{'after cal':>11}"]
+    entry: Dict = {}
+    for stat in stats:
+        actual = f"{acc.ACTUAL_PREFIX}{stat}"
+        for position in acc.STAT_POSITIONS.get(stat, ()):
+            found = _blend_pair(before, after, f"{acc.BLEND}_{stat}", actual,
+                                position)
+            if found is None:
+                continue
+            entry[f"{acc.BLEND}@{position}|{stat}"] = found
+            lines.append(
+                f"  {stat:22}{position:>5}{found['n']:>7}{found['realised']:>10.0f}"
+                f"{found['before']:>9.1f}{found['after']:>9.1f}"
+                f"{found['before_ratio']:>12.3f}{found['after_ratio']:>11.3f}")
+    lines += [
+        "  Worth zero points -- every league scores both types at 6 -- and it makes",
+        "  per-stat MAE slightly worse, because a weekly receiving-touchdown count",
+        "  is zero 95% of the time and MAE is minimised by projecting zero. That is",
+        "  what BetOnline was doing, and it is why this is judged on calibration.",
+    ]
+    return lines, entry
+
+
+def _blend_pair(before, after, column: str, actual: str,
+                position: str) -> Optional[Dict]:
+    """One position's blend total against realised, before and after.
+
+    Args:
+        before: Frame with the shipped columns.
+        after: Same frame with the touchdown columns reallocated.
+        column: Blend column to score.
+        actual: Realised column.
+        position: ``primaryPosition`` to restrict to.
+
+    Returns:
+        dict | None: ``n``, ``realised``, both totals and both ratios. None when
+        too few rows qualify or nothing was realised.
+    """
+    from Scripts.lab import accuracy as acc
+
+    if not {column, actual}.issubset(before.columns):
+        return None
+    rows = (before["played"].fillna(False).astype(bool)
+            & (before["primaryPosition"] == position)
+            & before[actual].notna() & before[column].notna())
+    if int(rows.sum()) < acc.MIN_PAIRED_ROWS:
+        return None
+    realised = float(before.loc[rows, actual].sum())
+    if realised <= 0:
+        return None
+    old_total = float(before.loc[rows, column].sum())
+    new_total = float(after.loc[rows, column].sum())
+    return {"n": int(rows.sum()), "realised": round(realised, 1),
+            "before": round(old_total, 1), "after": round(new_total, 1),
+            "before_ratio": round(old_total / realised, 4),
+            "after_ratio": round(new_total / realised, 4)}
+
+
 def report(season: int = 2025) -> Tuple[str, Dict]:
     """The measurement block and its ledger entry.
 
@@ -728,6 +822,13 @@ def report(season: int = 2025) -> Tuple[str, Dict]:
         scored = {}
     lines += [""] + scored_lines
 
+    try:
+        split_lines, allocation = touchdown_allocation(season)
+    except Exception as problem:            # pragma: no cover - data dependent
+        split_lines = ["", f"--- 6. allocation: unavailable ({problem})"]
+        allocation = {}
+    lines += [""] + split_lines
+
     entry = {
         "season": season,
         "rows": frame.height,
@@ -746,6 +847,7 @@ def report(season: int = 2025) -> Tuple[str, Dict]:
                      for k, v in model.td_scale_by_position.items()},
         "model_version": model.version,
         "calibration": scored,
+        "touchdown_allocation": allocation,
         "scored_against_outcomes": bool(scored),
         "why_partly_scored": (
             "Both scrapers overwrite their raw price file, so only the last scrape "

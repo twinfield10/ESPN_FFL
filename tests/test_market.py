@@ -338,6 +338,61 @@ def test_a_receiver_with_a_touchdown_market_is_not_a_back():
         ["receivingYards", "receivingReceptions", "rushingTouchdowns"]) == "REC"
 
 
+# --- allocating the anytime market ---------------------------------------
+
+def test_allocate_touchdowns_splits_by_the_consensus_ratio():
+    """A book prices any scrimmage touchdown; ESPN and FantasyPros price the two
+    types separately, so their ratio is the split."""
+    rushing, receiving = mk.allocate_touchdowns(
+        np.array([1.0]), np.array([0.8]), np.array([0.2]))
+    assert rushing[0] == pytest.approx(0.8)
+    assert receiving[0] == pytest.approx(0.2)
+
+
+def test_allocate_touchdowns_preserves_the_total():
+    """The book's opinion is *how many*, and that is not what this changes."""
+    total = np.array([0.42, 1.30, 0.05])
+    rushing, receiving = mk.allocate_touchdowns(
+        total, np.array([0.5, 0.1, 0.9]), np.array([0.5, 0.9, 0.1]))
+    assert np.allclose(rushing + receiving, total)
+
+
+def test_allocate_touchdowns_leaves_a_passer_on_rushing():
+    """No position rule anywhere: ESPN and FantasyPros give a quarterback no
+    receiving touchdowns, so the share is 0 and the total stays where it belongs."""
+    rushing, receiving = mk.allocate_touchdowns(
+        np.array([0.15]), np.array([0.15]), np.array([0.0]))
+    assert rushing[0] == pytest.approx(0.15)
+    assert receiving[0] == 0.0
+
+
+def test_allocate_touchdowns_abstains_when_the_consensus_is_silent():
+    """43.5% of rows have no consensus touchdown projection at all -- deep bench
+    players. There the book's own split stands, because inventing a ratio would be
+    worse. Measured, those rows hold 0.6 of 1,232.5 touchdowns on played rows."""
+    rushing, receiving = mk.allocate_touchdowns(
+        np.array([0.3]), np.array([0.0]), np.array([0.0]))
+    assert np.isnan(rushing[0]) and np.isnan(receiving[0])
+
+
+def test_allocate_touchdowns_is_a_no_op_on_a_consensus_shaped_split():
+    """Why no provenance gate is needed. A cell imputed from ``MEAN_`` carries the
+    average of the same two sources, so its own split already *is* this share --
+    measured across 2,609 imputed player-weeks, the largest difference is 0.0."""
+    espn_rush, espn_rec = np.array([0.6]), np.array([0.4])
+    already = np.array([0.6]), np.array([0.4])      # a MEAN_-shaped cell
+    rushing, receiving = mk.allocate_touchdowns(
+        already[0] + already[1], espn_rush, espn_rec)
+    assert rushing[0] == pytest.approx(already[0][0])
+    assert receiving[0] == pytest.approx(already[1][0])
+
+
+def test_allocation_sources_are_disjoint():
+    """A source cannot be both the market being split and the consensus splitting
+    it. If it were, the split would be defined in terms of itself."""
+    assert not set(mk.TD_ALLOCATION_BOOKS) & set(mk.TD_CONSENSUS)
+
+
 # --- the model -----------------------------------------------------------
 
 def test_mean_from_line_dispatches_on_the_stat_shape():

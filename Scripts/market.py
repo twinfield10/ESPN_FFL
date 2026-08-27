@@ -693,6 +693,73 @@ def _count_survival(edge, mu, phi: float, k: float) -> np.ndarray:
     return out
 
 
+def allocate_touchdowns(total, consensus_rushing, consensus_receiving
+                        ) -> Tuple[np.ndarray, np.ndarray]:
+    """Split a book's anytime-touchdown total into rushing and receiving.
+
+    **A book prices any scrimmage touchdown and the pipeline needs two columns, so
+    something has to allocate it, and both books were guessing.** BetOnline sent
+    100% to rushing for every quarterback and back and 100% to receiving for every
+    receiver, which is why ``Scripts/lab/accuracy.py`` reported
+    ``BOL_receivingTouchdowns`` at a calibration ratio of **0.0** on 910 running-back
+    player-weeks. Pinnacle split by *yardage* share, which errs the other way --
+    Christian McCaffrey at 56/44 against a realised ~79/21 -- and needs both yardage
+    columns, so a pure receiver got no Pinnacle touchdown projection at all.
+
+    ESPN and FantasyPros project the two types **separately**, so the ratio is
+    already on the frame and needs no new join and no fitted parameter. Measured on
+    the archived 2025 store, splitting by their consensus moves the blend's
+    running-back calibration from **0.597 to 0.897** on receiving and **1.099 to
+    1.021** on rushing, and every other position improves too --
+    ``docs/plans/34-stat-first-audit.md`` F2, which measured 0.891 and 1.046 for the
+    same change.
+
+    **It respects a quarterback for free.** ESPN and FantasyPros give a passer no
+    receiving touchdowns, so the share comes out 0 and the whole total stays on
+    rushing without a position rule anywhere.
+
+    **And it needs no provenance gate.** On a cell imputed from ``MEAN_`` the answer
+    is unchanged, because ``MEAN_`` is the average of the same two sources and its
+    own split therefore *is* this share: measured across 2,609 imputed
+    player-weeks, the largest difference is **0.0**.
+
+    Args:
+        total: The book's anytime total per row -- its two touchdown columns summed,
+            however it happened to allocate them.
+        consensus_rushing: Rushing touchdowns summed across the consensus sources.
+        consensus_receiving: Receiving touchdowns summed across the consensus
+            sources.
+
+    Returns:
+        tuple: ``(rushing, receiving)``. Both NaN on a row where the consensus
+        projects no touchdowns at all and the share is undefined -- the caller keeps
+        the book's own split there. That is 43.5% of rows and **0.6 of 1,232.5**
+        touchdowns on played rows: deep bench players, and a formality rather than a
+        fallback that carries weight.
+    """
+    book = np.asarray(total, dtype=float)
+    rushing = np.asarray(consensus_rushing, dtype=float)
+    receiving = np.asarray(consensus_receiving, dtype=float)
+    consensus = rushing + receiving
+    with np.errstate(invalid="ignore", divide="ignore"):
+        share = np.where(np.isfinite(consensus) & (consensus > _EPS),
+                         receiving / consensus, np.nan)
+    usable = np.isfinite(share) & np.isfinite(book)
+    return (np.where(usable, book * (1.0 - share), np.nan),
+            np.where(usable, book * share, np.nan))
+
+
+#: Sources whose touchdown market is an anytime total rather than two projections.
+TD_ALLOCATION_BOOKS: Tuple[str, ...] = ("BOL", "PINNY")
+
+#: Sources that project rushing and receiving touchdowns separately.
+#:
+#: The consensus :func:`allocate_touchdowns` splits by. ESPN is the root source and
+#: is never imputed; FantasyPros is imputed from ESPN where it is missing, which
+#: leaves the *ratio* unchanged and is why this pair needs no coverage guard.
+TD_CONSENSUS: Tuple[str, ...] = ("ESPN", "FP")
+
+
 #: Markets that identify a position, because only that position gets volume in them.
 #:
 #: Deliberately *not* every market a book posts. Pinnacle's touchdown market maps to
