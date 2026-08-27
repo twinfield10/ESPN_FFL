@@ -31,7 +31,7 @@ uppercase, and contains real misspellings (``Dalton Kinciad``).
 import datetime
 import re
 import unicodedata
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import pandas as pd
 import polars as pl
@@ -41,12 +41,14 @@ from Scripts.paths import season_dir
 from Scripts.projection_utils import (
     IMPUTED_SUFFIX,
     WEIGHTS,
+    blended_stats,
     compute_weighted_stats,
     impute_columns,
     print_coverage_report,
     proj_to_score,
 )
 from Scripts.scoring import get_scoring_table
+from Scripts.scrape_player_stats import DERIVED_STATS
 
 #: Stats ESPN reports per-game in the season row, needing x games played.
 #:
@@ -1467,7 +1469,28 @@ OUTCOME_EVIDENCE = {
     "no_dispersion": "no fitted dispersion",
     "unpriced": "no blended projection",
     "simulated": "simulated",
+    # The points interval inherits a marginal this repo has withdrawn from
+    # publication on its own. `predictive.UNCALIBRATED` holds `QB|passingYards` at
+    # 58.9% coverage against a nominal 80%, with the skew inverted rather than the
+    # width wrong -- and passing yards are most of a quarterback's points, so the
+    # copula in `Scripts.outcomes.distribution` cannot simply drop it without
+    # leaving quarterbacks with no interval at all.
+    #
+    # Flagged rather than withdrawn, and the asymmetry is the useful part: the miss
+    # is 24.5% below p10 against 16.6% above p90, so a quarterback's floor is the
+    # half not to trust. Fixing it needs a left-skewed family or the room-level
+    # draw, not a wider Gamma. See docs/plans/34-stat-first-audit.md F5.
+    "uncalibrated_marginal": "simulated; QB floor not calibrated",
 }
+
+#: Positions whose points interval carries an uncalibrated marginal.
+#:
+#: Derived from :data:`Scripts.usage.predictive.UNCALIBRATED` rather than restated,
+#: so withdrawing another pair flags the right position without a second edit.
+def _uncalibrated_positions() -> Tuple[str, ...]:
+    """Positions with at least one withdrawn stat interval."""
+    from Scripts.usage import predictive as pv
+    return tuple(sorted({position for position, _ in pv.UNCALIBRATED}))
 
 #: Scored rules the season-points simulation does **not** price, by league.
 #:
@@ -1690,10 +1713,14 @@ def attach_outcome_distribution(base: pd.DataFrame, season: int, league,
         summary[column] = summary[column] * scale
 
     note = _unpriced_note(stats)
+    flagged = np.isin(np.asarray(spec.positions, dtype=object),
+                      np.asarray(_uncalibrated_positions(), dtype=object))
     evidence = np.where(
         ~spec.has_projection, OUTCOME_EVIDENCE["no_model"],
         np.where(~np.isfinite(scale), OUTCOME_EVIDENCE["unpriced"],
-                 OUTCOME_EVIDENCE["simulated"] + note))
+                 np.where(flagged,
+                          OUTCOME_EVIDENCE["uncalibrated_marginal"] + note,
+                          OUTCOME_EVIDENCE["simulated"] + note)))
 
     out = base.copy()
     for column in ("pts_p10", "pts_p50", "pts_p90", "pts_mean", "pts_sd",
@@ -1701,6 +1728,175 @@ def attach_outcome_distribution(base: pd.DataFrame, season: int, league,
         out[column] = summary[column].to_numpy()
     out["outcome_evidence"] = evidence
     return out
+
+
+def attach_milestone_bands(df: pd.DataFrame, stats: Sequence[str],
+                           prefixes: Sequence[str],
+                           slate: float = FULL_SLATE) -> pd.DataFrame:
+    """Derive the yardage-milestone bands from each prefix's own yardage line.
+
+    **Derived, not blended, and derived for every source rather than only the
+    blend.** A milestone is a non-linear function of a line, so there is nothing to
+    average -- and ESPN's own six columns are identically zero for every row in the
+    store, so blending them would have dragged each band to a fraction of itself
+    (``docs/plans/34-stat-first-audit.md`` F4b).
+
+    Computing it per prefix keeps the per-source comparison honest. If only
+    ``TRUE_`` gained a bonus, ``points_delta`` against ESPN would show a fabricated
+    disagreement of six to twenty points a player in the three leagues that score
+    these -- ESPN *does* price the bonus inside its own ``projPoints``; what is
+    broken is this pipeline's read of the column, not ESPN's opinion. Each source
+    therefore gets the expectation implied by its *own* yardage, through one shared
+    distribution, which is a property of weekly football rather than of a source.
+
+    Only bands the league actually scores are written, so a league with no milestone
+    rules gets no columns and no behaviour change at all.
+
+    Args:
+        df: The blended frame, after :func:`reconcile_team_totals`.
+        stats: The league's scored ``colName`` values.
+        prefixes: Source prefixes to derive for, e.g. ``("ESPN", "TRUE")``.
+        slate: Games the projection is expressed over. 17 for a season line;
+            :func:`Scripts.projection_utils.clean_lineups` passes 1.0, because a
+            weekly line is already a one-game mean.
+
+    Returns:
+        pd.DataFrame: ``df`` with ``<prefix>_<band>`` per available pair. Returned
+        unchanged when the league scores no bands or the model is missing -- the
+        same contract every other attacher here has.
+    """
+    wanted = [name for name in DERIVED_STATS if name in set(stats)]
+    if not wanted or "primaryPosition" not in df.columns:
+        return df
+
+    try:
+        from Scripts.usage import milestones as ms
+        model = ms.MilestoneModel.load()
+    except (FileNotFoundError, ImportError, ValueError) as error:
+        print(f"  milestone bands: unavailable ({error})")
+        return df
+
+    positions = df["primaryPosition"].astype(str).to_numpy()
+    written = 0
+    for prefix in prefixes:
+        for band in wanted:
+            stat, _, _ = ms.BANDS[band]
+            source = f"{prefix}_{stat}"
+            if source not in df.columns:
+                continue
+            total = pd.to_numeric(df[source], errors="coerce").to_numpy(dtype=float)
+            # The per-game mean. A `TRUE_` line describes a healthy full slate by
+            # construction, so dividing by the slate *is* the player's per-game
+            # mean -- not an availability adjustment.
+            df[f"{prefix}_{band}"] = model.band_games(
+                band, total / slate, positions, slate=slate)
+            written += 1
+
+    if written:
+        summary = ", ".join(
+            f"{band.replace('Game', '')} {float(df[f'TRUE_{band}'].sum()):.0f}"
+            for band in wanted if f"TRUE_{band}" in df.columns)
+        print(f"  Milestone bands: {written} column(s) derived; "
+              f"blended expected games -- {summary}")
+    return df
+
+
+#: Coherence checks the blended line has to survive, as
+#: ``(numerator, denominator, positions, floor, ceiling, minimum denominator)``.
+#:
+#: These became askable only when volume entered the blend
+#: (:data:`Scripts.scrape_player_stats.VOLUME_STATS`). Before that ``TRUE_`` held
+#: yards and touchdowns and no attempts, so there was no way to ask whether a
+#: projected line described a football player -- 1,584 passing yards on 116
+#: attempts and 2,091 on 441 both look reasonable until you divide.
+#:
+#: The bands are wide on purpose. This is a smell test for a line assembled from
+#: five sources with different coverage, not a model of efficiency: a real
+#: quarterback season runs about 6.0-8.5 yards per attempt, and a projection
+#: outside that is describing two different players' seasons stitched together.
+#:
+#: Minimum denominators keep a third-string quarterback's twelve projected
+#: attempts out of it, where the ratio is noise rather than a claim.
+COHERENCE_BANDS: Tuple[Tuple[str, str, str, Tuple[str, ...], float, float, float], ...] = (
+    ("yards per attempt", "TRUE_passingYards", "TRUE_passingAttempts",
+     ("QB",), 6.0, 8.5, 100.0),
+    # Running backs only. A scrambling quarterback genuinely averages 5-7 yards a
+    # carry and a receiver on end-arounds more, so including them flags three
+    # correct projections every run and teaches the reader to ignore the line.
+    ("yards per carry", "TRUE_rushingYards", "TRUE_rushingAttempts",
+     ("RB",), 3.2, 5.6, 50.0),
+    ("catch rate", "TRUE_receivingReceptions", "TRUE_receivingTargets",
+     ("RB", "WR", "TE"), 0.45, 0.85, 40.0),
+)
+
+#: Plays per game a real NFL team runs, for the team-budget line.
+#:
+#: ``docs/plans/31-team-coherent-tomcat.md`` locates TOMCAT's team-identity drift
+#: in a missing team snap budget and notes it cannot be expressed without a volume
+#: column. This is that column, summed: pass attempts plus carries over a 17-game
+#: slate. Measured on the 2026 board the blend lands at 59.1-65.0 against this
+#: band, so the budget is a check that currently passes rather than a known
+#: failure -- which is worth knowing, because it says the drift plan 31 measured
+#: is in the *allocation* between teammates rather than in the total.
+TEAM_PLAYS_BAND: Tuple[float, float] = (55.0, 70.0)
+
+
+def report_line_coherence(df: pd.DataFrame,
+                          slate: int = FULL_SLATE) -> str:
+    """Whether the blended stat line describes a football player, and a team.
+
+    A diagnostic and nothing else: it reads ``TRUE_`` columns and returns text.
+    Nothing here moves a projection, and it deliberately does not raise -- a line
+    outside a band is a thing to look at on the board, not a reason to fail a
+    build the morning of a draft.
+
+    Args:
+        df: The blended frame, after :func:`reconcile_team_totals`.
+        slate: Games in a season, for the per-game team budget.
+
+    Returns:
+        str: One line per band plus the team budget, ready to print.
+    """
+    lines = []
+    for label, numerator, denominator, positions, low, high, floor in COHERENCE_BANDS:
+        if numerator not in df.columns or denominator not in df.columns:
+            continue
+        rows = df[df["primaryPosition"].isin(positions)]
+        volume = pd.to_numeric(rows[denominator], errors="coerce")
+        rows = rows[volume > floor]
+        if rows.empty:
+            continue
+        ratio = (pd.to_numeric(rows[numerator], errors="coerce")
+                 / pd.to_numeric(rows[denominator], errors="coerce"))
+        outside = ratio[(ratio < low) | (ratio > high)].dropna()
+        lines.append(
+            f"  {label}: median {ratio.median():.2f} over {len(ratio)} players, "
+            f"{len(outside)} outside {low}-{high}")
+        if len(outside):
+            worst = outside.reindex(outside.sub((low + high) / 2).abs()
+                                    .sort_values(ascending=False).index)[:3]
+            named = ", ".join(f"{rows.loc[i, 'player_name']} {v:.2f}"
+                              for i, v in worst.items())
+            lines.append(f"      widest: {named}")
+
+    attempts, carries = "TRUE_passingAttempts", "TRUE_rushingAttempts"
+    if {attempts, carries, "pro_team"}.issubset(df.columns):
+        # `notna()` is not enough. ESPN's `proTeam` arrives as the **string**
+        # ``"None"`` for an unrostered player -- 212 of 1,027 rows on the 2026
+        # board -- so a null check leaves a 33rd "team" that pools every free agent
+        # and lands at 0.5 plays a game. Same family as the `0.0` that means
+        # "nothing here": a value that reads as data and means absence.
+        known = df["pro_team"].notna() & (df["pro_team"].astype(str) != "None")
+        teams = (df[known]
+                 .groupby("pro_team")[[attempts, carries]].sum().sum(axis=1) / slate)
+        teams = teams[teams > 0]
+        if not teams.empty:
+            low, high = TEAM_PLAYS_BAND
+            outside = teams[(teams < low) | (teams > high)]
+            lines.append(
+                f"  team plays per game: {teams.min():.1f}-{teams.max():.1f} over "
+                f"{len(teams)} teams, {len(outside)} outside {low:.0f}-{high:.0f}")
+    return "Line coherence:\n" + "\n".join(lines) if lines else ""
 
 
 def attach_source_spread(df: pd.DataFrame, stats: List[str],
@@ -1902,7 +2098,14 @@ def build_season_projections(league, season: Optional[int] = None,
     stats = [c for c in scoring["colName"].dropna().unique()]
 
     print_coverage_report(base, weights_dict=weights)
-    final = compute_weighted_stats(df=base, stats_list=stats, weights_dict=weights)
+    # Volume joins the blend even where no league scores it -- see
+    # `Scripts.scrape_player_stats.VOLUME_STATS`. `stats` stays the *scored* list
+    # below, deliberately: `attach_source_spread` brackets a points number, and an
+    # unscored column cannot contribute to one, so widening its input would only
+    # dilute the "did this source contribute" test with columns that never reach
+    # `TRUE_Points`.
+    final = compute_weighted_stats(df=base, stats_list=blended_stats(stats),
+                                   weights_dict=weights)
 
     # After the blend and before scoring, so the points a league sees are computed
     # from a stat line a real team could actually produce. Blending first is what
@@ -1923,6 +2126,17 @@ def build_season_projections(league, season: Optional[int] = None,
     # onto the quarterbacks who threw it. Without this the transfer leaves the team it
     # touched outside the 0.98-1.02 band plan 31 closed.
     final = reconcile_team_totals(final)
+
+    # The milestone bands, derived from the reconciled line and before it is priced.
+    # After reconciliation because a band is a function of the yardage, and the
+    # yardage is what reconciliation moves.
+    final = attach_milestone_bands(final, stats, PROJECTION_PREFIXES + ("TRUE",))
+
+    # Print-only, and placed here on purpose: this is the line `proj_to_score` is
+    # about to price, after both reconciliation passes and the vacancy transfer.
+    coherence = report_line_coherence(final)
+    if coherence:
+        print(coherence)
 
     # Score every source's line, so they can be compared, not just the blend.
     #

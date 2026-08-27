@@ -289,6 +289,13 @@ class Experiment:
         volume_regressors: Replaces :data:`Scripts.usage.season.VOLUME_REGRESSORS`
             for the run. None leaves it alone.
         games_regressors: Replaces :data:`Scripts.usage.season.GAMES_REGRESSORS`.
+        shrinkage: Replaces :data:`Scripts.usage.features.SHRINKAGE_K`, per rate.
+            Partial: keys given override, the rest keep the shipped value. Added
+            2026-08-27, because :mod:`Scripts.lab.persistence` measured every shipped
+            constant to sit **below** its credibility floor -- by 1.4x for catch rate
+            to 4.6x for yards per attempt -- and there was no way to test a different
+            one through the walk-forward. A floor is an argument, not a result; this
+            is what turns it into one.
         note: Anything the ledger should carry that the numbers do not say.
     """
 
@@ -300,6 +307,7 @@ class Experiment:
     games_regressors: Optional[Tuple[str, ...]] = None
     rate_baseline_features: Optional[Dict[str, Tuple[str, ...]]] = None
     ridge_alpha: Optional[float] = None
+    shrinkage: Optional[Dict[str, float]] = None
     note: str = ""
 
 
@@ -420,6 +428,73 @@ EXPERIMENTS: Tuple[Experiment, ...] = (
         )
         for alpha in (1, 3, 10, 30, 100, 300)
     ],
+    # --- shrinkage, plan 34 -----------------------------------------------
+    #
+    # `Scripts.lab.persistence` inverted the credibility identity `n/(n+k) = r` at
+    # each rate's median denominator, over 13,288 consecutive player-season pairs,
+    # and every shipped constant came out **below** the implied floor:
+    #
+    #   catch_rate           54 vs   40      yards_per_carry       155 vs   60
+    #   yards_per_target    103 vs   40      yards_per_attempt     618 vs  150
+    #   rec_td_per_target   292 vs  120      pass_td_per_attempt  1054 vs  300
+    #   rush_td_per_carry   290 vs  150      int_per_attempt      1394 vs  300
+    #
+    # The floor assumes a perfectly stable underlying rate, so real drift only raises
+    # it -- which makes it an argument for shrinking harder, and an argument is not a
+    # result. These put it through the same walk-forward and the same pre-committed
+    # rule as everything else. The numbers below are the measured floors, written
+    # here before the run rather than tuned on it.
+    Experiment(
+        name="shrinkage_at_floor",
+        hypothesis="Every efficiency rate shrunk to its measured credibility "
+                   "floor. If the shipped constants are too small, the model is "
+                   "keeping noise it should be discarding, and per-stat MAE should "
+                   "fall furthest on the rates that persist least.",
+        source="Data/NFL/<season>/player_weeks.parquet, 2016-2025",
+        shrinkage={
+            "catch_rate": 54.0, "yards_per_target": 103.0,
+            "rec_td_per_target": 292.0, "yards_per_carry": 155.0,
+            "rush_td_per_carry": 290.0, "yards_per_attempt": 618.0,
+            "pass_td_per_attempt": 1054.0, "int_per_attempt": 1394.0,
+        },
+        note="A floor, not an estimate: it assumes the true rate is perfectly "
+             "stable, so drift raises it. Passing here would mean the shipped "
+             "constants are too small; failing would mean the floor's assumption "
+             "does more damage than the extra shrinkage buys.",
+    ),
+    Experiment(
+        name="shrinkage_touchdowns_at_floor",
+        hypothesis="Only the touchdown and interception rates. They are the least "
+                   "forecastable quantities measured (+0.189 to +0.276 year over "
+                   "year against +0.895 for carries per game), and the blend's one "
+                   "per-stat defect is a touchdown stat. If shrinkage is the answer "
+                   "it should show here without moving yardage at all.",
+        source="Data/NFL/<season>/player_weeks.parquet, 2016-2025",
+        shrinkage={
+            "rec_td_per_target": 292.0, "rush_td_per_carry": 290.0,
+            "pass_td_per_attempt": 1054.0, "int_per_attempt": 1394.0,
+        },
+        note="Scoped deliberately. `shrinkage_at_floor` moves eight rates at once "
+             "and a pooled gain there would not say which did the work -- the same "
+             "reason every other experiment here varies one thing.",
+    ),
+    Experiment(
+        name="shrinkage_double",
+        hypothesis="Every rate at twice its shipped constant -- a point between the "
+                   "shipped value and the floor. Included so the result is a curve "
+                   "rather than one point: a gain that holds from 2x to the floor is "
+                   "a real bias-variance trade, and one that appears only at the "
+                   "floor is the folds being fitted.",
+        source="—",
+        shrinkage={
+            "catch_rate": 80.0, "yards_per_target": 80.0,
+            "rec_td_per_target": 240.0, "yards_per_carry": 120.0,
+            "rush_td_per_carry": 300.0, "yards_per_attempt": 300.0,
+            "pass_td_per_attempt": 600.0, "int_per_attempt": 600.0,
+        },
+        note="Same reasoning as the ridge sweep: the shape is the evidence, and "
+             "picking the best point would be the fishing the rule exists to stop.",
+    ),
     Experiment(
         name="everything_that_passed",
         hypothesis="Whatever survives individually, combined. Features that each "

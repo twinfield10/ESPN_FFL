@@ -1,5 +1,8 @@
 import time
 from datetime import datetime
+from pathlib import Path
+
+import numpy as np
 import requests
 import polars as pl
 from bs4 import BeautifulSoup
@@ -10,6 +13,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
+from Scripts import market as mk
 from Scripts.nfl_utils import DATE_WEEK, current_season
 from Scripts.paths import landing_dir, season_dir
 
@@ -254,8 +258,42 @@ def get_raw_pinny_soup(links_list):
     df = df.with_columns(pl.col("title").str.replace("Josh Allen \\(BUF\\)", "Josh Allen").alias("title"))
 
     df.write_csv(landing_dir("Pinnacle", SEASON, "Raw_Pinnacle_New.csv"))
+    archive_raw(df, SEASON)
 
     return df
+
+
+def archive_raw(raw_df: pl.DataFrame, season: int) -> None:
+    """Keep each week's raw prices, because the landing file is overwritten.
+
+    **The reason plan 35 could mostly not be scored.** ``Raw_Pinnacle_New.csv`` is
+    rewritten on every run, so by the time anyone asked whether the de-vig and the
+    line conversion were right, the only prices left in the repo were the last
+    scrape of 2025. Every earlier week survives only as the derived ``proj_``
+    column, which cannot be re-derived under a new formula.
+
+    One parquet per week fixes that going forward. ``Scripts/scrape_BOL.py`` does
+    the same thing for the same reason.
+
+    Args:
+        raw_df: The raw scrape, already joined to the week.
+        season: Season being scraped.
+
+    Returns:
+        None. Writes ``Raw/<season>/Pinnacle_Raw_Week_<week>.parquet`` per week
+        present, so a scrape spanning two weeks does not overwrite either.
+    """
+    if 'week' not in raw_df.columns:
+        print("Pinnacle raw archive skipped: no week column on the scrape")
+        return
+    for week_num in raw_df['week'].drop_nulls().unique().to_list():
+        week_df = raw_df.filter(pl.col('week') == week_num)
+        path = season_dir("Pinnacle", season, "Raw",
+                          f"Pinnacle_Raw_Week_{week_num}.parquet")
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        week_df.write_parquet(path)
+        print(f"Archived {week_df.height} raw Pinnacle prices for week {week_num}")
+
 
 def clean_raw_pinny(df):
 
@@ -310,7 +348,14 @@ def clean_props(df):
     prop_df = prop_df.with_columns([
         pl.col('PropType').replace_strict(prop_to_stat, default=pl.col('PropType')),
         pl.col('Player').replace_strict(prop_to_stat, default=pl.col('Player')),
-        pl.col('Value').fill_null(pl.col('ImpNoVig')),
+        # `Value` was filled from `ImpNoVig` here, which put a probability in a
+        # column of thresholds for any market with no posted line. It fired on no
+        # row of the archived store -- Pinnacle posts the touchdown market as
+        # "Over/Under 0.5" and every other market carries a real line -- so it was
+        # a defect waiting for a market shape rather than a live one. A row with no
+        # line now stays null, converts to null, and drops out of the pivot below
+        # rather than shipping a probability as a threshold. See
+        # docs/plans/35-market-lines-and-vig.md V4.
         pl.col('BetTimeStamp').max().over(['week', 'Player', 'Home', 'Away', 'officialDate'])
     ])\
     .select([
@@ -328,28 +373,90 @@ def clean_props(df):
         pl.col('ImpNoVig').cast(pl.Float64),
     ])
 
-    def adjust_value_polars(df):
-        # Pivot the data
+    def adjust_value_polars(df, model=None):
+        """Turn each posted line and price into an expectation.
+
+        **What this replaces.** ``AdjValue = Value + Juice_Diff * Value * 0.25``,
+        where ``Juice_Diff`` is a difference of decimal-odds-minus-one and ``Value``
+        is the level of the line. ``Scripts/scrape_BOL.py`` had the same expression
+        with 0.5, and ``docs/STATE_OF_THE_REPO.md`` records that this one changed
+        from 0.5 to 0.25 mid-2025 with no explanation. Neither coefficient had
+        evidence, and scaling by the level assumes a constant coefficient of
+        variation, which is measurably false. See :mod:`Scripts.market`.
+
+        **The touchdown market needed more than a new coefficient.** Pinnacle posts
+        it as ``Over/Under 0.5 Touchdowns``, so the old expression evaluated
+        ``0.5 + Juice_Diff * 0.125`` -- a number that lands near the de-vigged
+        ``P(at least one touchdown)`` by numerical accident in the middle of the
+        range, and goes **negative** at the longshot end. Measured on the archived
+        2025 store: the combined touchdown column ran -0.698 to 1.124 with a mean of
+        0.417, and 14 of 421 player-weeks projected a negative number of
+        touchdowns. A count cannot be negative, and 0.417 is a probability where the
+        rows in question realised 0.637 touchdowns a week.
+
+        So that market is converted properly. Its 0.5 line makes it a statement of
+        ``P(at least one) = q``, and
+        :meth:`Scripts.market.MarketModel.mean_from_line` inverts that into a mean
+        under the fitted count family -- which needs no special case, because every
+        count market here is the same shape at a different threshold. Yardage gets
+        ``line + Phi^-1(q) * sigma(line)``.
+
+        **Measured on 2025.** Recovering the price behind each stored projection and
+        re-converting it takes Pinnacle's running-back touchdown calibration from
+        **0.679 to 0.996** on rushing and **0.591 to 0.894** on receiving, over 389
+        player-weeks. See :func:`Scripts.lab.market.backtest`.
+
+        Args:
+            df: Long prop frame with ``Value``, ``Implied`` and ``ImpNoVig``.
+            model: Loaded :class:`Scripts.market.MarketModel`. None loads it.
+
+        Returns:
+            pl.DataFrame: One row per player-stat with ``AdjValue``.
+        """
+        model = mk.load_model() if model is None else model
         pivoted_df = df.pivot(
             index=['officialDate', 'week', 'Away', 'Home', 'Player', 'PropType', 'Value', 'BetTimeStamp'],
             on='OverUnder',
             values=['Price', 'Implied', 'ImpNoVig'],
             aggregate_function='first'
-        )
-        
-        # Create Adjusted Values From Juice
-        pivoted_df = pivoted_df.with_columns([
-            -1*(1 - (pl.col('Implied_Over') + (pl.col('Implied_Under')))).alias('Juice'),
-            (1 / pl.col('Implied_Over') - 1).alias('Over_Juice'),
-            (1 / pl.col('Implied_Under') - 1).alias('Under_Juice')
-        ]).with_columns([
-            (pl.col('Under_Juice') - pl.col('Over_Juice')).alias('Juice_Diff')
-        ]).with_columns([
-            (pl.col('Value') + (pl.col('Juice_Diff') * pl.col('Value') * 0.25)).alias('AdjValue')
-        ])
-        
-        return pivoted_df
-    
+        ).drop_nulls(['Implied_Over', 'Implied_Under'])
+        if pivoted_df.height == 0:
+            return pivoted_df.with_columns(pl.lit(None, dtype=pl.Float64)
+                                             .alias('AdjValue'))
+
+        # Pinnacle's own no-vig column is the proportional rule and was already
+        # right; recomputed here so both books de-vig through one function.
+        q_over, _ = mk.devig_two_way(pivoted_df['Implied_Over'].to_numpy(),
+                                     pivoted_df['Implied_Under'].to_numpy())
+
+        # Position from the markets the book posted for the player, because the
+        # feed carries none and the touchdown multiplier is indexed by one.
+        posted = (df.group_by('Player')
+                    .agg(pl.col('PropType').unique().alias('markets')))
+        by_player = {row['Player']: mk.position_from_markets(row['markets'])
+                     for row in posted.iter_rows(named=True)}
+        positions = np.array([by_player.get(name, 'REC')
+                              for name in pivoted_df['Player'].to_list()],
+                             dtype=object)
+
+        lines = pivoted_df['Value'].to_numpy()
+        stats_posted = np.asarray(pivoted_df['PropType'].to_list(), dtype=object)
+        adjusted = lines.copy()
+        for stat in set(stats_posted.tolist()):
+            rows = stats_posted == stat
+            # `mean_from_line` picks the conversion from the stat's own shape -- a
+            # normal shift for yardage, an inversion of P(N >= k) = q for a count --
+            # and resolves the column name to the market it came from, because this
+            # frame calls the touchdown market `rushingTouchdowns` while the fit is
+            # keyed `anytimeTouchdown`. So the 0.5 line needs no special case: it
+            # *is* the count conversion at k = 1.
+            adjusted[rows] = (
+                model.mean_from_line(str(stat), lines[rows], q_over[rows],
+                                     positions[rows])
+                if model is not None else lines[rows])
+
+        return pivoted_df.with_columns(pl.Series('AdjValue', adjusted))
+
     # Get Adjusted Value
     pivoted_df = adjust_value_polars(prop_df)
 

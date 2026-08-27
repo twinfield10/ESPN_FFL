@@ -18,6 +18,68 @@ SLOT_DST = "16"
 #: slot scores -- including individual defensive players.
 SLOT_BASE = "base"
 
+#: Volume stats carried through the pipeline even where no league scores them.
+#:
+#: **Everything else in this pipeline is selected by the scoring table**, and for
+#: scored stats that is right: a stat nobody prices does not need a projection.
+#: Volume is the exception, and the reason is that it is not an output of the
+#: model -- it is the *input* every other number is built from. TOMCAT predicts
+#: per-game volume and multiplies it by a shrunken rate
+#: (:data:`Scripts.usage.season.STAT_TERMS`); the books price attempts, carries
+#: and completions as their own markets; and
+#: :data:`Scripts.lab.persistence` measures carries per game persisting year over
+#: year at +0.895 against +0.260 for the rate they are multiplied by.
+#:
+#: Dropping it at the blend cost three things that are not cosmetic. There was no
+#: way to ask whether a blended line was *coherent* -- no ``TRUE_passingYards /
+#: TRUE_passingAttempts`` to check against a plausible yards per attempt. There was
+#: no way to express a team's attempt budget, which
+#: ``docs/plans/31-team-coherent-tomcat.md`` identifies as the cause of TOMCAT's
+#: team-identity drift. And three of the five sources publish volume as a real
+#: market line, which the blend was discarding.
+#:
+#: Two of these are scoring rules in some leagues (``passingCompletions`` and
+#: ``rushingAttempts`` each appear eight times in the registry), so callers must
+#: deduplicate against the scoring table rather than concatenating.
+#:
+#: They are named as ESPN names them, because that is the key
+#: ``projected_breakdown`` is read with.
+VOLUME_STATS = (
+    "passingAttempts",
+    "passingCompletions",
+    "rushingAttempts",
+    "receivingTargets",
+)
+
+#: Scored stats that are **derived** from a blended line rather than projected by
+#: any source, so they are computed after the blend and never inside it.
+#:
+#: The six yardage-milestone bonuses. A milestone is a step function of a *weekly*
+#: quantity -- "3 points for a 100-199 yard rushing game" -- so it is not a rate on
+#: a season total and ``proj_to_score`` cannot express it: 1,400 rushing yards buys
+#: a different number of 100-yard games depending how they are distributed.
+#:
+#: Measured over 2016-2025, pricing the ladder at the season mean recovers only
+#: **13-18% of the first tier and none of the second** -- 117 rushing games against
+#: 690 realised, 0 against 18 in the tier above -- because a mean can award a band
+#: in every game or in none, and almost no player's mean sits above an edge. A back
+#: averaging 80+ yards a game hits 100 in 41.5% of them, worth ~21 points a season
+#: at 3 points a game. :mod:`Scripts.usage.milestones` computes the expectation from
+#: a fitted weekly distribution; the names here are the registry's, so whatever it
+#: writes is priced with no mapping in between.
+#:
+#: Listed in this module rather than beside the model because
+#: :func:`Scripts.projection_utils.blended_stats` has to *exclude* them, and the
+#: blend layer must not import the usage stack to find that out.
+DERIVED_STATS = (
+    "passingYards300to399Game",
+    "passingYards400PlusGame",
+    "rushingYards100-199Game",
+    "rushingYards200+Game",
+    "receivingYards100-199Game",
+    "receivingYards200+Game",
+)
+
 
 class ScoringCoverageWarning(UserWarning):
     """A league scores a stat this pipeline cannot model.
@@ -433,7 +495,12 @@ def extract_player_stats(
         }
 
 
-        bd_stats = score_cols
+        # Volume is appended rather than left to the scoring table, which is what
+        # selects everything else. See VOLUME_STATS: it is the input the rest of
+        # the line is built from, and the books price it directly. Deduplicated
+        # because two of the four are scoring rules in some leagues.
+        bd_stats = list(score_cols) + [stat for stat in VOLUME_STATS
+                                       if stat not in set(score_cols)]
 
         if status != "bye":
             for bd_stat in bd_stats:

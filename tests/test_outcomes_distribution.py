@@ -252,10 +252,19 @@ def test_the_board_columns_and_the_glossary_cannot_drift_apart():
 def test_the_outcome_evidence_strings_are_pinned_across_the_import_boundary():
     """``app`` cannot import the board builder -- it would pull the ESPN and scoring
     stack into a process that only reads parquet -- so the marker strings are duplicated.
-    The same pinning ``ROLE_WITHDRAWN_EVIDENCE`` already has."""
+    The same pinning ``ROLE_WITHDRAWN_EVIDENCE`` already has.
+
+    ``uncalibrated_marginal`` was added 2026-08-27. A quarterback's points interval
+    is built from a passing-yards marginal covering 58.9% against a nominal 80%, with
+    the *skew* inverted rather than the width wrong, so no dispersion fixes it. The
+    per-stat interval is withdrawn (``predictive.UNCALIBRATED``); the points interval
+    cannot be, because passing yards are most of a quarterback's points, so it is
+    flagged instead. Adding a key here should be a decision, which is what this
+    assertion makes it."""
     from Scripts.season_projections import OUTCOME_EVIDENCE
 
-    assert set(OUTCOME_EVIDENCE) == {"no_model", "no_dispersion", "unpriced", "simulated"}
+    assert set(OUTCOME_EVIDENCE) == {"no_model", "no_dispersion", "unpriced",
+                                     "simulated", "uncalibrated_marginal"}
     assert OUTCOME_EVIDENCE["simulated"] == "simulated"
 
 

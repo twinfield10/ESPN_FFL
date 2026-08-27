@@ -4,9 +4,50 @@
 
 **Priority:** High (quality) · **Effort:** M–L · **Where it stands:** Not started
 **Depends on:** [16](16-usage-data-layer.md) — Step 0 gates and the feature layer ·
-[18](18-season-usage-model.md) — shares the availability head, but does not block
+[18](18-season-usage-model.md) — shares the availability head, but does not block ·
+[34](34-stat-first-audit.md) — supplies the per-stat baseline this has to beat
 **Feeds:** [08 (weekly views)](08-frontend-weekly-views.md) ·
 [03 (weight re-tune)](03-projection-source-coverage.md)
+
+## What plan 34 handed this plan, 2026-08-26
+
+Three things that did not exist when this was written, and one correction.
+
+**A per-stat baseline to beat, on the real weekly blend.** `python -m
+Scripts.lab.accuracy` scores every source *and* `TRUE_` against realised weekly stat
+lines, paired on provenance, over 5,257 player-weeks pooled from nine 2025 stores. The
+Backtest section below asks for "the current four-source `TRUE_` blend" as baseline 3
+and there was no way to compute it; there is now, and it is in
+`Scripts/lab/results.json` under `blend_accuracy`. Beat *that* table, per stat, not a
+points total.
+
+**The blend's one weak stat is a touchdown rate, and the reason is measurable.**
+`TRUE_rushingTouchdowns` is worse than ESPN by 2.4%, FantasyPros by 5.1% and Pinnacle
+by 6.0%. `python -m Scripts.lab.persistence` says why: rush touchdowns per carry
+persist year over year at **+0.260** and receiving touchdowns per target at **+0.189**,
+against +0.895 for carries per game. Averaging four extrapolations of a quantity that
+is three-quarters noise is worse than taking one. **Weekly this argument gets stronger,
+not weaker** — a three-game window holds about ten red-zone touches.
+
+**`fit_rate_baselines` should be used, and every shipped `SHRINKAGE_K` is too small.**
+The transfer section below already argued the prior more than doubles its weight
+weekly. Plan 34 adds that the *season* constants are themselves below their measured
+credibility floor by 1.4× to 4.6×, so the weekly head should fit its own rather than
+inherit them.
+
+**Volume is now in the blend**, so `TRUE_passingAttempts`, `TRUE_passingCompletions`,
+`TRUE_rushingAttempts` and `TRUE_receivingTargets` exist on both grains. A weekly head
+predicting opportunity has a consensus opportunity number to be measured against for
+the first time.
+
+**One correction.** This plan's abstention section says weeks 1-2 emit nothing and
+"plan 18 is already in the blend" covers them. That remains right. What was *not* right
+was the plumbing: `USG_Points` was written into every 2025 weekly store null for all
+3,602 rows, because `proj_to_score`'s default prefix list is the season one. A source
+that never has an opinion is not the same as a source that abstains, and the app's
+coverage panel could not tell them apart. Fixed in plan 34 — `WEEKLY_PREFIXES` and
+`present_prefixes` — so when this head does ship, its first real column will be its
+first column.
 
 ## Why this head, and not the draft one, is where the edge is
 
@@ -173,7 +214,9 @@ Two nested loops, because there are two kinds of leakage to avoid.
 
 1. trailing-3 actual points per game — the cheap heuristic, R² 0.2702
 2. ESPN's own weekly projection alone
-3. the current four-source `TRUE_` blend
+3. the current four-source `TRUE_` blend — **computable since 2026-08-26**, per stat
+   and paired on provenance: `python -m Scripts.lab.accuracy`
+   ([plan 34](34-stat-first-audit.md))
 
 **Metrics:**
 

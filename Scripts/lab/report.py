@@ -663,6 +663,173 @@ def weekly_transfer_section(ledger: Dict) -> str:
 </section>"""
 
 
+def blend_accuracy_section(ledger: Dict) -> str:
+    """The shipping blend, scored per stat -- and the one stat where it loses."""
+    block = ledger.get("blend_accuracy")
+    if not block:
+        return ""
+    season = sorted(block)[-1]
+    entry = block[season]
+    stats = entry["populations"]["all"]["stats"]
+    sources = ("ESPN", "FP", "PINNY", "BOL")
+
+    from Scripts.lab.accuracy import STAT_ORDER
+
+    rows = []
+    for stat in STAT_ORDER:
+        entries = stats.get(stat)
+        if not entries:
+            continue
+        cells = [stat]
+        for source in sources:
+            found = entries.get(source)
+            cells.append(fmt(found["delta_pct"], decimals=1, signed=True) + "%"
+                         if found else "—")
+        rows.append(cells)
+
+    worst = [(stat, stats[stat]["ESPN"]["delta_pct"])
+             for stat in STAT_ORDER
+             if stat in stats and "ESPN" in stats[stat]]
+    chart = bar_chart(
+        worst, unit="%", decimals=1, higher_is_better=False,
+        caption="Blend versus ESPN, per stat, on the cells ESPN was real for. "
+                "Negative is the blend winning — so the improvement colour is the "
+                "left-hand one. One stat goes the other way.")
+
+    defects = entry["populations"]["all"]["defects"]
+    defect_rows = [[row["stat"], row["source"], f"{row['n']:,}",
+                    fmt(row["delta_pct"], decimals=1, signed=True) + "%"]
+                   for row in defects]
+
+    points = entry["points"]
+    point_cells = " · ".join(
+        f"{k} {v:.3f}" for k, v in sorted(points["mae"].items()))
+
+    return f"""
+<section id="blend-accuracy">
+  <h2>The shipping blend, scored one stat at a time</h2>
+  <p>Every other scored evaluation on this page judges <strong>TOMCAT</strong>. The
+  four-source blend that actually reaches the app, the Sheets and the draft board
+  had never been scored against a realised stat line at all — although
+  <code>lineups.parquet</code> has carried the projected line and the realised one
+  side by side, for nine leagues, since 2025.</p>
+  {chart}
+  {table(["stat", "vs ESPN", "vs FP", "vs PINNY", "vs BOL"], rows)}
+  <p>Each column is <strong>paired</strong>: the blend and that source are scored on
+  the same cells, the ones the source really had a line for. Pooling instead would
+  compare the blend's number on 100% of rows against FantasyPros' on 13%, which
+  measures coverage and reports it as accuracy.</p>
+
+  <h3>What the points number cannot see</h3>
+  <p>Fantasy-point MAE for {esc(points['league'])}, n={points['n']:,}:
+  <strong>{esc(point_cells)}</strong> — the blend beats ESPN by 2.2%, a clean win.
+  Inside that win it is losing on <code>rushingTouchdowns</code> against three of
+  its four inputs. Yardage carries most of the points variance, so one number cannot
+  say so.</p>
+  {table(["stat", "worse than", "n", "MAE delta"], defect_rows)}
+  <p class="note">The bar is the lab's own
+  <code>MAX_STAT_MAE_INCREASE_PCT</code> ({entry['threshold_pct']}%), applied
+  mechanically. The defect survives all three populations
+  (<em>all</em>, <em>team&nbsp;played</em>, <em>played</em>). Note the fourth column
+  of the table above: the blend is 9.4% <em>better</em> than BetOnline on the same
+  stat, which points at BetOnline's <code>anytimeTouchdown</code> split — 100% to
+  rushing for QB and RB.</p>
+  <p class="note">Reproduce with <code>python -m Scripts.lab.accuracy</code>.
+  {entry['rows']:,} player-weeks, {len(entry['leagues'])} leagues, {esc(season)}.
+  One season only: no <code>lineups</code> exists before 2025 and
+  <a href="../docs/plans/25-results-backfill.md">plan 25</a> explains why none can
+  be built. Cross-league agreement was checked rather than assumed — actuals and
+  ESPN to 0.0000, the blend to
+  {entry['worst_blend_disagreement']:.2f}.</p>
+</section>"""
+
+
+def persistence_section(ledger: Dict) -> str:
+    """What is forecastable at all, and whether the shrinkage matches it."""
+    block = ledger.get("persistence")
+    if not block:
+        return ""
+
+    volume_rows = []
+    for name, entry in block.get("volume", {}).items():
+        strata = entry.get("strata", {})
+        volume_rows.append([
+            name, f"{entry['n']:,}", fmt(entry["pearson"], decimals=3),
+            fmt(entry["spearman"], decimals=3),
+            *(fmt(strata[s]["pearson"], decimals=3) if s in strata else "—"
+              for s in ("low", "mid", "high")),
+        ])
+
+    rate_rows = []
+    for name, entry in sorted(block.get("rates", {}).items(),
+                              key=lambda kv: -kv[1]["pearson"]):
+        shipped = entry.get("shipped_k")
+        implied = entry["implied_k"]
+        ratio = ("—" if shipped is None or not implied
+                 else f"{shipped / implied:.2f}")
+        rate_rows.append([
+            name, f"{entry['n']:,}", fmt(entry["pearson"], decimals=3),
+            f"{entry['median_denominator']:.0f}", f"{implied:.0f}",
+            "—" if shipped is None else f"{shipped:.0f}", ratio,
+        ])
+
+    chart = bar_chart(
+        [(name, entry["pearson"])
+         for name, entry in sorted(block.get("rates", {}).items(),
+                                   key=lambda kv: -kv[1]["pearson"])],
+        unit="", decimals=3,
+        caption="Year-over-year persistence of each efficiency rate. Higher is more "
+                "forecastable. The touchdown rates are the least forecastable "
+                "quantities measured here.")
+
+    return f"""
+<section id="persistence">
+  <h2>What persists, and what the model shrinks</h2>
+  <p>The question underneath the rushing-touchdown defect above is not which source
+  should carry more weight. It is <strong>how much of a touchdown rate is
+  forecastable at all</strong> — because averaging four sources helps where they
+  carry independent signal, and there is very little signal here to be independent
+  about.</p>
+
+  <h3>Volume persists</h3>
+  {table(["quantity", "n", "Pearson", "Spearman", "low third", "mid", "high third"],
+         volume_rows)}
+  <p>Terciles are of the <em>prior</em> season, which is the information a
+  projection has. Two readings worth keeping: a low-volume back's carries carry
+  almost nothing forward (+0.084), and <strong>a quarterback's attempt rate is
+  nearly unpredictable among established starters</strong> — +0.093 in the top third
+  against +0.540 pooled. The pooled figure is mostly separating starters from
+  backups, the same shape plan 18 found for games played.</p>
+
+  <h3>Efficiency barely does</h3>
+  {chart}
+  {table(["rate", "n", "Pearson", "median denominator", "ceiling k", "shipped k",
+          "shipped / ceiling"], rate_rows)}
+  <p><code>ceiling k</code> inverts the credibility identity
+  <code>n/(n+k) = r</code> at the median denominator. It is a
+  <strong>ceiling</strong>, not a floor: solving it assumes the underlying rate is
+  perfectly stable, so any genuine year-to-year drift depresses <code>r</code> and
+  <em>inflates</em> the number. A shipped constant below it is therefore where a
+  calibrated one belongs, and the gap measures drift.</p>
+  <p class="note"><strong>This page said "floor" and drew the opposite conclusion
+  until 2026-08-27</strong> — that all eight constants were 1.4× to 4.6× too small.
+  Three experiments put it through the walk-forward and the pre-committed rule
+  rejected all three: every rate at the ceiling costs +0.48% to +1.23% on yardage
+  MAE and −0.0018 mean within-position Spearman, touchdown rates alone still cost
+  −0.0009 (quarterbacks worst at −0.0027), and a 2× midpoint costs −0.0012 — so the
+  damage is monotone in the shrinkage. The measurements are unchanged; the inference
+  from them was wrong. What the table is for is <em>ranking</em>: touchdown rates
+  persist at +0.189 to +0.276 against +0.895 for carries per game, and that is why
+  the blend loses on <code>rushingTouchdowns</code>.</p>
+  <p class="note">Reproduce with <code>python -m Scripts.lab.persistence</code>.
+  {block['pairs']:,} consecutive player-season pairs,
+  {block['seasons'][0]}–{block['seasons'][1]}. Pairs join on
+  <code>season + 1</code> and are never shifted, so a missed season contributes no
+  pair across the gap. Nothing here is fitted or predicted; it is a description of
+  ten seasons that feeds decisions rather than models.</p>
+</section>"""
+
+
 def prior_negatives_section() -> str:
     """Everything measured and rejected before this plan."""
     rows = [
@@ -845,6 +1012,8 @@ def render(ledger: Dict, headline: str = "") -> str:
     <h2>Experiments in full</h2>
     {experiments}
   </section>
+  {blend_accuracy_section(ledger)}
+  {persistence_section(ledger)}
   {weekly_transfer_section(ledger)}
   {injury_section(ledger)}
   {blend_section(ledger)}
