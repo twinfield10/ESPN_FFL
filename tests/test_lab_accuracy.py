@@ -153,3 +153,50 @@ def test_defects_are_ordered_worst_first():
                                    "PINNY": {"n": 10, "delta_pct": 6.0}}}
     assert [row["source"] for row in accuracy.defects(board)] == \
         ["PINNY", "FP", "ESPN"]
+
+
+# --- calibration, where MAE cannot judge ---------------------------------
+
+def test_mae_prefers_predicting_zero_on_a_sparse_count():
+    """The reason calibration exists beside MAE, shown on nine rows.
+
+    An RB's weekly receiving touchdowns are 0 about 95% of the time. A source that
+    projects a flat 0.0 beats one projecting the true expectation on MAE, because
+    MAE is minimised by the median and the median is zero. BetOnline does exactly
+    that -- 988 of 995 RB player-weeks carry ``BOL_receivingTouchdowns == 0``.
+    """
+    rows = [{"actual": 0.0, "espn": 0.30, "fp": 0.0, "blend": 0.30}] * 8
+    rows += [{"actual": 1.0, "espn": 0.30, "fp": 0.0, "blend": 0.30}]
+    f = frame(rows)
+
+    honest = accuracy.paired(f, STAT, "ESPN")     # projects the expectation
+    flat = accuracy.paired(f, STAT, "FP")         # projects zero
+    assert flat["source_mae"] < honest["source_mae"], (
+        "MAE rewards the flat zero, which is the whole problem")
+
+    # Calibration says the opposite, and says it correctly.
+    assert accuracy.calibration(f, STAT, source="ESPN")["ratio"] == \
+        pytest.approx(2.7, rel=0.01)
+    assert accuracy.calibration(f, STAT, source="FP")["ratio"] == pytest.approx(0.0)
+
+
+def test_calibration_is_a_ratio_of_totals_not_a_mean_of_ratios():
+    """A player-week with one realised touchdown must not dominate the number."""
+    rows = [{"actual": 0.0, "espn": 0.1, "fp": 0.1, "blend": 0.1}] * 9
+    rows += [{"actual": 1.0, "espn": 0.1, "fp": 0.1, "blend": 0.1}]
+    result = accuracy.calibration(frame(rows), STAT, source="ESPN")
+    assert result["realised"] == pytest.approx(1.0)
+    assert result["projected"] == pytest.approx(1.0)
+    assert result["ratio"] == pytest.approx(1.0)
+
+
+def test_calibration_returns_nothing_when_nothing_realised():
+    """A ratio with a zero denominator is not a calibration."""
+    rows = [{"actual": 0.0, "espn": 0.1, "fp": 0.1, "blend": 0.1}] * 40
+    assert accuracy.calibration(frame(rows), STAT, source="ESPN") is None
+
+
+def test_only_the_sparse_counts_get_a_calibration_row():
+    """Yardage is dense and its median is far from zero, so MAE judges it fairly."""
+    assert "receivingYards" not in accuracy.CALIBRATION_STATS
+    assert "rushingTouchdowns" in accuracy.CALIBRATION_STATS

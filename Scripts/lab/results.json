@@ -32,6 +32,232 @@
       },
       "populations": {
         "all": {
+          "calibration": {
+            "passingInterceptions": {
+              "BOL@QB": {
+                "n": 435,
+                "projected": 205.3325,
+                "ratio": 0.7179458041958042,
+                "realised": 286.0
+              },
+              "ESPN@QB": {
+                "n": 597,
+                "projected": 313.25506000800004,
+                "ratio": 1.0727913013972605,
+                "realised": 292.0
+              },
+              "FP@QB": {
+                "n": 551,
+                "projected": 290.5,
+                "ratio": 1.0157342657342658,
+                "realised": 286.0
+              },
+              "PINNY@QB": {
+                "n": 134,
+                "projected": 62.60974951096984,
+                "ratio": 0.7365852883643511,
+                "realised": 85.0
+              },
+              "TRUE@QB": {
+                "n": 597,
+                "projected": 268.9191483612442,
+                "ratio": 0.9209559875385075,
+                "realised": 292.0
+              }
+            },
+            "passingTouchdowns": {
+              "BOL@QB": {
+                "n": 442,
+                "projected": 580.02,
+                "ratio": 0.8761631419939577,
+                "realised": 662.0
+              },
+              "ESPN@QB": {
+                "n": 597,
+                "projected": 675.588525955,
+                "ratio": 1.0038462495616642,
+                "realised": 673.0
+              },
+              "FP@QB": {
+                "n": 551,
+                "projected": 674.4,
+                "ratio": 1.0141353383458647,
+                "realised": 665.0
+              },
+              "PINNY@QB": {
+                "n": 411,
+                "projected": 546.9308739319223,
+                "ratio": 0.8778986740480293,
+                "realised": 623.0
+              },
+              "TRUE@QB": {
+                "n": 597,
+                "projected": 638.1994605346838,
+                "ratio": 0.9482904317008675,
+                "realised": 673.0
+              }
+            },
+            "receivingTouchdowns": {
+              "BOL@RB": {
+                "n": 958,
+                "projected": 0.0,
+                "ratio": 0.0,
+                "realised": 88.0
+              },
+              "BOL@TE": {
+                "n": 462,
+                "projected": 170.73213069656467,
+                "ratio": 1.1939309838920606,
+                "realised": 143.0
+              },
+              "BOL@WR": {
+                "n": 1192,
+                "projected": 479.6290794907196,
+                "ratio": 1.402424209037192,
+                "realised": 342.0
+              },
+              "ESPN@RB": {
+                "n": 1170,
+                "projected": 79.467239581,
+                "ratio": 0.9030368134204546,
+                "realised": 88.0
+              },
+              "ESPN@TE": {
+                "n": 551,
+                "projected": 119.097403403,
+                "ratio": 0.8157356397465754,
+                "realised": 146.0
+              },
+              "ESPN@WR": {
+                "n": 1433,
+                "projected": 370.375106278,
+                "ratio": 1.0829681470116959,
+                "realised": 342.0
+              },
+              "FP@RB": {
+                "n": 1024,
+                "projected": 71.99999999999997,
+                "ratio": 0.8571428571428568,
+                "realised": 84.0
+              },
+              "FP@TE": {
+                "n": 476,
+                "projected": 114.5,
+                "ratio": 0.8357664233576643,
+                "realised": 137.0
+              },
+              "FP@WR": {
+                "n": 1270,
+                "projected": 357.4,
+                "ratio": 1.0797583081570996,
+                "realised": 331.0
+              },
+              "PINNY@RB": {
+                "n": 390,
+                "projected": 36.13791775929238,
+                "ratio": 0.592424881299875,
+                "realised": 61.0
+              },
+              "TRUE@RB": {
+                "n": 1170,
+                "projected": 52.691570599638,
+                "ratio": 0.598767847723159,
+                "realised": 88.0
+              },
+              "TRUE@TE": {
+                "n": 551,
+                "projected": 140.52892240880703,
+                "ratio": 0.9625268658137468,
+                "realised": 146.0
+              },
+              "TRUE@WR": {
+                "n": 1433,
+                "projected": 410.7433602916149,
+                "ratio": 1.2010039774608623,
+                "realised": 342.0
+              }
+            },
+            "rushingTouchdowns": {
+              "BOL@QB": {
+                "n": 453,
+                "projected": 112.5015262796752,
+                "ratio": 1.159809549275002,
+                "realised": 97.0
+              },
+              "BOL@RB": {
+                "n": 958,
+                "projected": 521.2649166314783,
+                "ratio": 1.5422038953594033,
+                "realised": 338.0
+              },
+              "BOL@WR": {
+                "n": 1193,
+                "projected": 0.0,
+                "ratio": 0.0,
+                "realised": 11.0
+              },
+              "ESPN@QB": {
+                "n": 597,
+                "projected": 92.80827774900001,
+                "ratio": 0.9567863685463919,
+                "realised": 97.0
+              },
+              "ESPN@RB": {
+                "n": 1170,
+                "projected": 344.54061813499993,
+                "ratio": 1.010383044384164,
+                "realised": 341.0
+              },
+              "ESPN@WR": {
+                "n": 1433,
+                "projected": 10.856379724,
+                "ratio": 0.9869436112727272,
+                "realised": 11.0
+              },
+              "FP@QB": {
+                "n": 551,
+                "projected": 80.9,
+                "ratio": 0.8340206185567011,
+                "realised": 97.0
+              },
+              "FP@RB": {
+                "n": 1024,
+                "projected": 317.20000000000005,
+                "ratio": 0.9881619937694706,
+                "realised": 321.0
+              },
+              "FP@WR": {
+                "n": 1270,
+                "projected": 1.4000000000000001,
+                "ratio": 0.14,
+                "realised": 10.0
+              },
+              "PINNY@RB": {
+                "n": 390,
+                "projected": 127.11083205289381,
+                "ratio": 0.6797370698015712,
+                "realised": 187.0
+              },
+              "TRUE@QB": {
+                "n": 597,
+                "projected": 95.96198086414904,
+                "ratio": 0.989298771795351,
+                "realised": 97.0
+              },
+              "TRUE@RB": {
+                "n": 1170,
+                "projected": 382.117654479048,
+                "ratio": 1.1205796319033665,
+                "realised": 341.0
+              },
+              "TRUE@WR": {
+                "n": 1433,
+                "projected": 4.346610867765122,
+                "ratio": 0.395146442524102,
+                "realised": 11.0
+              }
+            }
+          },
           "defects": [
             {
               "delta_pct": 6.048690949481128,
@@ -874,6 +1100,232 @@
               }
             }
           },
+          "calibration": {
+            "passingInterceptions": {
+              "BOL@QB": {
+                "n": 431,
+                "projected": 203.6775,
+                "ratio": 0.7121590909090909,
+                "realised": 286.0
+              },
+              "ESPN@QB": {
+                "n": 453,
+                "projected": 313.25506000800004,
+                "ratio": 1.0727913013972605,
+                "realised": 292.0
+              },
+              "FP@QB": {
+                "n": 444,
+                "projected": 290.1,
+                "ratio": 1.0143356643356645,
+                "realised": 286.0
+              },
+              "PINNY@QB": {
+                "n": 134,
+                "projected": 62.60974951096984,
+                "ratio": 0.7365852883643511,
+                "realised": 85.0
+              },
+              "TRUE@QB": {
+                "n": 453,
+                "projected": 268.16748169457753,
+                "ratio": 0.9183817866252655,
+                "realised": 292.0
+              }
+            },
+            "passingTouchdowns": {
+              "BOL@QB": {
+                "n": 436,
+                "projected": 570.4425,
+                "ratio": 0.8616956193353474,
+                "realised": 662.0
+              },
+              "ESPN@QB": {
+                "n": 453,
+                "projected": 675.588525955,
+                "ratio": 1.0038462495616642,
+                "realised": 673.0
+              },
+              "FP@QB": {
+                "n": 444,
+                "projected": 672.6999999999999,
+                "ratio": 1.011578947368421,
+                "realised": 665.0
+              },
+              "PINNY@QB": {
+                "n": 409,
+                "projected": 544.6609990033428,
+                "ratio": 0.8742552150936481,
+                "realised": 623.0
+              },
+              "TRUE@QB": {
+                "n": 453,
+                "projected": 633.3058980548616,
+                "ratio": 0.9410191650146532,
+                "realised": 673.0
+              }
+            },
+            "receivingTouchdowns": {
+              "BOL@RB": {
+                "n": 910,
+                "projected": 0.0,
+                "ratio": 0.0,
+                "realised": 88.0
+              },
+              "BOL@TE": {
+                "n": 431,
+                "projected": 161.08655956151574,
+                "ratio": 1.126479437493117,
+                "realised": 143.0
+              },
+              "BOL@WR": {
+                "n": 1098,
+                "projected": 447.159814553797,
+                "ratio": 1.3074848378765993,
+                "realised": 342.0
+              },
+              "ESPN@RB": {
+                "n": 921,
+                "projected": 79.16851155,
+                "ratio": 0.8996421767045455,
+                "realised": 88.0
+              },
+              "ESPN@TE": {
+                "n": 444,
+                "projected": 117.320833026,
+                "ratio": 0.8035673494931507,
+                "realised": 146.0
+              },
+              "ESPN@WR": {
+                "n": 1107,
+                "projected": 367.30484796300004,
+                "ratio": 1.073990783517544,
+                "realised": 342.0
+              },
+              "FP@RB": {
+                "n": 860,
+                "projected": 71.79999999999998,
+                "ratio": 0.8547619047619046,
+                "realised": 84.0
+              },
+              "FP@TE": {
+                "n": 400,
+                "projected": 112.3,
+                "ratio": 0.8197080291970803,
+                "realised": 137.0
+              },
+              "FP@WR": {
+                "n": 1035,
+                "projected": 353.19999999999993,
+                "ratio": 1.0670694864048336,
+                "realised": 331.0
+              },
+              "PINNY@RB": {
+                "n": 389,
+                "projected": 36.04707909388608,
+                "ratio": 0.5909357228505915,
+                "realised": 61.0
+              },
+              "TRUE@RB": {
+                "n": 921,
+                "projected": 52.49261306261976,
+                "ratio": 0.5965069666206791,
+                "realised": 88.0
+              },
+              "TRUE@TE": {
+                "n": 444,
+                "projected": 135.93100397897518,
+                "ratio": 0.9310342738285972,
+                "realised": 146.0
+              },
+              "TRUE@WR": {
+                "n": 1107,
+                "projected": 397.03731479879184,
+                "ratio": 1.160927821049099,
+                "realised": 342.0
+              }
+            },
+            "rushingTouchdowns": {
+              "BOL@QB": {
+                "n": 440,
+                "projected": 108.90228527270705,
+                "ratio": 1.1227039718835778,
+                "realised": 97.0
+              },
+              "BOL@RB": {
+                "n": 910,
+                "projected": 503.73006015178237,
+                "ratio": 1.4903256217508354,
+                "realised": 338.0
+              },
+              "BOL@WR": {
+                "n": 1099,
+                "projected": 0.0,
+                "ratio": 0.0,
+                "realised": 11.0
+              },
+              "ESPN@QB": {
+                "n": 453,
+                "projected": 92.80827774900001,
+                "ratio": 0.9567863685463919,
+                "realised": 97.0
+              },
+              "ESPN@RB": {
+                "n": 921,
+                "projected": 342.86734079999997,
+                "ratio": 1.0054760727272727,
+                "realised": 341.0
+              },
+              "ESPN@WR": {
+                "n": 1107,
+                "projected": 10.737588405,
+                "ratio": 0.9761444004545455,
+                "realised": 11.0
+              },
+              "FP@QB": {
+                "n": 444,
+                "projected": 80.8,
+                "ratio": 0.8329896907216494,
+                "realised": 97.0
+              },
+              "FP@RB": {
+                "n": 860,
+                "projected": 315.3,
+                "ratio": 0.9822429906542056,
+                "realised": 321.0
+              },
+              "FP@WR": {
+                "n": 1035,
+                "projected": 1.4000000000000001,
+                "ratio": 0.14,
+                "realised": 10.0
+              },
+              "PINNY@RB": {
+                "n": 389,
+                "projected": 126.91142073018611,
+                "ratio": 0.6786706990919044,
+                "realised": 187.0
+              },
+              "TRUE@QB": {
+                "n": 453,
+                "projected": 94.65059602961274,
+                "ratio": 0.9757793405114715,
+                "realised": 97.0
+              },
+              "TRUE@RB": {
+                "n": 921,
+                "projected": 374.799089136749,
+                "ratio": 1.0991175634508767,
+                "realised": 341.0
+              },
+              "TRUE@WR": {
+                "n": 1107,
+                "projected": 4.307013761431788,
+                "ratio": 0.391546705584708,
+                "realised": 11.0
+              }
+            }
+          },
           "defects": [
             {
               "delta_pct": 6.058776817026172,
@@ -1164,6 +1616,232 @@
           }
         },
         "team_played": {
+          "calibration": {
+            "passingInterceptions": {
+              "BOL@QB": {
+                "n": 435,
+                "projected": 205.3325,
+                "ratio": 0.7179458041958042,
+                "realised": 286.0
+              },
+              "ESPN@QB": {
+                "n": 565,
+                "projected": 313.25506000800004,
+                "ratio": 1.0727913013972605,
+                "realised": 292.0
+              },
+              "FP@QB": {
+                "n": 548,
+                "projected": 290.5,
+                "ratio": 1.0157342657342658,
+                "realised": 286.0
+              },
+              "PINNY@QB": {
+                "n": 134,
+                "projected": 62.60974951096984,
+                "ratio": 0.7365852883643511,
+                "realised": 85.0
+              },
+              "TRUE@QB": {
+                "n": 565,
+                "projected": 268.9191483612442,
+                "ratio": 0.9209559875385075,
+                "realised": 292.0
+              }
+            },
+            "passingTouchdowns": {
+              "BOL@QB": {
+                "n": 442,
+                "projected": 580.02,
+                "ratio": 0.8761631419939577,
+                "realised": 662.0
+              },
+              "ESPN@QB": {
+                "n": 565,
+                "projected": 675.588525955,
+                "ratio": 1.0038462495616642,
+                "realised": 673.0
+              },
+              "FP@QB": {
+                "n": 548,
+                "projected": 674.4,
+                "ratio": 1.0141353383458647,
+                "realised": 665.0
+              },
+              "PINNY@QB": {
+                "n": 411,
+                "projected": 546.9308739319223,
+                "ratio": 0.8778986740480293,
+                "realised": 623.0
+              },
+              "TRUE@QB": {
+                "n": 565,
+                "projected": 638.1994605346838,
+                "ratio": 0.9482904317008675,
+                "realised": 673.0
+              }
+            },
+            "receivingTouchdowns": {
+              "BOL@RB": {
+                "n": 958,
+                "projected": 0.0,
+                "ratio": 0.0,
+                "realised": 88.0
+              },
+              "BOL@TE": {
+                "n": 462,
+                "projected": 170.73213069656467,
+                "ratio": 1.1939309838920606,
+                "realised": 143.0
+              },
+              "BOL@WR": {
+                "n": 1192,
+                "projected": 479.6290794907196,
+                "ratio": 1.402424209037192,
+                "realised": 342.0
+              },
+              "ESPN@RB": {
+                "n": 1105,
+                "projected": 79.467239581,
+                "ratio": 0.9030368134204546,
+                "realised": 88.0
+              },
+              "ESPN@TE": {
+                "n": 521,
+                "projected": 119.097403403,
+                "ratio": 0.8157356397465754,
+                "realised": 146.0
+              },
+              "ESPN@WR": {
+                "n": 1352,
+                "projected": 370.375106278,
+                "ratio": 1.0829681470116959,
+                "realised": 342.0
+              },
+              "FP@RB": {
+                "n": 1014,
+                "projected": 71.99999999999997,
+                "ratio": 0.8571428571428568,
+                "realised": 84.0
+              },
+              "FP@TE": {
+                "n": 473,
+                "projected": 114.5,
+                "ratio": 0.8357664233576643,
+                "realised": 137.0
+              },
+              "FP@WR": {
+                "n": 1254,
+                "projected": 357.4,
+                "ratio": 1.0797583081570996,
+                "realised": 331.0
+              },
+              "PINNY@RB": {
+                "n": 390,
+                "projected": 36.13791775929238,
+                "ratio": 0.592424881299875,
+                "realised": 61.0
+              },
+              "TRUE@RB": {
+                "n": 1105,
+                "projected": 52.691570599638,
+                "ratio": 0.598767847723159,
+                "realised": 88.0
+              },
+              "TRUE@TE": {
+                "n": 521,
+                "projected": 140.52892240880703,
+                "ratio": 0.9625268658137468,
+                "realised": 146.0
+              },
+              "TRUE@WR": {
+                "n": 1352,
+                "projected": 410.74336029161486,
+                "ratio": 1.201003977460862,
+                "realised": 342.0
+              }
+            },
+            "rushingTouchdowns": {
+              "BOL@QB": {
+                "n": 453,
+                "projected": 112.5015262796752,
+                "ratio": 1.159809549275002,
+                "realised": 97.0
+              },
+              "BOL@RB": {
+                "n": 958,
+                "projected": 521.2649166314783,
+                "ratio": 1.5422038953594033,
+                "realised": 338.0
+              },
+              "BOL@WR": {
+                "n": 1193,
+                "projected": 0.0,
+                "ratio": 0.0,
+                "realised": 11.0
+              },
+              "ESPN@QB": {
+                "n": 565,
+                "projected": 92.80827774900001,
+                "ratio": 0.9567863685463919,
+                "realised": 97.0
+              },
+              "ESPN@RB": {
+                "n": 1105,
+                "projected": 344.54061813499993,
+                "ratio": 1.010383044384164,
+                "realised": 341.0
+              },
+              "ESPN@WR": {
+                "n": 1352,
+                "projected": 10.856379724,
+                "ratio": 0.9869436112727272,
+                "realised": 11.0
+              },
+              "FP@QB": {
+                "n": 548,
+                "projected": 80.9,
+                "ratio": 0.8340206185567011,
+                "realised": 97.0
+              },
+              "FP@RB": {
+                "n": 1014,
+                "projected": 317.20000000000005,
+                "ratio": 0.9881619937694706,
+                "realised": 321.0
+              },
+              "FP@WR": {
+                "n": 1254,
+                "projected": 1.4000000000000001,
+                "ratio": 0.14,
+                "realised": 10.0
+              },
+              "PINNY@RB": {
+                "n": 390,
+                "projected": 127.11083205289381,
+                "ratio": 0.6797370698015712,
+                "realised": 187.0
+              },
+              "TRUE@QB": {
+                "n": 565,
+                "projected": 95.96198086414904,
+                "ratio": 0.989298771795351,
+                "realised": 97.0
+              },
+              "TRUE@RB": {
+                "n": 1105,
+                "projected": 382.117654479048,
+                "ratio": 1.1205796319033665,
+                "realised": 341.0
+              },
+              "TRUE@WR": {
+                "n": 1352,
+                "projected": 4.346610867765122,
+                "ratio": 0.395146442524102,
+                "realised": 11.0
+              }
+            }
+          },
           "defects": [
             {
               "delta_pct": 6.048690949481128,
@@ -1460,7 +2138,7 @@
           }
         }
       },
-      "ran_at": "2026-08-26T19:10:48-04:00",
+      "ran_at": "2026-08-27T10:35:03-04:00",
       "rows": 5257,
       "season": 2025,
       "threshold_pct": 2.0,

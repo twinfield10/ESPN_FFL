@@ -247,6 +247,77 @@ def paired(frame: pl.DataFrame, stat: str, source: str,
     }
 
 
+#: Stats where MAE alone cannot judge the projection, so calibration is reported too.
+#:
+#: **MAE is minimised by the median, and a weekly touchdown count's median is zero.**
+#: An RB's receiving touchdowns are 0 in about 95% of player-weeks, so a source that
+#: projects a flat 0.0 scores *better* on MAE than one projecting his true
+#: expectation -- and BetOnline does exactly that, sending 100% of its anytime-TD
+#: market to rushing for every back (988 of 995 RB player-weeks carry
+#: ``BOL_receivingTouchdowns == 0``).
+#:
+#: That is how this module's headline defect came to be overstated. It reported the
+#: blend losing to ESPN on ``rushingTouchdowns`` by 2.4%, which is true; what MAE
+#: could not say is that reallocating those touchdowns correctly *worsens* MAE while
+#: taking RB receiving-TD calibration from **0.597 to 0.891** and rushing from
+#: **1.124 to 1.046**. Both cannot be improvements under one metric, and for a
+#: projection -- a number that gets multiplied by a scoring rate and summed -- the
+#: calibration is the one that matters.
+#:
+#: Yardage is dense and its median is nowhere near zero, so MAE is a fair judge
+#: there and this list stays short deliberately.
+CALIBRATION_STATS: Tuple[str, ...] = (
+    "passingTouchdowns", "passingInterceptions",
+    "rushingTouchdowns", "receivingTouchdowns",
+)
+
+
+def calibration(frame: pl.DataFrame, stat: str, source: str = BLEND,
+                position: Optional[str] = None,
+                population: str = "all") -> Optional[Dict]:
+    """Total projected against total realised, on the rows the source is real for.
+
+    The metric MAE cannot be for a sparse count. A ratio of 1.0 means the source
+    projects the right *number* of touchdowns over the population; MAE asks a
+    different and, for a projection, less useful question.
+
+    Args:
+        frame: Frame from :func:`build`.
+        stat: ESPN stat name.
+        source: Prefix to score. Defaults to the blend.
+        position: Restrict to one ``primaryPosition``. None pools
+            :data:`STAT_POSITIONS`.
+        population: One of :data:`POPULATIONS`.
+
+    Returns:
+        dict or None: ``n``, ``realised``, ``projected`` and ``ratio``. None when
+        the columns are absent or nothing realised.
+    """
+    actual = f"{ACTUAL_PREFIX}{stat}"
+    column = f"{source}_{stat}"
+    if not {actual, column}.issubset(frame.columns):
+        return None
+
+    positions = (position,) if position else STAT_POSITIONS.get(stat, ())
+    rows = frame.filter(
+        _population_filter(population)
+        & pl.col("primaryPosition").is_in(list(positions))
+        & pl.col(actual).is_not_null()
+        & pl.col(column).is_not_null()
+        & (es.real_mask(frame, source, stat) if source != BLEND else pl.lit(True))
+    )
+    if rows.height < MIN_PAIRED_ROWS:
+        return None
+    totals = rows.select(pl.col(actual).sum().alias("realised"),
+                         pl.col(column).sum().alias("projected"))
+    realised = float(totals["realised"][0])
+    projected = float(totals["projected"][0])
+    if realised <= 0:
+        return None
+    return {"n": rows.height, "realised": realised, "projected": projected,
+            "ratio": projected / realised}
+
+
 def scoreboard(frame: pl.DataFrame,
                population: str = "all",
                by_position: bool = False) -> Dict[str, Dict[str, Dict]]:
@@ -398,6 +469,21 @@ def run(season: int, league_keys: Optional[Sequence[str]] = None,
         entry["populations"][population] = {
             "stats": board,
             "defects": defects(board),
+            # Reported beside MAE, not instead of it, for the count stats where MAE
+            # is minimised by predicting zero. See CALIBRATION_STATS.
+            "calibration": {
+                stat: {
+                    key: found
+                    for key, found in (
+                        (f"{src}@{pos}", calibration(frame, stat, source=src,
+                                                     position=pos,
+                                                     population=population))
+                        for src in (BLEND,) + SOURCES
+                        for pos in STAT_POSITIONS.get(stat, ()))
+                    if found
+                }
+                for stat in CALIBRATION_STATS
+            },
         }
         # The per-position split is kept for one population, not three. It is the
         # useful one -- `played` isolates "the stat line was wrong" from "he was
@@ -448,14 +534,29 @@ def main(argv: Optional[List[str]] = None) -> int:
         f"{k} {v:.3f} (n={points['counts'].get(k, 0)})"
         for k, v in sorted(points["mae"].items())))
 
+    board = entry["populations"]["played"]
+    print("\nCalibration, total projected / total realised, played rows "
+          "(a count's MAE is minimised")
+    print("  by predicting zero, so MAE cannot judge these on its own; 1.00 is right):")
+    for stat, entries in board.get("calibration", {}).items():
+        cells = "  ".join(
+            f"{key} {found['ratio']:.2f}"
+            for key, found in sorted(entries.items())
+            if key.startswith(f"{BLEND}@"))
+        if cells:
+            print(f"  {stat:22s} {cells}")
+
     print(f"\nDefects (blend worse than an input by more than "
           f"{entry['threshold_pct']}%):")
     any_defect = False
     for population in POPULATIONS:
         for row in entry["populations"][population]["defects"]:
             any_defect = True
+            flag = ("  <-- MAE cannot judge this stat alone; read the "
+                    "calibration above"
+                    if row["stat"] in CALIBRATION_STATS else "")
             print(f"  [{population}] {row['stat']} vs {row['source']}: "
-                  f"{row['delta_pct']:+.1f}% on n={row['n']}")
+                  f"{row['delta_pct']:+.1f}% on n={row['n']}{flag}")
     if not any_defect:
         print("  none")
 

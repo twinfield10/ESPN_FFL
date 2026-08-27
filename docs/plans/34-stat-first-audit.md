@@ -99,6 +99,48 @@ The fantasy-point MAE for the same league-season is **−2.2%**, a clean win. It
 any of the above, because yardage carries most of the variance. That is the whole argument
 for measuring per stat.
 
+**Amended 2026-08-27: the metric was wrong for the stat it flagged.**
+
+MAE is minimised by the *median*, and an RB's weekly receiving-touchdown count is 0 in
+about 95% of player-weeks — so a source projecting a flat 0.0 scores **better** on MAE
+than one projecting the true expectation. BetOnline does exactly that: 988 of 995 RB
+player-weeks carry `BOL_receivingTouchdowns == 0`, because `scrape_BOL.py:520-523` sends
+100% of the anytime-TD market to rushing for every QB and RB. Pinnacle splits the same
+market by *yardage* share (`scrape_pinnacle.py:373-381`), which errs the other way —
+Christian McCaffrey at 56/44 against a realised ~79/21. The two cancel by accident, not
+by design.
+
+So `Scripts/lab/accuracy.py` now reports **calibration** — total projected over total
+realised — beside MAE for the four sparse counts. It tells a different and more useful
+story:
+
+| stat | QB | RB | WR | TE |
+|---|---|---|---|---|
+| rushingTouchdowns | 0.98 | **1.10** | 0.39 | — |
+| receivingTouchdowns | — | **0.60** | 1.16 | 0.93 |
+| passingTouchdowns | 0.94 | — | — | — |
+| passingInterceptions | 0.92 | — | — | — |
+
+**`receivingTouchdowns` at RB is 0.60 — the largest error in the table, and MAE scored
+it as +0.7% against ESPN, i.e. fine.** The `rushingTouchdowns` defect this plan led with
+is real but is the *smaller* half of one mis-split market.
+
+**And the fix is measured but not landed**, because it is source construction and the
+owner's sequencing puts bias adjustment after the stat lines. Splitting each book's
+anytime total by the **ESPN+FantasyPros TD ratio** — both project the two types
+separately, so the columns are already on the frame — cuts RB share MAE from 0.202 to
+**0.113** and moves calibration from 0.597 to **0.891** on receiving and 1.124 to
+**1.046** on rushing. Red-zone opportunity share is comparable (0.125 over ten seasons)
+and needs a new join plus a fitted shrinkage, so the consensus ratio is the cheaper of
+the two.
+
+Three things to know before landing it. It is **weekly-only** — BetOnline's *season*
+endpoint publishes both TD types separately (Jahmyr Gibbs 12.5 rushing / 3.74
+receiving), so no draft board is affected. It is worth **zero points directly**: all
+nine leagues score both types at 6. And it makes weekly per-stat *MAE slightly worse*
+(rushing −0.9%, receiving +2.3%, net zero) for exactly the reason above, so it must be
+judged on calibration or it will look like a regression.
+
 ### F3 · What persists, and what the model shrinks, disagree everywhere
 
 `python -m Scripts.lab.persistence`, 13,288 consecutive player-season pairs, 2016–2025.
