@@ -25,6 +25,7 @@ from typing import Dict, Optional, Tuple
 
 import pandas as pd
 
+from Scripts import market as mk
 from Scripts.paths import NFL_TACKLES_CSV, resolve, season_dir
 from Scripts.scoring import get_scoring_table
 from Scripts.scrape_player_stats import (
@@ -430,7 +431,11 @@ def coverage_report(df, sources=('ESPN', 'FP', 'PINNY', 'BOL', 'USG'), stats=Non
     Args:
         df: Blended frame carrying ``*_is_imputed`` columns.
         sources: Source prefixes to report on.
-        stats: Restrict to these stat names. Defaults to every stat found.
+        stats: Restrict to these stat names. Defaults to every stat found. A
+            market-implied dispersion column (``<stat>_sd``) is never a stat: it
+            has no ``MEAN_`` counterpart to be imputed from, so counting it would
+            drag a source's coverage average toward whatever share of its columns
+            happen to carry one.
 
     Returns:
         pd.DataFrame: Columns ``source``, ``stat``, ``n``, ``real``, ``real_pct``,
@@ -442,6 +447,7 @@ def coverage_report(df, sources=('ESPN', 'FP', 'PINNY', 'BOL', 'USG'), stats=Non
         cols = [
             c for c in df.columns
             if c.startswith(prefix) and not c.endswith(IMPUTED_SUFFIX)
+            and not c.endswith(mk.SD_SUFFIX)
         ]
         for col in cols:
             stat = col[len(prefix):]
@@ -541,10 +547,12 @@ def clean_pinny(pinny_path=None, season=None):
             named file that is missing is a typo, not an absent season.
 
     Note:
-        Most of this function's body is commented out upstream -- the pivot,
-        TD-split, no-vig adjustment and scoring call are all inert, so it
-        currently returns essentially raw data. Preserved as-is during the
-        module extraction; see docs/STATE_OF_THE_REPO.md.
+        This function loads and renames; it does not derive. The pivot, TD-split,
+        no-vig adjustment and scoring call all happen in
+        :mod:`Scripts.scrape_pinnacle`, which writes the wide frame this reads. A
+        commented-out copy of that chain used to sit in the body carrying its own
+        juice coefficient; it was deleted with
+        ``docs/plans/35-market-lines-and-vig.md``.
     """
     if pinny_path is not None:
         pinny_path = resolve(pinny_path)
@@ -554,22 +562,6 @@ def clean_pinny(pinny_path=None, season=None):
             return absent_weekly_source("Pinnacle", pinny_path)
     else:
         raise ValueError("clean_pinny requires either pinny_path or season")
-
-    # Constants
-    prop_to_stat={
-        "Touchdowns": 'rushingTouchdowns',
-        "Rushing Yards": "rushingYards",
-        "Rush Attempts": 'rushingAttempts',
-
-        "Receiving Yards": "receivingYards",
-        "Receptions": "receivingReceptions",
-
-        "Touchdown Passes": "passingTouchdowns",
-        "Pass Completions": "passingCompletions",
-        "Pass Attempts": "passingAttempts",
-        "Passing Yards": "passingYards",
-        "Interceptions": "passingInterceptions"
-    }
 
     name_changes={
         # Pinny -> ESPN #
@@ -591,71 +583,16 @@ def clean_pinny(pinny_path=None, season=None):
     # Load
     raw=pd.read_parquet(pinny_path)
 
-    # Get Stats
-    #raw.replace({"PropType": prop_to_stat}, inplace=True)
-
-    # Filter
-    #raw = raw[raw['PropType'].isin(list(prop_to_stat.values()))]
-
     # Clean Names
     raw.replace({"player_name": name_changes}, inplace=True)
 
-    # Replace NaN in Value with ImpNoVig
-    #raw['Value'] = raw['Value'].fillna(raw['ImpNoVig'])
-
-    def adjust_value(df):
-        pivoted_df = df.pivot_table(
-            index=['officialDate', 'week', 'Away', 'Home', 'Player', 'PropType', 'Value', 'BetTimeStamp'],
-            columns='OverUnder',
-            values=['Price', 'Implied', 'ImpNoVig'],
-            aggfunc='first'  # Use 'first' in case there are duplicates
-        ).reset_index()
-
-        # Flatten the column names and add OverUnder values as suffixes
-        pivoted_df.columns.name = None
-        new_columns = []
-
-        for col in pivoted_df.columns:
-            if col[0] in ['Price', 'Implied', 'ImpNoVig']:
-                new_columns.append(f"{col[0]}_{col[1]}")
-            else:
-                new_columns.append(col[0])
-
-        pivoted_df.columns = new_columns
-
-        # Create Adjusted Values From Juice
-        pivoted_df["Juice"] = pivoted_df['Implied_Over'] + pivoted_df['Implied_Under']
-        pivoted_df["Over_Juice"] = (1 / pivoted_df['Implied_Over'] - 1)
-        pivoted_df["Under_Juice"] = (1 / pivoted_df['Implied_Under'] - 1)
-        pivoted_df["Juice_Diff"] = pivoted_df["Under_Juice"] - pivoted_df["Over_Juice"]
-        pivoted_df["AdjValue"] = pivoted_df["Value"] + (pivoted_df["Juice_Diff"] * pivoted_df["Value"] * 0.5)
-
-        return pivoted_df
-    
-    #adjusted = adjust_value(raw)
-
-
-    #adjusted = adjusted[['week', 'Player', 'PropType', 'AdjValue']]
-    #adjusted.columns = ['week', 'player_name', 'statType', 'statValue']
-
-    # Pivot
-    #clean = adjusted.pivot_table(index=['week','player_name'], columns='statType', values='statValue', aggfunc='mean').reset_index()
-
-    
-
-    # Split Touchdowns by Usage (Rushing/Receiving)
-    #if 'rushingTouchdowns' in clean.columns:
-    #    clean['receivingTouchdowns'] = clean['rushingTouchdowns'] * (clean['receivingYards'] / (clean['receivingYards'] + clean['rushingYards']))
-    #    clean['rushingTouchdowns'] = clean['rushingTouchdowns'] - clean['receivingTouchdowns']
-
-    #clean.columns = ['week', 'player_name'] + ['proj_' + str(col) for col in clean.columns[2:]]
-    #clean = clean[['week', 'player_name'] + list(clean.columns[2:])]
-
-    # Flatten If Needed
-    #clean.columns.name = None
-    #clean.columns = [col if col is not None else 'StatValue' for col in clean.columns]
-
-    #final = proj_to_score(proj_df=clean, col_pfix="PINNY")
+    # A commented-out copy of the pivot, no-vig, touchdown-split and scoring chain
+    # used to sit here, carrying a *third* instance of the juice coefficient at 0.5
+    # against the scraper's 0.25. It was inert -- the Pinnacle scraper does this work
+    # and writes the wide frame, so this function only reads and renames -- and an
+    # inert copy of a formula is worse than no copy, because a reader has to decide
+    # which one ships. Deleted with docs/plans/35-market-lines-and-vig.md, which
+    # moved the live arithmetic into `Scripts/market.py`.
 
     return raw
 

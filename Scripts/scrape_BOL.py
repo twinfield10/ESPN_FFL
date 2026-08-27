@@ -1,9 +1,12 @@
 import os
 import time
 from datetime import datetime
+import numpy as np
 import requests
 import polars as pl
 from pathlib import Path
+
+from Scripts import market as mk
 from Scripts.nfl_utils import NFL_SCHEDULE, current_season, current_week
 from Scripts.paths import landing_dir, season_dir
 
@@ -348,6 +351,36 @@ def get_BOL_data_OU(ids: list, link_stat: str, espn_stat: str) -> pl.DataFrame:
     else:
         return None
 
+def archive_raw(prop_df: pl.DataFrame, season: int, week_num: int) -> None:
+    """Keep this week's raw prices, because the landing file is overwritten.
+
+    **The reason plan 35 could not be scored.** ``BetOnline_AllProps_Raw.parquet``
+    is rewritten on every run, so by the time anyone asked whether the de-vig and
+    the line conversion were right, the only prices left in the repo were the last
+    scrape of 2025 -- one game. Every earlier week survives only as the *derived*
+    ``proj_`` column, which cannot be re-derived under a new formula, so
+    ``Scripts/lab/accuracy.py``'s 2025 calibration measures arithmetic that has
+    since been replaced and will keep measuring it.
+
+    One parquet per week fixes that going forward: prices and outcomes both
+    archived means every conversion in :mod:`Scripts.market` becomes answerable
+    against realised stat lines rather than against its own derivation.
+
+    Args:
+        prop_df: The raw scrape.
+        season: Season being scraped.
+        week_num: Week being scraped.
+
+    Returns:
+        None. Writes ``Raw/<season>/BetOnline_Raw_Week_<week>.parquet``.
+    """
+    path = season_dir("BetOnline", season, "Raw",
+                      f"BetOnline_Raw_Week_{week_num}.parquet")
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    prop_df.write_parquet(path)
+    print(f"Archived {prop_df.height} raw BetOnline prices for week {week_num}")
+
+
 # Reconcile Full File
 def reconcile_BOL(prop_df: pl.DataFrame, season: int = None):
     """Merge a fresh scrape into the season's accumulated prop file.
@@ -421,105 +454,177 @@ def reconcile_BOL(prop_df: pl.DataFrame, season: int = None):
         print(f"WEEK {w} Bet Online Player Prop File Contains {week_df.height} Rows ({n_games} Games)")
 
 # Get Stat by Name
-def get_x_stat(stat = 'anytimeTouchdown'):
-    # Load
+def get_x_stat(stat: str = 'anytimeTouchdown', model=None) -> pl.DataFrame:
+    """One stat's projection, and its market-implied dispersion, per player-week.
+
+    **Every piece of arithmetic here lives in :mod:`Scripts.market`** -- the de-vig,
+    the line-to-mean conversion, and the two ways to read a ladder. This function
+    is the plumbing: pivot, join, name the columns. It used to hold an undocumented
+    coefficient, a conditional that was always False, and an inner join that could
+    drop a player; ``docs/plans/35-market-lines-and-vig.md`` records each one.
+
+    The hierarchy for the projection, cheapest information first:
+
+    1. A two-way pair, de-vigged, converted by
+       :meth:`Scripts.market.MarketModel.mean_from_line` -- ``line + Phi^-1(q) *
+       sigma(line)`` for yardage, an inversion of ``P(N >= k) = q`` for a count.
+       This is every stat BetOnline posts an over/under for.
+    2. A count ladder rooted at 1, read by the exact discrete identity. This is the
+       anytime-touchdown, sack and interception markets, which have no two-way line.
+    3. A yardage ladder's own de-vigged median, which is the quantity a line *is*.
+       Never ``sum(threshold * P(bucket))``: measured against the line it posts
+       beside, that ran 0.77 to 1.81.
+
+    The dispersion is separate and comes from the ladder wherever there is one --
+    exactly for a count rooted at 1, from the ladder's upper quantiles otherwise.
+
+    Args:
+        stat: ESPN stat name, a key of :data:`stats`.
+        model: Loaded :class:`Scripts.market.MarketModel`. None loads it.
+
+    Returns:
+        pl.DataFrame: ``BOL_game_id``, ``week``, ``player_name``, ``position``,
+        ``team``, ``proj_<stat>`` and ``proj_<stat>_sd``.
+    """
+    model = mk.load_model() if model is None else model
     df = pl.read_parquet(landing_dir("BetOnline", SEASON, "BetOnline_AllProps_Raw.parquet"))\
            .filter(pl.col('espn_stat') == stat)\
            .drop('market_id', 'condition', 'is_active', 'is_actual')
-    
-    # Split
+
+    keys = ['BOL_game_id', 'week', 'player_name', 'position', 'team']
     df_ou = df.filter(pl.col('prop_source') == 'OverUnder')
     df_val = df.filter(pl.col('prop_source') == 'Values')
 
-    # Handle OverUnder
-    def ou_calc(df=df_ou):
-
-        # Pivot
-        df_wide = df.pivot(
-            index=["BOL_game_id", "week", "player_name", "player_id", "team", "position", "statistic", "espn_stat", "prop_source", "value"],
-            on="type",
-            values=["odds", "impProb"]
-        )
-
-        # Clean
-        clean = df_wide \
-            .sort(by=['BOL_game_id', 'player_name', 'value'], descending=[False, False, True])\
-            .with_columns([
-                -1*(1 - (pl.col('impProb_Over') + (pl.col('impProb_Under')))).alias('Juice'),
-                (1 / pl.col("impProb_Over") - 1).alias('Over_Juice'),
-                (1 / pl.col("impProb_Under") - 1).alias('Under_Juice'),
-                (((1 / pl.col("impProb_Under") - 1)) - ((1 / pl.col("impProb_Over") - 1))).alias("Juice_Diff"),
-            ])\
-            .with_columns([
-                (pl.col('value') + (pl.col('Juice_Diff') * pl.col('value') * pl.lit(0.5))).alias(f'proj_{stat}')
-            ])
-        
-        return clean.select(['BOL_game_id', 'week','player_name', 'position', 'team', f'proj_{stat}'])
-
-    # Handle Values
-    def value_calc(df=df_val):
-        over_cols = ['week', 'BOL_game_id', 'player_name', 'player_id', 'team', 'position', 'statistic', 'espn_stat']
-        clean = (
-            df
-            .sort(by=['BOL_game_id', 'player_name', 'value'], descending=[False, False, True])
-            .with_columns(
-                pl.when(pl.col('impProb') == pl.col('value').max().over(over_cols))
-                  .then(pl.col('impProb'))
-                  .otherwise(pl.col('impProb') - pl.col("impProb").shift(1).over(over_cols))
-                  .alias('exactProb')
-            )
-            .with_columns(
-                pl.coalesce(pl.col('exactProb'), pl.col('impProb'))
-            )
-            .with_columns([
-                (pl.col('value') * pl.col('exactProb')).alias(f'proj_{stat}_vals')
-            ])
-            .group_by(over_cols)
-            .agg(
-                pl.col(f'proj_{stat}_vals').sum()
-            )
-        )
-
-        return clean.select(['BOL_game_id', 'week','player_name', 'position', 'team', f'proj_{stat}_vals'])
-    
+    # The book's own margin, measured on this scrape's two-way pairs and applied to
+    # the one-sided ladders as well -- they carry the same 6.4%, measured. Falls
+    # back to the archived constant when a stat has no two-way market at all.
+    hold = mk.DEFAULT_OVERROUND
     if df_ou.height > 0:
-        clean_ou = ou_calc()
-        clean_vals = value_calc()
+        sides = df_ou.pivot(index=['BOL_game_id', 'player_name', 'value'],
+                            on='type', values='impProb', aggregate_function='first')
+        if {'Over', 'Under'}.issubset(sides.columns):
+            hold = mk.measure_overround(sides['Over'].to_numpy(),
+                                        sides['Under'].to_numpy())
 
-        # Combine
-        final_df = clean_ou.join(clean_vals, on=['BOL_game_id', 'week', 'player_name', 'position', 'team'])
-        final_df = final_df\
-            .with_columns([
-                pl.coalesce([ pl.col(f'proj_{stat}'), pl.col(f'proj_{stat}_vals')]).alias(f'proj_{stat}')
-            ])
-        
-        final_df = final_df.drop(f'proj_{stat}_vals').sort(by=[f'proj_{stat}'])
+    def ou_calc(frame: pl.DataFrame) -> pl.DataFrame:
+        """Two-way pairs into an expectation: de-vig, then convert by stat shape."""
+        wide = frame.pivot(
+            index=keys + ['player_id', 'statistic', 'espn_stat', 'value'],
+            on='type', values=['odds', 'impProb'],
+        ).drop_nulls(['impProb_Over', 'impProb_Under'])
+        if wide.height == 0:
+            return wide.select(keys).with_columns(
+                pl.lit(None, dtype=pl.Float64).alias(f'from_line_{stat}'))
+
+        q_over, _ = mk.devig_two_way(wide['impProb_Over'].to_numpy(),
+                                     wide['impProb_Under'].to_numpy())
+        lines = wide['value'].to_numpy()
+        converted = (model.mean_from_line(stat, lines, q_over,
+                                          wide['position'].to_list())
+                     if model is not None else lines)
+        # One row per player-stat, in case the book posts alternate lines: the join
+        # below is on the keys alone and a duplicate there multiplies every stat.
+        return (wide
+                .with_columns(pl.Series(f'from_line_{stat}', converted))
+                .group_by(keys)
+                .agg(pl.col(f'from_line_{stat}').mean()))
+
+    def ladder_calc(frame: pl.DataFrame) -> pl.DataFrame:
+        """A ladder into a projection and a dispersion, by its shape."""
+        kind = mk.MARKET_STATS[stat].kind if stat in mk.MARKET_STATS else 'yardage'
+        rows = []
+        for group in frame.partition_by(keys, maintain_order=True):
+            edges, survival = mk.monotone_survival(group['value'].to_numpy(),
+                                                   group['impProb'].to_numpy())
+            fair = mk.devig_survival(survival, hold)
+            mean = (mk.count_moments(edges, fair)[0] if kind == 'count'
+                    else mk.ladder_median(edges, fair))
+            rows.append({
+                **{key: group[key][0] for key in keys},
+                f'from_ladder_{stat}': None if not np.isfinite(mean) else mean,
+                f'proj_{stat}_sd': _finite(mk.market_scale(edges, fair, kind)),
+            })
+        if not rows:
+            return frame.select(keys).with_columns(
+                pl.lit(None, dtype=pl.Float64).alias(f'from_ladder_{stat}'),
+                pl.lit(None, dtype=pl.Float64).alias(f'proj_{stat}_sd'))
+        return pl.DataFrame(rows, schema_overrides={
+            f'from_ladder_{stat}': pl.Float64, f'proj_{stat}_sd': pl.Float64})
+
+    # A full join, not an inner one. The old inner join dropped any player with a
+    # ladder and no two-way line for that stat -- measured at 0 rows on the archived
+    # week, so a latent risk rather than a live bug, and the dispersion column makes
+    # it a live one: a laddered player with no line still states a variance.
+    if df_ou.height > 0 and df_val.height > 0:
+        final_df = ou_calc(df_ou).join(ladder_calc(df_val), on=keys, how='full',
+                                       coalesce=True)
+    elif df_ou.height > 0:
+        final_df = ou_calc(df_ou).with_columns(
+            pl.lit(None, dtype=pl.Float64).alias(f'from_ladder_{stat}'),
+            pl.lit(None, dtype=pl.Float64).alias(f'proj_{stat}_sd'))
     else:
-        final_df = value_calc().with_columns(pl.col(f'proj_{stat}_vals').alias(f'proj_{stat}')).drop(f'proj_{stat}_vals').sort(by=[f'proj_{stat}'])
+        final_df = ladder_calc(df_val).with_columns(
+            pl.lit(None, dtype=pl.Float64).alias(f'from_line_{stat}'))
 
-    return final_df
+    return (final_df
+            .with_columns(pl.coalesce(pl.col(f'from_line_{stat}'),
+                                      pl.col(f'from_ladder_{stat}'))
+                            .alias(f'proj_{stat}'))
+            .drop(f'from_line_{stat}', f'from_ladder_{stat}')
+            .select(keys + [f'proj_{stat}', f'proj_{stat}_sd'])
+            .sort(by=[f'proj_{stat}'], nulls_last=True))
+
+
+def _finite(value):
+    """A float, or None where it is not finite -- Polars skips null and propagates
+    NaN, and every consumer of a dispersion column wants the former."""
+    return None if value is None or not np.isfinite(value) else float(value)
+
 
 # Clean Final Dataframe
-def clean_bol(stats_list = list(stats.keys())):
+def clean_bol(stats_list=None) -> pl.DataFrame:
+    """Every stat's projection and dispersion, one row per player-week.
+
+    Args:
+        stats_list: ESPN stat names to build. None does all of :data:`stats`.
+
+    Returns:
+        pl.DataFrame: ``proj_<stat>`` and ``proj_<stat>_sd`` per stat, plus the
+        schedule join.
+    """
+    stats_list = list(stats.keys()) if stats_list is None else stats_list
+    keys = ['BOL_game_id', 'week', 'player_name', 'position', 'team']
+    model = mk.load_model()
+
     final_result = None
     for stat in stats_list:
-        result = get_x_stat(stat)
-
+        result = get_x_stat(stat, model=model)
         if final_result is None:
             final_result = result
-        else:
-            final_result = final_result.join(result, on=['BOL_game_id','player_name', 'team', 'week', 'position'], how='full')
-            final_result = final_result.with_columns([
-                pl.coalesce(pl.col('BOL_game_id'), 'BOL_game_id_right'),
-                pl.coalesce(pl.col('player_name'), 'player_name_right'),
-                pl.coalesce(pl.col('team'), 'team_right'),
-                pl.coalesce(pl.col('week'), 'week_right'),
-                pl.coalesce(pl.col('position'), 'position_right'),
-                ]).drop('BOL_game_id_right','player_name_right', 'team_right', 'week_right', 'position_right')
-            
+            continue
+        final_result = final_result.join(result, on=keys, how='full',
+                                        coalesce=True)
+
+    # The anytime-touchdown market, allocated to a rushing or a receiving column.
+    #
+    # **This allocation is wrong and is not plan 35's to fix.** All of a back's
+    # anytime market goes to rushing and all of a receiver's to receiving, which is
+    # why `Scripts/lab/accuracy.py` reports BOL@RB receivingTouchdowns at a ratio of
+    # 0.0 on 910 player-weeks. Reallocating it is docs/plans/34-stat-first-audit.md
+    # F2's open item, measured there as worth 0.597 -> 0.891 on RB receiving
+    # calibration. What changed here is only that the dispersion follows its own
+    # mean instead of being dropped.
+    rushing = pl.col('position').is_in(['QB', 'RB'])
+    receiving = pl.col('position').is_in(['WR', 'TE'])
     final_result = final_result.with_columns([
-        (pl.when(pl.col('position').is_in(['QB', 'RB'])).then(pl.col('proj_anytimeTouchdown')).otherwise(pl.lit(0))).alias('proj_rushingTouchdowns'),
-        (pl.when(pl.col('position').is_in(['WR', 'TE'])).then(pl.col('proj_anytimeTouchdown')).otherwise(pl.lit(0))).alias('proj_receivingTouchdowns')
+        pl.when(rushing).then(pl.col('proj_anytimeTouchdown'))
+          .otherwise(pl.lit(0.0)).alias('proj_rushingTouchdowns'),
+        pl.when(receiving).then(pl.col('proj_anytimeTouchdown'))
+          .otherwise(pl.lit(0.0)).alias('proj_receivingTouchdowns'),
+        pl.when(rushing).then(pl.col('proj_anytimeTouchdown_sd'))
+          .alias('proj_rushingTouchdowns_sd'),
+        pl.when(receiving).then(pl.col('proj_anytimeTouchdown_sd'))
+          .alias('proj_receivingTouchdowns_sd'),
     ])
 
     Long_Sched = CURRENT_SCHED.unpivot(
@@ -532,7 +637,7 @@ def clean_bol(stats_list = list(stats.keys())):
     final_result = (
         final_result
         .with_columns(pl.lit(datetime.now()).alias('BetTimeStamp'))
-        .drop('proj_anytimeTouchdown')
+        .drop('proj_anytimeTouchdown', 'proj_anytimeTouchdown_sd')
         .join(Long_Sched, on=['team', 'week'], how="left")
     )
 
@@ -588,6 +693,7 @@ with pl.Config(tbl_cols=-1):
 
 ## Peek And Save Raw Data
 full_df.write_parquet(landing_dir("BetOnline", SEASON, "BetOnline_AllProps_Raw.parquet"))
+archive_raw(full_df, SEASON, week)
 
 
 BOL_STATS = clean_bol()

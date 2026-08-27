@@ -2138,7 +2138,7 @@
           }
         }
       },
-      "ran_at": "2026-08-27T10:35:03-04:00",
+      "ran_at": "2026-08-27T10:52:06-04:00",
       "rows": 5257,
       "season": 2025,
       "threshold_pct": 2.0,
@@ -4576,6 +4576,316 @@
       "curve_reason": "discounting healthy comparables improves their MAE by 0.53%, so the curve is fitting regression to the mean rather than injury.",
       "hazard": "reject",
       "hazard_reason": "weekly Brier is 0.9898 of the constant base rate's, above the 0.9800 the rule requires -- the hazard is not a weekly predictor. The pooled per-body-part rate is unaffected and may still be quoted."
+    }
+  },
+  "market_lines": {
+    "2025": {
+      "calibration": {
+        "BOL@QB|passingInterceptions": {
+          "n": 431,
+          "new": 289.2,
+          "new_ratio": 1.0112,
+          "old": 203.7,
+          "old_ratio": 0.7122,
+          "realised": 286.0
+        },
+        "BOL@QB|rushingTouchdowns": {
+          "n": 440,
+          "new": 102.4,
+          "new_ratio": 1.0552,
+          "old": 108.9,
+          "old_ratio": 1.1227,
+          "realised": 97.0
+        },
+        "BOL@RB|rushingTouchdowns": {
+          "n": 910,
+          "new": 473.4,
+          "new_ratio": 1.4007,
+          "old": 503.7,
+          "old_ratio": 1.4903,
+          "realised": 338.0
+        },
+        "BOL@TE|receivingTouchdowns": {
+          "n": 431,
+          "new": 151.4,
+          "new_ratio": 1.0587,
+          "old": 161.1,
+          "old_ratio": 1.1265,
+          "realised": 143.0
+        },
+        "BOL@WR|receivingTouchdowns": {
+          "n": 1098,
+          "new": 420.3,
+          "new_ratio": 1.2288,
+          "old": 447.2,
+          "old_ratio": 1.3075,
+          "realised": 342.0
+        },
+        "PINNY@RB|receivingTouchdowns": {
+          "n": 389,
+          "new": 54.5,
+          "new_ratio": 0.8942,
+          "old": 36.0,
+          "old_ratio": 0.5909,
+          "realised": 61.0
+        },
+        "PINNY@RB|rushingTouchdowns": {
+          "n": 389,
+          "new": 186.3,
+          "new_ratio": 0.9963,
+          "old": 126.9,
+          "old_ratio": 0.6787,
+          "realised": 187.0
+        }
+      },
+      "games": 1,
+      "ladder_hold": {
+        "by_stat": {
+          "defensiveTotalTackles": [
+            11,
+            1.0638
+          ],
+          "passingAttempts": [
+            2,
+            1.0633
+          ],
+          "passingCompletions": [
+            2,
+            1.0644
+          ],
+          "passingInterceptions": [
+            2,
+            1.0629
+          ],
+          "passingTouchdowns": [
+            2,
+            1.0635
+          ],
+          "passingYards": [
+            2,
+            1.0691
+          ],
+          "receivingReceptions": [
+            11,
+            1.0644
+          ],
+          "receivingYards": [
+            8,
+            1.0802
+          ],
+          "rushingAttempts": [
+            4,
+            1.0647
+          ],
+          "rushingYards": [
+            4,
+            1.0785
+          ]
+        },
+        "median": 1.0649,
+        "n": 48
+      },
+      "ladder_median_vs_line": {
+        "defensiveTotalTackles": {
+          "mean_abs_gap": 0.541,
+          "mean_gap": 0.541,
+          "n": 11,
+          "rung_gap": 1.0
+        },
+        "passingAttempts": {
+          "mean_abs_gap": 0.681,
+          "mean_gap": 0.681,
+          "n": 2,
+          "rung_gap": 2.0
+        },
+        "passingCompletions": {
+          "mean_abs_gap": 0.769,
+          "mean_gap": 0.769,
+          "n": 2,
+          "rung_gap": 2.0
+        },
+        "passingInterceptions": {
+          "mean_abs_gap": 0.74,
+          "mean_gap": 0.74,
+          "n": 1,
+          "rung_gap": 1.0
+        },
+        "passingTouchdowns": {
+          "mean_abs_gap": 0.118,
+          "mean_gap": 0.118,
+          "n": 2,
+          "rung_gap": 1.0
+        },
+        "passingYards": {
+          "mean_abs_gap": 0.489,
+          "mean_gap": 0.489,
+          "n": 2,
+          "rung_gap": 10.0
+        },
+        "receivingReceptions": {
+          "mean_abs_gap": 0.752,
+          "mean_gap": 0.752,
+          "n": 10,
+          "rung_gap": 1.0
+        },
+        "receivingYards": {
+          "mean_abs_gap": 1.227,
+          "mean_gap": 1.226,
+          "n": 8,
+          "rung_gap": 10.0
+        },
+        "rushingAttempts": {
+          "mean_abs_gap": 0.577,
+          "mean_gap": 0.523,
+          "n": 4,
+          "rung_gap": 1.0
+        },
+        "rushingYards": {
+          "mean_abs_gap": 0.813,
+          "mean_gap": 0.813,
+          "n": 4,
+          "rung_gap": 10.0
+        }
+      },
+      "line_adjustment": {
+        "defensiveTotalTackles": {
+          "mean_abs_derived": 0.225,
+          "mean_abs_old_k25": 0.38,
+          "mean_abs_old_k50": 0.76,
+          "mean_fitted_sd": 2.5,
+          "mean_ladder_sd": 3.4,
+          "mean_line": 5.5,
+          "n": 11,
+          "n_from_ladder": 8
+        },
+        "passingAttempts": {
+          "mean_abs_derived": 0.276,
+          "mean_abs_old_k25": 0.796,
+          "mean_abs_old_k50": 1.591,
+          "mean_fitted_sd": 8.7,
+          "mean_ladder_sd": 10.2,
+          "mean_line": 33.5,
+          "n": 2,
+          "n_from_ladder": 2
+        },
+        "passingCompletions": {
+          "mean_abs_derived": 0.225,
+          "mean_abs_old_k25": 0.589,
+          "mean_abs_old_k50": 1.179,
+          "mean_fitted_sd": 6.0,
+          "mean_ladder_sd": 7.2,
+          "mean_line": 21.5,
+          "n": 2,
+          "n_from_ladder": 2
+        },
+        "passingInterceptions": {
+          "mean_abs_derived": 0.143,
+          "mean_abs_old_k25": 0.078,
+          "mean_abs_old_k50": 0.156,
+          "mean_fitted_sd": 0.7,
+          "mean_ladder_sd": 0.9,
+          "mean_line": 0.5,
+          "n": 2,
+          "n_from_ladder": 2
+        },
+        "passingTouchdowns": {
+          "mean_abs_derived": 0.368,
+          "mean_abs_old_k25": 0.476,
+          "mean_abs_old_k50": 0.951,
+          "mean_fitted_sd": 1.2,
+          "mean_ladder_sd": 1.3,
+          "mean_line": 2.0,
+          "n": 2,
+          "n_from_ladder": 1
+        },
+        "passingYards": {
+          "mean_abs_derived": 0.0,
+          "mean_abs_old_k25": 0.0,
+          "mean_abs_old_k50": 0.0,
+          "mean_fitted_sd": 74.5,
+          "mean_ladder_sd": 114.5,
+          "mean_line": 251.0,
+          "n": 2,
+          "n_from_ladder": 2
+        },
+        "receivingReceptions": {
+          "mean_abs_derived": 0.335,
+          "mean_abs_old_k25": 0.419,
+          "mean_abs_old_k50": 0.839,
+          "mean_fitted_sd": 1.8,
+          "mean_ladder_sd": 2.8,
+          "mean_line": 3.32,
+          "n": 11,
+          "n_from_ladder": 10
+        },
+        "receivingYards": {
+          "mean_abs_derived": 0.432,
+          "mean_abs_old_k25": 0.492,
+          "mean_abs_old_k50": 0.984,
+          "mean_fitted_sd": 25.7,
+          "mean_ladder_sd": 49.7,
+          "mean_line": 38.41,
+          "n": 11,
+          "n_from_ladder": 8
+        },
+        "rushingAttempts": {
+          "mean_abs_derived": 0.331,
+          "mean_abs_old_k25": 0.541,
+          "mean_abs_old_k50": 1.082,
+          "mean_fitted_sd": 5.1,
+          "mean_ladder_sd": 6.7,
+          "mean_line": 12.0,
+          "n": 4,
+          "n_from_ladder": 4
+        },
+        "rushingYards": {
+          "mean_abs_derived": 0.213,
+          "mean_abs_old_k25": 0.259,
+          "mean_abs_old_k50": 0.517,
+          "mean_fitted_sd": 31.5,
+          "mean_ladder_sd": 47.6,
+          "mean_line": 51.75,
+          "n": 4,
+          "n_from_ladder": 4
+        }
+      },
+      "model_version": "1.0.0",
+      "rows": 624,
+      "scored_against_outcomes": true,
+      "season": 2025,
+      "td_scale": {
+        "QB": [
+          1.1385,
+          6282
+        ],
+        "RB": [
+          1.265,
+          14883
+        ],
+        "REC": [
+          1.1418,
+          35387
+        ],
+        "TE": [
+          1.1187,
+          11778
+        ],
+        "WR": [
+          1.1515,
+          23609
+        ]
+      },
+      "two_way": {
+        "max": 1.0658,
+        "median_overround": 1.064,
+        "min": 1.0621,
+        "n": 51
+      },
+      "weeks": [
+        17
+      ],
+      "why_partly_scored": "Both scrapers overwrite their raw price file, so only the last scrape of the season survives. The markets in RECOVERABLE are scored anyway, because their old projection is an invertible function of the price alone; BOL_passingTouchdowns and every yardage market are not, because their line moves and was not archived. Per-week raw copies start now.",
+      "yardage_ladder_old_over_line": 1.1032
     }
   },
   "outcome_distribution": {
