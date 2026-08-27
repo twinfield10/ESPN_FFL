@@ -7,30 +7,33 @@ import polars as pl
 from pathlib import Path
 
 from Scripts import market as mk
-from Scripts.nfl_utils import NFL_SCHEDULE, current_season, current_week
+from Scripts.nfl_utils import current_season, current_week, load_schedule
 from Scripts.paths import landing_dir, season_dir
-
-# Season being scraped, derived from the schedule file so that season and week
-# can never disagree. Every output path below is scoped to it.
-SEASON = current_season()
 
 
 ## Constants
 
-# NFL Schedule
-#NFL_SCHEDULE = pl.read_csv('Data/NFL_Schedules.csv')
-SLIM_SCHED = pl.DataFrame(NFL_SCHEDULE)\
-                .select([
-                    pl.col('game_id').alias('NFL_game_id')
-                    ,pl.col('week').cast(pl.Int64)
-                    ,pl.col('gameday').str.strptime(pl.Date, format="%Y-%m-%d").alias('officialDate')
-                    ,pl.col('away_team').alias('Away')
-                    ,pl.col('home_team').alias('Home')
-                ])
+def slim_schedule() -> pl.DataFrame:
+    """The schedule columns this scraper joins on, one row per game.
 
-# Current Week
-week = current_week()
-print(f"Now Loading NFL Week {week}:")
+    Built on demand rather than at import. It used to be a module constant reading
+    ``NFL_SCHEDULE``, which resolves the schedule CSV eagerly through
+    ``nfl_utils.__getattr__`` -- so merely importing this module read a file, and
+    everything below it then ran a live scrape and overwrote the archive.
+
+    Returns:
+        pl.DataFrame: ``NFL_game_id``, ``week``, ``officialDate``, ``Away``, ``Home``.
+    """
+    return (
+        pl.DataFrame(load_schedule())
+        .select([
+            pl.col('game_id').alias('NFL_game_id')
+            ,pl.col('week').cast(pl.Int64)
+            ,pl.col('gameday').str.strptime(pl.Date, format="%Y-%m-%d").alias('officialDate')
+            ,pl.col('away_team').alias('Away')
+            ,pl.col('home_team').alias('Home')
+        ])
+    )
 
 # BetOnline game IDs are consecutive integers, and this is the id of the first
 # game of the week. It used to be a bare literal that had to be hand-edited
@@ -223,7 +226,7 @@ def build_BOL_dim(ids:list, sched_df: pl.DataFrame):
     return dim
 
 # GET BOL json
-def get_BOL_data(ids: list, link_stat: str, espn_stat: str) -> pl.DataFrame:
+def get_BOL_data(ids: list, link_stat: str, espn_stat: str, week: int) -> pl.DataFrame:
     # Initialize Polars DF
     raw = pl.DataFrame()
     for i in ids:
@@ -284,7 +287,7 @@ def get_BOL_data(ids: list, link_stat: str, espn_stat: str) -> pl.DataFrame:
         return raw
     else:
         return None
-def get_BOL_data_OU(ids: list, link_stat: str, espn_stat: str) -> pl.DataFrame:
+def get_BOL_data_OU(ids: list, link_stat: str, espn_stat: str, week: int) -> pl.DataFrame:
     # Initialize Polars DF
     raw = pl.DataFrame()
     for i in ids:
@@ -392,7 +395,7 @@ def reconcile_BOL(prop_df: pl.DataFrame, season: int = None):
     Returns:
         None. Writes the combined file plus one parquet per week.
     """
-    season = SEASON if season is None else season
+    season = current_season() if season is None else season
 
     # Outline Pathway + Load
     all_path = season_dir("BetOnline", season, "BetOnline_AllProps.parquet")
@@ -454,7 +457,7 @@ def reconcile_BOL(prop_df: pl.DataFrame, season: int = None):
         print(f"WEEK {w} Bet Online Player Prop File Contains {week_df.height} Rows ({n_games} Games)")
 
 # Get Stat by Name
-def get_x_stat(stat: str = 'anytimeTouchdown', model=None) -> pl.DataFrame:
+def get_x_stat(stat: str = 'anytimeTouchdown', model=None, season: int = None) -> pl.DataFrame:
     """One stat's projection, and its market-implied dispersion, per player-week.
 
     **Every piece of arithmetic here lives in :mod:`Scripts.market`** -- the de-vig,
@@ -487,7 +490,8 @@ def get_x_stat(stat: str = 'anytimeTouchdown', model=None) -> pl.DataFrame:
         ``team``, ``proj_<stat>`` and ``proj_<stat>_sd``.
     """
     model = mk.load_model() if model is None else model
-    df = pl.read_parquet(landing_dir("BetOnline", SEASON, "BetOnline_AllProps_Raw.parquet"))\
+    season = current_season() if season is None else season
+    df = pl.read_parquet(landing_dir("BetOnline", season, "BetOnline_AllProps_Raw.parquet"))\
            .filter(pl.col('espn_stat') == stat)\
            .drop('market_id', 'condition', 'is_active', 'is_actual')
 
@@ -582,11 +586,17 @@ def _finite(value):
 
 
 # Clean Final Dataframe
-def clean_bol(stats_list=None) -> pl.DataFrame:
+def clean_bol(stats_list=None, current_sched: pl.DataFrame = None,
+              season: int = None) -> pl.DataFrame:
     """Every stat's projection and dispersion, one row per player-week.
 
     Args:
         stats_list: ESPN stat names to build. None does all of :data:`stats`.
+        current_sched: This week's rows from :func:`slim_schedule`, used for the
+            team-to-game join. Was a module global set only inside the old
+            import-time execute block, so calling this after a plain import raised
+            ``NameError``.
+        season: Season to read the landing file for. None derives it.
 
     Returns:
         pl.DataFrame: ``proj_<stat>`` and ``proj_<stat>_sd`` per stat, plus the
@@ -595,10 +605,11 @@ def clean_bol(stats_list=None) -> pl.DataFrame:
     stats_list = list(stats.keys()) if stats_list is None else stats_list
     keys = ['BOL_game_id', 'week', 'player_name', 'position', 'team']
     model = mk.load_model()
+    season = current_season() if season is None else season
 
     final_result = None
     for stat in stats_list:
-        result = get_x_stat(stat, model=model)
+        result = get_x_stat(stat, model=model, season=season)
         if final_result is None:
             final_result = result
             continue
@@ -627,7 +638,7 @@ def clean_bol(stats_list=None) -> pl.DataFrame:
           .alias('proj_receivingTouchdowns_sd'),
     ])
 
-    Long_Sched = CURRENT_SCHED.unpivot(
+    Long_Sched = current_sched.unpivot(
         index=["NFL_game_id", "week", "officialDate"],
         on=["Home", "Away"],
         variable_name="Location",
@@ -644,17 +655,8 @@ def clean_bol(stats_list=None) -> pl.DataFrame:
     return final_result
 
 
-## Execute
-
-# Create Current IDs and Schedule
-BOL_IDs = get_week_ids(
-    sched=SLIM_SCHED, week_num=week, id_start=resolve_first_game_id(SLIM_SCHED, week)
-)
-CURRENT_SCHED = SLIM_SCHED.filter(pl.col('week') == week)
-
-
-# Get BOL Data By Game
-full_df_schema = {
+#: Columns every raw price row carries, so an empty scrape still has a shape.
+FULL_DF_SCHEMA = {
     "BOL_game_id": pl.Int64,
     "week": pl.Int64,
     "player_name": pl.Utf8,
@@ -673,34 +675,100 @@ full_df_schema = {
     "impProb": pl.Float64,
     "prop_source": pl.Utf8
 }
-full_df = pl.DataFrame(schema = full_df_schema)
 
 
-for espn, bol in stats.items():
-    df = get_BOL_data(ids=BOL_IDs[week],link_stat = bol,espn_stat=espn)
-    if df is not None:
-        full_df = full_df.vstack(df)
+def scrape_week(season: int = None, week: int = None, write: bool = True) -> pl.DataFrame:
+    """Pull one week of BetOnline player props and reconcile them into the season file.
 
-# Get BOL Data By Game
-for espn, bol in stats.items():
-    if bol not in ['Sacks', 'Interceptions', 'Touchdowns']:
-        df = get_BOL_data_OU(ids=BOL_IDs[week],link_stat = bol,espn_stat=espn)
+    Everything below used to run at module scope, so importing this module performed a
+    live scrape *and overwrote the archived parquet and CSV* -- strictly worse than
+    merely spending a scrape, and the reason ``tests/test_market.py`` reads its sibling
+    as text rather than importing it. See ``docs/plans/36-sportsbook-scrapes.md``.
+
+    Args:
+        season: Season to scrape. None derives it from the schedule file.
+        week: Week to scrape. None uses the first week with unplayed games.
+        write: False does the whole pull and returns the frame without touching disk.
+
+    Returns:
+        pl.DataFrame: The cleaned per-player projections, empty if the book returned
+        nothing.
+
+    Raises:
+        BetOnlineAccessError: If the offering API refuses the id probe.
+    """
+    season = current_season() if season is None else season
+    sched = slim_schedule()
+    week = current_week() if week is None else week
+    print(f"Now Loading NFL Week {week}:")
+
+    BOL_IDs = get_week_ids(
+        sched=sched, week_num=week, id_start=resolve_first_game_id(sched, week)
+    )
+    current_sched = sched.filter(pl.col('week') == week)
+
+    full_df = pl.DataFrame(schema=FULL_DF_SCHEMA)
+
+    for espn, bol in stats.items():
+        df = get_BOL_data(ids=BOL_IDs[week], link_stat=bol, espn_stat=espn, week=week)
         if df is not None:
             full_df = full_df.vstack(df)
 
-with pl.Config(tbl_cols=-1):
-    print(full_df)
+    for espn, bol in stats.items():
+        if bol not in ['Sacks', 'Interceptions', 'Touchdowns']:
+            df = get_BOL_data_OU(ids=BOL_IDs[week], link_stat=bol, espn_stat=espn,
+                                 week=week)
+            if df is not None:
+                full_df = full_df.vstack(df)
 
-## Peek And Save Raw Data
-full_df.write_parquet(landing_dir("BetOnline", SEASON, "BetOnline_AllProps_Raw.parquet"))
-archive_raw(full_df, SEASON, week)
+    print(f"BetOnline week {week}: {full_df.height} raw prices")
+    if full_df.is_empty():
+        return full_df
+
+    # The raw landing file is a hard prerequisite of clean_bol(), not a convenience:
+    # get_x_stat() re-reads it rather than taking the frame. So --dry-run cannot
+    # simply skip this write, and instead returns before the clean step.
+    if not write:
+        print("  --dry-run: not writing, so the clean step is skipped "
+              "(clean_bol reads the raw file back off disk)")
+        return full_df
+
+    full_df.write_parquet(landing_dir("BetOnline", season, "BetOnline_AllProps_Raw.parquet"))
+    archive_raw(full_df, season, week)
+
+    BOL_STATS = clean_bol(current_sched=current_sched, season=season)
+    BOL_STATS.write_parquet(landing_dir("BetOnline", season, "BetOnline_AllProps_Clean.parquet"))
+    BOL_STATS.write_csv(landing_dir("BetOnline", season, "BetOnline_AllProps_Clean.csv"))
+
+    reconcile_BOL(prop_df=BOL_STATS, season=season)
+    print(f"  wrote {BOL_STATS.height} cleaned rows")
+    return BOL_STATS
 
 
-BOL_STATS = clean_bol()
-BOL_STATS.write_parquet(landing_dir("BetOnline", SEASON, "BetOnline_AllProps_Clean.parquet"))
-BOL_STATS.write_csv(landing_dir("BetOnline", SEASON, "BetOnline_AllProps_Clean.csv"))
+def main(argv=None) -> int:
+    """Command-line entry point.
 
-# Reconcile
-reconcile_BOL(prop_df=BOL_STATS)
+    Usage::
 
-print(BOL_STATS)
+        python -m Scripts.scrape_BOL
+        python -m Scripts.scrape_BOL --week 3 --dry-run
+    """
+    import argparse
+
+    p = argparse.ArgumentParser(
+        prog="python -m Scripts.scrape_BOL",
+        description="Scrape BetOnline weekly NFL player props.",
+    )
+    p.add_argument("--season", type=int, help="defaults to the schedule's season")
+    p.add_argument("--week", type=int, help="defaults to the first unplayed week")
+    p.add_argument("--dry-run", action="store_true", help="do not write files")
+    args = p.parse_args(argv)
+
+    df = scrape_week(season=args.season, week=args.week, write=not args.dry_run)
+    # An empty scrape is a failure, not a success -- matching scrape_pinnacle_season.
+    # The nightly's `|| fail` is built on this.
+    return 0 if not df.is_empty() else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

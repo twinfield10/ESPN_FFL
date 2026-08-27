@@ -474,10 +474,11 @@ def test_load_model_returns_none_rather_than_raising(tmp_path):
 
 #: Every stat name the two scrapers can hand the conversion.
 #:
-#: Hardcoded rather than imported: ``Scripts.scrape_pinnacle`` starts a browser at
-#: import time, so a test cannot read its ``prop_to_stat`` without scraping the web.
 #: The duplication is the point of the test below -- it fails if a scraper grows a
-#: market the market table has no entry or alias for.
+#: market the market table has no entry or alias for. It used to be duplicated for a
+#: second reason too: ``Scripts.scrape_pinnacle`` started a browser at import time, so
+#: a test could not read its ``prop_to_stat`` without scraping the web. That is fixed
+#: (plan 36), and the test below now imports the mapping instead of parsing source.
 SCRAPED_STATS = (
     "passingYards", "passingAttempts", "passingCompletions", "passingTouchdowns",
     "passingInterceptions", "rushingYards", "rushingAttempts", "rushingTouchdowns",
@@ -496,13 +497,15 @@ def test_every_scraped_stat_resolves_to_a_market():
 
 
 def test_scraped_stats_matches_the_pinnacle_mapping():
-    """The hardcoded list above against the scraper's own, read from source rather
-    than imported -- importing that module opens a browser."""
-    import re
+    """The hardcoded list above against the scraper's own.
 
-    source = (mk.paths.REPO_ROOT / "Scripts" / "scrape_pinnacle.py").read_text()
-    block = source[source.index("prop_to_stat={"):source.index("name_changes={")]
-    mapped = set(re.findall(r": *[\'\"]([A-Za-z]+)[\'\"]", block))
+    Imported rather than parsed out of the source text. That the import is safe is
+    itself the assertion -- it holds only because the scrape now lives behind
+    ``main()``, and ``tests/test_scraper_import_safety.py`` keeps it that way.
+    """
+    from Scripts import scrape_pinnacle
+
+    mapped = set(scrape_pinnacle.prop_to_stat.values())
     assert mapped <= set(SCRAPED_STATS), mapped - set(SCRAPED_STATS)
 
 
