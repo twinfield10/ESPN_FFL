@@ -215,3 +215,98 @@ def test_pinnacle_answers_and_prices_the_four_markets():
               .filter(pl.col("n") == 2))
     assert paired["s"].max() == pytest.approx(1.0, abs=1e-9)
     assert paired["s"].min() == pytest.approx(1.0, abs=1e-9)
+
+
+# --- BetOnline's offering feed --------------------------------------------
+#
+# Its payload carries every market whether or not it is posted, with Line and Point
+# at zero. Reading those as real would put a stream of 0-point, 0-price rows into the
+# store, every one of them de-vigging to nonsense.
+
+from Scripts.books.betonline import BetOnlineSportsbook, _posted
+
+
+def test_an_unposted_market_is_absent_rather_than_zero():
+    assert _posted({"Line": -110, "Point": 44.5}) is True
+    assert _posted({"Line": 0, "Point": 0}) is False
+    assert _posted({}) is False
+    assert _posted(None) is False
+
+
+def test_a_pick_em_spread_is_a_real_market():
+    """Keyed on the price, never the point. A spread of exactly 0 is a pick-em and is
+    posted; a price of 0 is the feed saying nothing is offered."""
+    assert _posted({"Line": -110, "Point": 0}) is True
+
+
+def test_both_sides_of_a_spread_share_one_market_line():
+    """Or they are not each other's de-vig partner. The convention is the home team's
+    number, matching how Pinnacle keys the market."""
+    book = BetOnlineSportsbook(season=2026)
+    games = [("09/13/2026", {
+        "HomeTeam": "Buffalo Bills", "AwayTeam": "New York Jets",
+        "HomeRotation": 102, "WagerCutOff": "2026-09-13T13:00:00",
+        "HomeLine": {"SpreadLine": {"Point": -2.5, "Line": -125},
+                     "MoneyLine": {"Line": -161}},
+        "AwayLine": {"SpreadLine": {"Point": 2.5, "Line": 105},
+                     "MoneyLine": {"Line": 141}},
+        "TotalLine": {"TotalLine": {"Point": 44.5,
+                                    "Over": {"Line": -110},
+                                    "Under": {"Line": -110}}},
+    })]
+    df = book.transform_to_standard(book._flatten(games))
+    spread = df.filter(pl.col("marketTitle") == "Spread")
+    assert spread["marketLine"].unique().to_list() == [-2.5]
+    # ...while each side still reports its own number.
+    assert sorted(spread["value"].to_list()) == [-2.5, 2.5]
+    assert spread["fairProb"].sum() == pytest.approx(1.0, abs=1e-9)
+
+
+def test_an_unposted_team_total_produces_no_rows():
+    """The preseason shape: spread and total posted, team totals all zero."""
+    book = BetOnlineSportsbook(season=2026)
+    zero = {"Line": 0, "DecimalLine": 0}
+    games = [("08/27/2026", {
+        "HomeTeam": "Buffalo Bills", "AwayTeam": "Pittsburgh Steelers",
+        "HomeRotation": 102, "WagerCutOff": "2026-08-27T19:00:00",
+        "HomeLine": {"SpreadLine": {"Point": -2.5, "Line": -125},
+                     "MoneyLine": {"Line": -161},
+                     "TeamTotalLine": {"Point": 0, "Over": zero, "Under": zero}},
+        "AwayLine": {"SpreadLine": {"Point": 2.5, "Line": 105},
+                     "MoneyLine": {"Line": 141},
+                     "TeamTotalLine": {"Point": 0, "Over": zero, "Under": zero}},
+        "TotalLine": {"TotalLine": {"Point": 34.5,
+                                    "Over": {"Line": -110},
+                                    "Under": {"Line": -110}}},
+    })]
+    df = book.transform_to_standard(book._flatten(games))
+    assert "TeamTotal" not in df["marketTitle"].to_list()
+    assert set(df["marketTitle"].unique()) == {"Spread", "Moneyline", "Total"}
+
+
+def test_betonline_dates_match_the_schedules_gameday():
+    """08/27/2026 -> 2026-08-27, which is the only key the two sources agree on."""
+    assert BetOnlineSportsbook._date("08/27/2026") == "2026-08-27"
+    assert BetOnlineSportsbook._date("bad") is None
+    assert BetOnlineSportsbook._date(None) is None
+
+
+def test_each_book_declares_its_own_expected_markets():
+    """A book that does not post team totals is a different book, not a broken one.
+    One shared list would either fail on it or stop protecting the books that do."""
+    from Scripts.books.pull import BOOKS
+    assert "TeamTotal" in BOOKS["Pinnacle"]["expect_markets"]
+    assert "TeamTotal" not in BOOKS["BetOnline"]["expect_markets"]
+
+
+@pytest.mark.live
+def test_betonline_answers_and_prices_its_three_markets():
+    views = BetOnlineSportsbook(season=2026).get_df_dict()
+    df = views["All_Bets"]
+    assert df.height > 0
+    assert {"Spread", "Total", "Moneyline"} <= set(df["marketTitle"].unique())
+    paired = (df.group_by(list(schema.PAIR_KEYS))
+                .agg(pl.col("fairProb").sum().alias("s"), pl.len().alias("n"))
+                .filter(pl.col("n") == 2))
+    assert paired["s"].min() == pytest.approx(1.0, abs=1e-9)
+    assert paired["s"].max() == pytest.approx(1.0, abs=1e-9)

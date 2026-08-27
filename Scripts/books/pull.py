@@ -24,6 +24,7 @@ from typing import Dict, List
 
 import polars as pl
 
+from Scripts.books.betonline import BetOnlineSportsbook
 from Scripts.books.pinnacle import PinnacleSportsbook
 from Scripts.books.schema import MARKET_TITLES, PAIR_KEYS
 from Scripts.books.store import EmptyPullError, line_history, write_snapshot
@@ -37,7 +38,16 @@ from Scripts.nfl_utils import current_season
 BOOKS = {
     "Pinnacle": {
         "adapter": PinnacleSportsbook,
+        # Everything, including team totals and an alternate ladder.
         "expect_markets": set(MARKET_TITLES),
+    },
+    "BetOnline": {
+        "adapter": BetOnlineSportsbook,
+        # No team totals. Its offering feed carries the field whether or not the
+        # market is posted, and for NFL it currently never is -- so expecting one
+        # here would fail every run on a book that is answering perfectly well.
+        # This is why expectations are per book rather than one shared list.
+        "expect_markets": {"Spread", "Total", "Moneyline"},
     },
 }
 
