@@ -105,7 +105,7 @@ for measuring per stat.
 | receptions/g | 2,747 | +0.787 | 0.358 | 0.277 | 0.619 |
 | pass attempts/g | 348 | +0.540 | 0.266 | 0.373 | **0.093** |
 
-| rate | n | Pearson | med. denom | implied *k* | shipped *k* |
+| rate | n | Pearson | med. denom | ceiling *k* | shipped *k* |
 |---|---|---|---|---|---|
 | catch_rate | 1,383 | +0.559 | 68 | 54 | 40 |
 | yards_per_target | 1,383 | +0.399 | 68 | 103 | 40 |
@@ -116,11 +116,33 @@ for measuring per stat.
 | int_per_attempt | 377 | +0.223 | 401 | 1394 | 300 |
 | rec_td_per_target | 1,383 | +0.189 | 68 | 292 | 120 |
 
-`implied_k` inverts the credibility identity `n/(n+k) = r` at the median denominator, and
-is a **floor**: it assumes a perfectly stable underlying rate, so genuine drift only raises
-it. **Every shipped constant sits below its floor**, by 1.4× (catch rate) to 4.6× (yards
-per attempt, interceptions per attempt) — the model shrinks efficiency too little, across
-the board.
+`ceiling_k` inverts the credibility identity `n/(n+k) = r` at each rate's median
+denominator.
+
+**I first called it a floor and drew the opposite conclusion from it. That was wrong,
+and the experiment that tested it is what says so.** Writing year *i*'s observed rate as
+`y_i = theta_i + e_i`, the observed correlation is `rho * n/(n + k_opt)` where `k_opt` is
+the constant that actually minimises error. Solving `n/(n+k) = r` therefore gives
+`k_implied >= k_opt`, with equality only if the true rate is perfectly stable. So it is a
+**ceiling**: real drift depresses `r` and *inflates* the number, and a shipped constant
+sitting below it is where a calibrated one belongs.
+
+Three experiments put it through the walk-forward under the lab's pre-committed rule,
+and **all three were rejected**:
+
+| experiment | mean Spearman | yardage MAE | TD/INT MAE |
+|---|---|---|---|
+| `shrinkage_at_floor` — every rate at the ceiling | **−0.0018** | +0.48% to +1.23% | −0.15% to −3.41% |
+| `shrinkage_touchdowns_at_floor` — TD/INT only | **−0.0009** | 0.00% | −0.15% to −3.41% |
+| `shrinkage_double` — 2× shipped, a midpoint | **−0.0012** | +0.35% to +0.55% | −0.22% to −1.93% |
+
+The damage is monotone in the amount of shrinkage and worst at quarterback (−0.0027 even
+in the touchdowns-only variant). Interception MAE does improve by 3.4% — the one place
+the argument had force — and it does not pay for the ordering.
+
+**So nothing shipped, and the table's value is ranking rather than calibration.**
+Touchdown rates persist at +0.189 to +0.276 against +0.895 for carries per game whatever
+constant prices them, and that is the fact behind F2.
 
 Two readings worth keeping:
 

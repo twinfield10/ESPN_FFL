@@ -16,21 +16,41 @@ air-yards share +0.903, target share +0.858) and
 (+0.234). This module measures the whole set, per position, and puts the shipped
 constants beside the numbers.
 
-**How a persistence figure becomes a shrinkage constant.** The model shrinks a
-player's own rate toward his position's baseline with credibility weight
-``n / (n + k)`` in denominator units. Write the observed rate as a true rate plus
-sampling noise: if the true rate were perfectly stable year to year, the
-correlation between consecutive observed rates at denominator ``n`` is
-``n / (n + k)``, and so
+**How a persistence figure relates to a shrinkage constant, and the direction this
+module had backwards until 2026-08-27.** The model shrinks a player's own rate
+toward his position's baseline with credibility weight ``n / (n + k)`` in
+denominator units. Write year *i*'s observed rate as ``y_i = theta_i + e_i``, with
+``Var(theta) = tau^2``, ``Cov(theta_1, theta_2) = rho * tau^2`` and
+``Var(e) = sigma^2 / n``. Then
 
-    k = n * (1 - r) / r
+    corr(y_1, y_2)  =  rho * tau^2 / (tau^2 + sigma^2/n)  =  rho * n / (n + k_opt)
 
-evaluated at the median denominator. That gives an ``implied_k`` directly
-comparable to the shipped one -- with one direction of error, stated here rather
-than discovered later: it assumes the underlying rate is *perfectly* stable, and
-any genuine drift in a player's true rate shows up as lower ``r`` and therefore
-larger ``k``. **``implied_k`` is a floor.** A shipped constant materially below it
-is shrinking too little; one above it may be correctly pricing drift.
+where ``k_opt = sigma^2 / tau^2`` is the constant that actually minimises error.
+Solving ``n / (n + k) = r`` for the *observed* ``r`` gives
+
+    k_implied  =  n * (1 - r) / r   >=   k_opt
+
+with equality only when ``rho = 1``. So ``k_implied`` is a **ceiling, not a floor**:
+genuine year-to-year drift in a player's true rate depresses ``r``, which *inflates*
+``k_implied``. A shipped constant sitting below it is exactly where a
+correctly-calibrated one belongs, and the gap measures drift rather than
+under-shrinking.
+
+**This module said "floor" and drew the opposite conclusion -- that all eight
+shipped constants were 1.4x to 4.6x too small.** Three experiments put it through
+the walk-forward and the pre-committed rule rejected all three: every rate at
+``k_implied`` costs +0.48% to +1.23% on yardage MAE and -0.0018 mean within-position
+Spearman; touchdown rates alone still cost -0.0009, worst at quarterback (-0.0027);
+and a 2x midpoint costs -0.0012, so the damage is monotone in the amount of
+shrinkage. See ``Scripts/lab/results.json`` under ``shrinkage_at_floor``,
+``shrinkage_touchdowns_at_floor`` and ``shrinkage_double``. The measurements below
+are unchanged and worth having; the *inference* from them was wrong.
+
+**What the table is for, then: ranking.** Touchdown rates persist at +0.189 to
++0.276 against +0.895 for carries per game, and that ordering is a fact about what
+is forecastable whatever constant prices it. It is why the blend loses on
+``rushingTouchdowns`` -- a fourth extrapolation of a three-quarters-noise quantity
+does not help -- and why volume is the half worth predicting.
 
 **Volume is reported the same way and read differently.** Volume is what the model
 predicts (``targets_pg``, ``carries_pg``, ``pass_attempts_pg`` -- see
@@ -51,6 +71,7 @@ Usage::
 """
 
 import argparse
+import math
 from datetime import datetime
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -351,10 +372,14 @@ def render(entry: Dict) -> str:
     lines += [
         f"\nEfficiency -- what the model shrinks. {int(entry['min_denominator'])}+ "
         "opportunities both seasons.",
-        "implied_k is a floor: it assumes a perfectly stable true rate, so drift "
-        "only raises it.",
+        "implied_k is a CEILING: it assumes a perfectly stable true rate, so real "
+        "drift inflates it, and",
+        "below it is where a calibrated constant belongs. Moving every rate to it "
+        "was measured and",
+        "rejected -- results.json: shrinkage_at_floor, -0.0018 mean Spearman and "
+        "+0.48-1.23% yardage MAE.",
         f"{'rate':22s} {'n':>6s} {'pearson':>8s} {'spearman':>9s} "
-        f"{'med n':>7s} {'implied k':>10s} {'shipped k':>10s} {'verdict':>14s}",
+        f"{'med n':>7s} {'ceiling k':>10s} {'shipped k':>10s} {'ratio':>17s}",
     ]
     for name, _, _ in ft.EFFICIENCY_RATES:
         result = entry["rates"].get(name)
@@ -362,18 +387,19 @@ def render(entry: Dict) -> str:
             continue
         shipped = result["shipped_k"]
         implied = result["implied_k"]
-        if shipped is None:
+        # A ratio rather than a verdict. `implied_k` is a *ceiling* -- see the module
+        # docstring -- so below it is the expected place for a calibrated constant,
+        # and the walk-forward rejected moving any rate up to it.
+        if shipped is None or not math.isfinite(implied) or implied <= 0:
             verdict = ""
-        elif shipped < implied:
-            verdict = "shrinks too little"
         else:
-            verdict = "at or above floor"
+            verdict = f"{shipped / implied:.2f} of ceiling"
         lines.append(
             f"{name:22s} {result['n']:6d} {result['pearson']:8.3f} "
             f"{result['spearman']:9.3f} {result['median_denominator']:7.0f} "
             f"{implied:10.0f} "
             f"{('--' if shipped is None else f'{shipped:.0f}'):>10s} "
-            f"{verdict:>14s}")
+            f"{verdict:>17s}")
     return "\n".join(lines)
 
 

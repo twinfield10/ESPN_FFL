@@ -1624,7 +1624,7 @@
       "name": "baseline",
       "note": "",
       "projected": 5317,
-      "ran_at": "2026-08-08T13:00:49-04:00",
+      "ran_at": "2026-08-27T10:02:17-04:00",
       "rostered": 6620,
       "seasons": [
         2019,
@@ -1635,6 +1635,7 @@
         2024,
         2025
       ],
+      "shrinkage": {},
       "source": "\u2014",
       "spearman": {
         "QB": 0.7104653850500854,
@@ -3135,6 +3136,425 @@
         "p1_route_share",
         "p1_routes_pg"
       ]
+    },
+    "shrinkage_at_floor": {
+      "arms": {
+        "abstain": 1289,
+        "rookie": 1497,
+        "veteran": 3834
+      },
+      "feature_kwargs": {},
+      "games_regressors": [
+        "p1_availability",
+        "p1_weeks_on_reserve",
+        "p1_snap_share",
+        "team_changed",
+        "age"
+      ],
+      "hypothesis": "Every efficiency rate shrunk to its measured credibility floor. If the shipped constants are too small, the model is keeping noise it should be discarding, and per-stat MAE should fall furthest on the rates that persist least.",
+      "mae": {
+        "passingInterceptions": {
+          "n": 429,
+          "naive": 4.039577576968932,
+          "usg": 3.2395206773116563
+        },
+        "passingTouchdowns": {
+          "n": 429,
+          "naive": 6.364581649330594,
+          "usg": 5.989774683239894
+        },
+        "passingYards": {
+          "n": 429,
+          "naive": 889.411479811185,
+          "usg": 826.7022476251213
+        },
+        "receivingReceptions": {
+          "n": 2696,
+          "naive": 13.112579759901408,
+          "usg": 11.450655981069067
+        },
+        "receivingTouchdowns": {
+          "n": 2696,
+          "naive": 1.488887008137412,
+          "usg": 1.239350083784884
+        },
+        "receivingYards": {
+          "n": 2696,
+          "naive": 149.27825702561947,
+          "usg": 131.63937508123473
+        },
+        "rushingTouchdowns": {
+          "n": 1255,
+          "naive": 1.8077119507105854,
+          "usg": 1.6257833401070119
+        },
+        "rushingYards": {
+          "n": 1255,
+          "naive": 160.22045209496136,
+          "usg": 146.84051059455118
+        }
+      },
+      "naive_spearman": {
+        "QB": 0.6972155539038923,
+        "RB": 0.6866190191939595,
+        "TE": 0.6985398405154867,
+        "WR": 0.7391615891946351
+      },
+      "naive_top_n": {
+        "QB": 0.619047619047619,
+        "RB": 0.619047619047619,
+        "TE": 0.511904761904762,
+        "WR": 0.6825396825396826
+      },
+      "name": "shrinkage_at_floor",
+      "note": "A floor, not an estimate: it assumes the true rate is perfectly stable, so drift raises it. Passing here would mean the shipped constants are too small; failing would mean the floor's assumption does more damage than the extra shrinkage buys.",
+      "projected": 5317,
+      "ran_at": "2026-08-27T10:02:24-04:00",
+      "rostered": 6620,
+      "seasons": [
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "shrinkage": {
+        "catch_rate": 54.0,
+        "int_per_attempt": 1394.0,
+        "pass_td_per_attempt": 1054.0,
+        "rec_td_per_target": 292.0,
+        "rush_td_per_carry": 290.0,
+        "yards_per_attempt": 618.0,
+        "yards_per_carry": 155.0,
+        "yards_per_target": 103.0
+      },
+      "source": "Data/NFL/<season>/player_weeks.parquet, 2016-2025",
+      "spearman": {
+        "QB": 0.7067489407481721,
+        "RB": 0.7472550644721754,
+        "TE": 0.7643618544629975,
+        "WR": 0.7902252612519668
+      },
+      "spearman_n": {
+        "QB": 513,
+        "RB": 1021,
+        "TE": 801,
+        "WR": 1485
+      },
+      "subpopulations": {
+        "changed_teams": {
+          "n": 1121,
+          "naive": 0.6949066070843422,
+          "usg": 0.7335928053678757
+        },
+        "settled": {
+          "n": 2699,
+          "naive": 0.803783125210036,
+          "usg": 0.8438147061085427
+        },
+        "thin_prior_season": {
+          "n": 1330,
+          "naive": 0.3914247930579377,
+          "usg": 0.4707341750964472
+        }
+      },
+      "top_n": {
+        "QB": 0.619047619047619,
+        "RB": 0.6845238095238094,
+        "TE": 0.5238095238095238,
+        "WR": 0.6984126984126985
+      },
+      "verdict": "reject",
+      "verdict_reason": "mean within-position Spearman gain -0.0018 is below the +0.0050 the rule requires.",
+      "volume_regressors": [
+        "p1_volume",
+        "p2_volume",
+        "p1_games",
+        "team_changed",
+        "age",
+        "depth_rank",
+        "is_first_string"
+      ]
+    },
+    "shrinkage_double": {
+      "arms": {
+        "abstain": 1289,
+        "rookie": 1497,
+        "veteran": 3834
+      },
+      "feature_kwargs": {},
+      "games_regressors": [
+        "p1_availability",
+        "p1_weeks_on_reserve",
+        "p1_snap_share",
+        "team_changed",
+        "age"
+      ],
+      "hypothesis": "Every rate at twice its shipped constant -- a point between the shipped value and the floor. Included so the result is a curve rather than one point: a gain that holds from 2x to the floor is a real bias-variance trade, and one that appears only at the floor is the folds being fitted.",
+      "mae": {
+        "passingInterceptions": {
+          "n": 429,
+          "naive": 4.039577576968932,
+          "usg": 3.289415567106028
+        },
+        "passingTouchdowns": {
+          "n": 429,
+          "naive": 6.364581649330594,
+          "usg": 5.952462065478411
+        },
+        "passingYards": {
+          "n": 429,
+          "naive": 889.411479811185,
+          "usg": 820.5251733375972
+        },
+        "receivingReceptions": {
+          "n": 2696,
+          "naive": 13.112579759901408,
+          "usg": 11.459455812925288
+        },
+        "receivingTouchdowns": {
+          "n": 2696,
+          "naive": 1.488887008137412,
+          "usg": 1.2385304930761527
+        },
+        "receivingYards": {
+          "n": 2696,
+          "naive": 149.27825702561947,
+          "usg": 131.39796469184273
+        },
+        "rushingTouchdowns": {
+          "n": 1255,
+          "naive": 1.8077119507105854,
+          "usg": 1.6258730542812185
+        },
+        "rushingYards": {
+          "n": 1255,
+          "naive": 160.22045209496136,
+          "usg": 146.5206090840032
+        }
+      },
+      "naive_spearman": {
+        "QB": 0.6972155539038923,
+        "RB": 0.6866190191939595,
+        "TE": 0.6985398405154867,
+        "WR": 0.7391615891946351
+      },
+      "naive_top_n": {
+        "QB": 0.619047619047619,
+        "RB": 0.619047619047619,
+        "TE": 0.511904761904762,
+        "WR": 0.6825396825396826
+      },
+      "name": "shrinkage_double",
+      "note": "Same reasoning as the ridge sweep: the shape is the evidence, and picking the best point would be the fishing the rule exists to stop.",
+      "projected": 5317,
+      "ran_at": "2026-08-27T10:02:40-04:00",
+      "rostered": 6620,
+      "seasons": [
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "shrinkage": {
+        "catch_rate": 80.0,
+        "int_per_attempt": 600.0,
+        "pass_td_per_attempt": 600.0,
+        "rec_td_per_target": 240.0,
+        "rush_td_per_carry": 300.0,
+        "yards_per_attempt": 300.0,
+        "yards_per_carry": 120.0,
+        "yards_per_target": 80.0
+      },
+      "source": "\u2014",
+      "spearman": {
+        "QB": 0.708281602574308,
+        "RB": 0.7476455616579849,
+        "TE": 0.7644362768963512,
+        "WR": 0.7907094269016767
+      },
+      "spearman_n": {
+        "QB": 513,
+        "RB": 1021,
+        "TE": 801,
+        "WR": 1485
+      },
+      "subpopulations": {
+        "changed_teams": {
+          "n": 1121,
+          "naive": 0.6949066070843422,
+          "usg": 0.734131774670695
+        },
+        "settled": {
+          "n": 2699,
+          "naive": 0.803783125210036,
+          "usg": 0.8441327178141717
+        },
+        "thin_prior_season": {
+          "n": 1330,
+          "naive": 0.3914247930579377,
+          "usg": 0.471998868956346
+        }
+      },
+      "top_n": {
+        "QB": 0.619047619047619,
+        "RB": 0.6845238095238094,
+        "TE": 0.5238095238095238,
+        "WR": 0.7023809523809523
+      },
+      "verdict": "reject",
+      "verdict_reason": "mean within-position Spearman gain -0.0012 is below the +0.0050 the rule requires.",
+      "volume_regressors": [
+        "p1_volume",
+        "p2_volume",
+        "p1_games",
+        "team_changed",
+        "age",
+        "depth_rank",
+        "is_first_string"
+      ]
+    },
+    "shrinkage_touchdowns_at_floor": {
+      "arms": {
+        "abstain": 1289,
+        "rookie": 1497,
+        "veteran": 3834
+      },
+      "feature_kwargs": {},
+      "games_regressors": [
+        "p1_availability",
+        "p1_weeks_on_reserve",
+        "p1_snap_share",
+        "team_changed",
+        "age"
+      ],
+      "hypothesis": "Only the touchdown and interception rates. They are the least forecastable quantities measured (+0.189 to +0.276 year over year against +0.895 for carries per game), and the blend's one per-stat defect is a touchdown stat. If shrinkage is the answer it should show here without moving yardage at all.",
+      "mae": {
+        "passingInterceptions": {
+          "n": 429,
+          "naive": 4.039577576968932,
+          "usg": 3.2395206773116563
+        },
+        "passingTouchdowns": {
+          "n": 429,
+          "naive": 6.364581649330594,
+          "usg": 5.989774683239894
+        },
+        "passingYards": {
+          "n": 429,
+          "naive": 889.411479811185,
+          "usg": 816.6256606497449
+        },
+        "receivingReceptions": {
+          "n": 2696,
+          "naive": 13.112579759901408,
+          "usg": 11.448539921724702
+        },
+        "receivingTouchdowns": {
+          "n": 2696,
+          "naive": 1.488887008137412,
+          "usg": 1.239350083784884
+        },
+        "receivingYards": {
+          "n": 2696,
+          "naive": 149.27825702561947,
+          "usg": 130.93887718573376
+        },
+        "rushingTouchdowns": {
+          "n": 1255,
+          "naive": 1.8077119507105854,
+          "usg": 1.6257833401070119
+        },
+        "rushingYards": {
+          "n": 1255,
+          "naive": 160.22045209496136,
+          "usg": 145.74464110240612
+        }
+      },
+      "naive_spearman": {
+        "QB": 0.6972155539038923,
+        "RB": 0.6866190191939595,
+        "TE": 0.6985398405154867,
+        "WR": 0.7391615891946351
+      },
+      "naive_top_n": {
+        "QB": 0.619047619047619,
+        "RB": 0.619047619047619,
+        "TE": 0.511904761904762,
+        "WR": 0.6825396825396826
+      },
+      "name": "shrinkage_touchdowns_at_floor",
+      "note": "Scoped deliberately. `shrinkage_at_floor` moves eight rates at once and a pooled gain there would not say which did the work -- the same reason every other experiment here varies one thing.",
+      "projected": 5317,
+      "ran_at": "2026-08-27T10:02:32-04:00",
+      "rostered": 6620,
+      "seasons": [
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "shrinkage": {
+        "int_per_attempt": 1394.0,
+        "pass_td_per_attempt": 1054.0,
+        "rec_td_per_target": 292.0,
+        "rush_td_per_carry": 290.0
+      },
+      "source": "Data/NFL/<season>/player_weeks.parquet, 2016-2025",
+      "spearman": {
+        "QB": 0.707776700054815,
+        "RB": 0.7486492130550342,
+        "TE": 0.7641317009762439,
+        "WR": 0.7916102909071765
+      },
+      "spearman_n": {
+        "QB": 513,
+        "RB": 1021,
+        "TE": 801,
+        "WR": 1485
+      },
+      "subpopulations": {
+        "changed_teams": {
+          "n": 1121,
+          "naive": 0.6949066070843422,
+          "usg": 0.734695587274956
+        },
+        "settled": {
+          "n": 2699,
+          "naive": 0.803783125210036,
+          "usg": 0.8447318283150143
+        },
+        "thin_prior_season": {
+          "n": 1330,
+          "naive": 0.3914247930579377,
+          "usg": 0.4725436151244344
+        }
+      },
+      "top_n": {
+        "QB": 0.630952380952381,
+        "RB": 0.6785714285714286,
+        "TE": 0.5238095238095238,
+        "WR": 0.7023809523809523
+      },
+      "verdict": "reject",
+      "verdict_reason": "mean within-position Spearman gain -0.0009 is below the +0.0050 the rule requires.",
+      "volume_regressors": [
+        "p1_volume",
+        "p2_volume",
+        "p1_games",
+        "team_changed",
+        "age",
+        "depth_rank",
+        "is_first_string"
+      ]
     }
   },
   "injury": {
@@ -4026,7 +4446,7 @@
     "min_denominator": 25.0,
     "min_games": 4,
     "pairs": 13288,
-    "ran_at": "2026-08-26T19:04:09-04:00",
+    "ran_at": "2026-08-27T10:05:05-04:00",
     "rates": {
       "catch_rate": {
         "by_position": {

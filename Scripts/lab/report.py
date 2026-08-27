@@ -765,11 +765,12 @@ def persistence_section(ledger: Dict) -> str:
                               key=lambda kv: -kv[1]["pearson"]):
         shipped = entry.get("shipped_k")
         implied = entry["implied_k"]
+        ratio = ("—" if shipped is None or not implied
+                 else f"{shipped / implied:.2f}")
         rate_rows.append([
             name, f"{entry['n']:,}", fmt(entry["pearson"], decimals=3),
             f"{entry['median_denominator']:.0f}", f"{implied:.0f}",
-            "—" if shipped is None else f"{shipped:.0f}",
-            "below floor" if shipped is not None and shipped < implied else "at/above",
+            "—" if shipped is None else f"{shipped:.0f}", ratio,
         ])
 
     chart = bar_chart(
@@ -802,14 +803,24 @@ def persistence_section(ledger: Dict) -> str:
 
   <h3>Efficiency barely does</h3>
   {chart}
-  {table(["rate", "n", "Pearson", "median denominator", "implied k", "shipped k",
-          "verdict"], rate_rows)}
-  <p><code>implied k</code> inverts the credibility identity
-  <code>n/(n+k) = r</code> at the median denominator. It is a <strong>floor</strong>:
-  it assumes the underlying rate is perfectly stable, so any genuine drift only
-  raises it. <strong>Every shipped constant sits below its floor</strong>, by 1.4×
-  for catch rate to 4.6× for yards per attempt — the model shrinks efficiency too
-  little, across the board.</p>
+  {table(["rate", "n", "Pearson", "median denominator", "ceiling k", "shipped k",
+          "shipped / ceiling"], rate_rows)}
+  <p><code>ceiling k</code> inverts the credibility identity
+  <code>n/(n+k) = r</code> at the median denominator. It is a
+  <strong>ceiling</strong>, not a floor: solving it assumes the underlying rate is
+  perfectly stable, so any genuine year-to-year drift depresses <code>r</code> and
+  <em>inflates</em> the number. A shipped constant below it is therefore where a
+  calibrated one belongs, and the gap measures drift.</p>
+  <p class="note"><strong>This page said "floor" and drew the opposite conclusion
+  until 2026-08-27</strong> — that all eight constants were 1.4× to 4.6× too small.
+  Three experiments put it through the walk-forward and the pre-committed rule
+  rejected all three: every rate at the ceiling costs +0.48% to +1.23% on yardage
+  MAE and −0.0018 mean within-position Spearman, touchdown rates alone still cost
+  −0.0009 (quarterbacks worst at −0.0027), and a 2× midpoint costs −0.0012 — so the
+  damage is monotone in the shrinkage. The measurements are unchanged; the inference
+  from them was wrong. What the table is for is <em>ranking</em>: touchdown rates
+  persist at +0.189 to +0.276 against +0.895 for carries per game, and that is why
+  the blend loses on <code>rushingTouchdowns</code>.</p>
   <p class="note">Reproduce with <code>python -m Scripts.lab.persistence</code>.
   {block['pairs']:,} consecutive player-season pairs,
   {block['seasons'][0]}–{block['seasons'][1]}. Pairs join on

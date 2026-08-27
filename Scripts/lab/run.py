@@ -58,6 +58,7 @@ def configured(experiment: reg.Experiment):
     saved_games = sn.GAMES_REGRESSORS
     saved_rates = ft.RATE_BASELINE_FEATURES
     saved_ridge = sn.RIDGE_ALPHA
+    saved_shrinkage = ft.SHRINKAGE_K
     try:
         if experiment.ridge_alpha is not None:
             sn.RIDGE_ALPHA = experiment.ridge_alpha
@@ -67,12 +68,17 @@ def configured(experiment: reg.Experiment):
             sn.GAMES_REGRESSORS = experiment.games_regressors
         if experiment.rate_baseline_features is not None:
             ft.RATE_BASELINE_FEATURES = experiment.rate_baseline_features
+        if experiment.shrinkage is not None:
+            # Merged rather than replaced, so an experiment names only the rates it
+            # is about and a new rate added upstream is not silently dropped from it.
+            ft.SHRINKAGE_K = {**saved_shrinkage, **experiment.shrinkage}
         yield
     finally:
         sn.VOLUME_REGRESSORS = saved_volume
         sn.GAMES_REGRESSORS = saved_games
         ft.RATE_BASELINE_FEATURES = saved_rates
         sn.RIDGE_ALPHA = saved_ridge
+        ft.SHRINKAGE_K = saved_shrinkage
 
 
 def metrics(frames: Sequence[pl.DataFrame]) -> Dict:
@@ -243,6 +249,7 @@ def run_experiment(experiment: reg.Experiment, seasons: Sequence[int],
         "source": experiment.source,
         "note": experiment.note,
         "feature_kwargs": dict(experiment.feature_kwargs),
+        "shrinkage": dict(experiment.shrinkage or {}),
         "volume_regressors": list(experiment.volume_regressors or reg.BASE_VOLUME),
         "games_regressors": list(experiment.games_regressors or reg.BASE_GAMES),
         "seasons": list(seasons),

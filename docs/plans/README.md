@@ -179,9 +179,11 @@ each plan doc carries its own evidence and postscript.
   league that scores all six. The Gamma tail understated the top tiers 20-25x and the
   fitted zero mass over-predicted the top of the range 1.7x while the *population total*
   read 1.00 — both measured out. Left: the **actuals** column names, which are a live-probe
-  naming problem, and a 5-8% under-prediction at the very top whose sign is expected. **The eight efficiency
-  shrinkage constants** are all below their measured credibility floor and refitting them
-  moves `USG_` and so `TRUE_`. **The quarterback passing interval** covers 58.9% against a
+  naming problem, and a 5-8% under-prediction at the very top whose sign is expected. ~~**The eight efficiency
+  shrinkage constants** are all below their measured credibility floor.~~ **Withdrawn
+  2026-08-27:** the number is a *ceiling*, not a floor -- drift inflates it -- and three
+  experiments moving the rates up to it were rejected at -0.0018, -0.0009 and -0.0012
+  mean Spearman. **The quarterback passing interval** covers 58.9% against a
   nominal 80% and misses asymmetrically — either refit the QB dispersion in
   `Scripts/usage/predictive.py` or withdraw the QB interval from the board.
 

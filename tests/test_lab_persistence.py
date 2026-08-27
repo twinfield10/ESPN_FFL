@@ -140,3 +140,45 @@ def test_a_non_positive_correlation_implies_unbounded_shrinkage():
 def test_every_shipped_shrinkage_constant_is_reported_against_its_rate():
     """The comparison exists for every rate the model shrinks, or it proves nothing."""
     assert set(pers.RATE_POSITIONS) == set(ft.SHRINKAGE_K)
+
+
+# --- the ceiling, and the inference that was backwards -------------------
+
+def test_the_implied_constant_is_a_ceiling_not_a_floor():
+    """The identity, stated as an inequality the module has to keep straight.
+
+    Solving ``n/(n+k) = r`` on an *observed* correlation gives ``k >= k_opt``,
+    because the observed correlation is ``rho * n/(n + k_opt)`` and ``rho <= 1``.
+    Real drift in the true rate depresses ``r`` and therefore *inflates* the
+    implied ``k``.
+
+    This module called it a floor and concluded the shipped constants were 1.4x to
+    4.6x too small. Three walk-forward experiments rejected that at -0.0018,
+    -0.0009 and -0.0012 mean Spearman. The test is here so the sign cannot drift
+    back into the docstring.
+    """
+    n, k_opt = 100.0, 60.0
+    perfectly_stable = n / (n + k_opt)
+    assert pers.MIN_PAIRS  # module imported
+
+    for rho in (1.0, 0.9, 0.6):
+        observed = rho * perfectly_stable
+        implied = n * (1.0 - observed) / observed
+        assert implied >= k_opt - 1e-9
+        if rho < 1.0:
+            assert implied > k_opt, "drift must inflate the implied constant"
+
+
+def test_the_render_reports_a_ratio_rather_than_a_verdict():
+    """"Shrinks too little" was a conclusion the measurement did not support."""
+    entry = {
+        "seasons": [2016, 2025], "pairs": 100, "min_denominator": 25.0,
+        "volume": {},
+        "rates": {"catch_rate": {"n": 1383, "pearson": 0.559, "spearman": 0.558,
+                                 "median_denominator": 68.0, "implied_k": 54.0,
+                                 "shipped_k": 40.0}},
+    }
+    text = pers.render(entry)
+    assert "CEILING" in text
+    assert "0.74 of ceiling" in text
+    assert "shrinks too little" not in text
