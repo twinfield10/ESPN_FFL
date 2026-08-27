@@ -173,6 +173,27 @@ python populateGoogleSheet.py          # render the store to Sheets
 Run from the repo root. Scrapers use `-m` because modules import as
 `Scripts.<name>`.
 
+**The two season-long book feeds are nightly and are not in that list.**
+`python -m Scripts.scrape_pinnacle_season` and `Rscript R/GetSeasonProps.R` run as part
+of `run_daily_refresh.sh`, so there is nothing recurring to remember here. They were
+added 2026-08-27, and the reason is worth keeping: both had only ever been run by hand,
+so on the day it was found each was **thirteen days stale** against a 09-07 draft while
+every other source refreshed at 06:00. The blend gives each book an equal vote on the
+rows it prices, so that was a stale *opinion* carrying a fifth of those players'
+projections rather than a missing column -- which is why nothing flagged it.
+
+The blend now says so itself: a source file older than 48 hours raises a
+`StaleProjectionSourceWarning` naming the command that refreshes it. If you see one,
+the nightly has not been firing -- check `python -m Scripts.refresh_status`.
+
+Both stages are fatal **only before the season opens**. Once games are played, books
+retire their season-long markets outright, so an empty pull becomes expected and the
+nightly logs a `NOTE:` and carries on rather than stopping the boards rebuilding.
+
+The *weekly* Pinnacle and BetOnline scrapers above are deliberately still manual. Both
+are broken -- see the warning below -- and a `|| fail` on either would take the nightly
+down every night.
+
 **FantasyPros needs a logged-in session or it returns a tenth of the data.** Anonymously
 it serves ten rows per position behind a registration fence -- 60 players, which is what
 every board built before 2026-08-24 was blended on. A *free* account lifts it to 592 and

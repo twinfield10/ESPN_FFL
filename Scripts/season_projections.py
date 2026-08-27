@@ -42,6 +42,7 @@ from Scripts.projection_utils import (
     IMPUTED_SUFFIX,
     WEIGHTS,
     blended_stats,
+    check_source_freshness,
     compute_weighted_stats,
     impute_columns,
     print_coverage_report,
@@ -479,6 +480,8 @@ def load_fantasypros_season(season: int) -> pd.DataFrame:
         print(f"  FantasyPros season file missing ({path.name}); "
               f"run `python -m Scripts.scrape_FP --what season`.")
         return pd.DataFrame(columns=["name_key"])
+    check_source_freshness("FantasyPros season projections", path,
+                           "python -m Scripts.scrape_FP --what season")
 
     df = pd.read_parquet(path)
     out = pd.DataFrame({"name_key": df["player_name"].map(normalise_name)})
@@ -503,6 +506,8 @@ def load_betonline_season(season: int) -> pd.DataFrame:
         print(f"  BetOnline season file missing ({path.name}); "
               f"run `Rscript R/GetSeasonProps.R {season}`.")
         return pd.DataFrame(columns=["name_key"])
+    check_source_freshness("BetOnline season props", path,
+                           f"Rscript R/GetSeasonProps.R {season}")
 
     props = normalise_bol_props(pd.read_csv(path))
     unmapped = props[props["stat"].isna()]
@@ -528,6 +533,8 @@ def load_pinnacle_season(season: int) -> pd.DataFrame:
         print(f"  Pinnacle season file missing ({path.name}); "
               f"run `python -m Scripts.scrape_pinnacle_season`.")
         return pd.DataFrame(columns=["name_key"])
+    check_source_freshness("Pinnacle season props", path,
+                           "python -m Scripts.scrape_pinnacle_season")
 
     df = pd.read_parquet(path).rename(columns={"player_name": "player_name"})
     df["name_key"] = df["player_name"].map(normalise_name)
