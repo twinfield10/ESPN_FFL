@@ -547,7 +547,12 @@ def test_streamed_positions_get_no_auction_money():
 
 
 def test_cash_delta_is_our_price_less_the_markets_in_the_same_currency():
-    board = dv.at_budget(_board([{"vor": 100.0, "auction_value_filled": 40.0}]), 200)
+    """On the fallback path, where the market number is a straight rescale and so is
+    predictable. That the two sides share a *pool* as well as a currency is
+    `test_both_sides_of_the_cash_lens_land_on_the_same_pool`."""
+    with pytest.warns(dv.DraftViewWarning):
+        board = dv.at_budget(_board([{"vor": 100.0,
+                                      "auction_value_filled": 40.0}]), 200)
     out = dv.with_cash_value(board, AUCTION_META, 200)
     assert out["auction_dollars"].to_list() == [40.0]
     assert abs(out["cash_delta"][0] - (out["our_dollars"][0] - 40.0)) < 1e-9
@@ -572,7 +577,7 @@ def test_the_lens_chooses_which_column_the_value_table_ranks_on():
          "auction_value_filled": 1.0},
         {"player_name": "CashFall", "value": 1.0, "vor": 300.0,
          "auction_value_filled": 1.0},
-    ]), 200)
+    ]), 200, meta=AUCTION_META)
     board = dv.with_cash_value(board, AUCTION_META, 200)
     assert dv.value_targets(board, lens=dv.VALUE_LENS_ADP)["player_name"][0] \
         == "AdpFall"
@@ -631,7 +636,7 @@ CASH_META = {"team_count": 10, "roster_slots": {"RB": 2, "BE": 4},
 
 def _priced(rows, budget=250):
     """A board through the money chain, in the order the page runs it."""
-    board = dv.at_budget(_board(rows), budget)
+    board = dv.at_budget(_board(rows), budget, meta=CASH_META)
     return dv.with_cash_value(board, CASH_META, budget)
 
 
@@ -695,7 +700,8 @@ def test_a_board_with_no_market_price_still_prices_our_side():
     from."""
     board = _board([{"keeper_value": 40, "on_team_id": 7}]).with_columns(
         pl.lit(None, dtype=pl.Float64).alias("auction_value_filled"))
-    out = dv.with_cash_value(dv.at_budget(board, 250), CASH_META, 250)
+    out = dv.with_cash_value(dv.at_budget(board, 250, meta=CASH_META),
+                             CASH_META, 250)
 
     raw = dv.MIN_BID + (CASH_META["team_count"] * 250
                         - dv.draftable_spots(CASH_META) * dv.MIN_BID)
@@ -724,7 +730,8 @@ def test_the_surplus_is_blank_where_we_publish_no_valuation():
 def test_there_is_no_surplus_column_before_the_cash_value_is_computed():
     """`display_frame` then drops it, as it does for anything else the board cannot
     support — rather than the page raising on a column that was never made."""
-    out = dv.with_keeper_price(dv.at_budget(_board([{"keeper_value": 40}]), 250), 2)
+    out = dv.with_keeper_price(
+        dv.at_budget(_board([{"keeper_value": 40}]), 250, meta=CASH_META), 2)
     assert "keeper_surplus" not in out.columns
     assert "keeper_price" in out.columns
 
@@ -762,24 +769,30 @@ def test_a_store_with_no_recorded_budget_falls_back():
     assert dv.league_auction_budget(
         {"draft_settings": {"auction_budget": None}}) == dv.DEFAULT_AUCTION_BUDGET
 
-def test_auction_values_are_rescaled_from_espns_budget_to_this_leagues():
+def test_without_meta_the_market_dollars_fall_back_to_a_proportional_rescale():
     """The stored number is a market average in ESPN's own $200 auction, so a
-    league playing for $250 was reading a column denominated in other money."""
-    board = dv.at_budget(_board([{"auction_value_filled": 20.0}]), 250)
+    league playing for $250 was reading a column denominated in other money.
+
+    Rescaling by the budget ratio is the fallback, kept for callers with no
+    ``meta`` — and it warns, because it cannot see team count and therefore does
+    not sum to this league's money. The allocated path is the test below."""
+    with pytest.warns(dv.DraftViewWarning, match="team-count"):
+        board = dv.at_budget(_board([{"auction_value_filled": 20.0}]), 250)
     assert board["auction_share"].to_list() == [0.1]
     assert board["auction_dollars"].to_list() == [25.0]
 
 
 def test_the_default_budget_leaves_the_share_alone_and_scales_the_dollars():
-    board = dv.at_budget(_board([{"auction_value_filled": 64.0}]),
-                         dv.BASE_AUCTION_BUDGET)
+    with pytest.warns(dv.DraftViewWarning):
+        board = dv.at_budget(_board([{"auction_value_filled": 64.0}]),
+                             dv.BASE_AUCTION_BUDGET)
     assert board["auction_dollars"].to_list() == [64.0]
 
 
 def test_the_dollar_column_reads_the_rescaled_value_not_the_stored_one():
-    frame = dv.display_frame(dv.at_budget(_board([{"auction_value_filled": 20.0}]),
-                                          400),
-                             dv.VALUE_LENS_CASH)
+    with pytest.warns(dv.DraftViewWarning):
+        board = dv.at_budget(_board([{"auction_value_filled": 20.0}]), 400)
+    frame = dv.display_frame(board, dv.VALUE_LENS_CASH)
     assert frame[("Draft Metric", "ESPN")].to_list() == [40.0]
 
 
@@ -1167,7 +1180,8 @@ def test_the_frame_keeps_its_nulls_rather_than_faking_a_blank():
     board = _board([{"player_name": "Held", "on_team_id": 3, "keeper_value": 40},
                     {"player_name": "Free", "on_team_id": 0, "keeper_value": 0}])
     frame = dv.display_frame(
-        dv.with_keeper_price(dv.at_budget(board, 250), 2), dv.VALUE_LENS_CASH)
+        dv.with_keeper_price(dv.at_budget(board, 250, meta=CASH_META), 2),
+        dv.VALUE_LENS_CASH)
     prices = frame[("Keepers", "Price")]
     assert prices.notna().iloc[0] and prices.isna().iloc[1]
 
@@ -1246,9 +1260,13 @@ def test_display_frame_skips_columns_the_artifact_lacks():
 def test_the_draft_metric_group_switches_on_the_lens_not_on_presence():
     """Both source columns exist in every league, so this group cannot be selected by
     looking at the data — which currency it speaks is a fact about the draft."""
-    board = dv.with_cash_value(
-        dv.at_budget(_board([{"auction_value_filled": 20.0}]), 250),
-        {"team_count": 10, "roster_slots": {"RB": 2}}, 250)
+    lens_meta = {"team_count": 10, "roster_slots": {"RB": 2}}
+    # The fallback rescale, so the market number stays a predictable $25 rather than
+    # the whole discretionary pool -- a one-row board allocates every dollar to it.
+    # Which currency the group speaks is the subject here, not what the number is.
+    with pytest.warns(dv.DraftViewWarning):
+        board = dv.at_budget(_board([{"auction_value_filled": 20.0}]), 250)
+    board = dv.with_cash_value(board, lens_meta, 250)
 
     adp = dv.display_frame(board, dv.VALUE_LENS_ADP)
     cash = dv.display_frame(board, dv.VALUE_LENS_CASH)
@@ -1343,7 +1361,7 @@ def test_the_model_sits_with_the_quantity_it_is_an_opinion_about():
     `Scripts/usage/__init__.py` for why the prefix did not move with the name."""
     frame = dv.display_frame(
         dv.at_budget(dv.with_model_evidence(_modelled([{}])),
-                     dv.DEFAULT_AUCTION_BUDGET),
+                     dv.DEFAULT_AUCTION_BUDGET, meta=CASH_META),
         dv.VALUE_LENS_CASH)
     order = list(frame.columns)
     assert order.index(("Points", "Us")) < order.index(("Points", "TOM"))
