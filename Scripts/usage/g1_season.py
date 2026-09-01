@@ -57,7 +57,7 @@ so the next person to have this idea can see it fail in one command instead of a
 Usage::
 
     python -m Scripts.usage.g1_season
-    python -m Scripts.usage.g1_season --season 2025 --weights 0.1 0.25 0.5
+    python -m Scripts.usage.g1_season --season 2025 --weights 0.5 1.0 2.0
     python -m Scripts.usage.g1_season --basis summed-weekly   # see above; don't trust it
 """
 
@@ -78,9 +78,59 @@ from Scripts.usage import role as rl
 #: External sources, in the order the tables print them.
 SOURCES: Tuple[str, ...] = ("ESPN", "FP", "PINNY", "BOL")
 
-#: Candidate TOMCAT weights. 0.25 is what ships; the rest bracket it so the printed
-#: curve says whether the shipped number is near the optimum or merely inside it.
-WEIGHTS: Tuple[float, ...] = (0.05, 0.1, 0.25, 0.4, 0.5)
+#: TOMCAT's weight **relative to one external source**, which is the parameter this
+#: module sweeps. Production is :data:`SHIPPED_WEIGHT`.
+#:
+#: **This was 0.25 until 2026-09-01, and 0.25 is not what ships.**
+#: ``WEIGHTS['default']`` in :mod:`Scripts.projection_utils` gives TOMCAT **0.25, the
+#: same as ESPN, FantasyPros, Pinnacle and BetOnline** -- so its ratio to any single
+#: external source is **1.0**, and on a row where all five are real it takes 1/5 of the
+#: blend exactly as ESPN does. Verified on the live 2026 board: where all five sources
+#: are real and unimputed, ``TRUE_`` is their equal five-way mean, up to the
+#: ``reconcile_team_totals`` pass that runs afterwards.
+#:
+#: The old value bracketed 0.05-0.5 and marked 0.25 as shipping, so the curve never
+#: reached production and appeared to fall monotonically to its own right-hand edge.
+#: That read as "TOMCAT is under-weighted, the optimum is 0.5+" and it was re-derived
+#: and acted on twice. The sweep now brackets 1.0 on both sides, where the minimum
+#: turns out to be interior and to sit on production. See :data:`SHIPPED_WEIGHT`.
+WEIGHTS: Tuple[float, ...] = (0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0)
+
+def _shipped_weight() -> float:
+    """TOMCAT's production weight, as a ratio to one external source.
+
+    Derived from :data:`Scripts.projection_utils.WEIGHTS` rather than restated here,
+    because restating it is exactly how this module came to mark the wrong row as
+    shipping. If the production weights move, this follows them.
+
+    Returns:
+        float: ``USG`` divided by one external source's weight, or 0.0 if TOMCAT
+        carries no weight at all.
+
+    Raises:
+        ValueError: If the external sources do not all carry the same weight. The
+            ratio this module sweeps is only well defined under the equal-vote rule,
+            so a non-uniform production table has to be read by hand rather than
+            silently reduced to one number.
+    """
+    from Scripts.projection_utils import WEIGHTS as PROD
+
+    default = PROD["default"]
+    usg = float(default.get("USG", 0.0))
+    external = [float(default[s]) for s in SOURCES if default.get(s)]
+    if not external or not usg:
+        return 0.0
+    if max(external) - min(external) > 1e-9:
+        raise ValueError(
+            "external sources carry unequal weights "
+            f"({dict(zip(SOURCES, external))}); TOMCAT's weight is not expressible "
+            "as a single ratio, so this module's sweep no longer describes production")
+    return usg / external[0]
+
+
+#: TOMCAT's shipped weight on this module's scale -- **1.0**, not the 0.25 that was
+#: hard-coded here until 2026-09-01. See :data:`WEIGHTS`.
+SHIPPED_WEIGHT: float = _shipped_weight()
 
 #: Fewest real weeks before a source is credited with a season-level opinion.
 #:
@@ -235,9 +285,14 @@ def blend(frame: pl.DataFrame, stats: Sequence[str],
 
     The shipped rule: every source that is real carries the same weight, and the
     survivors renormalise. ``usage_weight`` is expressed relative to an external
-    source's 1.0, so 0.25 means TOMCAT votes at a quarter of one of theirs -- matching
-    ``WEIGHTS['default']`` where every universal source carries 0.25 and TOMCAT is one
-    of them, which renormalises to the same ratio.
+    source's 1.0, so 0.25 means TOMCAT votes at a quarter of one of theirs.
+
+    **Production is 1.0, not 0.25.** ``WEIGHTS['default']`` in
+    :mod:`Scripts.projection_utils` carries TOMCAT at 0.25 -- but so does every external
+    source, so the *ratio* is 1.0 and TOMCAT takes 1/5 of a fully-covered row exactly as
+    ESPN does. This docstring previously claimed 0.25 "renormalises to the same ratio",
+    which is the arithmetic error that put the ``<- ships`` marker on the wrong row of
+    the printed curve. Use :data:`SHIPPED_WEIGHT`.
 
     Args:
         frame: Output of :func:`external_season` joined to TOMCAT's ``USG_`` columns.
@@ -434,7 +489,7 @@ def report(season: int = 2025, weights: Optional[Sequence[float]] = None,
     ]
     for row in rows:
         gain = (1 - row["mae"] / base["mae"]) if base["mae"] else 0.0
-        mark = "  <- ships" if abs(row["weight"] - 0.25) < 1e-9 else ""
+        mark = "  <- ships" if abs(row["weight"] - SHIPPED_WEIGHT) < 1e-9 else ""
         cells = "".join(
             f"{row[p]:>9.3f}" if row.get(p) is not None else f"{'—':>9}"
             for p in ("QB", "RB", "WR", "TE"))
@@ -453,9 +508,16 @@ def report(season: int = 2025, weights: Optional[Sequence[float]] = None,
         lines += [
             "  Every source here is a genuine pre-season projection — none has seen a",
             "  snap of the season it projects. ESPN and Pinnacle are absent: ESPN serves",
-            "  only its current figure and no 2025 board survives, so this baseline is",
-            "  weaker than a real board and the comparison is correspondingly kinder to",
-            "  TOMCAT than a live one would be.",
+            "  only its current figure and no 2025 board survives.",
+            "",
+            "  That absence was long labelled here as making the baseline 'weaker than a",
+            "  real board', and therefore kinder to TOMCAT. Measured 2026-09-01, it is",
+            "  not: injecting a synthetic ESPN with ESPN's own measured relationship to",
+            "  FantasyPros — residual correlation 0.985 and accuracy ratio 1.01, over",
+            "  4,080 paired 2025 player-weeks — moves the baseline from 34.83 to 34.85.",
+            "  A 0.985-correlated near-duplicate of a source already present adds nothing.",
+            "  The optimum only falls below the shipped weight once that correlation is",
+            "  driven under 0.5, which is not what ESPN is.",
         ]
     else:
         lines += [

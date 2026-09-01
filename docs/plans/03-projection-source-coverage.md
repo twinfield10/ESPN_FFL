@@ -3,7 +3,9 @@
 **Status:** COMPLETE
 
 **Priority:** High · **Effort:** Medium · **Where it stands:** Steps 1, 2, 4 built ·
-**step 3 measured 2026-08-27 and the answer is no** · step 5 moved to
+**step 3 measured 2026-08-27 and the answer is no** · **step 3b measured 2026-09-01:
+the season weight is right, and the gate had been marking the wrong row as shipping**
+· step 5 moved to
 [36](36-sportsbook-scrapes.md), where it turned out to be two scrapers rather than one
 
 > **The problem was bigger than this plan estimated.** Measured provenance shows
@@ -19,6 +21,18 @@
 > turned out to be, respectively, a source that casts no weekly vote and an artifact
 > of the estimator's own fallback. The equal-vote rule stays, now measured rather
 > than asserted. See [Step 3: the weight re-tune, measured](#step-3-the-weight-re-tune-measured-2026-08-27).
+
+> **The season weight is now measured too, and it does not move either — but the gate
+> that said otherwise was misreading its own curve.** `g1_season` hard-coded 0.25 as
+> TOMCAT's shipped weight and swept a range topping out at 0.5. Production is **1.0**:
+> `WEIGHTS['default']` gives TOMCAT the same 0.25 as every external source, so the
+> ratio the gate sweeps is 1.0, not 0.25. The curve therefore ran off its own edge and
+> read as "TOMCAT is under-weighted" — a conclusion derived and acted on twice.
+> Bracketed properly the minimum is **interior and sits on production**, and the
+> long-standing "the baseline is missing ESPN, so this flatters TOMCAT" caveat is
+> measured and false: a synthetic ESPN at ESPN's real 0.985 residual correlation with
+> FantasyPros moves the baseline 34.83 → 34.85. See
+> [Step 3b](#step-3b-the-season-weight-and-the-mislabel-that-hid-it-2026-09-01).
 
 ## Problem
 
@@ -301,6 +315,121 @@ season.
 permanent limitation of the data rather than a gap in the work. Everything above is
 the **weekly** blend. The season weights remain a judgement call, and this
 measurement does not change that.
+
+> **Partly answered 2026-09-01, and the answer is still that the weights do not
+> move.** `Scripts.usage.g1_season` *does* score a season blend — genuine pre-season
+> FantasyPros and BetOnline against realised 2025 season totals, with TOMCAT
+> walk-forward — so `USG`'s weight is not the pure judgement call this paragraph
+> describes. It is measured, it sweeps to an interior optimum, and production sits on
+> it. See [Step 3b](#step-3b-the-season-weight-and-the-mislabel-that-hid-it-2026-09-01).
+> `DST`'s weight is still unmeasurable for the reason plan 30 gives: G-DST2(b) cannot
+> be run.
+
+## Step 3b: the season weight, and the mislabel that hid it (2026-09-01)
+
+**Verdict: the season weight does not move either — and the gate that suggested
+otherwise was reading its own curve at the wrong point.**
+
+### The mislabel
+
+`WEIGHTS['default']` gives TOMCAT **0.25 — the same as ESPN, FantasyPros, Pinnacle and
+BetOnline.** Its *ratio* to any single external source is therefore **1.0**, and on a
+row where all five are real it takes one fifth of the blend exactly as ESPN does.
+Verified on the live 2026 board: where all five sources are real and unimputed,
+`TRUE_` is their equal five-way mean, up to the `reconcile_team_totals` pass that runs
+after blending.
+
+`Scripts/usage/g1_season.py` sweeps that ratio. It hard-coded **0.25** as "what
+ships", put its `<- ships` marker on that row, and swept `(0.05, 0.1, 0.25, 0.4, 0.5)`
+— **a range whose maximum is half of production.** The curve therefore fell
+monotonically to its own right-hand edge, which reads as *"TOMCAT is under-weighted,
+the optimum is 0.5 or beyond"*. That reading was derived and acted on twice before
+anyone checked what the number meant.
+
+Fixed: `SHIPPED_WEIGHT` is now derived from `Scripts.projection_utils.WEIGHTS` rather
+than restated, raises if the externals ever carry unequal weights (the ratio is only
+defined under the equal-vote rule), and the sweep brackets it on both sides.
+`tests/test_g1_season.py` pins all three.
+
+### With the sweep bracketing production, the minimum is interior and lands on it
+
+| TOMCAT ratio | 0.0 | 0.25 | 0.50 | 0.75 | **1.00 (ships)** | 1.25 | 1.50 | 2.00 | 3.00 |
+|---|---|---|---|---|---|---|---|---|---|
+| season-points MAE | 34.83 | 33.94 | 33.61 | 33.50 | **33.50** | 33.59 | 33.71 | 33.91 | 34.27 |
+
+### The missing-ESPN caveat was wrong, and it is now measured
+
+G1's basis carries no ESPN and no Pinnacle, and the module said so as a caveat: the
+baseline is "weaker than a real board", so the comparison is "kinder to TOMCAT than a
+live one would be". **Measured, it is not.**
+
+ESPN's relationship to FantasyPros, on 4,080 paired 2025 player-weeks where both are
+real and unimputed: residual correlation **0.985** (reproducing plan 16's G0 at
++0.988) and residual-sd ratio **1.01** — equally accurate, and very nearly the same
+opinion. Injecting a synthetic ESPN with exactly those properties moves the baseline
+from **34.83 to 34.85**. A 0.985-correlated near-duplicate of a source already in the
+blend adds nothing, which is the same collinearity that sank step 3's simplex fit.
+
+Swept over the correlation, 25 seeds per cell:
+
+| synthetic ESPN's residual correlation with FP | 0.985 (measured) | 0.90 | 0.50 | 0.00 |
+|---|---|---|---|---|
+| optimal TOMCAT ratio | 2.00 | 1.50 | 0.50 | 0.00 |
+| gain at the shipped 1.0 | +3.9% | +3.2% | +0.5% | −5.1% |
+
+The optimum only falls below production once the missing source is *far* more
+independent than ESPN actually is. At the measured correlation the optimum is a flat
+basin over roughly 1.0–2.0 and production sits inside it, **0.5%** off the floor —
+which is the lab's own `mean_gain` threshold for refusing to pay complexity for noise.
+
+Reproduce with `python -m Scripts.usage.g1_season --season 2025`.
+
+### What the sweep did surface: the residual is per position, not a scalar
+
+Slope of realised on projected, 2025, season level. `>1` means the projection is too
+**narrow**, `<1` too **wide**:
+
+| pos · stat | base (FP+BOL) | **ships (1.0)** | TOMCAT alone |
+|---|---|---|---|
+| RB rushing yards | 0.904 | **0.993** | 1.037 |
+| TE receptions | 0.854 | **0.982** | 1.263 |
+| TE receiving yards | 0.898 | **1.022** | 1.243 |
+| QB rushing TDs | 0.724 | **0.979** | 1.431 |
+| WR receiving yards | 0.726 | **0.870** | 1.152 |
+| RB receiving yards | 1.063 | **1.250** | 1.309 |
+| QB passing yards | 0.704 | **0.747** | 0.819 |
+
+Four cells land on 1.00 at the shipped weight, and the rest miss **in both
+directions** — WR receiving is still over-spread, RB receiving is over-corrected.
+A single scalar cannot fix both, which is why the MAE basin is flat: raising the
+weight repairs WR and breaks RB. Any further gain has to be **per position**, and that
+is a fitted object needing its own walk-forward gate rather than a number to nudge.
+
+### TOMCAT's own calibration, which nothing recorded before
+
+Walk-forward, one fit per season, TOMCAT against realised season totals. The bias is
+stable in sign and size across every fold:
+
+| pos · stat | 2021 | 2022 | 2023 | 2024 | 2025 | mean |
+|---|---|---|---|---|---|---|
+| RB receptions | 1.298 | 1.367 | 1.392 | 1.256 | 1.263 | **1.315** |
+| RB receiving yards | 1.256 | 1.349 | 1.346 | 1.313 | 1.260 | **1.305** |
+| WR receptions | 1.278 | 1.337 | 1.415 | 1.323 | 1.127 | **1.296** |
+| WR receiving yards | 1.256 | 1.333 | 1.494 | 1.270 | 1.158 | **1.302** |
+| TE receiving yards | 1.500 | 1.259 | 1.444 | 1.405 | 1.240 | **1.370** |
+| QB rushing TDs | 1.094 | 1.574 | 1.733 | 1.721 | 1.430 | **1.510** |
+| RB rushing yards | 1.019 | 1.138 | 0.971 | 1.164 | 1.046 | 1.068 |
+| QB passing yards | 1.014 | 0.837 | 1.054 | 0.904 | 0.815 | 0.925 |
+
+TOMCAT is calibrated on rushing and passing volume and **under-spread on receiving
+volume and QB rushing**. It is also the best-calibrated single source in the blend:
+FantasyPros runs 0.65–0.95 at season level and BetOnline 0.21–0.81, both **over**-spread.
+
+**Correcting TOMCAT's under-spread in isolation would make the board worse**, and the
+table above is why: the two errors point in opposite directions and partly cancel in
+the blend. Widening TOMCAT removes the counterweight and pushes `TRUE_` further
+over-spread. That is the trap this section exists to stop someone walking into — the
+per-position work is the way in, not a scalar correction to either side.
 
 ## Verification
 
