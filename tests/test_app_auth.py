@@ -1,8 +1,8 @@
 """The viewer boundary: which leagues the app is allowed to offer.
 
 There is no login yet, so what is covered here is the *scoping* -- the part a login
-will hand its answer to. The point of the module is that nine configured leagues
-narrow to one viewer's four in exactly one place, so these tests are the ones that
+will hand its answer to. The point of the module is that ten configured leagues
+narrow to one viewer's five in exactly one place, so these tests are the ones that
 would fail if a page went back to reading ``store.list_leagues`` directly.
 """
 
@@ -18,9 +18,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 import auth  # noqa: E402
 
 #: Every league in config.yaml, in the order the store lists them (sorted).
-ALL_NINE = [
+ALL_LEAGUES = [
     "big_red_fantasy_football", "fields_league", "gop_degenerates",
-    "john_atl_league", "john_pc_league", "knights_ffl",
+    "jeffs_league", "john_atl_league", "john_pc_league", "knights_ffl",
     "twelve_dudes_one_cup", "weenieless_wanderers", "winfield_football",
 ]
 
@@ -33,16 +33,16 @@ def _no_escape_hatch(monkeypatch):
 
 # --- scoping --------------------------------------------------------------
 
-def test_the_default_viewer_sees_only_the_four_leagues_he_plays_in():
-    visible = auth.visible_leagues(auth.DEFAULT_VIEWER, ALL_NINE)
-    assert visible == ["gop_degenerates", "knights_ffl", "weenieless_wanderers",
-                       "winfield_football"]
+def test_the_default_viewer_sees_only_the_leagues_he_plays_in():
+    visible = auth.visible_leagues(auth.DEFAULT_VIEWER, ALL_LEAGUES)
+    assert visible == ["gop_degenerates", "jeffs_league", "knights_ffl",
+                       "weenieless_wanderers", "winfield_football"]
 
 
 def test_the_other_owners_leagues_are_not_offered():
-    """Five of the nine belong to other owners. The pipeline still builds them and
+    """Five of the ten belong to other owners. The pipeline still builds them and
     the Sheet still publishes them -- they are just not this viewer's."""
-    visible = auth.visible_leagues(auth.DEFAULT_VIEWER, ALL_NINE)
+    visible = auth.visible_leagues(auth.DEFAULT_VIEWER, ALL_LEAGUES)
     for key in ("big_red_fantasy_football", "fields_league", "john_atl_league",
                 "john_pc_league", "twelve_dudes_one_cup"):
         assert key not in visible
@@ -52,16 +52,16 @@ def test_the_stores_order_is_kept_not_the_viewers():
     """The store's order is sorted and stable across seasons; the viewer's is a
     preference. Sorting the picker by preference would move the list under you as
     leagues get built."""
-    reversed_store = list(reversed(ALL_NINE))
+    reversed_store = list(reversed(ALL_LEAGUES))
     assert auth.visible_leagues(auth.DEFAULT_VIEWER, reversed_store) == [
         "winfield_football", "weenieless_wanderers", "knights_ffl",
-        "gop_degenerates"]
+        "jeffs_league", "gop_degenerates"]
 
 
 def test_an_empty_league_list_means_unrestricted():
     """The sentinel the escape hatch and any future admin role both use."""
     everyone = auth.DEFAULT_VIEWER._replace(leagues=())
-    assert auth.visible_leagues(everyone, ALL_NINE) == ALL_NINE
+    assert auth.visible_leagues(everyone, ALL_LEAGUES) == ALL_LEAGUES
 
 
 def test_a_viewer_whose_leagues_are_not_built_gets_an_empty_list_not_an_error():
@@ -75,7 +75,7 @@ def test_a_viewer_whose_leagues_are_not_built_gets_an_empty_list_not_an_error():
 
 def test_the_app_defaults_to_winfield_football():
     assert auth.DEFAULT_VIEWER.default_league == "winfield_football"
-    assert auth.default_league(auth.DEFAULT_VIEWER, ALL_NINE) == "winfield_football"
+    assert auth.default_league(auth.DEFAULT_VIEWER, ALL_LEAGUES) == "winfield_football"
 
 
 def test_the_default_falls_back_to_the_first_league_actually_available():
@@ -96,7 +96,7 @@ def test_the_env_var_drops_the_scope(monkeypatch):
     monkeypatch.setenv(auth.ALL_LEAGUES_ENV, "1")
     viewer = auth.current_viewer()
     assert viewer.leagues == ()
-    assert auth.visible_leagues(viewer, ALL_NINE) == ALL_NINE
+    assert auth.visible_leagues(viewer, ALL_LEAGUES) == ALL_LEAGUES
 
 
 @pytest.mark.parametrize("value", ["", "0", "no", "false", "off"])
@@ -126,7 +126,7 @@ def test_a_signed_in_viewer_replaces_the_default():
     try:
         auth.sign_in(guest)
         assert auth.current_viewer() == guest
-        assert auth.visible_leagues(auth.current_viewer(), ALL_NINE) == ["knights_ffl"]
+        assert auth.visible_leagues(auth.current_viewer(), ALL_LEAGUES) == ["knights_ffl"]
     finally:
         auth.sign_out()
         st.session_state.pop(auth.SESSION_KEY, None)
