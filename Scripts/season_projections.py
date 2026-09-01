@@ -23,6 +23,15 @@ Sources, and the trap in each:
   the player/stat split failed upstream and left ``player == 'UNKNOWN'`` with the
   name embedded in the stat text. All handled in :func:`normalise_bol_props`.
 - **Pinnacle** -- clean, but only 76 props and offence-only.
+- **The Athletic** -- a hand-saved ``.xlsx``, not a scrape, so it goes stale because
+  nobody downloaded a new one rather than because a job failed. Three traps, all in
+  :mod:`Scripts.load_athletic`: its team tabs split team target share across the
+  rows and on one tab some of it lands on a **quarterback** (Spencer Rattler, 32
+  targets and 259 receiving yards, which scores him 59.8 instead of 7.8), so stats
+  are masked to what the position can hold; its ``DST`` tab leaves the
+  points-allowed buckets null for all 32 teams, so it is not ingested at all; and
+  its own ``VORP`` column adds 45% of the row-aligned running back's value to each
+  quarterback's, so only the raw stat lines are read. It projects no fumbles.
 
 Names are matched on a normalised key rather than raw strings: BetOnline is
 uppercase, and contains real misspellings (``Dalton Kinciad``).
@@ -116,11 +125,24 @@ BOL_SHORT_MAP = {
     "TKL_DEF": "defensiveTotalTackles",
 }
 
-#: Known cross-source misspellings, keyed by normalised name.
+#: Known cross-source misspellings and nicknames, keyed by normalised name.
+#:
+#: The last four came from The Athletic's workbook, which resolved 428 of its 434
+#: players against the crosswalk on first import. Two are the source's typos and two
+#: are the name the player is actually called -- and a nickname is the more dangerous
+#: kind, because it looks correct in both files. Without these four the players
+#: silently abstain rather than failing loudly, which is what `_report_join_misses`
+#: exists to surface.
 NAME_ALIASES = {
     "DALTON KINCIAD": "DALTON KINCAID",
     "PATRICK MAHOMES II": "PATRICK MAHOMES",
     "GARDNER MINSHEW II": "GARDNER MINSHEW",
+    # Nicknames.
+    "CHIG OKONKWO": "CHIGOZIEM OKONKWO",
+    "HOLLYWOOD BROWN": "MARQUISE BROWN",
+    # The Athletic's typos.
+    "DERMARCUS ROBINSON": "DEMARCUS ROBINSON",
+    "BRAXTON BARRIOS": "BRAXTON BERRIOS",
 }
 
 _SUFFIXES = re.compile(r"\b(JR|SR|II|III|IV|V)\b")
@@ -488,6 +510,48 @@ def load_fantasypros_season(season: int) -> pd.DataFrame:
     for col in df.columns:
         if col.startswith("proj_"):
             out[f"FP_{col[len('proj_'):]}"] = pd.to_numeric(df[col], errors="coerce")
+    return out.dropna(subset=["name_key"]).drop_duplicates("name_key")
+
+
+def load_theathletic_season(season: int) -> pd.DataFrame:
+    """The Athletic's season-long projections, prefixed ``ATH_``.
+
+    Jake Ciely's workbook, imported by :mod:`Scripts.load_athletic`. **The only
+    source here with no scraper behind it** -- it is a paid ``.xlsx`` download, so the
+    file changes when somebody saves a new copy rather than nightly, which is why
+    ``Scripts.refresh_status`` names it and why the fix hint below is an importer
+    rather than a scrape.
+
+    Reads the twelve stat columns and nothing else. The workbook's own ``FPS``,
+    ``Custom``, ``VORP`` and ``AUC$`` are ignored: we score raw stats through each
+    league's rules like every other source, and its ``VORP`` adds 45% of the
+    row-aligned running back's value to each quarterback's. Its ``DST`` tab is
+    ignored too -- the points-allowed buckets are empty for all 32 teams, so its
+    defence values silently omit that component. See :mod:`Scripts.load_athletic`.
+
+    Args:
+        season: Season year.
+
+    Returns:
+        pd.DataFrame: ``name_key`` plus ``ATH_<stat>`` columns. Empty if absent.
+    """
+    from Scripts.load_athletic import FILENAME, PREFIX, SOURCE, STAT_COLUMNS
+
+    path = season_dir(SOURCE, season, FILENAME, create=False)
+    if not path.exists():
+        print(f"  The Athletic season file missing ({path.name}); "
+              f"run `python -m Scripts.load_athletic --season {season} "
+              f"--file <workbook.xlsx>`.")
+        return pd.DataFrame(columns=["name_key"])
+    check_source_freshness(
+        "The Athletic season projections", path,
+        f"python -m Scripts.load_athletic --season {season} --file <workbook.xlsx>")
+
+    df = pd.read_parquet(path)
+    out = pd.DataFrame({"name_key": df["player_name"].map(normalise_name)})
+    for stat in STAT_COLUMNS.values():
+        if stat in df.columns:
+            out[f"{PREFIX}_{stat}"] = pd.to_numeric(df[stat], errors="coerce")
     return out.dropna(subset=["name_key"]).drop_duplicates("name_key")
 
 
@@ -1181,7 +1245,8 @@ def _withdraw_usage_on_role(base: pd.DataFrame, season: int) -> pd.DataFrame:
 #:
 #: ``KIK_`` and ``DST_`` are absent because they are keyed on team rather than player;
 #: a defence does not go on injured reserve.
-AVAILABILITY_WITHDRAWN_PREFIXES: Tuple[str, ...] = ("FP_", "PINNY_", "BOL_", "USG_")
+AVAILABILITY_WITHDRAWN_PREFIXES: Tuple[str, ...] = ("FP_", "PINNY_", "BOL_",
+                                                    "ATH_", "USG_")
 
 #: What :func:`_withdraw_sources_on_availability` writes into ``avail_evidence``.
 #:
@@ -1623,7 +1688,7 @@ def _attach_injury_severity(base: pd.DataFrame, season: int) -> pd.DataFrame:
 #: because it decomposes into volume x efficiency x games. Until that exists, the
 #: model's dissent is carried by ``USG_PosRankDelta``, which is scale-free and cannot
 #: contaminate the spread.
-OPINION_PREFIXES = ("ESPN", "FP", "PINNY", "BOL")
+OPINION_PREFIXES = ("ESPN", "FP", "PINNY", "BOL", "ATH")
 
 
 
@@ -1642,7 +1707,7 @@ OPINION_PREFIXES = ("ESPN", "FP", "PINNY", "BOL")
 #: nobody else does gets a real ``TRUE_Points`` and a ``projection_missing`` of True.
 #: The board would then hide, as unprojected, exactly the players the model exists to
 #: differentiate.
-PROJECTION_PREFIXES = ("ESPN", "FP", "PINNY", "BOL", "USG", "KIK", "DST")
+PROJECTION_PREFIXES = ("ESPN", "FP", "PINNY", "BOL", "ATH", "USG", "KIK", "DST")
 
 
 #: What ``outcome_evidence`` says when a row has no distribution, and why.
@@ -2195,6 +2260,7 @@ def build_season_projections(league, season: Optional[int] = None,
         (load_fantasypros_season, "FantasyPros"),
         (load_pinnacle_season, "Pinnacle"),
         (load_betonline_season, "BetOnline"),
+        (load_theathletic_season, "The Athletic"),
     ):
         source = loader(season)
         if source.empty or "name_key" not in source:
@@ -2262,6 +2328,13 @@ def build_season_projections(league, season: Optional[int] = None,
 
     base = impute_columns(base, target_prefix="PINNY_", source_prefix="MEAN_")
     base = impute_columns(base, target_prefix="BOL_", source_prefix="MEAN_")
+    # `ATH_` joins the chain rather than sitting outside it like `USG_`, because it
+    # answers the same question ESPN and FantasyPros do -- a projected stat line for
+    # a healthy season -- so filling a gap from their mean double-counts nothing new.
+    # What matters is the flag: it covers 434 offensive players and no kicker or
+    # defence, and without a provenance column an unmatched row would enter
+    # `compute_weighted_stats` as a confident projection of zero.
+    base = impute_columns(base, target_prefix="ATH_", source_prefix="MEAN_")
 
     # `USG_` is deliberately absent from that chain. Filling an abstention from
     # `MEAN_` -- the ESPN/FantasyPros average -- would turn the one source that is

@@ -66,7 +66,8 @@ source:
 | `FP_` | FantasyPros |
 | `PINNY_` | Pinnacle |
 | `BOL_` | BetOnline |
-| `USG_` | The usage model — the blend's fifth source, at weight 0.25 |
+| `ATH_` | The Athletic — Jake Ciely's workbook, offence only, at weight 0.25 |
+| `USG_` | The usage model — at weight 0.25 |
 | `MEAN_` | The unweighted cross-source mean |
 | `TRUE_` | **The blend.** This is what the board ranks on and what lineups score |
 
@@ -207,8 +208,9 @@ sources land one file per season.
 
 | Source | What it gives | State |
 |---|---|---|
-| **Usage** | The season model's own stat lines — the blend's fifth source | Current |
+| **Usage** | The season model's own stat lines | Current |
 | **FantasyPros** | Weekly and season projections (`week=draft` gives season lines) | Working |
+| **The Athletic** | Season stat lines for 434 offensive players, from Jake Ciely's workbook | **Manual** — a paid `.xlsx` download with no API, imported by `python -m Scripts.load_athletic`. Nothing refreshes it; `Scripts.refresh_status` reports its age |
 | **Pinnacle** | Sportsbook props, weekly and season | Working, Selenium |
 | **BetOnline** | Sportsbook props | **Weekly is broken** — 403, their API now wants a signed header. Season props still work |
 

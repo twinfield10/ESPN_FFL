@@ -401,19 +401,33 @@ COLUMNS: List[Column] = [
                   "none at all on passing touchdowns or receptions. Weighted an equal "
                   "quarter since 2026-08-24 — it had been zeroed for thin coverage, which "
                   "double-counted an objection the imputation flags already handle."),
+    Column("ATH_Points", "Points", "ATH", "number", fmt="%.1f",
+           source_of="The Athletic",
+           how="Jake Ciely's season projection for The Athletic, scored through "
+               "**this league's** rules like every column beside it. One analyst's "
+               "house view rather than a consensus or a market — and built as a team "
+               "budget split by usage share, so a running back's carries and his "
+               "backup's are two halves of the same number.",
+           caveat="Offence only — 434 players across QB, RB, WR and TE, and nothing "
+                  "at kicker or defence, where the weight is dropped and the rest "
+                  "renormalise. It projects no fumbles either. Arrives as a "
+                  "hand-saved spreadsheet rather than a nightly scrape, so check its "
+                  "age in `python -m Scripts.refresh_status` before leaning on it; a "
+                  "stale file here is a stale opinion, not a missing column."),
     Column("TRUE_Points", "Points", "Us", "number", fmt="%.1f",
            source_of="Blend",
-           how="ESPN, FantasyPros, BetOnline and the usage model in equal quarters, "
-               "plus the D/ST model at a quarter on team defences only — blended as a "
-               "**stat line**, then scored through this league's own rules, which is "
-               "what lets one pipeline serve nine leagues. Pinnacle and the kicker "
-               "model are weighted zero.",
+           how="One equal vote each to ESPN, FantasyPros, BetOnline, Pinnacle, The "
+               "Athletic and the usage model, plus the D/ST model on team defences "
+               "only — blended as a **stat line**, then scored through this league's "
+               "own rules, which is what lets one pipeline serve nine leagues. Only "
+               "the kicker model is weighted zero.",
            caveat="A source with no line for a player is dropped and the rest "
-                  "reweighted. That used to make most players an ESPN/usage blend, "
-                  "because FantasyPros reached only 60; since 2026-08-24 it reaches "
-                  "592 and carries roughly 0.45 of the realised weight where a stat "
-                  "is live. Every rank, tier and VOR on this table is built from "
-                  "this column."),
+                  "reweighted, so the nominal share is almost never the realised one "
+                  "— that used to make most players an ESPN/usage blend, because "
+                  "FantasyPros reached only 60. The Athletic joined on 2026-09-01 and "
+                  "covers 434 offensive players, so where it is real it takes a sixth "
+                  "rather than a fifth off the others. Every rank, tier and VOR on "
+                  "this table is built from this column."),
     Column("USG_Points", "Points", "TOM", "number", fmt="%.1f",
            source_of="TOMCAT",
            how="**TOMCAT** — Touches, Opportunity, Market, Context, Availability, Tiers — "
