@@ -208,6 +208,7 @@ keepers = dv.keeper_count(meta)
 board = dv.at_budget(
     dv.with_model_evidence(store.load_board(selection.season, selection.league_key)),
     budget,
+    meta=meta,
 )
 # Both of these subtract from the market price, so both come after the rescale that
 # puts the market price in this league's dollars.

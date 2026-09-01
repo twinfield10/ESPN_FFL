@@ -11,25 +11,31 @@ both that a draft in the next two weeks actually depends on.
 
 ## The calendar
 
-Read from ESPN's `draftSettings` on the 2026-08-24 06:00 build — the same field the
-board page reads, so it is what the app believes too.
+Re-read from ESPN's `draftSettings` on the **2026-09-01 06:00** build — the same field
+the board page reads, so it is what the app believes too.
 
 | League | Yours | Type | Draft date | Days |
 |---|---|---|---|---|
-| Knights_FFL | **yes** | Snake | Mon 2026-09-07 20:00 | 14 |
-| GOP_Degenerates | **yes** | Auction, 2 keepers, $250 | Tue 2026-09-08 20:00 | 15 |
-| 12 Dudes one Cup | no | Snake | Tue 2026-09-08 20:00 | 15 |
-| John_ATL_League | no | Snake | Tue 2026-09-08 20:30 | 15 |
-| John_PC_League | no | Snake | Tue 2026-09-08 20:45 | 15 |
+| Washed_Up_Fijians | no | Auction | Wed 2026-09-02 19:45 | **1** |
+| GOP_Degenerates | **yes** | Auction, 2 keepers, $250 | **Sun 2026-09-06 20:00** | **5** |
+| Knights_FFL | **yes** | Snake | Mon 2026-09-07 20:00 | 6 |
+| John_PC_League | no | Snake | Mon 2026-09-07 20:45 | 6 |
+| 12 Dudes one Cup | no | Snake | Tue 2026-09-08 20:00 | 7 |
+| John_ATL_League | no | Snake | Tue 2026-09-08 20:30 | 7 |
 | Winfield_Football | **yes** | Snake | **not set** | ? |
 | Weenieless_Wanderers | **yes** | Snake | **not set** | ? |
 | Big Red Fantasy Football | no | Snake | not set | ? |
-| Washed_Up_Fijians | no | Auction | not set | ? |
 
-**No ESPN-dated draft falls next week.** The earliest is 14 days out. But **two of
-your own four leagues carry no date at all**, and those are the two that could be
-next week without this repo knowing. Confirming those two dates is the first item
-below, because everything else here is scheduled against them.
+**GOP moved forward two days**, from Tue 09-08 to **Sun 09-06**, and it is now your
+first draft rather than your second — the auction, with keepers and a $250 budget,
+which is the most complicated of the four. It is also no longer the night after
+Knights; it is the night *before*. Anything you were saving for "the weekend before
+the drafts" now happens after the first one.
+
+**Two of your own four still carry no date at all.** Winfield_Football and
+Weenieless_Wanderers have had none since 08-24. At this range that is much more likely
+to mean the commissioner has not set one than that it is imminent — but they are the
+only two that could still surprise you, and confirming them is a message, not a build.
 
 Re-read the table any time with:
 
@@ -140,7 +146,7 @@ week-1 problem. → [plan 02](plans/02-betonline-access.md).
 
 | Missing | Draft impact | Verdict |
 |---|---|---|
-| **Live Draft page** ([09](plans/09-frontend-draft-views.md)) | Pick tracking during the draft. The board on a second monitor works without it — that is how 2025 ran | The only item worth building if time allows |
+| ~~**Live Draft page**~~ ([09](plans/09-frontend-draft-views.md)) | **Built 2026-08-28 as [The Sheet](plans/37-draft-sheet.md)** — the manual half, which is the half that cannot break on the night. Four position panels on one screen, tier bands, click-to-cross-off and a live positional-scarcity column. ESPN pick *polling* is still unbuilt and stays that way: it would put an ESPN client in a render path the app promises is a parquet read | **Done.** Use it |
 | **Outcome distributions** ([28](plans/28-outcome-distributions.md)) | **Built 2026-08-24.** The board now shows `p10`/`p90`, `Top` and `Bust` beside every projection the usage model covers — 290 players a league, every one it prices | Use them. Read the evidence below too |
 | **Weekly views** ([08](plans/08-frontend-weekly-views.md)) | None | After week 1 |
 | **Weekly usage head** ([19](plans/19-weekly-usage-model.md)) | None — comes online ~week 3 | After the draft |
@@ -216,13 +222,17 @@ Ordered by when it has to happen, not by size.
       #   ... edit config/injuries/2026.yaml for any the beat reports say are worse ...
       python -m Scripts.refresh --all --what board
       ```
-- [ ] **Decide on the Live Draft page.** It is the last piece of plan 09 and the only
-      build worth starting this late. If it is not started by 2026-09-04, do not start
-      it — draft off the board page, which is tested across all nine leagues.
+- [x] ~~**Decide on the Live Draft page.**~~ Decided by building it, 2026-08-28 and ten
+      days out rather than at the deadline — see
+      [ship early in camp](plans/37-draft-sheet.md). **The Sheet** is the manual half of
+      plan 09 §2; pick polling is out and stays out.
 - [ ] **Open the app and actually use it for an hour.** Not a smoke test — a dry run
       of draft night on GOP's auction board, which is the one with keepers, a $250
       budget and the Cash lens. The failure you want to find is a workflow one, and
-      no test finds those.
+      no test finds those. **Do this on The Sheet as well as the Board**, because the
+      cross-off workflow is the part nothing has exercised except a headless driver.
+      Two things to check by eye: that the four panels fit your screen with no
+      horizontal scroll, and that `PS` falls where you expect as you cross names off.
 - [ ] Skim [23](plans/23-owner-tendencies.md)'s tendencies for your four rooms. 103 of
       112 managers carry a measured tendency; knowing who reaches for a quarterback is
       free information you already paid for.
@@ -254,10 +264,20 @@ Ordered by when it has to happen, not by size.
 ### Draft night
 
 - [ ] `python -m Scripts.refresh_status` — confirm the board is hours old, not days.
-- [ ] Board page on the second monitor, on the right league. The picker offers your
-      four; GOP and Knights draft on consecutive nights and are one click apart.
-- [ ] Read `Δrk` rather than `USG` points — `USG_Points` is injury-adjusted and
-      `TRUE_Points` is not, so the rank comparison is the one that survives.
+- [ ] **The Sheet** on the second monitor, on the right league, with the Board page one
+      tab away for when you want to argue with a number. The picker offers your four;
+      GOP and Knights draft on consecutive nights and are one click apart. Set the
+      budget on the Board page — The Sheet reads it rather than owning a second input.
+- [ ] Cross players off on The Sheet as they go. Nothing is written to the store, so a
+      reload loses it — which is the trade for the page never touching ESPN.
+- [ ] Read `Δrk` rather than `USG` points — the two are on different *levels* (the
+      model shrinks toward positional baselines where ESPN extrapolates), so the rank
+      comparison is the one that survives. **Not because one is injury-adjusted:**
+      `to_full_slate` divides each player's expected games back out, so `USG_Points`
+      and `TRUE_Points` are both if-healthy 17-game lines. An earlier version of this
+      line said the opposite. Availability travels separately as
+      `usg_expected_games`; The Sheet's `Avail` toggle is where it gets applied, to
+      the whole blend rather than to one quarter of it.
 - [ ] D/ST is blended now, so `TRUE_Points` already carries the model — read it as the
       number. For kickers, `KIK_Points` is still an opinion beside the total, not in it.
 

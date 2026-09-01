@@ -200,17 +200,47 @@ differently across your nine. Josh Allen is VOR rank 9 in the 10-team superflex 
 21 in 14-team Knights_FFL, because a superflex `OP` slot pushes QB replacement from
 QB14 to QB20.
 
-The board page is three tabs. **Board** is the working surface — player search,
-filters for position, NFL team and bye week, an auction budget, and the table,
-sorted by VOR. **Values** is where the room and our valuation disagree. **League**
-is what does not change during a draft: the positional cliff, the tier runway, and
-who you are drafting against.
+There are **two pages over the same board**, because reading a board and drafting off
+one are different jobs.
 
-The auction budget matters more than it looks. ESPN publishes its market auction
-values against **its own $200 budget**, so the `$` column was denominated in
-somebody else's money. The board now carries the value as a share of a budget and
-shows it at the league's own — read from ESPN, because it varies: GOP Degenerates
-plays for $250 and the other eight for $200.
+**Draft Board** is four tabs and 45 columns, and it is where you go *before* a draft to
+decide whether you believe the numbers. **Board** is the working surface — player
+search, filters for position, NFL team and bye week, an auction budget, and the table,
+sorted by VOR. **Values** is where the room and our valuation disagree. **League** is
+what does not change during a draft: the positional cliff, the tier runway, and who you
+are drafting against. **Calibration** is where *we* disagree with ESPN, and whether
+that disagreement is a player or the model.
+
+**The Sheet** is the on-the-clock view: four position panels on one screen, banded by
+tier, seven columns each — `Tier · Player · TM/BYE · PTS · VALUE · PS · ADP`. Click a
+row to cross a player off; click again to put him back. Its organisation is lifted from
+`DraftSheets_2026.xlsx`, the BeerSheets replacement, which is a good draft-day interface
+over a weak engine — so the layout is taken and the numbers are ours. See
+[plan 37](docs/plans/37-draft-sheet.md), including the two column-drift bugs in the
+workbook that made this a reimplementation rather than a port.
+
+`PS` is the column worth learning. **Positional scarcity** is how much of that
+position's value over replacement is still sitting *below* a player and undrafted —
+high means plenty behind him and no urgency, low means the cliff is here. It decays as
+you cross names off: RB1 on Knights runs from 90% to 25% as the twelve backs below him
+go. Nothing else on either page answers "if I pass on him, what is actually left".
+
+The **Availability** toggle discounts every projection by the games the model expects a
+player to miss. It is **off by default on purpose**: the discount is real money (Puka
+Nacua 339 → 275) and it reorders within position, but the availability head is the
+weakest arm of the model that produces it — prior-season games predict next season at
+r = +0.343. Look at it every time; do not assume it is the better number.
+
+The auction budget matters more than it looks. ESPN publishes its market auction values
+against **its own $200 budget**, so the `$` column was denominated in somebody else's
+money — and until 2026-08-28 the fix was a straight `budget/200` rescale that never saw
+**team count**, which put GOP's market total at $2,702 against the $4,000 actually on
+the table while six-team Winfield read $2,083 against $1,200. Both sides of the cash
+lens now go through one allocation — every roster spot reserves its $1, and what is
+left is split in proportion to value — so our dollars and the market's sum to the same
+pool and the difference between them means something. The budget is read from ESPN,
+because it varies: GOP Degenerates plays for $250 and the other eight for $200. It is
+set on the Draft Board page and The Sheet reads it, so the two cannot drift.
 
 **Keeper leagues.** ESPN carries last season's rosters into a keeper league before
 anyone declares, so GOP's board arrives with 252 players held against a keeper limit

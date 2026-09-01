@@ -35,10 +35,13 @@ st.set_page_config(
 PAGES = [
     st.Page("pages/overview.py", title="Store Overview", icon="📦", default=True),
     st.Page("pages/draft_board.py", title="Draft Board", icon="📋"),
+    # The on-the-clock view of the same artifact: four position panels, tier bands,
+    # cross-off and live positional scarcity. Plan 37.
+    st.Page("pages/draft_sheet.py", title="The Sheet", icon="📄"),
     # Plan 08: My Matchup, League Slate, Free Agents, Player Explorer,
     #          Projection Accuracy, Playoff Odds, Standings, History
-    # Plan 09: Live Draft (needs the ESPN draft endpoint in the render path),
-    #          Draft History (needs roadmap Phase 1's backfill)
+    # Plan 09: Live Draft (polls the ESPN draft endpoint in the render path; The
+    #          Sheet is its manual half), Draft History (needs Phase 1's backfill)
 ]
 
 st.navigation(PAGES).run()

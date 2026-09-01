@@ -13,12 +13,32 @@ already cost this repo twice (12 projection functions, then
 
 import _bootstrap  # noqa: F401  -- must precede the Scripts imports
 
+import warnings
 from typing import Dict, List, Mapping, NamedTuple, Optional, Sequence, Tuple
 
 import pandas as pd
 import polars as pl
 
 from Scripts.draft.board import FLEX_SLOTS, NON_STARTING_SLOTS
+
+
+class DraftViewWarning(UserWarning):
+    """A derivation degraded rather than failed.
+
+    Its own class for the same reason ``Scripts.draft.board.DraftBoardWarning`` is:
+    a page that silently prices an auction in the wrong money is the failure mode
+    worth naming, and a caller that wants to promote these to errors should not have
+    to promote every ``UserWarning`` in the process.
+    """
+
+
+def _warn(msg: str) -> None:
+    """Warn with :class:`DraftViewWarning`, from the caller's frame.
+
+    Args:
+        msg: What degraded, and what the reader gets instead.
+    """
+    warnings.warn(msg, DraftViewWarning, stacklevel=3)
 
 #: Position to categorical slot, fixed. Colour follows the position, not its rank
 #: in the current filter -- deselecting kickers must not repaint running backs.
@@ -745,7 +765,8 @@ def budget_key(league_key: str) -> str:
 
 
 def at_budget(board: pl.DataFrame, budget: float,
-              base: float = BASE_AUCTION_BUDGET) -> pl.DataFrame:
+              base: float = BASE_AUCTION_BUDGET,
+              meta: Optional[Mapping] = None) -> pl.DataFrame:
     """Re-price ESPN's auction values into the budget this league actually plays for.
 
     The stored value is a market average in ESPN's own $200 auction. Held as a
@@ -754,18 +775,37 @@ def at_budget(board: pl.DataFrame, budget: float,
     ``auction_dollars`` is that share at ``budget``. The table shows the dollars;
     the share is what makes them meaningful.
 
-    The rescale is straight proportion, which is what makes it honest to a point
-    and no further. A real auction's minimum bid does not scale -- the last roster
-    spots cost $1 whatever the budget is -- so raising the budget adds slightly
-    more to the top of the board than a flat multiple suggests. The distortion is
-    small next to the disagreement between any two sources' valuations, and
-    correcting it would need a roster size this function is not given.
+    **With ``meta`` it allocates rather than rescales, and that is the fix for a
+    real bug.** A straight proportion never sees team count, so the market total
+    landed wrong in both directions -- GOP Degenerates' 16 x $250 came out $2,544
+    against $4,000 of actual money, 1.57x light, while six-team Winfield ran 0.63x
+    heavy. ``cash_delta`` was therefore differencing our correctly-pooled dollars
+    against a mis-scaled market, and the sign of that error changed with league
+    size. Given ``meta`` the market side goes through
+    :func:`allocate_dollars` -- the same construction ``our_dollars`` uses, over the
+    same eligible pool -- so both columns sum to ``teams x budget`` and their
+    difference means something. ``docs/plans/09-frontend-draft-views.md`` named this
+    fix and deferred it; The Sheet is the decision about the cash lens it was
+    waiting for.
+
+    Without ``meta`` it falls back to the proportional rescale and warns, which is
+    the same degrade-visibly contract every attacher in ``build_board`` has. The
+    fallback is honest to a point and no further: a real auction's minimum bid does
+    not scale -- the last roster spots cost $1 whatever the budget is -- so raising
+    the budget adds slightly more to the top of the board than a flat multiple
+    suggests.
+
+    ``auction_share`` is unchanged either way. It is the fraction of one team's
+    money the market puts on a player and it is what makes the stored values
+    portable at all, so it stays denominated in ``base``.
 
     Args:
         board: A stored draft board.
         budget: This league's per-team auction budget.
         base: Budget the stored values are denominated in. Overridable so the
             assumption is visible rather than buried in a literal.
+        meta: The store's ``meta.json``, for team count and roster shape. Without
+            it the dollars are a proportional rescale and a warning says so.
 
     Returns:
         pl.DataFrame: The board with ``auction_share`` and ``auction_dollars``
@@ -776,10 +816,35 @@ def at_budget(board: pl.DataFrame, budget: float,
     if "auction_value_filled" not in board.columns or not base:
         return board
     share = pl.col("auction_value_filled") / float(base)
-    return board.with_columns(
-        share.alias("auction_share"),
-        (share * float(budget)).alias("auction_dollars"),
+    out = board.with_columns(share.alias("auction_share"))
+
+    spots = draftable_spots(meta) if meta else 0
+    teams = int((meta or {}).get("team_count") or 0)
+    if spots and teams:
+        # Priced to everyone the market prices, including the streamed positions --
+        # what the room pays for a defence is worth knowing. Normalised over the
+        # *eligible* pool only, so the total matches `our_dollars`' total and the
+        # two are differenceable. See `allocate_dollars`.
+        weight = (pl.when(pl.col("auction_value_filled").is_not_null()
+                          & (pl.col("auction_value_filled") > 0))
+                  .then(pl.col("auction_value_filled")).otherwise(None))
+        allocated = allocate_dollars(out, weight, spots, teams, budget,
+                                     "auction_dollars", pool=_cash_eligible(out),
+                                     price_outside_pool=True)
+        if allocated is not None:
+            return allocated
+        # `meta` was fine; ESPN priced nobody on this board. There is nothing to
+        # allocate and nothing to warn about -- the proportional rescale of an empty
+        # column is equally empty, and saying "no meta" here would be a lie.
+        return out.with_columns((share * float(budget)).alias("auction_dollars"))
+
+    _warn(
+        "at_budget got no meta, so the market's auction dollars are a proportional "
+        "rescale of ESPN's $200 values and do not sum to this league's money. "
+        "`cash_delta` against them is off by the team-count ratio -- 1.57x light for a "
+        "16-team $250 auction. Pass meta to allocate instead."
     )
+    return out.with_columns((share * float(budget)).alias("auction_dollars"))
 
 
 # --- the glossary ---------------------------------------------------------
@@ -999,6 +1064,115 @@ def draftable_spots(meta: Mapping) -> int:
     return per_team * int(meta.get("team_count") or 0)
 
 
+def _cash_eligible(board: pl.DataFrame) -> pl.Expr:
+    """Who can absorb auction money, as a boolean expression.
+
+    Four conditions, each of which cost something to learn: worth more than
+    replacement, held rather than streamed, startable in this league at all, and
+    actually projected by somebody. Shared by :func:`with_cash_value` and
+    :func:`at_budget` so our dollars and the market's are normalised over the
+    **same** population -- which is the only thing that makes ``cash_delta`` a
+    difference rather than a coincidence.
+
+    Every clause is guarded on the column existing, because a board built before a
+    given attacher landed is still a board.
+
+    Args:
+        board: A stored draft board.
+
+    Returns:
+        pl.Expr: A boolean expression over ``board``.
+    """
+    eligible = pl.lit(True)
+    if "vor" in board.columns:
+        eligible = pl.col("vor").is_not_null() & (pl.col("vor") > 0)
+    if "is_streamed" in board.columns:
+        eligible = eligible & ~pl.col("is_streamed").fill_null(False)
+    if "startable" in board.columns:
+        eligible = eligible & pl.col("startable").fill_null(True)
+    if "projection_missing" in board.columns:
+        eligible = eligible & ~pl.col("projection_missing").fill_null(False)
+    return eligible
+
+
+def allocate_dollars(frame: pl.DataFrame, weight: pl.Expr, spots: int, teams: int,
+                     budget: float, out: str, pool: Optional[pl.Expr] = None,
+                     min_bid: int = MIN_BID,
+                     price_outside_pool: bool = False) -> Optional[pl.DataFrame]:
+    """Split a league's auction money across players in proportion to a weight.
+
+    The standard auction conversion, extracted so both sides of the cash lens use
+    it. Every spot the room fills costs at least ``min_bid``, so that money is
+    committed before anyone bids on anyone; what remains is discretionary and is
+    split in proportion to ``weight``::
+
+        discretionary = teams x budget  -  spots x min_bid
+        price         = min_bid + discretionary x wi / sum(w over the pool)
+
+    Only as many players as there are spots to fill share the pool -- money the
+    room does not have cannot be allocated -- so the sum over the pool lands on
+    ``teams x budget``, less ``min_bid`` for any spot the pool was too small to
+    fill. That shortfall is correct rather than a rounding error: an unfilled spot
+    still costs a dollar.
+
+    **``weight``, ``pool`` and ``price_outside_pool`` answer three different
+    questions**: what each player is worth, who sets the rate, and who gets a number
+    printed. The valuation side wants all three aligned -- only players the room can
+    actually afford to roster get a price, because money the room does not have cannot
+    be allocated, and pricing the 121st-best player in a 120-spot league would invent
+    some. The market side wants them apart: ESPN prices ~313 players in a 240-spot
+    league and what the room pays for a team defence is worth showing, even though a
+    streamed position has no business setting the rate for a season-total valuation.
+
+    Args:
+        frame: The board.
+        weight: Positive numeric expression for anyone who should receive a price,
+            null for everyone else.
+        spots: Roster spots the room will buy -- :func:`draftable_spots`.
+        teams: Teams in the league.
+        budget: Per-team budget.
+        out: Name for the new dollars column.
+        pool: Boolean expression for who counts toward the rate. Defaults to
+            everyone ``weight`` prices.
+        min_bid: The floor on a winning bid.
+        price_outside_pool: Print a price for weighted players the pool's top ``spots``
+            excludes, extrapolating the same rate. False -- the valuation default --
+            leaves them null.
+
+    Returns:
+        pl.DataFrame: ``frame`` plus ``out``, or **None** when it cannot be computed
+        -- no spots, no teams, or no positive weight anywhere. Returning None rather
+        than an unchanged frame lets each caller degrade in its own way, which they
+        do differently.
+    """
+    if not spots or not teams:
+        return None
+
+    discretionary = max(teams * float(budget) - spots * min_bid, 0.0)
+
+    ranked = frame.with_columns(weight.alias("_alloc_w"))
+    counts = pl.col("_alloc_w") if pool is None else (
+        pl.when(pool).then(pl.col("_alloc_w")).otherwise(None))
+    ranked = ranked.with_columns(counts.alias("_alloc_pool"))
+    # Ranked within the population that sets the rate, so "as many as there are
+    # spots" counts the players who could actually absorb the money rather than the
+    # whole pool.
+    ranked = ranked.with_columns(
+        pl.col("_alloc_pool").rank("min", descending=True).alias("_alloc_rank"))
+    inside = pl.col("_alloc_rank").is_not_null() & (pl.col("_alloc_rank") <= spots)
+
+    total = (ranked.filter(inside)["_alloc_pool"].sum() or 0.0)
+    scratch = ["_alloc_w", "_alloc_pool", "_alloc_rank"]
+    if total <= 0:
+        return None
+
+    payable = pl.col("_alloc_w").is_not_null() if price_outside_pool else inside
+    priced = (pl.when(payable)
+              .then(min_bid + discretionary * pl.col("_alloc_w") / total)
+              .otherwise(None))
+    return ranked.with_columns(priced.alias(out)).drop(scratch)
+
+
 def with_cash_value(board: pl.DataFrame, meta: Mapping, budget: float,
                     min_bid: int = MIN_BID) -> pl.DataFrame:
     """Price our own valuation in dollars, to set against what the room pays.
@@ -1057,39 +1231,19 @@ def with_cash_value(board: pl.DataFrame, meta: Mapping, budget: float,
     """
     spots = draftable_spots(meta)
     teams = int(meta.get("team_count") or 0)
-    if "vor" not in board.columns or not spots or not teams:
+    if "vor" not in board.columns:
         return board
 
-    discretionary = max(teams * float(budget) - spots * min_bid, 0.0)
+    weight = pl.when(_cash_eligible(board)).then(pl.col("vor")).otherwise(None)
+    out = allocate_dollars(board, weight, spots, teams, budget, "our_dollars",
+                           min_bid=min_bid)
+    if out is None:
+        return board
 
-    eligible = pl.col("vor").is_not_null() & (pl.col("vor") > 0)
-    if "is_streamed" in board.columns:
-        eligible = eligible & ~pl.col("is_streamed").fill_null(False)
-    if "startable" in board.columns:
-        eligible = eligible & pl.col("startable").fill_null(True)
-    if "projection_missing" in board.columns:
-        eligible = eligible & ~pl.col("projection_missing").fill_null(False)
-
-    # Rank within the eligible population, so "as many as there are spots" counts
-    # the players who could actually absorb the money rather than the whole pool.
-    ranked = board.with_columns(
-        pl.when(eligible).then(pl.col("vor")).otherwise(None).alias("_bid_vor"))
-    ranked = ranked.with_columns(
-        pl.col("_bid_vor").rank("min", descending=True).alias("_bid_rank"))
-    inside = pl.col("_bid_rank").is_not_null() & (pl.col("_bid_rank") <= spots)
-
-    total_vor = (ranked.filter(inside)["_bid_vor"].sum() or 0.0)
-    if total_vor <= 0:
-        return board.drop([c for c in ("_bid_vor", "_bid_rank") if c in board.columns])
-
-    priced = (pl.when(inside)
-              .then(min_bid + discretionary * pl.col("_bid_vor") / total_vor)
-              .otherwise(None))
-    out = ranked.with_columns(priced.alias("our_dollars"))
     if "auction_dollars" in out.columns:
         out = out.with_columns(
             (pl.col("our_dollars") - pl.col("auction_dollars")).alias("cash_delta"))
-    return out.drop(["_bid_vor", "_bid_rank"])
+    return out
 
 
 def with_keeper_price(board: pl.DataFrame, keepers: Optional[int],
@@ -1445,6 +1599,172 @@ def tier_runway(board: pl.DataFrame, positions: Sequence[str],
              pl.col("TRUE_Points").max().alias("best_points"))
         .sort(["primaryPosition", "tier"])
     )
+
+
+#: A full slate, and the basis every projection on the board is quoted over.
+#:
+#: Pinned equal to ``Scripts.usage.season.DEFAULT_TARGET_SLATE`` by a test rather than
+#: imported, for the reason :data:`OUTCOME_EVIDENCE` is duplicated: this module is read
+#: by a process that only opens parquet, and importing the usage package to learn one
+#: float would pull the model stack in behind it.
+FULL_SLATE = 17.0
+
+#: What ``avail_evidence`` says when the usage model has no availability estimate for a
+#: player, and why it matters that it says something. Roughly one priced-and-projected
+#: player in seven has no ``usg_expected_games`` -- 80 of 590 on the 2026 Knights board --
+#: and those rows take a factor of 1.0. Silently, that reads as "durable"; named, it reads
+#: as "not asked", which is the truth.
+AVAIL_NO_ESTIMATE = "no availability estimate"
+
+
+def _drafted_expr(board: pl.DataFrame, drafted: Sequence) -> pl.Expr:
+    """Whether each row is one of the players already off the board.
+
+    Keyed on ``player_id`` where the board has one, because names are not unique:
+    ``Scripts.draft.board``'s postscript found **16 colliding names** in the IDP pool,
+    Lamar Jackson the quarterback alongside Lamar Jackson the cornerback. Crossing off
+    one and having the other vanish is a small bug with a very bad half-hour attached to
+    it on draft night.
+
+    Both sides are cast to string so a session-state value typed by a widget compares
+    equal to an ``i64`` id read out of parquet.
+
+    Args:
+        board: A stored draft board.
+        drafted: Player ids -- or names, on a board with no id column.
+
+    Returns:
+        pl.Expr: A boolean expression, constant False when ``drafted`` is empty.
+    """
+    if not len(drafted):
+        return pl.lit(False)
+    key = "player_id" if "player_id" in board.columns else "player_name"
+    return pl.col(key).cast(pl.String).is_in([str(v) for v in drafted])
+
+
+def positional_scarcity(board: pl.DataFrame, drafted: Sequence = (),
+                        value_column: str = "vor") -> pl.DataFrame:
+    """How much of each position's value is still sitting *below* each player.
+
+    The DraftSheet's best single column, and the one thing this repo's board had no
+    equivalent of. ``tier_runway`` counts players and ``scarcity_curve`` draws the
+    cliff; neither answers "if I pass on him, what is actually left", which is the
+    question a drafter asks about every pick.
+
+    Per position: the denominator is the total value over replacement of everyone worth
+    more than replacement, **fixed at build time**; the numerator is the same sum over
+    the players strictly below this one who are still available. So it starts near 1.0
+    at the top of a position and decays toward 0 as the draft empties it -- read a high
+    number as "no urgency, plenty behind him" and a low one as "the cliff is here".
+
+    **The fixed denominator is what makes it decay**, and it is the sheet's choice
+    rather than an oversight. Normalising by the value *remaining* would make the column
+    scale-free and it would never fall, which reads better and says less: the whole
+    signal on draft night is that a position is being drained.
+
+    Streamed positions come back null. A season-total value over replacement does not
+    describe a position you stream -- the reason ``value`` is NaN for them in
+    ``Scripts.draft.board`` -- so a scarcity share built on one would be null's more
+    honest cousin.
+
+    Computed on ``vor`` even when the page is sorted on availability-adjusted points.
+    The two orders differ for a handful of players and reconciling them would mean
+    recomputing replacement level, which is a board build rather than a page render.
+
+    Args:
+        board: A stored draft board.
+        drafted: Players already off the board -- see :func:`_drafted_expr`.
+        value_column: The value-over-replacement column.
+
+    Returns:
+        pl.DataFrame: ``board`` plus ``ps``, a 0-1 share. Null where the position is
+        streamed or has no positive value at all. Row order is preserved.
+    """
+    if value_column not in board.columns or "primaryPosition" not in board.columns:
+        return board.with_columns(pl.lit(None, dtype=pl.Float64).alias("ps"))
+
+    counts = pl.col(value_column).is_not_null() & (pl.col(value_column) > 0)
+    if "is_streamed" in board.columns:
+        counts = counts & ~pl.col("is_streamed").fill_null(False)
+    open_now = counts & ~_drafted_expr(board, drafted)
+
+    scratch = ["_ps_order", "_ps_all", "_ps_open", "_ps_denom", "_ps_left", "_ps_cum"]
+    return (
+        board
+        .with_row_index("_ps_order")
+        .with_columns(
+            pl.when(counts).then(pl.col(value_column)).otherwise(0.0).alias("_ps_all"),
+            pl.when(open_now).then(pl.col(value_column)).otherwise(0.0).alias("_ps_open"),
+        )
+        # `cum_sum` reads the frame's row order, so the sort is load-bearing rather than
+        # cosmetic: it is what makes "below" mean "worth less than him".
+        .sort(["primaryPosition", value_column], descending=[False, True],
+              nulls_last=True)
+        .with_columns(
+            pl.col("_ps_all").sum().over("primaryPosition").alias("_ps_denom"),
+            pl.col("_ps_open").sum().over("primaryPosition").alias("_ps_left"),
+            pl.col("_ps_open").cum_sum().over("primaryPosition").alias("_ps_cum"),
+        )
+        .with_columns(
+            pl.when(pl.col("_ps_denom") > 0)
+            .then((pl.col("_ps_left") - pl.col("_ps_cum")) / pl.col("_ps_denom"))
+            .otherwise(None).alias("ps"))
+        .sort("_ps_order")
+        .drop(scratch)
+    )
+
+
+def with_availability_points(board: pl.DataFrame,
+                             points_column: str = "TRUE_Points",
+                             slate: float = FULL_SLATE) -> pl.DataFrame:
+    """Discount every projection by the games the model expects the player to miss.
+
+    The DraftSheet applies ``(16 - missed) / 17`` to everything it prints, off a table of
+    **positional-rank priors** -- QB1 loses 1.80 games because he is QB1. We can do the
+    same thing off a per-player estimate, which is what ``usg_expected_games`` is.
+
+    **Neither ``TRUE_Points`` nor ``USG_Points`` is availability-adjusted**, so this does
+    not double-count. ``Scripts.usage.project.to_full_slate`` divides each player's
+    expected games back out of the usage line specifically so the availability term can
+    be "applied deliberately and to the *whole* blend rather than to one quarter of it" --
+    its own words. This is that application. (``docs/DRAFT_READINESS.md`` claimed the
+    opposite until 2026-08-28; the claim was wrong and is corrected there.)
+
+    **It is a parallel column and the board does not sort on it by default**, because the
+    availability head is the weakest arm of the model that produces it: plan 18 measures
+    prior-season games against next season at r = +0.343. On the 2026 Knights board the
+    discount is real money -- Puka Nacua 339.4 to 274.8, Jahmyr Gibbs 342.9 to 296.8 --
+    and it reorders the top of the board. That is worth *looking* at and worth being able
+    to switch to; it is not worth silently repricing four leagues on ten days before a
+    draft.
+
+    A player with no estimate takes a factor of 1.0 and is marked in ``avail_evidence``.
+    Sinking the un-estimated seventh of the pool to the bottom of a sort would be a
+    filter disguised as a projection.
+
+    Args:
+        board: A stored draft board.
+        points_column: The projection to discount.
+        slate: Games in a full season, the basis the projection is quoted over.
+
+    Returns:
+        pl.DataFrame: ``board`` plus ``avail_points``, ``avail_pos_rank`` and
+        ``avail_evidence``. Unchanged when either input column is absent -- the toggle
+        then drops out of the page as any other unsupported column does.
+    """
+    if points_column not in board.columns or "usg_expected_games" not in board.columns:
+        return board
+
+    games = pl.col("usg_expected_games")
+    factor = (games.clip(0.0, slate) / slate).fill_null(1.0)
+    out = board.with_columns(
+        (pl.col(points_column) * factor).alias("avail_points"),
+        pl.when(games.is_null()).then(pl.lit(AVAIL_NO_ESTIMATE))
+        .otherwise(pl.lit("")).alias("avail_evidence"),
+    )
+    return out.with_columns(
+        pl.col("avail_points").rank("min", descending=True)
+        .over("primaryPosition").alias("avail_pos_rank"))
 
 
 # =========================================================================
