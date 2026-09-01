@@ -213,7 +213,18 @@ def frame_with(status, join_key):
 def test_only_the_usage_model_is_scaled(monkeypatch):
     """ESPN and FantasyPros already price a known absence -- they had Pearsall at
     0.0 -- so discounting the whole blend would count the same injury twice. What the
-    model lacks is any sight of the current season."""
+    model lacks is any sight of the current season.
+
+    **This is a claim about *scaling*, not about withdrawal, and the difference is
+    load-bearing.** The reasoning holds for a projection site and does not hold for a
+    sportsbook, which posts a pre-season number and leaves it up: BetOnline had Jayden
+    Higgins at 575.5 receiving yards nine days into injured reserve. That case is
+    handled by ``_withdraw_sources_on_availability``, a separate pass, which withdraws
+    every non-ESPN source outright rather than scaling any of them -- see
+    ``tests/test_availability_withdrawal.py``. Read this test as "nothing here applies
+    a graded multiplier to a source it has no business grading", not as "nothing in
+    the pipeline ever touches the books".
+    """
     import inspect
     body = inspect.getsource(sp._apply_injury_adjustment)
     assert 'c.startswith("USG_")' in body

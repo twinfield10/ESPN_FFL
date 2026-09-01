@@ -16,6 +16,22 @@ are untouched, and a test pins that. The fitted curve is well calibrated — a c
 loses 20%, slope **1.05** — and its accuracy gain is about **1%**, half the pre-committed
 2% bar, on either metric. Nothing multiplies a projection.
 
+**Amended 2026-09-01: one of phase 3's diagnostics found a consumer, and the rejection
+still stands.** `inj_season_ending` now drives
+`_withdraw_sources_on_availability` in `Scripts/season_projections.py`, which pulls every
+non-ESPN source for a player who cannot be started. **That is not the multiplier this plan
+rejected** — nothing here is scaled by a fitted curve; a source is withdrawn, using the same
+null-and-flag abstention `_withdraw_usage_on_role` already used, and ESPN's own zero is what
+the blend then resolves to. What forced it was a case this plan did not anticipate: the
+rationale for `USG_`-only scaling is that ESPN and FantasyPros price a known absence
+themselves, and **a sportsbook does not**. BetOnline's season file still listed Jayden
+Higgins at 575.5 receiving yards nine days into injured reserve, and under an equal-vote
+blend one surviving source is the whole projection — he read 36.3 points at WR126 against
+ESPN's WR198. 27 season-enders a board, of whom exactly one carried a number. The
+`TRUE_`-is-untouched test still passes, because it pins `attach_severity`, which is still
+diagnostics-only; the gate is a separate pass that reads its output. See
+`tests/test_availability_withdrawal.py`.
+
 **Depends on:** [16](16-usage-data-layer.md) — the context readers and the leakage
 discipline · [18](18-season-usage-model.md) — `to_full_slate`'s availability seam
 **Feeds:** [19](19-weekly-usage-model.md) — weekly channel A is that plan's job, not

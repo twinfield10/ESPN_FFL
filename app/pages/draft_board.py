@@ -220,6 +220,10 @@ board = dv.with_injury_code(board)
 # What the injury is and how long for, which the status alone cannot say: ESPN had
 # Jeremiyah Love ACTIVE at ADP 18 while the override file had him four to six weeks out.
 board = dv.with_injury_severity(board)
+# And why a projection is zero rather than merely absent — the availability gates
+# withdraw every source but ESPN, and a blank cell cannot tell that from a rookie
+# nobody has priced.
+board = dv.with_availability_evidence(board)
 # The 0-1 probabilities into the 0-100 their `%` formats expect. Without it every one
 # of them renders as 0% -- see `with_percent_columns`.
 board = dv.with_percent_columns(board)

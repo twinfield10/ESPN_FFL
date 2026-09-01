@@ -1168,6 +1168,186 @@ def _withdraw_usage_on_role(base: pd.DataFrame, season: int) -> pd.DataFrame:
     return base
 
 
+#: Source prefixes the availability gates withdraw.
+#:
+#: ESPN is deliberately absent, and its absence is what makes the gates work. It is
+#: the root source and carries no ``_is_imputed`` columns at all, so
+#: :func:`Scripts.projection_utils.compute_weighted_stats` always counts it as real
+#: and ``fillna(0.0)`` turns its missing stat line into a zero vote. Withdrawing every
+#: *other* source therefore leaves that zero as the only surviving opinion and the
+#: blend resolves to 0 -- no divide-by-zero, no fallback to the face-value sum, and no
+#: number invented by this module. Measured on the 2026 boards, all 27 season-enders
+#: already carry ``ESPN_projected_total == 0.0``.
+#:
+#: ``KIK_`` and ``DST_`` are absent because they are keyed on team rather than player;
+#: a defence does not go on injured reserve.
+AVAILABILITY_WITHDRAWN_PREFIXES: Tuple[str, ...] = ("FP_", "PINNY_", "BOL_", "USG_")
+
+#: What :func:`_withdraw_sources_on_availability` writes into ``avail_evidence``.
+#:
+#: Lowercase column name, like ``usg_evidence`` and the ``inj_`` block: ``UPPER_``
+#: is reserved for blendable numeric stats, and both ``compute_weighted_stats`` and
+#: ``proj_to_score`` scan every uppercase prefix and require it to be numeric. See
+#: the same note at :data:`Scripts.injury.apply.INJURY_COLUMNS`.
+AVAIL_EVIDENCE_COLUMN = "avail_evidence"
+AVAIL_SEASON_ENDING = "withdrawn: out for season"
+AVAIL_ESPN_ZERO_AND_OUT = "withdrawn: ESPN prices 0 and he is out"
+AVAIL_ESPN_ZERO_LONE_SOURCE = "withdrawn: ESPN prices 0, one source left"
+
+
+def _sources_with_a_line(base: pd.DataFrame) -> pd.Series:
+    """How many non-ESPN sources carry a real stat line, before imputation.
+
+    A source speaks where **one** column is both present and not flagged imputed --
+    the two conditions on the same column, not on the row. Testing them separately
+    would let a source with an imputed value in one stat and a flag-but-no-value in
+    another read as real, which is precisely the "absent source looks like agreement"
+    failure ``*_is_imputed`` exists to prevent.
+
+    Missing flag columns count as *not* imputed, which is the right default here and
+    the opposite of the one :func:`compute_weighted_stats` uses downstream. At this
+    seam ``FP_``/``PINNY_``/``BOL_`` genuinely have no flags yet -- :func:`impute_columns`
+    is what creates them and it runs later -- so a present value is a real one. By the
+    time the blend reads the same frame the flags exist, and there a missing flag means
+    the row never joined. Same absence, two stages, two meanings.
+
+    Args:
+        base: The merged frame, after the two ``USG_`` passes and before the
+            imputation chain.
+
+    Returns:
+        pd.Series: count of sources speaking, one row per player.
+    """
+    counts = pd.Series(0, index=base.index, dtype=int)
+    for prefix in AVAILABILITY_WITHDRAWN_PREFIXES:
+        speaks = pd.Series(False, index=base.index)
+        for column in [c for c in base.columns
+                       if c.startswith(prefix) and not c.endswith(IMPUTED_SUFFIX)]:
+            flag = f"{column}{IMPUTED_SUFFIX}"
+            imputed = (base[flag].fillna(False).astype(bool) if flag in base.columns
+                       else pd.Series(False, index=base.index))
+            speaks = speaks | (base[column].notna() & ~imputed)
+        counts = counts + speaks.astype(int)
+    return counts
+
+
+def _withdraw_sources_on_availability(base: pd.DataFrame) -> pd.DataFrame:
+    """Withdraw every non-ESPN source where the player cannot be started.
+
+    **The one thing the pipeline knew and never acted on.** ``inj_season_ending`` has
+    been on all nine boards since plan 27 phase 3 and was read by nothing. Jayden
+    Higgins carried it as ``True``, with ESPN at 0.0, FantasyPros and Pinnacle both
+    absent and ``USG_`` already withdrawn by :func:`_apply_injury_adjustment` -- and
+    still showed **36.3** points, because BetOnline's season prop had him at 575.5
+    receiving yards and the blend renormalises onto whoever is left.
+
+    **Why the books need a rule the projection sites do not.**
+    :func:`_apply_injury_adjustment` scales ``USG_`` alone, on the reasoning that ESPN
+    and FantasyPros price a known absence themselves so discounting the whole blend
+    would count it twice. That holds for a projection site and does not hold for a
+    sportsbook: BetOnline's 2026 season file, rewritten by the nightly the morning
+    this was written, still listed Higgins at 575.5 / 3.5 nine days after he went on
+    injured reserve. A book posts a pre-season number and leaves it up, so waiting for
+    the market to come down is waiting for something that does not happen.
+
+    Three gates, ORed, in descending order of how little judgement each needs:
+
+    - **season-ender** -- ``inj_season_ending``. ESPN's own estimated return date is
+      past the end of the schedule. 27 players on the 2026 boards, no judgement at all.
+    - **ESPN declined and he is out** -- ``ESPN_projected_total <= 0`` and a fantasy
+      status in :data:`INJURY_ABSTAIN_STATUSES`. Only 3 of 62 OUT/IR players carry an
+      ESPN projection above zero -- Charbonnet 134.0, Jordyn Tyson 99.8, Savion
+      Williams 41.9 -- and this spares exactly those three, which is the point of
+      keying on ESPN's number rather than on the status alone.
+    - **ESPN declined and one source is left** -- ``ESPN_projected_total <= 0`` and at
+      most one non-ESPN source with a line. This is the same defect with a role
+      trigger instead of an injury one: AJ Dillon at 55.5 and Roschon Johnson at 17.2
+      are FantasyPros alone, against an ESPN hard zero.
+
+    **The third gate stops at two sources on purpose.** Troy Franklin (ESPN 50.7,
+    blend 100.8), Seydou Traore and Jahdae Walker all have two independent non-ESPN
+    lines and all keep them. Two sources agreeing against ESPN is a disagreement, and
+    a board that cannot disagree with ESPN is not worth building.
+
+    Withdrawal is null-and-flag rather than scale-to-zero, the same idiom
+    :func:`_withdraw_usage_on_role` uses and for the same reason: ``compute_weighted_stats``
+    drops the weight and renormalises, ``sources_real`` counts honestly, and no number
+    nobody stands behind enters the blend.
+
+    Args:
+        base: The merged frame, after :func:`_attach_injury_severity` and **before**
+            the imputation chain -- the only point where ``inj_season_ending`` exists
+            and the source columns have not yet been backfilled from ``MEAN_``.
+
+    Returns:
+        pd.DataFrame: ``base`` with the offending rows' non-ESPN stat lines withdrawn,
+        their flags set, and :data:`AVAIL_EVIDENCE_COLUMN` recording which gate fired.
+    """
+    if AVAIL_EVIDENCE_COLUMN not in base.columns:
+        base[AVAIL_EVIDENCE_COLUMN] = pd.Series(None, index=base.index, dtype="object")
+
+    espn = (pd.to_numeric(base["ESPN_projected_total"], errors="coerce")
+            if "ESPN_projected_total" in base.columns
+            else pd.Series(float("nan"), index=base.index))
+    declined = (espn <= 0).fillna(False)
+
+    if "inj_season_ending" in base.columns:
+        season_ending = base["inj_season_ending"].fillna(False).astype(bool)
+    else:
+        season_ending = pd.Series(False, index=base.index)
+
+    if "injury_status" in base.columns:
+        unavailable = base["injury_status"].isin(INJURY_ABSTAIN_STATUSES)
+    else:
+        unavailable = pd.Series(False, index=base.index)
+
+    lone = _sources_with_a_line(base) <= 1
+
+    # ESPN pricing a season-ender above zero is its two feeds contradicting each other
+    # -- the fantasy projection against the site API's return date. Named rather than
+    # resolved: the gate still fires, because a date past the schedule is the harder
+    # evidence, but a human should know it happened.
+    conflicted = season_ending & ~declined
+    if conflicted.any():
+        names = ", ".join(base.loc[conflicted, "player_name"].astype(str).head(5))
+        print(f"  Availability: {int(conflicted.sum())} season-ender(s) still carry an "
+              f"ESPN projection above zero ({names}). Withdrawing anyway; the return "
+              f"date is the harder evidence.")
+
+    # Evaluated most-specific first, and `~withdrawn` makes them exclusive, so
+    # `avail_evidence` names the reason a reader would give rather than whichever
+    # predicate happened to match first. A season-ender is also an ESPN zero and also
+    # a lone survivor; "out for season" is the one worth reading.
+    gates = (("out for season", season_ending, AVAIL_SEASON_ENDING),
+             ("out, ESPN 0", declined & unavailable, AVAIL_ESPN_ZERO_AND_OUT),
+             ("ESPN 0, one source", declined & lone, AVAIL_ESPN_ZERO_LONE_SOURCE))
+
+    withdrawn = pd.Series(False, index=base.index)
+    counts = {}
+    for label, gate, evidence in gates:
+        fires = gate.fillna(False) & ~withdrawn
+        if not fires.any():
+            continue
+        base.loc[fires, AVAIL_EVIDENCE_COLUMN] = evidence
+        withdrawn = withdrawn | fires
+        counts[label] = int(fires.sum())
+
+    if not withdrawn.any():
+        return base
+
+    for prefix in AVAILABILITY_WITHDRAWN_PREFIXES:
+        for column in [c for c in base.columns
+                       if c.startswith(prefix) and not c.endswith(IMPUTED_SUFFIX)]:
+            base.loc[withdrawn, column] = float("nan")
+            flag = f"{column}{IMPUTED_SUFFIX}"
+            if flag in base.columns:
+                base.loc[withdrawn, flag] = True
+
+    shown = "; ".join(f"{k}={v}" for k, v in counts.items())
+    print(f"  Availability: withdrew every non-ESPN source for "
+          f"{int(withdrawn.sum())} player(s) ({shown}).")
+    return base
+
 
 def _make_usage_coherent(base: pd.DataFrame,
                          prefix: str = "USG_") -> pd.DataFrame:
@@ -2054,6 +2234,14 @@ def build_season_projections(league, season: Optional[int] = None,
     # fitted recovery curve has to clear its gates first, and if it does not, these
     # columns are still worth having on a draft board. See docs/plans/27-injury-model.md.
     base = _attach_injury_severity(base, season)
+
+    # And this one *does* move numbers, which is why it is a fourth pass and not
+    # folded into the third. `_attach_injury_severity` stays diagnostics-only -- plan
+    # 27 phase 3's contract, pinned by `test_no_projection_column_changes` -- and this
+    # reads the column it wrote. Here rather than anywhere else because this is the
+    # only seam where `inj_season_ending` exists *and* the source columns have not yet
+    # been backfilled from `MEAN_` by the imputation chain below.
+    base = _withdraw_sources_on_availability(base)
 
     base = base.drop(columns=["join_key"], errors="ignore")
 

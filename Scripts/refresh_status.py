@@ -31,7 +31,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from Scripts.config_utils import build_lg_vars, load_config
-from Scripts.paths import DATA_DIR, store_dir
+from Scripts.paths import DATA_DIR, season_dir, store_dir
 
 #: Where ``run_daily_refresh.sh`` records each run's outcome.
 STATUS_PATH = DATA_DIR / "refresh_status.json"
@@ -55,15 +55,30 @@ ODDS_MAX_AGE_HOURS = 25.0
 #: thirteen days stale on the 2026 board while this reported everything healthy,
 #: because the nightly it was watching genuinely was healthy -- it simply never ran
 #: them. A source is only as visible as something that names it.
+#:
+#: The entry is a resolver rather than a filename because not every input lives under
+#: ``Data/Projections/<source>/Season/<season>/``. The ESPN injury pull does not, and
+#: leaving it out on that technicality is how it came to be the one input nothing
+#: watched -- while :func:`Scripts.season_projections._withdraw_sources_on_availability`
+#: now decides, entirely from it, whether a player carries a projection at all. Its
+#: snapshot archive already has a hole at ``date=2026-08-28``, and there is no backfill.
 PROJECTION_SOURCES = (
-    ("FantasyPros", "FantasyPros_Projections_Season.parquet",
+    ("FantasyPros",
+     lambda s: season_dir("FantasyPros", s, "FantasyPros_Projections_Season.parquet",
+                          create=False),
      "python -m Scripts.scrape_FP --what season"),
-    ("Pinnacle", "Pinnacle_SeasonProps.parquet",
+    ("Pinnacle",
+     lambda s: season_dir("Pinnacle", s, "Pinnacle_SeasonProps.parquet", create=False),
      "python -m Scripts.scrape_pinnacle_season"),
-    ("BetOnline", "BetOnline_SeasonProps_All.csv",
+    ("BetOnline",
+     lambda s: season_dir("BetOnline", s, "BetOnline_SeasonProps_All.csv", create=False),
      "Rscript R/GetSeasonProps.R <season>"),
-    ("Usage", "Usage_SeasonProjections.parquet",
+    ("Usage",
+     lambda s: season_dir("Usage", s, "Usage_SeasonProjections.parquet", create=False),
      "python -m Scripts.usage.project --season <season>"),
+    ("Injuries",
+     lambda s: DATA_DIR / "Injuries" / str(s) / "espn_injuries.parquet",
+     "python -m Scripts.scrape_espn_injuries"),
 )
 
 #: Hours past which the data is considered stale.
@@ -174,11 +189,9 @@ def _report_sources(season: int, max_age_hours: float) -> bool:
     Returns:
         bool: True if any source is missing or stale.
     """
-    from Scripts.paths import season_dir
-
     stale = False
-    for name, filename, fix in PROJECTION_SOURCES:
-        path = season_dir(name, season, filename, create=False)
+    for name, resolve, fix in PROJECTION_SOURCES:
+        path = resolve(season)
         if not path.is_file():
             print(f"  {name:<11} MISSING — {fix.replace('<season>', str(season))}")
             stale = True

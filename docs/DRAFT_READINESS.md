@@ -76,6 +76,44 @@ need nothing. That is the pre-draft scan
 
 ---
 
+## A real projection bug, found and fixed 2026-09-01
+
+**Jayden Higgins was on injured reserve for the season and the board had him at 36.3
+points, WR126 against ESPN's WR198.** Not a modelling disagreement — a hole in the
+equal-vote blend. ESPN priced him 0.0, FantasyPros and Pinnacle dropped him, TOMCAT was
+withdrawn by the injury adjustment, and **BetOnline was still posting 575.5 receiving
+yards** in a file the nightly had rewritten that morning. Four sources abstained
+correctly and the fifth became the whole projection.
+
+The rationale for scaling only `USG_` — "ESPN and FantasyPros price a known absence
+themselves" — is sound for a projection site and **does not hold for a sportsbook**,
+which posts a pre-season number and leaves it up.
+
+Three gates now withdraw every non-ESPN source: out for the season, or ESPN prices him
+zero and he is out, or ESPN prices him zero and one source is left. Measured across all
+ten boards:
+
+| | Before | After |
+|---|---|---|
+| Season-enders carrying a number | 1 of 27 | **0 of 27** |
+| Skill players at pos-rank gap ≥25 vs ESPN | 15 | **6** — all genuine disagreements |
+| OUT/IR players inheriting vacancy from their own room | 6, incl. **James Conner at 118.7** | **0** |
+
+**Only 4 of the 15 worst gaps were injuries.** The rest were the same defect with a role
+trigger — AJ Dillon at 55.5 and Roschon Johnson at 17.2, FantasyPros alone against an
+ESPN hard zero — which is why the fix keys on the blend's shape rather than on injury
+status. Charbonnet (119.4), Jordyn Tyson (102.8) and Troy Franklin (101.6) are all
+untouched, which is the restraint that matters: two sources against ESPN is a
+disagreement, not a defect.
+
+**And the pull it now depends on was the one nothing watched.** The ESPN injury feed was
+absent from `Scripts.refresh_status`'s manifest — it is the only input that does not live
+under `Data/Projections` — while the gates read nothing else. It is named now, with an
+age. Its snapshot archive already has a hole at `date=2026-08-28`, and there is no
+backfill.
+
+---
+
 ## The one thing that was actually risky — **resolved 2026-08-24**
 
 ~12,300 lines of plans 27–30 sat uncommitted on `main`, with the nightly job depending

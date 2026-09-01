@@ -306,6 +306,18 @@ drops out, and the survivors renormalise — so four real sources weight 0.25 ea
 weight 0.333, two weight 0.5. Weights live in `WEIGHTS` in
 `Scripts/projection_utils.py`.
 
+**A source that cannot be right is withdrawn before the vote.** Equal votes have one
+failure mode: when four sources correctly abstain on a player nobody can start, the
+fifth becomes 100% of the projection. Jayden Higgins went on injured reserve for the
+season, ESPN priced him at 0.0, FantasyPros and Pinnacle dropped him and TOMCAT was
+withdrawn — and he still read 36.3 points, because BetOnline was still posting a 575-yard
+season prop and a book does not take its market down. So three gates in
+`_withdraw_sources_on_availability` pull every non-ESPN source where the player is out
+for the season, or ESPN prices him at zero and he is out, or ESPN prices him at zero and
+only one source still had a line. Two sources agreeing against an ESPN zero are left
+alone — that is a disagreement, and a board that cannot disagree with ESPN is not worth
+building. The board's **Withdrawn** column says which gate fired.
+
 **Full detail, with current coverage figures and the board's column map:
 [`docs/projection_pipeline.html`](docs/projection_pipeline.html)** — open it in a
 browser, no build step. This paragraph is the summary; that document is the reference,
