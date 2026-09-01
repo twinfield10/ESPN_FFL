@@ -400,8 +400,20 @@ WEIGHTS = {
     #     path -- where plan 29 measured the real value -- is where this gets revisited.
     #
     # See docs/plans/29-kicker-model.md and 30-dst-model.md.
-    'default': {'ESPN': 0.25, 'FP': 0.25, 'PINNY': 0.25, 'BOL': 0.25, 'USG': 0.25,
-                'KIK': 0.0, 'DST': 0.25},
+    # `ATH` -- The Athletic (Jake Ciely's workbook) -- registered at 0.25 on
+    # 2026-09-01, as a sixth equal vote. It covers 434 offensive players with a raw
+    # stat line and abstains on kickers and defences, so on those rows the weight is
+    # dropped and the rest renormalise as usual.
+    #
+    # Registered straight to 0.25 rather than shipping dark at 0.0 first, which is
+    # what `USG`, `KIK` and `DST` each did. Two things worth writing down about that:
+    # it moves `TRUE_Points` for every player the source covers, and it was merged
+    # five days before the GOP auction, which is the week docs/DRAFT_READINESS.md
+    # asks to be left alone. The out-of-sample MAE measurement that plan 20 asks for
+    # is therefore owed *after* the fact rather than before -- see
+    # docs/plans/38-the-athletic.md.
+    'default': {'ESPN': 0.25, 'FP': 0.25, 'PINNY': 0.25, 'BOL': 0.25, 'ATH': 0.25,
+                'USG': 0.25, 'KIK': 0.0, 'DST': 0.25},
 }
 
 
@@ -485,7 +497,8 @@ def imputed_flag_columns(df):
     return [c for c in df.columns if c.endswith(IMPUTED_SUFFIX)]
 
 
-def coverage_report(df, sources=('ESPN', 'FP', 'PINNY', 'BOL', 'USG'), stats=None):
+def coverage_report(df, sources=('ESPN', 'FP', 'PINNY', 'BOL', 'ATH', 'USG'),
+                    stats=None):
     """Per-source share of cells that are real rather than imputed.
 
     Plan 03 step 4: a source quietly degrading should be visible, not absorbed by
@@ -554,7 +567,8 @@ def print_coverage_report(df, weights_dict=None, key_stats=(
     print("")
     print("========== Projection Source Coverage (% real, not imputed) ==========")
     overall = rep.groupby("source")["real_pct"].mean().round(1)
-    sources = [s for s in ("ESPN", "FP", "PINNY", "BOL", "USG") if s in overall.index]
+    sources = [s for s in ("ESPN", "FP", "PINNY", "BOL", "ATH", "USG")
+               if s in overall.index]
 
     header = f"  {'stat':<24}" + "".join(f"{s:>12}" for s in sources)
     print(header)
@@ -1166,7 +1180,8 @@ def _apply_scoring(df, s_df, col_pfix_list):
 
 
 def proj_to_score(proj_df, s_league, col_pfix_list=['ESPN', 'FP', 'MEAN', 'PINNY',
-                                                    'BOL', 'USG', 'KIK', 'DST', 'TRUE']):
+                                                    'BOL', 'ATH', 'USG', 'KIK',
+                                                    'DST', 'TRUE']):
     """Score projected stat lines with a league's rules, per lineup slot.
 
     ESPN prices the same rule differently depending on the slot a player occupies

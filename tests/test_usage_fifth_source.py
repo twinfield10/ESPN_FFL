@@ -65,9 +65,14 @@ def test_the_blend_is_an_equal_split_across_the_sources_that_speak():
     the same number, renormalisation turns it into 1/n over whoever is real on a given
     row -- four sources weight 0.25 each, three 0.333, two 0.5. Change them all to 0.2
     and nothing about the blend moves; make one of them 0.3 and the rule is broken.
+
+    **Six on 2026-09-01**, when The Athletic was added. It has to be named in the
+    tuple below rather than left out: a source registered at an unequal weight and
+    absent from this list breaks the rule silently, which is the whole failure this
+    assertion is here to catch.
     """
     entry = pu.WEIGHTS["default"]
-    universal = ("ESPN", "FP", "PINNY", "BOL", "USG")
+    universal = ("ESPN", "FP", "PINNY", "BOL", "ATH", "USG")
     weights = {entry[k] for k in universal}
     assert len(weights) == 1, f"universal sources must weight equally: {entry}"
     assert entry["ESPN"] > 0
@@ -103,7 +108,7 @@ def test_every_source_still_has_an_entry():
     """A source dropped from the dict is invisible; a source at 0.0 is a decision.
     BetOnline in particular resolves 273 players against FantasyPros' 60, so its zero
     should stay legible rather than vanish."""
-    for source in ("ESPN", "FP", "PINNY", "BOL", "USG"):
+    for source in ("ESPN", "FP", "PINNY", "BOL", "ATH", "USG"):
         assert source in pu.WEIGHTS["default"], source
 
 
@@ -121,10 +126,17 @@ def test_usg_stays_out_of_the_floor_ceiling_spread():
     value and the other four project a healthy season, so it sat below all of them
     for 51.7% of the players it covered and widened the median interval from 8.5% to
     24.0%. Disagreement between forecasters and uncertainty within one forecast are
-    different quantities; this column holds the first."""
+    different quantities; this column holds the first.
+
+    **The Athletic joined on 2026-09-01 and USG still does not**, which is the
+    distinction this test exists to hold. `ATH_` is one analyst's projection of a
+    healthy season -- the same question ESPN, FantasyPros and the two books answer,
+    asked of a different forecaster -- so its disagreement is exactly what this
+    spread measures. Membership here is about the quantity a source projects, not
+    about how independent or how good it is."""
     assert "USG" not in sp.OPINION_PREFIXES
     assert "MEAN" not in sp.OPINION_PREFIXES
-    assert set(sp.OPINION_PREFIXES) == {"ESPN", "FP", "PINNY", "BOL"}
+    assert set(sp.OPINION_PREFIXES) == {"ESPN", "FP", "PINNY", "BOL", "ATH"}
 
 
 def test_the_models_dissent_is_carried_scale_free():

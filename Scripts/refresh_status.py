@@ -73,6 +73,15 @@ PROJECTION_SOURCES = (
     ("BetOnline",
      lambda s: season_dir("BetOnline", s, "BetOnline_SeasonProps_All.csv", create=False),
      "Rscript R/GetSeasonProps.R <season>"),
+    # A hand-dropped .xlsx with no scraper behind it, so it cannot go stale because
+    # a nightly stage failed -- it goes stale because nobody downloaded a new one.
+    # That is precisely why it is named here: it carries a sixth of every projection
+    # it covers, and an unwatched source at that weight is the failure this manifest
+    # was built for.
+    ("The Athletic",
+     lambda s: season_dir("TheAthletic", s, "TheAthletic_Projections_Season.parquet",
+                          create=False),
+     "python -m Scripts.load_athletic --season <season> --file <workbook.xlsx>"),
     ("Usage",
      lambda s: season_dir("Usage", s, "Usage_SeasonProjections.parquet", create=False),
      "python -m Scripts.usage.project --season <season>"),

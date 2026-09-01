@@ -20,6 +20,11 @@ polars==1.19.0
 numpy==2.4.3
 pyarrow==18.1.0
 
+# The Athletic's projections arrive as an .xlsx download with no API behind
+# them, and this is what `pandas`/`openpyxl` need to read one. The only Excel
+# reader in the repo -- see Scripts/load_athletic.py.
+openpyxl==3.1.5
+
 # --- Modelling ----------------------------------------------------------
 scikit-learn==1.7.2
 statsmodels==0.14.5
