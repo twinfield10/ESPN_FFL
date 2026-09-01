@@ -114,6 +114,28 @@ EVIDENCE_ROLE_MARKER = "withdrawn: backup"
 #: never modelled, plus anyone it had no usage history for.
 EVIDENCE_NOT_MODELLED = "not modelled"
 
+#: The three markers ``Scripts.season_projections`` writes into ``avail_evidence``, and
+#: what each renders as.
+#:
+#: Duplicated rather than imported for the same reason as
+#: :data:`EVIDENCE_ROLE_MARKER` -- this module is loaded by a process that only reads
+#: parquet -- and pinned equal by ``test_draft_view``.
+#:
+#: This is a **different fact** from the Model Evidence column beside it. That one says
+#: why ``USG`` is thin or absent; this one says why *every source except ESPN* was
+#: withdrawn and the projection is therefore zero rather than merely modelless. Before
+#: it existed, a season-ender simply appeared at the bottom of the board with no
+#: number and no reason, which reads identically to a player nobody has heard of.
+AVAILABILITY_MARKERS = {
+    "withdrawn: out for season": "out for season",
+    "withdrawn: ESPN prices 0 and he is out": "out, ESPN prices 0",
+    "withdrawn: ESPN prices 0, one source left": "ESPN prices 0, one source",
+}
+
+#: What the column says for everyone the gates did not touch. An empty cell would be
+#: the fourth thing on this board that means three things at once.
+AVAILABILITY_CLEAR = ""
+
 #: ESPN's fantasy injury status, abbreviated to fit a column you scan rather than read.
 #:
 #: Five of these are observed in the 2026 pool (``ACTIVE`` 2,204, ``QUESTIONABLE`` 162,
@@ -654,6 +676,16 @@ COLUMNS: List[Column] = [
                "backup ESPN has priced out.",
            caveat="Exists because an empty `USG` meant three different things and all "
                   "three rendered as the same blank cell, which reads as agreement."),
+    Column("avail_evidence_label", "Notes", "Withdrawn", "text",
+           source_of="Derived here",
+           how="Why every source but ESPN was withdrawn, leaving a projection of "
+               "zero: he is out for the season, or ESPN prices him at zero and he is "
+               "out, or ESPN prices him at zero and only one source still had a line.",
+           caveat="A blank means the gates did not fire, not that he is healthy — read "
+                  "`injury_code` for that. This exists because BetOnline kept posting "
+                  "a 575-yard season line for a receiver nine days into injured "
+                  "reserve, and under an equal-vote blend one surviving source is the "
+                  "whole projection."),
     Column("inj_severity_label", "Notes", "Body Part", "text",
            source_of="Injury model",
            how="What is wrong with him and which channel said so, resolved through a "
@@ -2667,6 +2699,43 @@ def with_model_evidence(board: pl.DataFrame) -> pl.DataFrame:
         .otherwise(pl.lit(EVIDENCE_CLEAR))
         .alias("usg_evidence_label")
     )
+
+
+def with_availability_evidence(board: pl.DataFrame) -> pl.DataFrame:
+    """Add ``avail_evidence_label``: why the projection was withdrawn to zero.
+
+    Distinct from ``usg_evidence_label`` beside it, and the distinction is the reason
+    both exist. That column answers *why is the model quiet* -- one source of five.
+    This answers *why is there no projection at all*, which happens when
+    :func:`Scripts.season_projections._withdraw_sources_on_availability` pulls every
+    non-ESPN source and ESPN's own zero is the only vote left.
+
+    Without it the two states render identically: a player nobody projects and a
+    player we deliberately zeroed both show a blank and sit at the bottom of the
+    board. On draft night those want different reactions -- the first is a rookie
+    nobody has priced, the second is a man on injured reserve you should not be
+    looking at.
+
+    Args:
+        board: A stored draft board. Boards built before the gates landed carry no
+            ``avail_evidence`` column and are returned unchanged, which lets
+            :func:`display_frame` drop the column the way it does for every other
+            artifact that predates a feature.
+
+    Returns:
+        pl.DataFrame: The board with ``avail_evidence_label`` added.
+    """
+    if "avail_evidence" not in board.columns:
+        return board
+
+    label = pl.col("avail_evidence")
+    expression = pl.when(label.is_null()).then(pl.lit(AVAILABILITY_CLEAR))
+    for marker, shown in AVAILABILITY_MARKERS.items():
+        expression = expression.when(label == marker).then(pl.lit(shown))
+    # An unrecognised marker is shown verbatim rather than blanked. A new gate whose
+    # label nobody added here should look wrong on the board, not invisible.
+    return board.with_columns(
+        expression.otherwise(label).alias("avail_evidence_label"))
 
 
 def with_injury_severity(board: pl.DataFrame) -> pl.DataFrame:

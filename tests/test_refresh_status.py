@@ -118,23 +118,38 @@ def _iso_hours_ago(hours):
 
 def test_every_blended_source_is_named_in_the_manifest():
     """The manifest is the whole point. A source absent from it is a source this
-    report cannot see, which is exactly how the books went missing."""
+    report cannot see, which is exactly how the books went missing.
+
+    ``Injuries`` is in the set because the ESPN injury pull stopped being a diagnostic:
+    ``_withdraw_sources_on_availability`` decides from it whether a player carries a
+    projection at all, and it was left out of this manifest originally only because it
+    is the one input that does not live under ``Data/Projections``."""
     named = {name for name, _, _ in rs.PROJECTION_SOURCES}
-    assert {"FantasyPros", "Pinnacle", "BetOnline", "Usage"} <= named
+    assert {"FantasyPros", "Pinnacle", "BetOnline", "Usage",
+            "Injuries"} <= named
 
 
-def test_each_source_carries_a_runnable_fix():
+def test_each_source_carries_a_runnable_fix_and_a_resolvable_path():
     """A report that says something is stale without saying how to fix it makes the
-    reader go and find out, which is how a warning becomes background noise."""
-    for name, filename, fix in rs.PROJECTION_SOURCES:
+    reader go and find out, which is how a warning becomes background noise.
+
+    The path is a resolver rather than a filename because not every input lives under
+    ``Data/Projections/<source>/Season/<season>/`` -- the injury pull does not, and
+    that technicality is why it went unwatched. Called here with ``create=False``
+    semantics: merely asking where a source lives must not create a directory for it."""
+    for name, resolve, fix in rs.PROJECTION_SOURCES:
         assert fix.startswith(("python -m", "Rscript")), name
-        assert filename.endswith((".parquet", ".csv")), name
+        path = resolve(2999)
+        assert path.suffix in (".parquet", ".csv"), name
+        assert "2999" in str(path), name
+        assert not path.parent.exists(), f"{name} created {path.parent}"
 
 
 def test_a_missing_source_is_reported_and_makes_the_run_stale(tmp_path, monkeypatch,
                                                               capsys):
     monkeypatch.setattr(rs, "PROJECTION_SOURCES",
-                        (("Nobody", "nothing.parquet", "python -m Scripts.nothing"),))
+                        (("Nobody", lambda s: tmp_path / "nothing.parquet",
+                          "python -m Scripts.nothing"),))
     assert rs._report_sources(2026, 25.0) is True
     out = capsys.readouterr().out
     assert "MISSING" in out and "Scripts.nothing" in out
@@ -143,7 +158,8 @@ def test_a_missing_source_is_reported_and_makes_the_run_stale(tmp_path, monkeypa
 def test_the_season_is_substituted_into_the_fix(tmp_path, monkeypatch, capsys):
     """`Rscript R/GetSeasonProps.R <season>` is not a command anyone can run."""
     monkeypatch.setattr(rs, "PROJECTION_SOURCES",
-                        (("Nobody", "nothing.parquet", "Rscript R/Thing.R <season>"),))
+                        (("Nobody", lambda s: tmp_path / "nothing.parquet",
+                          "Rscript R/Thing.R <season>"),))
     rs._report_sources(2026, 25.0)
     out = capsys.readouterr().out
     assert "Rscript R/Thing.R 2026" in out

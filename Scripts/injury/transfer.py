@@ -144,6 +144,47 @@ def applied_shares() -> Dict[str, Tuple[float, float]]:
     return out or dict(SHARES)
 
 
+def _can_receive(base: pd.DataFrame) -> pd.Series:
+    """Whether each player is available to inherit a teammate's vacated work.
+
+    **A man on injured reserve cannot cover for the starter in front of him**, and
+    until this existed he did. Measured on the 2026 board before the gate:
+    ``inj_vacancy_inherited`` was **118.69** for James Conner -- Arizona's depth-rank-2
+    back, himself on IR behind Jeremiyah Love's high ankle -- and 5.36 for Chris
+    Collier, whose blend had already resolved to zero as a season-ender and whom
+    redistribution then put back on the board at 0.93. Six OUT/IR players were
+    inheriting from their own rooms.
+
+    Read off ``avail_evidence``, the column
+    :func:`Scripts.season_projections._withdraw_sources_on_availability` writes, so
+    the recipient rule and the withdrawal rule cannot drift apart -- one gate, two
+    readers. Where that column is absent the frame predates the gate (a synthetic test
+    frame, or a board built by an older run) and everyone is eligible, which is the
+    same degrade-rather-than-fail contract the rest of this module has.
+
+    The import is deferred because the name is all that is wanted and the module that
+    owns it drags in the ESPN and scoring stack. Every caller of :func:`redistribute`
+    reaches it *through* that module, so by call time it is already imported and this
+    is a dictionary lookup; a top-level import would only make ``Scripts.injury``
+    expensive to touch.
+
+    This is about *receiving* only. A gated player is still a perfectly good **source**
+    of vacancy: that is the whole point of him being out, and ``_healthy_line`` reads
+    ``usg_healthy_`` which the withdrawal deliberately leaves alone.
+
+    Args:
+        base: Board frame.
+
+    Returns:
+        pd.Series: boolean, True where the player may inherit.
+    """
+    from Scripts.season_projections import AVAIL_EVIDENCE_COLUMN
+
+    if AVAIL_EVIDENCE_COLUMN not in base.columns:
+        return pd.Series(True, index=base.index)
+    return base[AVAIL_EVIDENCE_COLUMN].isna()
+
+
 def redistribute(base: pd.DataFrame, slate: float = SLATE,
                  shares: Optional[Dict[str, Tuple[float, float]]] = None) -> pd.DataFrame:
     """Move a vacated starter's volume onto the men behind him.
@@ -168,6 +209,7 @@ def redistribute(base: pd.DataFrame, slate: float = SLATE,
     shares = applied_shares() if shares is None else shares
     weeks = pd.to_numeric(base["inj_expected_absence_weeks"], errors="coerce")
     rank = pd.to_numeric(base["usg_depth_rank"], errors="coerce")
+    receives = _can_receive(base)
     base[INHERITED_COLUMN] = 0.0
 
     rooms = 0
@@ -182,8 +224,17 @@ def redistribute(base: pd.DataFrame, slate: float = SLATE,
         if not len(leads):
             continue
 
-        second = room.index[rank.loc[room.index] == 2]
-        rest = room.index[rank.loc[room.index] >= 3]
+        # An unavailable backup is removed from the recipient set rather than replaced
+        # in it, so his share is simply not paid out: when Arizona's rank-2 back is
+        # himself on injured reserve, the 0.410 that would have gone to him stays
+        # vacated and only the rank-3 share moves. Promoting the man behind him would
+        # be the more aggressive reading, and it is not what `Scripts.outcomes.vacancy`
+        # fitted -- the shares are indexed on *listed* depth rank, not on who is
+        # standing. Under-transferring here matches what the board did before this
+        # module existed, which is the safe direction to be wrong in.
+        eligible = receives.loc[room.index]
+        second = room.index[(rank.loc[room.index] == 2) & eligible]
+        rest = room.index[(rank.loc[room.index] >= 3) & eligible]
         if not len(second) and not len(rest):
             continue
 
