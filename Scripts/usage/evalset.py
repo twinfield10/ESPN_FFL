@@ -39,6 +39,21 @@ from Scripts.usage.nflverse import (
 #: The four weekly projection sources, in the order the pipeline builds them.
 #: ``MEAN`` and ``TRUE`` are derived from these and are not independent opinions,
 #: so they are not evaluated as *sources* -- nothing here treats them as a vote.
+#:
+#: **``ATH`` is deliberately absent, and its absence is not a decision that it does
+#: not matter.** The Athletic carries an equal sixth vote in
+#: :data:`Scripts.projection_utils.WEIGHTS` as of 2026-09-01, but it is a
+#: **season-long** source with no weekly line, so it has no ``ATH_`` column in
+#: ``lineups.parquet`` and nothing built on this tuple -- :mod:`Scripts.lab.accuracy`,
+#: :mod:`Scripts.usage.gates`, :mod:`Scripts.usage.g1_season` -- can score it.
+#:
+#: This is worth stating rather than leaving implicit, because a source that is in
+#: the blend and silently missing from the scoreboard is how a feed goes unmeasured:
+#: running `python -m Scripts.lab.accuracy` after the season and reading a clean
+#: table would otherwise look like The Athletic had been judged. It has not been.
+#: Its measurement has to come from the **season** artifact -- ``board.parquet``
+#: carries ``ATH_<stat>`` -- scored against realised season totals from
+#: :mod:`Scripts.usage.nflverse`. See docs/plans/38-the-athletic.md, *What is owed*.
 SOURCES: Tuple[str, ...] = ("ESPN", "FP", "PINNY", "BOL")
 
 #: Derived columns carried through pooling so the blend can be *scored*, which is

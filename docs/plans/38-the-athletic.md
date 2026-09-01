@@ -138,14 +138,154 @@ handles the gap.
 
 ---
 
+## Measured 2026-09-01, after shipping
+
+The accuracy gate cannot run (see *What is owed*). These are the questions that
+**can** be answered before a ball is snapped, and they are the ones plan 20's
+retirement turned on.
+
+### The measurement basis: projected over 100 points
+
+**Every number below is computed on players projected over 100 points by ESPN or
+FantasyPros**, and that gate is not cosmetic — it changes the conclusion.
+
+Percentage disagreement divides by the projection, so a third-string quarterback
+projected for 8 points and 13 points by two sources reads as a **47% disagreement**
+about nothing anybody will draft. Pooling those in measures roster depth and calls it
+independence. It is the same class of error plan 20 was retired for — that one
+measured on a sample where every source agreed, this one on a sample where the
+arithmetic is unstable — and it is worth more than it looks:
+
+| | all players | **>100 pts** | shift |
+|---|---|---|---|
+| mean disagreement involving `ATH` | 26.3% | **18.9%** | −7.4 |
+| mean among the pre-existing five | 16.2% | **14.1%** | −2.2 |
+
+The gate costs `ATH` more than three times what it costs the others, and the reason is
+coverage: `ATH` and FantasyPros both project deep benches, so they share 838 cells of
+which most are irrelevant, and FP-vs-`ATH` falls **34.7% → 18.0%**. The two books do
+not move **at all** (`+0.0`) — a book only prices players worth pricing, so its rows
+were already gated.
+
+The gate is built from ESPN and FantasyPros only, never from `ATH`, so it cannot be
+accused of selecting the rows that flatter the new source. 242 of Knights_FFL's 1,036
+rows clear it.
+
+### It is a genuinely independent opinion — but not the most independent
+
+Mean pairwise disagreement, `mean |a−b| / mean(a,b)`, on cells where **both** sources
+are real and unimputed and the player clears 100 points:
+
+| Pair | Disagreement |
+|---|---|
+| **ATH** vs USG | **22.2%** |
+| BOL vs **ATH** | 19.5% |
+| ESPN vs BOL | 19.4% |
+| FP vs BOL | 18.7% |
+| ESPN vs **ATH** | 18.7% |
+| FP vs **ATH** | 18.0% |
+| ESPN vs USG | 17.7% |
+| FP vs USG | 15.7% |
+| PINNY vs **ATH** | 16.3% |
+| ESPN vs FP | **9.9%** |
+| PINNY vs BOL | 5.9% |
+
+`ATH` sits at 18–22% against everything, against **9.9%** for ESPN-vs-FantasyPros —
+so it is roughly twice as far from the two highest-coverage sources as they are from
+each other, and about as far from them as a sportsbook is. It is not a re-badged
+consensus, which is the specific failure plan 20 feared from a sixth expert feed.
+
+**On the unfiltered sample it looked like the most independent source in the blend at
+26.3%. It is not** — `ATH`-vs-USG is the largest cell but ESPN-vs-USG is in the same
+band, and the ranking is not stable once the backups come out. Recorded because the
+unfiltered version was written into this file first and is wrong.
+
+**Disagreement is not accuracy.** Being different is not being right; that is what the
+MAE gate is for, and it cannot run yet.
+
+### The disagreement is shaped like a useful one
+
+`ATH` against the ESPN/FantasyPros mean, priced players:
+
+| Band | Disagreement | n |
+|---|---|---|
+| inside ADP 50 | **9.6%** | 112 |
+| ADP 50–150 | 15.4% | 210 |
+| outside ADP 150 | 23.9% | 58 |
+
+Unchanged by the 100-point gate in the first two bands, because a player priced inside
+ADP 150 already clears it — which is a check on the gate as much as on the source.
+The same shape plan 20 found for ESPN-vs-FP once the registration fence lifted: tight
+where the board is checkable, widening with ADP.
+
+By position, and this is where the gate matters most:
+
+| Position | all players | **>100 pts** |
+|---|---|---|
+| QB | 31.4% | **9.8%** |
+| TE | 28.8% | **14.5%** |
+| RB | 26.3% | **18.0%** |
+| WR | 31.8% | **20.0%** |
+
+Ungated, every position looked equally chaotic at 26–32%. Gated, the picture inverts
+into something readable: **The Athletic essentially agrees with consensus on startable
+quarterbacks (9.8%) and disagrees most at receiver (20.0%) and back (18.0%)** — the
+two positions where projections are least reliable and where a draft is actually won.
+The ungated QB number was backup quarterbacks and nothing else.
+
+### It moves the part of the board that decides picks
+
+VOR rank change against the 06:00 build, priced players inside ADP 150:
+
+| League | Priced ≤ ADP 150 | Moved 5+ | Moved 10+ |
+|---|---|---|---|
+| GOP_Degenerates | 165 | 70 (42%) | 50 |
+| Knights_FFL | 147 | 63 (43%) | 32 |
+| Winfield_Football | 147 | 52 (35%) | 24 |
+| Weenieless_Wanderers | 139 | 59 (42%) | 32 |
+
+**The largest single move is one coherent call, checked by hand.** Josh Jacobs falls
+63 ranks (−20.6 points) and MarShawn Lloyd rises 29 (+13.5) because the workbook's
+Green Bay tab gives **Lloyd 234.8 carries against Jacobs' 99.1** — the share model
+conserves the backfield, so the two moves are the same opinion stated twice. Not a
+parse artifact, and adjudicable on draft night. Worth noting that **TOMCAT is the most
+bullish source on Jacobs** (207.6 against ESPN's 162.2 and `ATH`'s 86.8), so `ATH` is
+not merely tracking our own model — the two agreed on Travis Hunter and disagree
+sharply here.
+
+---
+
 ## What is owed
 
-- **The MAE measurement plan 20 asks for**, scored per stat against realised 2026
-  outcomes, on the same footing as `Scripts/lab/accuracy.py` scores the rest. If it
-  does not reduce blended per-stat MAE, the weight goes to 0.0 and the measurement is
-  recorded here — that is the criterion, and shipping first does not retire it.
-- **Re-measure with six sources in `Scripts/usage/g1_season.py`.** `_shipped_weight()`
-  divides TOMCAT's weight by one external's and still reads 1.0, correctly — but
-  `SOURCES` there does not name `ATH`, so its sweep now describes a five-source world.
-  The ratio is unchanged; what it *means* is not.
+**The accuracy gate cannot be run yet, and this is the same wall
+[30](30-dst-model.md) hit at G-DST2(b) and [18](18-season-usage-model.md) at G2.** Two
+independent reasons: 2026 has not been played, and **there is no historical Athletic
+file** — the workbook is a 2026 download, so a walk-forward against 2025 is not merely
+unrun but unbuildable, exactly as `docs/plans/25-results-backfill.md` describes for
+the other sources.
+
+- **The per-stat MAE measurement plan 20 asks for**, once 2026 is played. If it does
+  not reduce blended per-stat MAE, the weight goes to 0.0 and the number is recorded
+  here. Shipping first does not retire the criterion.
+- **Score it on players projected over 100 points**, the same gate as *Measured*
+  above, and report the ungated number beside it rather than instead of it. An MAE is
+  an absolute error so it does not blow up on small projections the way a percentage
+  does — but it does get *dominated* by them: a board is roughly three-quarters
+  players nobody drafts, so an ungated mean is mostly a measurement of who is better
+  at projecting fourth-string tight ends. Both numbers are informative; only one of
+  them answers whether the source should carry a vote on draft day.
+- **It will not be scored by the existing harness, and that gap is now documented in
+  code.** `Scripts.usage.evalset.SOURCES` drives `Scripts.lab.accuracy`,
+  `Scripts.usage.gates` and `Scripts.usage.g1_season`, all of which score
+  **player-week** rows out of `lineups.parquet`. `ATH` is season-only and has no
+  weekly line, so it has no column there — running `python -m Scripts.lab.accuracy`
+  in January and reading a clean table would look like The Athletic had been judged
+  when it had not. The measurement has to come from the **season** artifact:
+  `board.parquet` carries `ATH_<stat>` beside every other source, scored against
+  realised season totals from `Scripts.usage.nflverse`. That harness does not exist
+  and is the concrete piece of work owed.
+- **`Scripts/usage/g1_season.py` now describes a five-source world.**
+  `_shipped_weight()` still correctly reads 1.0 — it divides TOMCAT's weight by one
+  external's, and both are 0.25 — but `SOURCES` there does not name `ATH`, so the
+  ratio's *meaning* changed even though its value did not: TOMCAT is one vote of six.
 - **`Jake's Ranks` as an expert-rank overlay**, if the drafts suggest it is wanted.
