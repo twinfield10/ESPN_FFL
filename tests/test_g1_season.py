@@ -104,3 +104,51 @@ def test_the_summed_weekly_basis_is_refused_as_a_result():
 def test_an_unknown_basis_raises_rather_than_defaulting():
     with pytest.raises(ValueError, match="basis"):
         g1.run(2025, weights=[0.25], basis="whatever")
+
+
+# --- the shipped weight, which this module marked wrongly for its whole life ------
+
+def test_shipped_weight_is_derived_from_production_not_restated():
+    """``SHIPPED_WEIGHT`` must equal TOMCAT's real ratio to one external source.
+
+    The bug this pins: ``WEIGHTS['default']`` gives TOMCAT 0.25 -- but so does every
+    external source, so the *ratio* is 1.0. This module hard-coded 0.25 as "what
+    ships", put the ``<- ships`` marker on the wrong row, and swept a range that never
+    reached production. The curve then looked like it fell monotonically to its own
+    right-hand edge, which read as "TOMCAT is under-weighted" and was acted on twice.
+    """
+    from Scripts.projection_utils import WEIGHTS as PROD
+
+    default = PROD["default"]
+    assert g1.SHIPPED_WEIGHT == pytest.approx(default["USG"] / default["ESPN"])
+    assert g1.SHIPPED_WEIGHT == pytest.approx(1.0)
+
+
+def test_the_swept_range_brackets_production_on_both_sides():
+    """An optimum at the edge of the sweep is not an optimum, it is a missing column."""
+    assert min(g1.WEIGHTS) < g1.SHIPPED_WEIGHT < max(g1.WEIGHTS)
+    assert any(abs(w - g1.SHIPPED_WEIGHT) < 1e-9 for w in g1.WEIGHTS), \
+        "production's own weight must be one of the swept points, or the report " \
+        "cannot mark it"
+
+
+def test_tomcat_at_the_shipped_weight_is_a_co_equal_vote():
+    """At ``SHIPPED_WEIGHT`` TOMCAT counts exactly as much as one external source."""
+    row = {"FP_receivingYards": 100.0, "BOL_receivingYards": 100.0,
+           "USG_receivingYards": 400.0}
+    out = g1.blend(frame([row]), ["receivingYards"], g1.SHIPPED_WEIGHT)
+    # three co-equal voters: (100 + 100 + 400) / 3
+    assert out["BLEND_receivingYards"][0] == pytest.approx(200.0)
+
+
+def test_unequal_external_weights_refuse_to_collapse_to_one_ratio():
+    """The ratio is only meaningful under the equal-vote rule; say so rather than lie."""
+    import Scripts.projection_utils as pu
+
+    original = pu.WEIGHTS["default"]
+    pu.WEIGHTS["default"] = dict(original, ESPN=0.5)
+    try:
+        with pytest.raises(ValueError, match="unequal weights"):
+            g1._shipped_weight()
+    finally:
+        pu.WEIGHTS["default"] = original
