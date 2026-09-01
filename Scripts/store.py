@@ -436,6 +436,29 @@ def write_league_store(
         if (directory / ARTIFACTS[name]).is_file():
             meta["artifacts"][name] = entry
 
+    # And carry forward every other key this call could not compute, for the same
+    # reason and a sharper one.
+    #
+    # `build_meta` fills the league-settings block -- `team_count`, `roster_slots`,
+    # `starting_slots`, `draft_settings`, `current_week` -- only `if league is not
+    # None`, and the draft path has no live league to pass. So `--what draft` used to
+    # overwrite meta.json with a copy missing all of it, **silently**: the artifacts it
+    # wrote were correct and nothing failed.
+    #
+    # What that costs is the entire cash lens. `draftable_spots` reads `roster_slots`
+    # and `team_count`, so without them `at_budget` falls back to a proportional rescale
+    # and `with_cash_value` returns the board unchanged -- no `our_dollars`, no
+    # `cash_delta`, no `$` column, on an auction board. Found on 2026-09-01 by running
+    # `--what draft` against a newly added league six days before an auction; the same
+    # command on GOP Degenerates would have emptied its dollars with no warning.
+    #
+    # A key absent from `meta` is always one this run could not compute rather than one
+    # it decided to drop -- `build_meta` writes its core keys unconditionally -- so
+    # "keep what we did not overwrite" is the right rule and needs no list to maintain.
+    for key, value in previous.items():
+        if key not in meta:
+            meta[key] = value
+
     tmp = directory / (META_FILENAME + ".tmp")
     tmp.write_text(json.dumps(meta, indent=2, sort_keys=True, default=str))
     os.replace(tmp, directory / META_FILENAME)

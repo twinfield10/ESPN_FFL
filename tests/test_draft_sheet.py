@@ -606,3 +606,91 @@ def test_a_stale_row_number_past_the_end_of_the_panel_is_ignored():
     panel = sv.sheet_panel(board, "RB", SNAKE_META, search="RB1")
     state = {sv.click_key("RB"): {"row": 3}}
     assert sv.toggle_drafted(state, panel.table, "L", "RB") == set()
+
+
+# =========================================================================
+# the "already drafted" toggle
+# =========================================================================
+
+def test_rostered_ids_are_the_players_somebody_holds():
+    board = _board([
+        {"player_id": 1, "on_team_id": 0},
+        {"player_id": 2, "on_team_id": 7},
+        {"player_id": 3, "on_team_id": None},
+        {"player_id": 4, "on_team_id": 3},
+    ])
+    assert sv.rostered_ids(board) == {2, 4}
+
+
+def test_a_board_with_no_roster_column_holds_nobody():
+    assert sv.rostered_ids(_board(_ladder(n=3)).drop("on_team_id")) == set()
+
+
+def test_turning_the_toggle_on_crosses_the_rostered_players_off():
+    state = {}
+    got = sv.apply_rostered(state, "L", {1, 2, 3}, show=True)
+    assert got == {1, 2, 3}
+    assert sv.drafted_set(state, "L") == {1, 2, 3}
+
+
+def test_turning_it_off_removes_only_what_it_added():
+    """Anyone crossed off by hand stays crossed off -- the toggle was a convenience,
+    not the point."""
+    state = {sv.drafted_key("L"): {99}}
+    sv.apply_rostered(state, "L", {1, 2}, show=True)
+    assert sv.drafted_set(state, "L") == {1, 2, 99}
+    got = sv.apply_rostered(state, "L", {1, 2}, show=False)
+    assert got == {99}
+
+
+def test_it_applies_on_the_flip_not_on_every_run():
+    """**The design decision.** A continuous union would leave a store-held row struck
+    whatever you clicked, so the cross-off button would silently do nothing on exactly
+    the rows a stale ESPN roster makes you want it."""
+    state = {}
+    sv.apply_rostered(state, "L", {1, 2}, show=True)
+    # The reader restores one by hand; a later run with the toggle still on must not
+    # put him back.
+    state[sv.drafted_key("L")] = {2}
+    assert sv.apply_rostered(state, "L", {1, 2}, show=True) == {2}
+
+
+def test_a_run_with_the_toggle_untouched_writes_nothing():
+    state = {sv.drafted_key("L"): {5}}
+    assert sv.apply_rostered(state, "L", {1}, show=False) == {5}
+    assert sv.ROSTERED_SEEDED_KEY + "::L" not in state
+
+
+def test_forgetting_lets_a_toggle_left_on_seed_again():
+    """Clearing the crossed-off set while the toggle is on must not read as "already
+    applied" over an empty set."""
+    state = {}
+    sv.apply_rostered(state, "L", {1, 2}, show=True)
+    state[sv.drafted_key("L")] = set()
+    sv.forget_rostered(state, "L")
+    assert sv.apply_rostered(state, "L", {1, 2}, show=True) == {1, 2}
+
+
+def test_the_toggle_is_scoped_per_league_like_everything_else():
+    state = {}
+    sv.apply_rostered(state, "knights", {1, 2}, show=True)
+    assert sv.drafted_set(state, "knights") == {1, 2}
+    assert sv.drafted_set(state, "gop") == set()
+
+
+def test_rostered_players_stop_counting_toward_scarcity():
+    """The point of wiring it into `drafted` rather than into a filter: `PS` and the
+    counts are measured against who is actually available."""
+    rows = _ladder(n=6)
+    rows[0]["on_team_id"] = 4
+    rows[1]["on_team_id"] = 4
+    board = _board(rows)
+    held = sv.rostered_ids(board)
+    open_board = dv.positional_scarcity(board)
+    gone_board = dv.positional_scarcity(board, drafted=held)
+    assert (sv.sheet_panel(gone_board, "RB", SNAKE_META, drafted=held).remaining
+            == sv.sheet_panel(open_board, "RB", SNAKE_META).remaining - 2)
+    # RB3's scarcity is untouched: the two who went were above him.
+    a = open_board.sort("vor", descending=True)["ps"][2]
+    b = gone_board.sort("vor", descending=True)["ps"][2]
+    assert a == pytest.approx(b)

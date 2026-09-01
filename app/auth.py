@@ -50,18 +50,25 @@ class Viewer(NamedTuple):
 
 
 #: The only account that exists until login lands: the repo's owner, scoped to the
-#: four leagues he plays in. The other five in ``config.yaml`` are other owners'
+#: five leagues he plays in. The other five in ``config.yaml`` are other owners'
 #: -- the pipeline still builds and publishes them, and the Google Sheet is how
 #: those owners read them (see plan 14), but they are not this viewer's leagues and
 #: showing them in his picker is how the wrong board gets opened on draft night.
 #:
 #: Ordered deliberately rather than alphabetically: the default first, then the
 #: rest by how often they are actually opened.
+#:
+#: **This tuple is the one thing adding a league to ``config.yaml`` does not
+#: update.** ``jeffs_league`` was configured, refreshed and published on 2026-09-01
+#: and still did not appear in the picker, because scoping happens here and nowhere
+#: else -- which is the module's whole design and also its one sharp edge. If a
+#: league is missing from the app but present in ``store.list_leagues``, this is
+#: why.
 DEFAULT_VIEWER = Viewer(
     user_id="tommy",
     display_name="Tommy Winfield",
     leagues=("winfield_football", "knights_ffl", "gop_degenerates",
-             "weenieless_wanderers"),
+             "weenieless_wanderers", "jeffs_league"),
     default_league="winfield_football",
 )
 

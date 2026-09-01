@@ -184,6 +184,30 @@ construction and this keeps it: crossing a player off is a click, exactly as the
 workbook has you type an `x`. That is [09](09-frontend-draft-views.md) §2's own named
 fallback, built first because it is the half that cannot break on the night.
 
+### 5. The "Already Drafted" toggle, added 2026-09-01
+
+Adding an already-drafted league (`jeffs_league`, 8-team superflex, drafted 08-31)
+showed the page's one blind spot: **all 40 of its top 40 by VOR were rostered and every
+one rendered as available.** The session cross-off set never consulted what the store
+already knew.
+
+The toggle folds `on_team_id` into that same set, so `PS` and the counts above each
+panel are measured against who is genuinely left rather than being filtered separately.
+Off by default, because before a draft that column is either empty or last season's
+keepers.
+
+**Applied on the flip rather than continuously, and that is the design.** A running
+union would leave a store-held row struck no matter what you clicked, so the cross-off
+button would silently do nothing on exactly the rows a stale ESPN roster makes you want
+it. Folding on the flip keeps one set: every row behaves the same, an individual restore
+survives, and turning the toggle off removes only what it added.
+
+**Disabled where `on_team_id` cannot be believed.** In a keeper league before
+declarations it is *last season's* roster -- GOP's board arrives with 252 held against a
+keeper limit of 2 -- so the toggle reads `keepers_pending` and greys itself out with
+that arithmetic in the tooltip rather than offering to cross off every good player in
+the league. It re-enables itself the day rosters shrink to the limit.
+
 ## Verification
 
 - **1,705 tests pass**, 49 of them new in `tests/test_draft_sheet.py`. No network, no
@@ -204,6 +228,27 @@ fallback, built first because it is the half that cannot break on the night.
   market totals corrected as tabulated above.
 - Both draft types render: `is_auction` false → `VALUE` is a signed rank difference;
   true → dollars.
+
+## A bug this found in the pipeline, fixed 2026-09-01
+
+`build_meta` fills the league-settings block -- `team_count`, `roster_slots`,
+`starting_slots`, `draft_settings`, `current_week` -- only `if league is not None`, and
+`write_league_store` carried forward **only `artifacts`** from the previous meta. The
+draft path has no live league to pass.
+
+So `python -m Scripts.refresh --what draft` overwrote `meta.json` with a copy missing
+all of it, and **nothing failed**: the artifacts it wrote were correct.
+
+What it costs is the entire cash lens. `draftable_spots` reads `roster_slots` and
+`team_count`, so without them `at_budget` falls back to the proportional rescale and
+`with_cash_value` returns the board unchanged -- no `our_dollars`, no `cash_delta`, no
+`$` column at all. On an auction board, silently.
+
+Found by running `--what draft` against the newly added league **six days before GOP's
+auction**; the same command on GOP would have emptied its dollars with no warning.
+`write_league_store` now carries forward any key the current run could not compute,
+which needs no list to maintain: `build_meta` writes its core keys unconditionally, so
+an absent key is always one this run had no input for rather than one it chose to drop.
 
 ## Still open
 
