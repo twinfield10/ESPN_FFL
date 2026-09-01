@@ -11,8 +11,8 @@ team-count question 09 deferred
 
 ## Goal
 
-A board you can drive a draft off in ninety seconds: four position panels on one
-screen, banded by tier, with a cross-off column and a live positional-scarcity read.
+A board you can drive a draft off in ninety seconds: four position panels in a 2x2
+grid, banded by tier, with a cross-off column and a live positional-scarcity read.
 
 `DraftSheets_2026.xlsx` — the BeerSheets replacement — is a genuinely good draft-day
 *interface* wearing a weak projection engine. This takes the interface and keeps the
@@ -150,6 +150,20 @@ as a projection; passing them through silently would read as durability.
 **The Sheet**. Seven columns per panel — `Tier · Player · TM/BYE · PTS · VALUE · PS ·
 ADP` — plus the cross-off mark.
 
+**2x2, not four across, and that took a real browser to find out.** Four panels on one
+row gives each ~348px of a 1,600px main block, which holds Player, Tier, TM/BYE, PTS and
+VALUE and then runs out — **clipping `PS` and the cross-off button**, which are the two
+things this page exists for. The workbook gets away with four across because its own
+column widths total ~660px per panel and a spreadsheet is happy to be 2,600px wide; a
+browser is not. At 2x2 each panel gets ~712px and all eight columns render, at the cost
+of WR and TE sitting below QB and RB.
+
+`AppTest` could not have caught it: it reports the frame a page rendered, never the
+width it rendered into, so all 49 tests passed against a page whose most important
+column was invisible. This plan's own verification section said to read it on a real
+screen with no horizontal scroll and called out that no test checks it — the item was
+right and it had not been done. Screenshotted through Playwright instead.
+
 - `VALUE` is `our_dollars` in an auction and `value` in a snake, on `is_auction(meta)`,
   which is the same switch the workbook's `Scoring` tab makes.
 - Panels run to **twice replacement**, clamped to 12–80 rows. The workbook prints QB40 /
@@ -178,6 +192,10 @@ fallback, built first because it is the half that cannot break on the night.
   awareness shows through on the panels themselves: **Weenieless Wanderers' superflex
   carries 19 quarterbacks above replacement against Knights' 13**, and its TE panel has
   9 where Knights has 13.
+- **Screenshotted in Chromium at 1900x1400**, which is what caught the clipping above.
+  Both draft types checked by eye: Winfield's snake panel shows a signed rank difference
+  in `VALUE`, GOP's auction shows dollars (Gibbs $153, Josh Allen $71), and players
+  outside the money show blank rather than `None`.
 - Every control driven: the availability toggle (Gibbs 375 → 325 in GOP's scoring), the
   depth slider (2.0 → 3.0 takes WR to the 80-row cap), the K/D·ST toggle (4 panels → 6),
   the search box (narrows the panels and provably **not** the counts above them), a

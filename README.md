@@ -211,7 +211,7 @@ what does not change during a draft: the positional cliff, the tier runway, and 
 are drafting against. **Calibration** is where *we* disagree with ESPN, and whether
 that disagreement is a player or the model.
 
-**The Sheet** is the on-the-clock view: four position panels on one screen, banded by
+**The Sheet** is the on-the-clock view: four position panels in a 2x2 grid, banded by
 tier, seven columns each — `Tier · Player · TM/BYE · PTS · VALUE · PS · ADP`. Click a
 row to cross a player off; click again to put him back. Its organisation is lifted from
 `DraftSheets_2026.xlsx`, the BeerSheets replacement, which is a good draft-day interface

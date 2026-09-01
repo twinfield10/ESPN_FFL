@@ -161,35 +161,55 @@ for position, panel in panels.items():
         st.rerun()
 
 # --- the panels -----------------------------------------------------------
-columns = st.columns(len(sv.SHEET_POSITIONS))
-for column, position in zip(columns, sv.SHEET_POSITIONS):
+#
+# **Two by two, not four across, and that was decided by looking at it.** Four panels
+# on one row gives each ~348px on a 1600px main block, which holds Player, Tier,
+# TM/BYE, PTS and VALUE and then runs out -- clipping `PS` and the cross-off button,
+# which are the two things this page exists for. The workbook gets away with four
+# across because its own column widths total ~660px per panel and a spreadsheet is
+# happy to be 2,600px wide; a browser is not.
+#
+# So each panel gets ~790px and every column is readable, at the cost of WR and TE
+# sitting below QB and RB. Headless rendering could not have caught this -- `AppTest`
+# reports the frame, never its width -- which is why the plan's own verification says
+# to read it on a real screen.
+def _draw(position: str, height_cap: int, caption: str) -> None:
+    """Render one panel under its heading.
+
+    Args:
+        position: Which panel.
+        height_cap: Tallest the table may be, in pixels.
+        caption: The line above it.
+    """
     panel = panels[position]
-    with column:
-        left = panel.remaining
-        st.markdown(f"**{position}** · {left} left above replacement")
-        st.dataframe(
-            sv.panel_styler(panel, theme),
-            width="stretch", hide_index=True, height=min(640, 60 + 35 * panel.depth),
-            column_config=_column_config(panel),
-            # A blank cell rather than the word "None", which on an unpriced player's
-            # VALUE reads as an answer rather than as an absence.
-            placeholder="",
-            lazy=False,
-        )
+    st.markdown(caption)
+    st.dataframe(
+        sv.panel_styler(panel, theme),
+        width="stretch", hide_index=True,
+        height=min(height_cap, 60 + 35 * panel.depth),
+        column_config=_column_config(panel),
+        # A blank cell rather than the word "None", which on an unpriced player's
+        # VALUE reads as an answer rather than as an absence.
+        placeholder="",
+        lazy=False,
+    )
+
+
+for row_start in range(0, len(sv.SHEET_POSITIONS), 2):
+    pair = sv.SHEET_POSITIONS[row_start:row_start + 2]
+    for column, position in zip(st.columns(len(pair)), pair):
+        with column:
+            _draw(position, 640,
+                  f"**{position}** · {panels[position].remaining} left above "
+                  f"replacement")
 
 if show_streamed:
     st.divider()
     streamed = st.columns(len(sv.SHEET_STREAMED))
     for column, position in zip(streamed, sv.SHEET_STREAMED):
-        panel = panels[position]
         with column:
-            st.markdown(f"**{position}** · streamed, so `VALUE` is blank")
-            st.dataframe(
-                sv.panel_styler(panel, theme), width="stretch", hide_index=True,
-                height=min(400, 60 + 35 * panel.depth),
-                column_config=_column_config(panel),
-                placeholder="", lazy=False,
-            )
+            _draw(position, 400,
+                  f"**{position}** · streamed, so `VALUE` is blank")
 
 # --- the state, and how to clear it ---------------------------------------
 st.divider()
