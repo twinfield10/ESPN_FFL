@@ -525,7 +525,7 @@ with values_tab:
         "Measure Value By", available_lenses or lenses,
         index=(available_lenses.index(preferred)
                if preferred in available_lenses else 0),
-        horizontal=True, key="value_lens",
+        horizontal=True, key=dv.lens_key(selection.league_key),
         help="ADP compares our VOR rank to the market's draft position. Cash "
              "compares our dollar valuation to what the room actually pays.",
     )
