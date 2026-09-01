@@ -205,6 +205,83 @@ def toggle_drafted(state, table: pl.DataFrame, league_key: str,
     return gone
 
 
+#: Session-state prefix for whether the store's rostered players are currently folded
+#: into the crossed-off set. Remembered so the toggle can be applied on the *flip*
+#: rather than continuously -- see :func:`apply_rostered`.
+ROSTERED_SEEDED_KEY = "sheet_rostered_seeded"
+
+
+def rostered_ids(board: pl.DataFrame) -> set:
+    """Players the store says somebody already holds.
+
+    ``on_team_id`` is 0 for a free agent and the fantasy team's id once someone holds
+    them. **Whether that means "unavailable" is not this function's question** -- in a
+    keeper league before declarations it is last season's roster, which is what
+    :func:`draft_view.keepers_pending` exists to detect and what the page checks before
+    calling this.
+
+    Args:
+        board: A stored draft board.
+
+    Returns:
+        set: Player ids, empty when the board carries no roster column.
+    """
+    if "on_team_id" not in board.columns or "player_id" not in board.columns:
+        return set()
+    held = board.filter(pl.col("on_team_id").fill_null(0) != 0)
+    return set(held["player_id"].to_list())
+
+
+def apply_rostered(state, league_key: str, held: set, show: bool) -> set:
+    """Fold the store's rostered players in or out of the crossed-off set, on the flip.
+
+    **Applied when the toggle changes rather than continuously, and the difference is
+    the whole design.** A continuous union would leave a store-held row struck no matter
+    what you clicked, so the cross-off button would silently do nothing on exactly the
+    rows a stale ESPN roster makes you want it. Folding on the flip keeps one set, so
+    every row behaves the same way: click to cross off, click to restore, and an
+    individual restore survives until you flip the toggle again.
+
+    Turning it off removes only the players it added. Anyone you crossed off by hand
+    stays crossed off, which is what you want when the toggle was a convenience rather
+    than the point.
+
+    Args:
+        state: ``st.session_state`` or a plain dict.
+        league_key: ``config.yaml`` league key.
+        held: From :func:`rostered_ids`.
+        show: Whether the toggle is currently on.
+
+    Returns:
+        set: The crossed-off set to use this run. Written back to ``state`` only when
+        the toggle actually flipped.
+    """
+    seeded_key = f"{ROSTERED_SEEDED_KEY}::{league_key}"
+    was = bool(state.get(seeded_key))
+    drafted = drafted_set(state, league_key)
+
+    if show == was:
+        return drafted
+
+    drafted = (drafted | held) if show else (drafted - held)
+    state[drafted_key(league_key)] = drafted
+    state[seeded_key] = show
+    return drafted
+
+
+def forget_rostered(state, league_key: str) -> None:
+    """Forget that the store's rostered players were folded in.
+
+    Called when the crossed-off set is cleared, so a toggle left on re-seeds on the next
+    run instead of reading as "already applied" over an empty set.
+
+    Args:
+        state: ``st.session_state`` or a plain dict.
+        league_key: ``config.yaml`` league key.
+    """
+    state[f"{ROSTERED_SEEDED_KEY}::{league_key}"] = False
+
+
 # =========================================================================
 # The panels
 # =========================================================================

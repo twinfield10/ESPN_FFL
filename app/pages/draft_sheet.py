@@ -99,9 +99,9 @@ board = dv.with_availability_points(board)
 
 # --- the controls ---------------------------------------------------------
 #
-# Four, and no more. Every control on this page is one you would reach for with a pick
+# Five, and no more. Every control on this page is one you would reach for with a pick
 # clock running; anything you would only touch beforehand belongs on the Board page.
-controls = st.columns([2, 1, 1, 1])
+controls = st.columns([2, 1, 1, 1, 1])
 search = controls[0].text_input(
     "Find A Player", placeholder="Surname is enough",
     help="Narrows every panel. Matched literally, not as a regex — the names on a "
@@ -122,6 +122,29 @@ show_streamed = controls[3].toggle(
          "replacement does not describe a position you stream — `VALUE` is blank for "
          "them for that reason.")
 
+# --- players the store already says are gone -------------------------------
+#
+# `on_team_id` is 0 for a free agent and a team id once somebody holds them -- but in a
+# keeper league before declarations it is *last season's* roster. GOP's 2026 board
+# arrives with 252 players held against a keeper limit of 2, so believing it there would
+# cross off every good player in the league five days before its auction. `keepers_pending`
+# is that check, and it resolves itself the day rosters shrink to the limit.
+keepers = dv.keeper_count(meta)
+pending = dv.keepers_pending(board, keepers)
+held = sv.rostered_ids(board) if not pending else set()
+
+show_rostered = controls[4].toggle(
+    "Already Drafted", value=False, disabled=pending or not held,
+    help=(
+        "Cross off everyone the store says is already on a roster. Off by default — "
+        "before a draft that column is either empty or last season's keepers, and it is "
+        "the leagues that have *finished* drafting where it earns its place."
+        if not pending else
+        "Unavailable here: this league's rosters are still last season's. "
+        f"{sum(dv.rostered_counts(board).values())} players are held against a keeper "
+        f"limit of {keepers}, so `on_team_id` does not yet mean 'taken'."
+    ))
+
 points_column = "avail_points" if use_availability else "TRUE_Points"
 if use_availability and "avail_points" not in board.columns:
     st.info(
@@ -135,7 +158,8 @@ if use_availability and "avail_points" not in board.columns:
 # Read before the panels are drawn, so a click lands on the same run it is made rather
 # than one behind. Each panel resolves its own click to a player id immediately, because
 # a row number is a position in a panel that crossing somebody off has just changed.
-drafted = sv.drafted_set(st.session_state, selection.league_key)
+drafted = sv.apply_rostered(st.session_state, selection.league_key, held,
+                            bool(show_rostered))
 
 positions = list(sv.SHEET_POSITIONS)
 if show_streamed:
@@ -214,8 +238,12 @@ if show_streamed:
 # --- the state, and how to clear it ---------------------------------------
 st.divider()
 footer = st.columns([3, 1])
+rostered_note = (
+    f" Of those, **{len(held & drafted)}** came from the store rather than from you."
+    if show_rostered and held else "")
 footer[0].caption(
-    f"**{len(drafted)} crossed off.** Held for this browser session and this league "
+    f"**{len(drafted)} crossed off.**{rostered_note} "
+    f"Held for this browser session and this league "
     f"only — nothing is written to the store, and closing the tab loses it. `PS` and "
     f"the counts above each panel are measured against who is still available, so they "
     f"decay as the draft runs. Prices are in **${budget}**, set on the Draft Board "
@@ -224,4 +252,7 @@ footer[0].caption(
 if footer[1].button("Clear Crossed Off", width="stretch",
                     disabled=not drafted):
     st.session_state[sv.drafted_key(selection.league_key)] = set()
+    # Otherwise a toggle left on reads as "already applied" over an empty set, and the
+    # rostered players never come back until it is flipped twice.
+    sv.forget_rostered(st.session_state, selection.league_key)
     st.rerun()

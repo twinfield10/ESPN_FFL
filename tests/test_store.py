@@ -115,6 +115,59 @@ def test_partial_refresh_keeps_the_other_artifact(lineups):
     assert store.read_league_store(2026, "knights_ffl", "team_stats").shape == (1, 3)
 
 
+class _League:
+    """The pieces of a live ESPN ``League`` that ``build_meta`` reads."""
+
+    name = "Knights"
+    current_week = 3
+    roster_settings = {
+        "roster_slots": {"QB": 1, "RB": 2, "BE": 6},
+        "starting_roster_slots": {"QB": 1, "RB": 2},
+    }
+
+    def __init__(self):
+        self.teams = [object()] * 14
+        self.settings = None
+
+
+def test_a_refresh_without_a_live_league_keeps_the_league_settings(lineups):
+    """**The cash lens depends on this and used to lose it silently.**
+
+    ``build_meta`` fills ``team_count``, ``roster_slots``, ``starting_slots`` and
+    ``draft_settings`` only when it is handed a live league, and the draft path has
+    none to hand it. So ``--what draft`` overwrote meta.json with a copy missing all
+    of them and nothing failed -- while ``draftable_spots`` went to 0, ``at_budget``
+    fell back to a proportional rescale and ``with_cash_value`` stopped producing
+    ``our_dollars`` at all. On an auction board that is the whole ``$`` column,
+    gone, with no error.
+    """
+    draft = pd.DataFrame({"season": [2025], "overall_pick": [1], "bid": [50.0]})
+    store.write_league_store(2026, "knights_ffl", lineups=lineups, league=_League())
+    before = store.read_meta(2026, "knights_ffl")
+    assert before.get("team_count") == 14                      # the league was seen
+
+    store.write_league_store(2026, "knights_ffl", draft=draft)  # no league to pass
+    after = store.read_meta(2026, "knights_ffl")
+
+    for key in ("team_count", "roster_slots", "starting_slots", "league_name",
+                "current_week"):
+        assert after.get(key) == before.get(key), f"{key} was dropped by --what draft"
+    # And the run's own work is still recorded.
+    assert set(after["artifacts"]) == {"lineups", "draft"}
+
+
+def test_a_fresh_key_still_overwrites_a_stale_one(lineups):
+    """Carrying forward must not pin an old value. Only keys the run could not
+    compute survive; anything it did compute wins."""
+    store.write_league_store(2026, "knights_ffl", lineups=lineups, league=_League())
+    first = store.read_meta(2026, "knights_ffl")["built_at"]
+    store.write_league_store(2026, "knights_ffl", lineups=lineups,
+                             meta_extra={"display_name": "Renamed"})
+    second = store.read_meta(2026, "knights_ffl")
+    assert second["display_name"] == "Renamed"
+    assert second["built_at"] != first
+
+
 # --- meta.json -----------------------------------------------------------
 
 def test_meta_carries_the_required_keys(lineups):
