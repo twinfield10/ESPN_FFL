@@ -36,8 +36,25 @@ Two bases, and only one of them is usable
 season-long table for the test year, reachable since ``year=`` turned out to work, and
 BetOnline's archived season props. Neither has seen a snap of the season it projects,
 which is the whole requirement. ESPN and Pinnacle are absent -- ESPN serves only its
-current projection and no 2025 board survives -- so the baseline is weaker than a real
-board. It is honest, which the alternative is not.
+current projection and no 2025 board survives.
+
+**That stops being true for 2026, and the fix is already running.** ``Scripts.sync
+--push`` writes a dated board snapshot on every nightly, and
+``snapshots/board/season=2026/league=*/date=*/board.parquet`` has been accumulating
+since 2026-08-11 -- 20 pre-season dates across all ten leagues as at 2026-09-01, each
+carrying every source's stat line including ESPN's. The bucket's lifecycle rules
+expire noncurrent versions under ``store/`` and ``nfl/`` only and do not touch
+``snapshots/``. So a 2027 run of this gate can build a **real four-source pre-season
+baseline** for 2026 instead of the two-source stand-in, by reading a snapshot dated
+before that league's draft.
+
+Whoever does that: the two-source basis is not as weak as it looks, and the reason is
+measured. All three of the other externals are near-duplicates of FantasyPros at the
+residual level -- ESPN rho **0.985**, Pinnacle **0.981**, BetOnline **0.975**, all with
+residual-sd ratios within 2% of 1.0, over 4,080 paired 2025 player-weeks. The blend is
+closer to "FantasyPros measured four times, plus TOMCAT" than to five opinions. What
+the real archive buys is not a stronger baseline; it is a **second season**, which is
+the thing every per-position result below actually needs.
 
 ``--basis summed-weekly`` sums each source's *weekly* projections into a season line. It
 was built first, it looks stronger, and **it does not work.** A weekly projection is

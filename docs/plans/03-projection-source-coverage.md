@@ -405,6 +405,59 @@ A single scalar cannot fix both, which is why the MAE basin is flat: raising the
 weight repairs WR and breaks RB. Any further gain has to be **per position**, and that
 is a fitted object needing its own walk-forward gate rather than a number to nudge.
 
+### Step 3c: the per-position weight, measured and rejected (2026-09-01)
+
+Step 3b ends by locating the remaining gain "per position, not a scalar". Built and
+measured the same day: **it does not survive out of sample, and the pre-registered rule
+rejects it.**
+
+**In sample it looks strong.** Sweeping a per-position TOMCAT weight on the
+reconstructed five-source board, both criteria agree inside each position and point in
+*opposite directions across* positions -- which is exactly why the scalar basin is flat:
+
+| position | n | best w by MAE | MAE gain vs shipped | best w by calibration |
+|---|---|---|---|---|
+| WR | 186 | 3.0 | **+2.7%** | 6.0 |
+| RB | 145 | 0.0 | **+2.2%** | 0.0 |
+| TE | 133 | 2.0 | +0.6% | 1.5 |
+| QB | 92 | 1.5 | +0.3% | 6.0 |
+
+**Out of sample it collapses.** Forty random half-splits by player, fitted on one half
+and scored on the other, both directions -- the same shape step 3 used, and for the
+same reason:
+
+| | mean_gain (bar +0.5%) | worst position (bar −2.0%) | stability (IQR ≤ 0.5) |
+|---|---|---|---|
+| reconstructed board | **−0.92%** | **−3.54%** (QB) | **FAIL** |
+| real basis (FP+BOL) | **−1.69%** | **−4.07%** (QB) | **FAIL** |
+
+**WR's signal is not robust to the reconstruction.** It is +1.0% with synthetic ESPN
+and Pinnacle in the baseline and **−1.1%** without, with the fitted weight moving 3.0 →
+1.5. That is a property of the modelling assumption, not of the data, and it is the
+reason the reconstruction is reported here rather than relied on.
+
+**One cell survives, and is still not worth taking.** Running back is stable
+(+0.7% out of sample on *both* bases, fitted weight 0.0, IQR [0.0, 0.1]) -- TOMCAT's
+vote is not earning its place at RB, which is consistent with G1's own Spearman barely
+moving there. But 0.7% of a 36-point MAE is **a quarter of a point per player**, and
+collecting it needs position-keyed weights in `compute_weighted_stats`, which is keyed
+by stat today and sits on every board's critical path. That is new machinery in the
+blend for a quarter of a point.
+
+**Recalibrating the blend output directly is far worse.** Fitting `E[y|x] = a + b·x`
+per (position, stat) on half the players and applying it to the other half loses
+**−14.4%** MAE on average and **−36.9%** at quarterback, and makes calibration worse
+too. The slopes are real in aggregate and cannot be estimated per cell from half a
+season -- 46 quarterbacks per fold is not a fit.
+
+**The blocker is the sample, not the model.** The five-season table below shows the
+bias is real and stable; every attempt to *correct* it fails because the external
+pre-season lines exist for one season only. That changes: the nightly has been writing
+`snapshots/board/season=2026/league=*/date=*/` since 2026-08-11, all ten leagues, every
+source's stat line including ESPN's, and the bucket lifecycle does not touch
+`snapshots/`. **In 2027 this is a two-season question with a real four-source baseline**,
+which is when it should be asked again. Nothing to build before then.
+
 ### TOMCAT's own calibration, which nothing recorded before
 
 Walk-forward, one fit per season, TOMCAT against realised season totals. The bias is
