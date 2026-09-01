@@ -764,6 +764,36 @@ def budget_key(league_key: str) -> str:
     return f"{AUCTION_BUDGET_KEY}::{league_key}"
 
 
+#: Prefix for the ``st.session_state`` key the Values tab's lens radio owns. Per
+#: league for the same reason :data:`AUCTION_BUDGET_KEY` is -- see :func:`lens_key`.
+VALUE_LENS_KEY = "value_lens"
+
+
+def lens_key(league_key: str) -> str:
+    """The session-state key the Values tab's lens radio owns, for one league.
+
+    **Per league, and it is load-bearing for exactly the reason
+    :func:`budget_key` is.** A keyed widget ignores its ``index=`` once the key
+    exists, and this radio's default is computed from league metadata --
+    :func:`default_value_lens` returns Cash for an auction and ADP for a snake. With
+    one shared key the first league opened won, permanently: landing on
+    Winfield_Football (snake) and switching to GOP Degenerates put GOP's *auction*
+    board on the ADP lens, whose top "values" are then deep bench players with
+    negative VOR. Landing on GOP directly gave Cash, so it looked correct exactly
+    when nobody was testing the path a reader actually takes.
+
+    Scoping the key fixes the default and is better behaviour besides: a league you
+    deliberately flipped to the other lens stays there when you come back.
+
+    Args:
+        league_key: ``config.yaml`` league key.
+
+    Returns:
+        str: The session-state key.
+    """
+    return f"{VALUE_LENS_KEY}::{league_key}"
+
+
 def at_budget(board: pl.DataFrame, budget: float,
               base: float = BASE_AUCTION_BUDGET,
               meta: Optional[Mapping] = None) -> pl.DataFrame:

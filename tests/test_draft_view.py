@@ -564,6 +564,18 @@ def test_a_board_with_no_roster_shape_is_returned_untouched():
     assert "Our $" not in dv.display_frame(dv.with_cash_value(board, {}, 200)).columns
 
 
+def test_the_lens_key_is_scoped_per_league():
+    """**A keyed widget ignores its `index=` once the key exists**, and this radio's
+    default is computed from league metadata. One shared key meant the first league
+    opened won permanently: landing on snake Winfield and switching to GOP put an
+    *auction* board on the ADP lens, whose top values are then bench players with
+    negative VOR. Landing on GOP directly gave Cash — so it looked right exactly when
+    nobody was testing the path a reader takes. Same fix as `budget_key`."""
+    assert dv.lens_key("gop_degenerates") != dv.lens_key("winfield_football")
+    assert dv.lens_key("gop_degenerates").endswith("gop_degenerates")
+    assert dv.VALUE_LENS_KEY in dv.lens_key("gop_degenerates")
+
+
 def test_auction_leagues_open_on_cash_and_snake_leagues_on_adp():
     assert dv.default_value_lens(AUCTION_META) == dv.VALUE_LENS_CASH
     assert dv.default_value_lens(
