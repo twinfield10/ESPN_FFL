@@ -137,9 +137,17 @@ NAME_ALIASES = {
     "DALTON KINCIAD": "DALTON KINCAID",
     "PATRICK MAHOMES II": "PATRICK MAHOMES",
     "GARDNER MINSHEW II": "GARDNER MINSHEW",
-    # Nicknames.
+    # Nicknames -- the dangerous kind, because the name looks correct in both
+    # files and nothing about it reads as a typo in review. `Kenneth` is his legal
+    # name and ESPN lists him as `Kenny`, so the join silently missed and a
+    # 165-point back's real Athletic line was replaced by the ESPN/FantasyPros mean
+    # from the 0.25 merge on 2026-09-01 until this landed on 2026-09-03.
+    # `_report_join_misses` named him first and he read as noise beside eleven
+    # kickers, which is the argument for reading that report by projected points
+    # rather than by row count.
     "CHIG OKONKWO": "CHIGOZIEM OKONKWO",
     "HOLLYWOOD BROWN": "MARQUISE BROWN",
+    "KENNETH GAINWELL": "KENNY GAINWELL",
     # The Athletic's typos.
     "DERMARCUS ROBINSON": "DEMARCUS ROBINSON",
     "BRAXTON BARRIOS": "BRAXTON BERRIOS",
