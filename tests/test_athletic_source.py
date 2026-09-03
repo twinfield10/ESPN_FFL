@@ -6,6 +6,11 @@ a source: registration, the one real parse bug, abstention, and what must stay o
 The distinguishing property here is that the source is a **file somebody saved**
 rather than a scrape, so the tests that matter most are the ones about what happens
 when it is absent, stale, or carries a row it should not.
+
+The same workbook also carries Jake Ciely's hand ranking, which is *not* a source: it
+projects nothing, casts no vote, and exists to be read beside the board. The section
+at the foot of this file is about keeping it that way -- the load-bearing test being
+that adding it leaves ``TRUE_Points`` untouched.
 """
 
 import numpy as np
@@ -203,3 +208,197 @@ def test_the_shipped_file_parses_to_offence_only():
     assert qb["receivingYards"].isna().all(), (
         "a quarterback with receiving yards means the position mask regressed")
     assert df["passingYards"].notna().sum() == len(qb)
+
+
+# --- the hand ranking, which is not a source -----------------------------
+
+def _ranked_frame():
+    """A scored frame with two positions, three of whom Jake ranked."""
+    return pd.DataFrame({
+        "player_name": ["A", "B", "C", "D", "E"],
+        "primaryPosition": ["RB", "RB", "RB", "WR", "WR"],
+        "TRUE_Points": [300.0, 200.0, 100.0, 250.0, 150.0],
+        "TRUE_PosRank": [1.0, 2.0, 3.0, 1.0, 2.0],
+        "ATH_Points": [300.0, 200.0, 100.0, 250.0, 150.0],
+        # He agrees on A, has C above B, and never ranked D or E.
+        "ath_pos_rank": [1.0, 3.0, 2.0, np.nan, np.nan],
+    })
+
+
+def test_the_rank_columns_are_lowercase_so_the_blend_cannot_see_them():
+    """The load-bearing naming rule. ``compute_weighted_stats`` and ``proj_to_score``
+    scan every uppercase ``<PREFIX>_`` and require it to be numeric -- and a rank *is*
+    numeric, so an uppercase name would get it blended into a stat line and priced.
+    Lowercase makes "this never moves TRUE_Points" true by construction."""
+    from Scripts.load_athletic import RANK_COLUMNS
+
+    for column in (*RANK_COLUMNS.values(), "ath_pos_rank", "ath_override",
+                   "ath_rank_delta"):
+        assert column == column.lower(), f"{column} would enter the blend namespace"
+
+
+def test_the_ranking_is_not_registered_as_a_source():
+    """It projects nothing, so it cannot vote, cannot widen the spread, and has
+    nothing to withdraw on an injury."""
+    assert "ath_pos_rank" not in pu.WEIGHTS["default"]
+    for tup in (sp.OPINION_PREFIXES, sp.PROJECTION_PREFIXES,
+                sp.AVAILABILITY_WITHDRAWN_PREFIXES):
+        assert not any(str(prefix).startswith("ath_") for prefix in tup)
+
+
+def test_adding_the_rank_does_not_move_a_single_blended_point():
+    """The whole basis for shipping this in draft week, asserted rather than promised.
+
+    Run the blend and the scoring over a frame with and without the rank column and
+    require the outputs to be identical -- not close, identical.
+    """
+    base = pd.DataFrame({
+        "primaryPosition": ["RB", "WR"],
+        "ESPN_rushingYards": [1000.0, 40.0],
+        "FP_rushingYards": [1100.0, 60.0],
+    })
+    weights = {"default": {"ESPN": 0.25, "FP": 0.25}}
+    plain = pu.compute_weighted_stats(df=base.copy(), stats_list=["rushingYards"],
+                                      weights_dict=weights)
+    with_rank = base.copy()
+    with_rank["ath_pos_rank"] = [1.0, 12.0]
+    ranked = pu.compute_weighted_stats(df=with_rank, stats_list=["rushingYards"],
+                                       weights_dict=weights)
+    pd.testing.assert_series_equal(plain["TRUE_rushingYards"],
+                                   ranked["TRUE_rushingYards"])
+    assert "TRUE_ath_pos_rank" not in ranked.columns
+    assert "ath_pos_rank_Points" not in ranked.columns
+
+
+def test_the_override_is_his_rank_against_his_own_projection():
+    """Positive means he ranks a player above his own numbers -- the direction
+    ``USG_PosRankDelta`` already set for a named voice."""
+    out = sp._attach_athletic_override(_ranked_frame())
+    # C is his RB2 and his projection's RB3, so he is one spot higher on him.
+    assert out.loc[2, "ath_override"] == pytest.approx(1.0)
+    assert out.loc[1, "ath_override"] == pytest.approx(-1.0)
+    assert out.loc[0, "ath_override"] == pytest.approx(0.0)
+
+
+def test_a_player_he_never_ranked_gets_no_delta_rather_than_a_number():
+    """The receivers are unranked. A zero there would read as agreement."""
+    out = sp._attach_athletic_override(_ranked_frame())
+    assert out.loc[[3, 4], "ath_override"].isna().all()
+
+
+def test_the_override_ranks_him_only_against_the_players_he_ranked():
+    """He ranks 85 backs and a board carries half as many again. Ranking ``ATH_Points``
+    over the whole pool would score his 60th back against a 60th drawn from a deeper
+    one and report bench depth as disagreement."""
+    frame = _ranked_frame()
+    # Two more backs he never looked at, both projected above everyone he did.
+    deeper = pd.concat([frame, pd.DataFrame({
+        "player_name": ["X", "Y"], "primaryPosition": ["RB", "RB"],
+        "TRUE_Points": [400.0, 350.0], "TRUE_PosRank": [1.0, 2.0],
+        "ATH_Points": [400.0, 350.0], "ath_pos_rank": [np.nan, np.nan],
+    })], ignore_index=True)
+    out = sp._attach_athletic_override(deeper)
+    # Unchanged: the two interlopers cannot push his ranked backs down.
+    assert out.loc[2, "ath_override"] == pytest.approx(1.0)
+    assert out.loc[1, "ath_override"] == pytest.approx(-1.0)
+
+
+def test_a_frame_with_no_ranking_keeps_its_shape():
+    """A board built before the ranking existed carries no column, and asking for the
+    override must not invent one."""
+    frame = _ranked_frame().drop(columns=["ath_pos_rank"])
+    out = sp._attach_athletic_override(frame)
+    assert "ath_override" not in out.columns
+
+
+@pytest.mark.parametrize("points,flavor", [
+    (0.0, "std"), (0.5, "half"), (1.0, "ppr"),
+    # Between two lists, the nearer one. A 0.75-PPR league is not a case the workbook
+    # has a list for, and the nearest list beats no list.
+    # Exactly between two lists, the lower one -- see `_athletic_rank_flavor`.
+    (0.75, "half"), (0.2, "std"),
+])
+def test_the_flavor_follows_this_league_s_points_per_reception(
+        points, flavor, monkeypatch):
+    """The workbook ranks the same 290 players three times because a reception is
+    worth a different amount in each. Reading the one that answers this league's rules
+    is the same principle that scores every source through them."""
+    monkeypatch.setattr(sp, "_modelled_scoring_weights",
+                        lambda league, season: {"receivingReceptions": points})
+    assert sp._athletic_rank_flavor(object(), 2026) == flavor
+
+
+# --- the real ranking, when it is there ----------------------------------
+
+def test_the_shipped_ranking_covers_the_four_offensive_positions():
+    from Scripts.paths import season_dir
+
+    path = season_dir("TheAthletic", 2026, la.RANKS_FILENAME, create=False)
+    if not path.exists():
+        pytest.skip("no 2026 Athletic workbook imported")
+
+    ranks = pd.read_parquet(path)
+    assert ranks["player_name"].is_unique
+    assert ranks.groupby("position").size().to_dict() == {
+        "QB": 40, "RB": 85, "TE": 45, "WR": 120}
+    # Each list is a dense 1..N with no ties, per position.
+    for column in la.RANK_COLUMNS.values():
+        for position, block in ranks.groupby("position"):
+            assert sorted(block[column]) == list(range(1, len(block) + 1)), (
+                f"{column} is not a dense ranking of the {position}s")
+
+
+def test_every_ranked_player_is_also_a_projected_player():
+    """Both files come out of one ``build`` call off one workbook, so a name on the
+    ranking that the team tabs do not carry means the workbook spells him two ways --
+    a join miss that would cost a board column."""
+    from Scripts.paths import season_dir
+
+    ranks_path = season_dir("TheAthletic", 2026, la.RANKS_FILENAME, create=False)
+    stats_path = season_dir("TheAthletic", 2026, la.FILENAME, create=False)
+    if not (ranks_path.exists() and stats_path.exists()):
+        pytest.skip("no 2026 Athletic workbook imported")
+
+    ranks = pd.read_parquet(ranks_path)
+    stats = pd.read_parquet(stats_path)
+    orphans = set(ranks["player_name"]) - set(stats["player_name"])
+    assert not orphans, f"ranked but not projected: {sorted(orphans)}"
+
+
+def test_he_overrides_his_own_numbers_where_projections_are_weakest():
+    """The shape is the argument for showing the column at all: he leaves the position
+    a projection handles best alone and reworks the two it handles worst. Measured on
+    the 2026-08-31 workbook, in his own half-PPR list.
+    """
+    from Scripts.paths import season_dir
+
+    ranks_path = season_dir("TheAthletic", 2026, la.RANKS_FILENAME, create=False)
+    stats_path = season_dir("TheAthletic", 2026, la.FILENAME, create=False)
+    if not (ranks_path.exists() and stats_path.exists()):
+        pytest.skip("no 2026 Athletic workbook imported")
+
+    ranks = pd.read_parquet(ranks_path)
+    stats = pd.read_parquet(stats_path).set_index("player_name")
+    # The workbook's own `Settings` table, in full rather than approximately: every
+    # rule it prices at anything other than zero. Attempts, completions, carries and
+    # targets really are worth 0 there, so this is his scoring and not a stand-in --
+    # which matters, because dropping the interception rule alone is enough to
+    # manufacture a quarterback override that he did not make.
+    points = (stats["rushingYards"].fillna(0) * 0.1
+              + stats["receivingYards"].fillna(0) * 0.1
+              + stats["receivingReceptions"].fillna(0) * 0.5
+              + stats["passingYards"].fillna(0) * 0.04
+              + (stats["rushingTouchdowns"].fillna(0)
+                 + stats["receivingTouchdowns"].fillna(0)) * 6
+              + stats["passingTouchdowns"].fillna(0) * 4
+              - stats["passingInterceptions"].fillna(0) * 2)
+    frame = pd.DataFrame({
+        "primaryPosition": ranks["position"].to_numpy(),
+        "ath_pos_rank": ranks["ath_rank_half"].to_numpy(),
+        "ATH_Points": ranks["player_name"].map(points).to_numpy(),
+    })
+    moved = (sp._attach_athletic_override(frame)
+             .assign(big=lambda f: f["ath_override"].abs() >= 5)
+             .groupby("primaryPosition")["big"].sum().to_dict())
+    assert moved["QB"] == 0, "he has started overriding quarterbacks"
+    assert moved["WR"] > moved["RB"] > moved["TE"] >= moved["QB"]

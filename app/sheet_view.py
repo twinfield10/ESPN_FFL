@@ -97,7 +97,7 @@ class Panel(NamedTuple):
         table: The rows behind ``frame``, in the same order, carrying ``player_id``. A
             click reports a row number and a row number is only meaningful against the
             frame it was drawn from — see :func:`toggle_drafted`.
-        frame: Display-ready, seven columns plus the mark.
+        frame: Display-ready, eight columns plus the mark.
         drafted: Per row, whether that player is crossed off. Parallel to ``frame``.
         depth: Rows shown.
         replacement: This league's replacement rank at the position, or None where the
@@ -346,9 +346,16 @@ def sheet_panel(board: pl.DataFrame, position: str, meta: Mapping, *,
                 depth: Optional[int] = None, search: str = "") -> Panel:
     """Build one position's panel.
 
-    The seven columns are the DraftSheet's, with two honest renamings: its ``ECR`` is
-    our ``ADP`` because that is the market number we actually carry, and ``PS`` is
-    computed over the position's whole pool rather than only the rows printed.
+    The DraftSheet's seven columns, with two honest renamings — its ``ECR`` is our
+    ``ADP`` because that is the market number we actually carry, and ``PS`` is computed
+    over the position's whole pool rather than only the rows printed — plus an eighth,
+    ``JAKE``.
+
+    ``JAKE`` is The Athletic's hand rank, and it is the raw rank rather than the board's
+    ``Δ JAKE`` on purpose. A panel is sorted by ``vor``, and within one position that is
+    our own points order, so a column of his ranks read straight down *is* the
+    disagreement: where the numbers climb in step we agree, and where one jumps he does
+    not. That costs one column instead of two.
 
     Rows are ordered by ``vor`` — not by the points column — even when the availability
     toggle is on. VOR is what makes a quarterback comparable to a running back, and it
@@ -369,7 +376,7 @@ def sheet_panel(board: pl.DataFrame, position: str, meta: Mapping, *,
         points_column: ``TRUE_Points``, or ``avail_points`` with the toggle on.
         depth: Rows to show. None sizes it from replacement level.
         search: Case-insensitive substring of the player name. Narrows the panel rather
-            than highlighting inside it — at seven columns there is no room for a
+            than highlighting inside it — at this width there is no room for a
             highlight to read as anything but a mistake.
 
     Returns:
@@ -417,7 +424,7 @@ def sheet_panel(board: pl.DataFrame, position: str, meta: Mapping, *,
 
 def _display(table: pl.DataFrame, struck: List[bool], meta: Mapping,
              points_column: str) -> pd.DataFrame:
-    """The seven display columns plus the mark, as pandas for the Styler.
+    """The eight display columns plus the mark, as pandas for the Styler.
 
     Args:
         table: One panel's rows, already ordered.
@@ -427,9 +434,9 @@ def _display(table: pl.DataFrame, struck: List[bool], meta: Mapping,
 
     Returns:
         pandas.DataFrame: ``Tier``, ``Player``, ``TM/BYE``, ``PTS``, ``VALUE``, ``PS``,
-        ``ADP`` and the mark. A source the board does not carry comes through as blanks
-        rather than dropping the column, so the four panels stay aligned with each
-        other.
+        ``JAKE``, ``ADP`` and the mark. A source the board does not carry comes through
+        as blanks rather than dropping the column, so the four panels stay aligned with
+        each other.
     """
     value = value_column(meta)
 
@@ -447,6 +454,7 @@ def _display(table: pl.DataFrame, struck: List[bool], meta: Mapping,
         col(points_column).alias("PTS"),
         col(value).alias("VALUE"),
         (col("ps") * 100).alias("PS"),
+        col("ath_pos_rank").alias("JAKE"),
         col("adp").alias("ADP"),
     ).to_pandas()
 
@@ -507,8 +515,8 @@ class SheetColumn(NamedTuple):
         kind: ``text``, ``number``, or ``button`` for the cell that is itself the
             control.
         fmt: printf format for a number column.
-        help: Tooltip. The glossary, such as it is -- seven columns need no page of
-            prose beside them.
+        help: Tooltip. The glossary, such as it is -- a panel this narrow needs no
+            page of prose beside it.
         pinned: Freeze against horizontal scrolling.
     """
 
@@ -558,6 +566,13 @@ def column_specs(panel: Panel) -> List[SheetColumn]:
                          "replacement is still sitting *below* him and undrafted. High "
                          "means plenty behind him, so no urgency; low means the cliff "
                          "is here. It falls as you cross players off."),
+        SheetColumn("JAKE", "number", fmt="%.0f",
+                    help="Jake Ciely's hand rank of the position for The Athletic, in "
+                         "whichever of his three lists matches this league's points "
+                         "per reception. Rows here are in our own order, so read it "
+                         "straight down: where it climbs in step we agree, and where "
+                         "it jumps he does not. Blank means unranked, not last — he "
+                         "ranks 290 players."),
         SheetColumn("ADP", "number", fmt="%.1f",
                     help="ESPN's average draft position — where the room takes him."),
         SheetColumn(MARK_COLUMN, "button",

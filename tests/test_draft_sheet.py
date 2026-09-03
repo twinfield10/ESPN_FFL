@@ -391,12 +391,25 @@ def test_value_is_dollars_in_an_auction_and_a_rank_difference_in_a_snake():
     assert sv.value_column({}) == "value"
 
 
-def test_a_panel_carries_the_seven_columns_and_the_mark():
+def test_a_panel_carries_the_eight_columns_and_the_mark():
     board = dv.positional_scarcity(_board(_ladder(n=20)))
     panel = sv.sheet_panel(board, "RB", SNAKE_META)
     assert list(panel.frame.columns) == [
-        "Tier", "Player", "TM/BYE", "PTS", "VALUE", "PS", "ADP", "·"]
+        "Tier", "Player", "TM/BYE", "PTS", "VALUE", "PS", "JAKE", "ADP", "·"]
     assert panel.frame["TM/BYE"].iloc[0] == "DET/6"
+
+
+def test_a_board_without_the_hand_ranking_still_panels():
+    """The ranking is a separate file off a hand-dropped workbook, so a board built
+    before it existed carries no `ath_pos_rank` at all. The column comes through blank
+    rather than dropping, which is what keeps the four panels aligned with each other.
+    """
+    board = dv.positional_scarcity(_board(_ladder(n=20)))
+    assert "ath_pos_rank" not in board.columns
+    panel = sv.sheet_panel(board, "RB", SNAKE_META)
+    assert "JAKE" in panel.frame.columns
+    assert panel.frame["JAKE"].isna().all()
+    assert [c.label for c in sv.column_specs(panel)] == list(panel.frame.columns)
 
 
 def test_a_panel_is_ordered_by_vor_not_by_the_points_column():
