@@ -320,17 +320,6 @@ ESPN_PUBLISHED_POINTS = "espn_published_points"
 #: there are none now; a row of identical dicts is a thing that drifts out of sync
 #: rather than a structure. :func:`compute_weighted_stats` reads ``default`` for any
 #: stat without its own entry, so re-adding one is a single line.
-#: Sources that project **one position** and are absent everywhere else.
-#:
-#: They break the "weights sum to 1.0" invariant the other sources hold, and that is
-#: correct rather than a bug: `compute_weighted_stats` drops a source with no column on
-#: a row and renormalises the remainder, so a `DST` weight of 0.25 is 0.25 of a team
-#: defence's blend and exactly 0.0 of a running back's. Summing the whole table and
-#: expecting 1.0 is therefore the wrong check -- sum the universal sources instead.
-#:
-#: Named here rather than inlined so the callers that need the distinction (the G2
-#: counterfactual, and the tests guarding it) share one definition of it.
-POSITION_SCOPED_SOURCES: Tuple[str, ...] = ("KIK", "DST")
 
 #: Prefixes the weekly path may score, in the order the pipeline builds them.
 #:
@@ -373,33 +362,37 @@ def present_prefixes(df, candidates=WEEKLY_PREFIXES) -> list:
 
 
 WEIGHTS = {
-    # `KIK` and `DST` were both registered at 0.0 on 2026-08-18, the same way `USG` was
-    # on 2026-08-07: the columns reach all nine boards and `TRUE_Points` is provably
-    # unmoved, so turning either on later is one number rather than a build. They cover
-    # only kickers and team defences respectively; every other position sees no `KIK_` or
-    # `DST_` column at all, so `compute_weighted_stats` drops their weight and
-    # renormalises.
+    # `TOMCAT` is one source with three backends, and it is registered once.
     #
-    # **`DST` was turned on at 0.25 on 2026-08-24, and `KIK` was not.** The two positions
-    # were built together and the evidence separated them, which is the conclusion plans
-    # 29 and 30 reached independently: a defence is genuinely draftable and a kicker
-    # essentially is not (season-average environment spreads D/ST 3.1x and kickers 1.24x).
+    # It was three entries until 2026-09-02 -- `USG` for the usage arm, `KIK` for
+    # kicking and `DST` for team defence -- which made the table say there were eight
+    # sources when there have only ever been six. The arms share a model family, a
+    # fitting harness and an owner; they differ in which positions they can speak
+    # about, and that is not what a *source* is. So they now all write `USG_` and
+    # carry one vote.
     #
-    #   * `DST` cleared **G-DST2 baseline (a) in all nine leagues** -- walk-forward MAE on
-    #     season D/ST points is 34-46% below prior-season points, against a 10% bar
-    #     (`python -m Scripts.dst.gates`). It cleared **G-DST4** with a measured
-    #     cross-position shift of exactly 0.0000. G-DST2(b), against ESPN, is *not run*:
-    #     no pre-season ESPN D/ST projection survives for a season whose result is known.
-    #     0.25 is therefore a **co-equal** weight rather than a claim to beat ESPN -- on a
-    #     D/ST row where FantasyPros is imputed it renormalises to a 50/50 with ESPN.
-    #   * `KIK` stays at 0.0. Channel P (extra points) is strong at +45.9% held out, but
-    #     **channel F (field goals) fails G-K2 at +1.2% against a 5% bar** -- exactly the
-    #     humbling plan 29 pre-registered, because red-zone conversion's own YoY r is
-    #     0.095. Blending the position would carry the failed channel in with the good
-    #     one. The `KIK_` columns stay on the board as a second opinion, and the weekly
-    #     path -- where plan 29 measured the real value -- is where this gets revisited.
+    # **Position scoping falls out of the flags rather than the weights.** A
+    # quarterback has no `USG_madeExtraPoints`, so the cell is null and flagged and
+    # `compute_weighted_stats` drops the weight and renormalises -- the same path a
+    # sportsbook with no line takes. The old `POSITION_SCOPED_SOURCES` constant
+    # existed to warn that summing this table would not reach 1.0; it was never read
+    # by anything and is gone with the entries it described.
     #
-    # See docs/plans/29-kicker-model.md and 30-dst-model.md.
+    # **Turning the kicking arm on is a real change and not a consequence of the
+    # rename, so it is recorded here.** It sat at 0.0 because channel F (field goals)
+    # failed G-K2 at +1.2% against a 5% bar while channel P (extra points) held out at
+    # +45.9%, and blending the arm carried the failed channel in with the good one.
+    # That gate is measured on stats and is *still unpassed*; this is a deliberate
+    # override of it, made on two grounds. First, the 0.0 was hiding a defect rather
+    # than a model: `Scripts.kicking.model` was emitting
+    # `madeFieldGoalsFromFrom40To49` for two of the three distance bands, which no
+    # league scores, so two thirds of a kicker's field-goal value was silently zero
+    # and the arm read at 0.577x ESPN's points. Corrected it reads 0.946x, and the
+    # measured cost of letting it vote is about four points a kicker -- noise at a
+    # position whose season-average environment spreads only 1.24x. Second, the
+    # alternative was leaving a starting slot in nine leagues at 100% ESPN with no
+    # second opinion at all. See docs/plans/29-kicker-model.md.
+    #
     # `ATH` -- The Athletic (Jake Ciely's workbook) -- registered at 0.25 on
     # 2026-09-01, as a sixth equal vote. It covers 434 offensive players with a raw
     # stat line and abstains on kickers and defences, so on those rows the weight is
@@ -413,7 +406,7 @@ WEIGHTS = {
     # is therefore owed *after* the fact rather than before -- see
     # docs/plans/38-the-athletic.md.
     'default': {'ESPN': 0.25, 'FP': 0.25, 'PINNY': 0.25, 'BOL': 0.25, 'ATH': 0.25,
-                'USG': 0.25, 'KIK': 0.0, 'DST': 0.25},
+                'USG': 0.25},
 }
 
 
@@ -1180,8 +1173,7 @@ def _apply_scoring(df, s_df, col_pfix_list):
 
 
 def proj_to_score(proj_df, s_league, col_pfix_list=['ESPN', 'FP', 'MEAN', 'PINNY',
-                                                    'BOL', 'ATH', 'USG', 'KIK',
-                                                    'DST', 'TRUE']):
+                                                    'BOL', 'ATH', 'USG', 'TRUE']):
     """Score projected stat lines with a league's rules, per lineup slot.
 
     ESPN prices the same rule differently depending on the slot a player occupies

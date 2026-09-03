@@ -601,3 +601,32 @@ worth almost nothing, so the draft-room instinct to buy last year's top unit is 
   `player_weeks`, and the leagues price them separately (both ~5.0, so the mean is used).
   Where a league prices them differently the component share is approximate; play-by-play
   can separate them if it ever matters.
+
+---
+
+## Folded into TOMCAT — 2026-09-02
+
+`DST_` is gone. The defence arm writes `USG_` like the usage and kicking arms, and
+TOMCAT casts **one** vote across every position instead of three votes scoped to
+different ones. Nothing about the model, its fit or its weight changed: a D/ST row
+blended ESPN with this arm at a quarter each before and does so now, and
+`TRUE_Points` on all 32 defences is unmoved.
+
+What changed is what the table *says*. `WEIGHTS` used to list eight entries for six
+sources, which made the blend look wider than it is, and it needed a
+`POSITION_SCOPED_SOURCES` constant to warn readers that summing it would not reach 1.0.
+Position scoping now falls out of the provenance flags — a receiver's
+`USG_defensiveSacks` is null and flagged, so the weight drops and the rest renormalise,
+exactly as for a book with no line on him. The constant is gone; nothing read it.
+
+The lower-case `dst_n_priced` and `dst_evidence` diagnostics keep their own names. They
+answer *which arm spoke for this row*, which a merged `usg_evidence` could not — and
+`_merge_usage` has already written that column for every skill-position player, so
+merging them would have put two columns of the same name on the board.
+
+The app's separate `DST` points column is gone with the prefix, folded into `TOM`. It
+would now be a duplicate of it rather than an aside.
+
+**G-DST2(b) is still not runnable** and this does not change that: no pre-season ESPN
+defence projection survives for a season whose result is known, so 0.25 remains a
+co-equal weight rather than a claim to beat ESPN.

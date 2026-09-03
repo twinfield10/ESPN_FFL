@@ -281,6 +281,73 @@ def normalise_bol_props(df: pd.DataFrame) -> pd.DataFrame:
     return out[out["name_key"].notna() & (out["name_key"] != "UNKNOWN")]
 
 
+#: Share of a 17-game slate a fantasy starter actually plays, league-wide.
+#:
+#: Measured, not fitted: realised games for the top 24 QB / 48 RB / 72 WR / 24 TE by
+#: volume, from ``Data/NFL/<season>/player_weeks.parquet``, over the five seventeen-game
+#: seasons 2021-2025. It reads 0.878, 0.891, 0.905, 0.903, 0.898 -- pooled **0.895**,
+#: and stable to under a point of spread across five years.
+MARKET_SLATE_SHARE = 0.895
+
+
+def market_to_full_slate(frame: pd.DataFrame, prefix: str,
+                         share: float = MARKET_SLATE_SHARE) -> pd.DataFrame:
+    """Lift a sportsbook's season-long lines onto a full healthy slate.
+
+    **A basis conversion, not a bias correction, and the distinction is the whole
+    argument.** A season-long prop settles on what a player actually accumulates, so a
+    book pricing "Over 1199.5 receiving yards" must price the games he misses. ESPN
+    projects a median of **17.0** games and applies no availability discount at all,
+    and FantasyPros does the same. The two are answering different questions, and an
+    equal-vote blend of them produces something that is neither -- exactly the error
+    :func:`Scripts.usage.project.to_full_slate` was written to fix for TOMCAT, which
+    had been entering the blend on an expected-games footing and dragging skill
+    positions to 0.887-0.900 of their ESPN level.
+
+    **The mechanism was tested against the alternatives rather than assumed.** On the
+    2026 Knights board, BetOnline's lines sit at a mean **0.871** of the ESPN/FP
+    average, and three things say that is availability rather than disagreement:
+
+    * The discount is **flat across a player's stats**. Within-player standard
+      deviation of the ratio across five stats is 0.084 -- a book that disagreed about
+      a receiver would disagree about his yards and his catches differently, and a
+      games effect scales every count together.
+    * It is **flat across players too**: standard deviation of the per-player ratio is
+      0.064, *smaller* than the within-player figure. So it is a base rate applied to
+      everyone, not a per-player injury handicap -- which is what a season-long market
+      should look like, since the book is not handicapping each man's medical file.
+    * It **matches the base rate**. 0.871 against a realised 0.895.
+
+    **The constant is anchored on realised games, not on the observed gap, and that is
+    deliberate.** Calibrating to 0.871 would force the books to agree with ESPN and
+    FantasyPros on average *by construction*, dissolving the disagreement the blend
+    exists to measure. Anchored externally, the books stay about 2.7% below the
+    consensus after conversion -- a residual opinion, which is what they are for.
+    It is also why this is not the per-(position, stat) recalibration
+    ``docs/plans/03-projection-source-coverage.md`` step 3c built and rejected at
+    -14.4% MAE: one externally measured scalar, no free parameters, no fold to overfit.
+
+    Args:
+        frame: A pivoted book frame carrying ``<prefix>_<stat>`` columns.
+        prefix: ``"PINNY"`` or ``"BOL"``.
+        share: Slate share to divide out.
+
+    Returns:
+        pd.DataFrame: The frame with its count columns lifted to a full slate.
+
+    Note:
+        Applied to every ``<prefix>_`` count, because a book prices them all on the
+        same settled-season basis. There are no rate columns in a book frame to
+        exclude -- every market it posts is a count or a yardage total.
+    """
+    if frame.empty or share <= 0:
+        return frame
+    columns = [c for c in frame.columns
+               if c.startswith(f"{prefix}_") and not c.endswith(IMPUTED_SUFFIX)]
+    for column in columns:
+        frame[column] = pd.to_numeric(frame[column], errors="coerce") / share
+    return frame
+
 def _pivot_props(df: pd.DataFrame, prefix: str) -> pd.DataFrame:
     """Long props -> one row per player with ``<prefix>_<stat>`` columns.
 
@@ -555,6 +622,131 @@ def load_theathletic_season(season: int) -> pd.DataFrame:
     return out.dropna(subset=["name_key"]).drop_duplicates("name_key")
 
 
+#: Reception points -> which of The Athletic's three hand-ranked lists to read.
+ATHLETIC_RANK_BY_PPR: Dict[float, str] = {0.0: "std", 0.5: "half", 1.0: "ppr"}
+
+#: The same three, as they read in a log line.
+ATHLETIC_RANK_LABELS: Dict[str, str] = {
+    "std": "non-PPR", "half": "half-PPR", "ppr": "full-PPR"}
+
+
+def load_theathletic_ranks(season: int) -> pd.DataFrame:
+    """Jake Ciely's hand ranking, as lowercase ``ath_rank_<flavor>`` columns.
+
+    A companion to :func:`load_theathletic_season` off the same workbook, written by
+    the same :func:`Scripts.load_athletic.build` call so the two cannot describe
+    different downloads. That is also why this does **not** call
+    :func:`check_source_freshness`: one file's staleness is the other's, and warning
+    twice about one download would train the eye past it.
+
+    **Lowercase, deliberately.** ``compute_weighted_stats`` and ``proj_to_score`` scan
+    every uppercase ``<PREFIX>_`` and require it to be numeric -- and a rank *is*
+    numeric, so an uppercase name would see it blended into a stat line and priced.
+    Lowercase is how ``usg_evidence`` and ``avail_evidence`` already stay outside that
+    namespace, and it makes "this never moves ``TRUE_Points``" true by construction
+    rather than by test.
+
+    Missing is not an error: a board built before this existed has projections and no
+    ranking, and simply carries no rank columns.
+
+    Args:
+        season: Season year.
+
+    Returns:
+        pd.DataFrame: ``name_key`` plus one column per
+        :data:`Scripts.load_athletic.RANK_COLUMNS` entry. Empty if absent.
+    """
+    from Scripts.load_athletic import RANK_COLUMNS, RANKS_FILENAME, SOURCE
+
+    path = season_dir(SOURCE, season, RANKS_FILENAME, create=False)
+    if not path.exists():
+        return pd.DataFrame(columns=["name_key"])
+
+    df = pd.read_parquet(path)
+    out = pd.DataFrame({"name_key": df["player_name"].map(normalise_name)})
+    for column in RANK_COLUMNS.values():
+        if column in df.columns:
+            out[column] = pd.to_numeric(df[column], errors="coerce")
+    return out.dropna(subset=["name_key"]).drop_duplicates("name_key")
+
+
+def _athletic_rank_flavor(league, season: int) -> str:
+    """Which of the three hand-ranked lists this league's scoring calls for.
+
+    The workbook ranks the same 290 players three times -- non-PPR, half and full --
+    because a reception is worth a different amount in each, and 2026's leagues split
+    0.5 and 1.0. Picking by the league's own ``receivingReceptions`` rule is the same
+    principle that scores every source through that league's rules rather than the
+    workbook's: a ranking is an opinion about a scoring system, so read the one that
+    answers *this* system.
+
+    A value between the three snaps to the nearest, and an exact tie goes to the
+    lower list. A 0.75-PPR league is not a case the workbook has a list for; the
+    nearest beats none, and rounding a tie down reaches for the list that assumes
+    less about receptions.
+
+    Args:
+        league: League whose rules apply -- a live ``League`` or a config key.
+        season: Season year.
+
+    Returns:
+        str: A key of :data:`Scripts.load_athletic.RANK_COLUMNS`.
+    """
+    try:
+        points = float(_modelled_scoring_weights(league, season)
+                       .get("receivingReceptions", 0.0))
+    except Exception as exc:                                   # pragma: no cover
+        print(f"  The Athletic ranks: scoring lookup failed ({exc}); "
+              f"reading the half-PPR list")
+        return "half"
+    return ATHLETIC_RANK_BY_PPR[
+        min(ATHLETIC_RANK_BY_PPR, key=lambda pts: abs(pts - points))]
+
+
+def _merge_athletic_ranks(base: pd.DataFrame, season: int, league) -> pd.DataFrame:
+    """Land the hand rank as ``ath_pos_rank``, in this league's flavor.
+
+    Joins on ``join_key`` like the other name-keyed sources, so it has to run while
+    that column still exists -- before the drop that precedes the imputation chain.
+
+    Deliberately *not* registered in ``WEIGHTS``, ``OPINION_PREFIXES``,
+    ``PROJECTION_PREFIXES`` or :data:`AVAILABILITY_WITHDRAWN_PREFIXES`. It is not a
+    source: it projects nothing, so it cannot vote, cannot widen the spread and has
+    nothing to withdraw. Withdrawing it on an injury would be wrong in its own right
+    -- that a player got hurt in August does not unwrite the opinion somebody formed
+    about him in July, and the board still lists him.
+
+    Args:
+        base: The merge frame, after :func:`_disambiguate_name_keys`.
+        season: Season year.
+        league: League whose scoring picks the flavor.
+
+    Returns:
+        pd.DataFrame: ``base`` with ``ath_pos_rank``, or unchanged if the ranking
+        file is absent.
+    """
+    from Scripts.load_athletic import RANK_COLUMNS
+
+    ranks = load_theathletic_ranks(season)
+    if ranks.empty or "name_key" not in ranks.columns:
+        return base
+
+    flavor = _athletic_rank_flavor(league, season)
+    column = RANK_COLUMNS[flavor]
+    if column not in ranks.columns:
+        return base
+
+    picked = ranks[["name_key", column]].rename(columns={column: "ath_pos_rank"})
+    matched = int(base["join_key"].isin(picked["name_key"]).sum())
+    print(f"  The Athletic ranks: {len(picked)} players "
+          f"({ATHLETIC_RANK_LABELS[flavor]} list), "
+          f"{matched} matched to this league")
+    merged = base.merge(picked, left_on="join_key", right_on="name_key",
+                        how="left", suffixes=("", "_athrank"))
+    return merged.drop(columns=[c for c in merged.columns
+                                if c == "name_key_athrank"], errors="ignore")
+
+
 def load_betonline_season(season: int) -> pd.DataFrame:
     """BetOnline season props, prefixed ``BOL_``.
 
@@ -579,7 +771,7 @@ def load_betonline_season(season: int) -> pd.DataFrame:
         wordings = sorted(unmapped["stat_text"].map(_normalise_stat_text).unique())
         print(f"  BetOnline: {len(unmapped)} prop(s) with unrecognised wording, "
               f"excluded: {wordings[:6]}")
-    return _pivot_props(props, "BOL")
+    return market_to_full_slate(_pivot_props(props, "BOL"), "BOL")
 
 
 def load_pinnacle_season(season: int) -> pd.DataFrame:
@@ -602,7 +794,7 @@ def load_pinnacle_season(season: int) -> pd.DataFrame:
 
     df = pd.read_parquet(path).rename(columns={"player_name": "player_name"})
     df["name_key"] = df["player_name"].map(normalise_name)
-    return _pivot_props(df, "PINNY")
+    return market_to_full_slate(_pivot_props(df, "PINNY"), "PINNY")
 
 
 def load_usage_season(season: int) -> pd.DataFrame:
@@ -672,7 +864,7 @@ def load_usage_season(season: int) -> pd.DataFrame:
 
 
 def load_kicking_season(season: int) -> pd.DataFrame:
-    """The kicking model's per-team projection, prefixed ``KIK_``.
+    """The kicking model's per-team projection, prefixed ``USG_``.
 
     A **team** projection rather than a player one, and that is the finding rather than a
     shortcut: a kicker's field-goal conversion rate has a year-over-year correlation of
@@ -684,7 +876,8 @@ def load_kicking_season(season: int) -> pd.DataFrame:
         season: Season year.
 
     Returns:
-        pd.DataFrame: ``team``, ``KIK_<stat>`` and the lowercase context columns. Empty
+        pd.DataFrame: ``team``, ``USG_<stat>`` and the lowercase ``kik_`` context
+        columns. Empty
         when the artifact is absent.
     """
     from Scripts.kicking.model import projection_path
@@ -724,7 +917,8 @@ def load_dst_season(season: int) -> pd.DataFrame:
 
 
 def _merge_team_source(base: pd.DataFrame, source: pd.DataFrame, prefix: str,
-                       positions: Sequence[str], label: str) -> pd.DataFrame:
+                       positions: Sequence[str], label: str,
+                       ctx_prefix: Optional[str] = None) -> pd.DataFrame:
     """Attach a per-team projection to that team's players at the given positions.
 
     Two details that would be bugs if left implicit.
@@ -744,9 +938,21 @@ def _merge_team_source(base: pd.DataFrame, source: pd.DataFrame, prefix: str,
     Args:
         base: The ESPN universe, carrying ``pro_team`` and ``primaryPosition``.
         source: Output of :func:`load_kicking_season` or :func:`load_dst_season`.
-        prefix: ``"KIK"`` or ``"DST"``.
+        prefix: The blend namespace to write into. Both arms use ``"USG"`` -- they
+            are TOMCAT, not separate sources.
         positions: Positions this source covers.
         label: Name used in the printed report.
+        ctx_prefix: Prefix of the lower-case diagnostic columns to carry across,
+            defaulting to ``prefix.lower()``.
+
+            **Passed explicitly for both arms, and it has to be.** Now that the stat
+            columns are ``USG_``, deriving this from the prefix would look for
+            ``usg_`` -- which :func:`_merge_usage` has already written for every
+            skill-position player, so the diagnostics would be concatenated onto a
+            frame that already holds those names and the board would carry two
+            columns called ``usg_evidence``. The arms keep ``kik_`` and ``dst_``
+            because those answer a question the merged name could not: *which arm
+            spoke for this row*.
 
     Returns:
         pd.DataFrame: ``base`` with the ``<prefix>_`` columns and their flags attached.
@@ -756,8 +962,9 @@ def _merge_team_source(base: pd.DataFrame, source: pd.DataFrame, prefix: str,
     from Scripts.draft.board import ESPN_TEAM_ALIASES
 
     stat_cols = [c for c in source.columns if c.startswith(f"{prefix}_")]
+    context = ctx_prefix if ctx_prefix is not None else f"{prefix.lower()}_"
     ctx_cols = [c for c in source.columns
-                if c.startswith(f"{prefix.lower()}_") and c != "team"]
+                if c.startswith(context) and c != "team"]
     if not stat_cols:
         return base
 
@@ -1243,7 +1450,8 @@ def _withdraw_usage_on_role(base: pd.DataFrame, season: int) -> pd.DataFrame:
 #: number invented by this module. Measured on the 2026 boards, all 27 season-enders
 #: already carry ``ESPN_projected_total == 0.0``.
 #:
-#: ``KIK_`` and ``DST_`` are absent because they are keyed on team rather than player;
+#: The kicking and defence arms are absent because they are keyed on team rather than
+#: player;
 #: a defence does not go on injured reserve.
 AVAILABILITY_WITHDRAWN_PREFIXES: Tuple[str, ...] = ("FP_", "PINNY_", "BOL_",
                                                     "ATH_", "USG_")
@@ -1688,6 +1896,30 @@ def _attach_injury_severity(base: pd.DataFrame, season: int) -> pd.DataFrame:
 #: because it decomposes into volume x efficiency x games. Until that exists, the
 #: model's dissent is carried by ``USG_PosRankDelta``, which is scale-free and cannot
 #: contaminate the spread.
+#: Sources averaged into ``MEAN_``, the imputation basis.
+#:
+#: **Real cells only.** A source whose cell was itself filled in cannot contribute to
+#: the average that filled it -- otherwise ESPN would be counted twice on every row
+#: FantasyPros does not cover, which is most of them. That masking is why adding a
+#: third source here is safe rather than a re-weighting: where The Athletic is silent
+#: the mean is exactly what it was before.
+#:
+#: **``ATH`` joined on 2026-09-02, and the reason is targets.** ``MEAN_`` fills every
+#: gap in both sportsbooks, so it decides what a book "says" about the ~97% of players
+#: it does not price. FantasyPros publishes no ``receivingTargets`` column at all, so
+#: before this ``MEAN_receivingTargets`` was ``mean(ESPN, ESPN)`` -- ESPN wearing a
+#: consensus badge -- and every imputed book target inherited it. With The Athletic in,
+#: the basis for the single thinnest-covered stat on the board becomes a genuine
+#: two-source average.
+#:
+#: **``USG`` is deliberately not here**, for the same reason it is not in the
+#: imputation chain: ``MEAN_`` is what the *external* sources fall back to, and
+#: seeding that with our own model would put TOMCAT's opinion inside a cell wearing a
+#: sportsbook's name. The blend would not double-count it -- a filled cell forfeits
+#: its weight -- but ``MEAN_`` is published, and a column that mixes the consensus
+#: with the model answers neither question.
+MEAN_SOURCES: Tuple[str, ...] = ("ESPN", "FP", "ATH")
+
 OPINION_PREFIXES = ("ESPN", "FP", "PINNY", "BOL", "ATH")
 
 
@@ -1707,7 +1939,7 @@ OPINION_PREFIXES = ("ESPN", "FP", "PINNY", "BOL", "ATH")
 #: nobody else does gets a real ``TRUE_Points`` and a ``projection_missing`` of True.
 #: The board would then hide, as unprojected, exactly the players the model exists to
 #: differentiate.
-PROJECTION_PREFIXES = ("ESPN", "FP", "PINNY", "BOL", "ATH", "USG", "KIK", "DST")
+PROJECTION_PREFIXES = ("ESPN", "FP", "PINNY", "BOL", "ATH", "USG")
 
 
 #: What ``outcome_evidence`` says when a row has no distribution, and why.
@@ -2273,6 +2505,10 @@ def build_season_projections(league, season: Optional[int] = None,
         base = base.drop(columns=[c for c in base.columns
                                   if c == f"name_key_{label}"], errors="ignore")
 
+    # The hand ranking off the same workbook. Not a source and not in the blend -- a
+    # lowercase display column, joined here because this is where `join_key` lives.
+    base = _merge_athletic_ranks(base, season, league)
+
     # The usage model joins on an ESPN id rather than a name, so it merges through
     # its own path -- and while `join_key` still exists, which it uses as a fallback
     # for the 2026 rookies the crosswalk does not yet carry.
@@ -2280,12 +2516,21 @@ def build_season_projections(league, season: Optional[int] = None,
     if not usage.empty and "player_id" in base.columns:
         base = _merge_usage(base, usage)
 
-    # The two position-specific models. Keyed on team rather than player, because
-    # neither position has a projectable individual signal -- see the loaders.
-    base = _merge_team_source(base, load_kicking_season(season), "KIK",
-                              ("K",), "Kicking")
-    base = _merge_team_source(base, load_dst_season(season), "DST",
-                              ("D/ST",), "D/ST")
+    # TOMCAT's other two arms. Keyed on team rather than player, because neither
+    # position has a projectable individual signal -- see the loaders.
+    #
+    # They write into the **same `USG_` namespace** as the usage arm rather than
+    # prefixes of their own. One model, three backends, one vote: a kicker's
+    # `USG_madeExtraPoints` and a receiver's `USG_receivingYards` are the same source
+    # answering about different positions, and the three stat sets are disjoint so
+    # they cannot collide. Position scoping then falls out of the provenance flags
+    # instead of needing its own weight table -- a quarterback's
+    # `USG_madeExtraPoints` is null and flagged, so `compute_weighted_stats` drops
+    # the weight and renormalises exactly as it does for a book with no line.
+    base = _merge_team_source(base, load_kicking_season(season), "USG",
+                              ("K",), "Kicking", ctx_prefix="kik_")
+    base = _merge_team_source(base, load_dst_season(season), "USG",
+                              ("D/ST",), "D/ST", ctx_prefix="dst_")
 
     base = _apply_injury_adjustment(base, season)
     # After the injury adjustment and before the imputation chain: this is the last
@@ -2320,9 +2565,18 @@ def build_season_projections(league, season: Optional[int] = None,
     means = {}
     for stat_col in [c for c in base.columns if c.startswith("ESPN_")]:
         stat = stat_col[len("ESPN_"):]
-        fp_col = f"FP_{stat}"
-        if fp_col in base.columns:
-            means[f"MEAN_{stat}"] = base[[stat_col, fp_col]].mean(axis=1)
+        parts = []
+        for source in MEAN_SOURCES:
+            column = f"{source}_{stat}"
+            if column not in base.columns:
+                continue
+            values = pd.to_numeric(base[column], errors="coerce")
+            flag = column + IMPUTED_SUFFIX
+            if flag in base.columns:
+                values = values.where(~base[flag].fillna(True).astype(bool))
+            parts.append(values)
+        if len(parts) >= 2:
+            means[f"MEAN_{stat}"] = pd.concat(parts, axis=1).mean(axis=1)
     if means:
         base = pd.concat([base, pd.DataFrame(means, index=base.index)], axis=1)
 
@@ -2457,6 +2711,56 @@ def build_season_projections(league, season: Optional[int] = None,
             ascending=False, method="min")
         final["USG_PosRankDelta"] = final["TRUE_PosRank"] - final["USG_PosRank"]
 
+    final = _attach_athletic_override(final)
+    return final
+
+
+def _attach_athletic_override(final: pd.DataFrame) -> pd.DataFrame:
+    """Where Jake Ciely's hand rank disagrees with his own projection.
+
+    ``ath_pos_rank`` is a human overlay on top of the same stat lines that already
+    vote as ``ATH_``, so the interesting number is not the rank -- it is the gap
+    between the rank and the order his own projection implies. That gap is him saying
+    his spreadsheet is not to be trusted here, and it has a shape worth knowing before
+    reading it: measured on the 2026-08-31 workbook, **no** quarterback moves five
+    spots and **55 of 120 receivers** do. He overrides where a projection is weakest
+    and leaves the position it handles best alone.
+
+    **Ranked against his own rows only.** He ranks 85 backs; a board carries half as
+    many again, and ranking ``ATH_Points`` over all of them would score his 60th back
+    against a 60th drawn from a deeper pool -- a delta manufactured out of pool depth.
+    Restricting both sides to the players he actually ranked is what
+    ``value_rank_adp``/``value_rank_vor`` already do for the market comparison in
+    :func:`Scripts.draft.board.build_board`.
+
+    Positive means he is **higher** on the player than his own numbers are, matching
+    ``USG_PosRankDelta``'s convention that positive is the named voice liking a player
+    more. Note this is the opposite of ``pos_rank_delta``'s, which the two have
+    disagreed about since before either of these columns existed.
+
+    Args:
+        final: The scored frame, after ``TRUE_PosRank``.
+
+    Returns:
+        pd.DataFrame: ``final`` with ``ath_override``, all-NaN where either input is
+        absent rather than the column missing -- so the board's shape does not depend
+        on whether the ranking file had been built.
+    """
+    if "ath_pos_rank" not in final.columns:
+        return final
+
+    # `float("nan")` rather than `np.nan`: numpy is not imported at module level here.
+    final["ath_override"] = float("nan")
+    if "ATH_Points" not in final.columns:
+        return final
+
+    ranked = final["ath_pos_rank"].notna() & final["ATH_Points"].notna()
+    if not ranked.any():
+        return final
+
+    implied = final.loc[ranked].groupby("primaryPosition")["ATH_Points"].rank(
+        ascending=False, method="min")
+    final.loc[ranked, "ath_override"] = implied - final.loc[ranked, "ath_pos_rank"]
     return final
 
 

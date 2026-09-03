@@ -291,7 +291,7 @@ def test_the_baseline_is_checked_against_the_shipped_weights():
     that no longer exists.
     """
     assert blend.shipped_is_equal(blend.UNIVERSAL)
-    assert not blend.shipped_is_equal(("ESPN", "KIK"))
+    assert not blend.shipped_is_equal(("ESPN", "NOT_A_SOURCE"))
 
 
 def test_the_shipped_weights_really_are_equal_over_the_universal_sources():

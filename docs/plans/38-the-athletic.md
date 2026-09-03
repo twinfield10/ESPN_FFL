@@ -101,7 +101,8 @@ The workbook carries far more than projections, and the rest is not usable.
   spots**, while quarterbacks barely move — the sensible shape, since RB committees
   are where a projection is least trustworthy. A rank is not a stat line and has
   nowhere to go in a blend that works in stat space. Worth revisiting after the drafts
-  as its own column, not as a source.
+  as its own column, not as a source. **Done on 2026-09-02 — see *The hand ranking*
+  below. Still not a source; three lower-case display columns.**
 
 ---
 
@@ -288,4 +289,84 @@ the other sources.
   `_shipped_weight()` still correctly reads 1.0 — it divides TOMCAT's weight by one
   external's, and both are 0.25 — but `SOURCES` there does not name `ATH`, so the
   ratio's *meaning* changed even though its value did not: TOMCAT is one vote of six.
-- **`Jake's Ranks` as an expert-rank overlay**, if the drafts suggest it is wanted.
+- ~~**`Jake's Ranks` as an expert-rank overlay**, if the drafts suggest it is
+  wanted.~~ **Shipped 2026-09-02**, below. What it owes in turn is one question, and
+  it is the cheaper half of the gate above: *does his hand rank beat the order his own
+  projections imply?* Same 290 players, same 100-point gate, scored on rank
+  correlation against realised finish. It needs the season harness this plan already
+  owes and adds no second one.
+
+---
+
+## The hand ranking, shipped 2026-09-02
+
+The last owed bullet, done. **Three lower-case display columns and nothing else** —
+`TRUE_Points` and `vor_rank` are byte-identical with and without it, measured on
+Knights_FFL's 1,036 rows before and after: **zero rows changed on either**. That is
+what made it mergeable in the same week `docs/DRAFT_READINESS.md` closes the door on
+the 0.25 merge above.
+
+### It carries no projections, and that was checked rather than assumed
+
+`Jake's Ranks` looks like a second opinion and is not one. Every stat cell on it is
+`=VLOOKUP(<player>,QB!B:O,4,FALSE)` — the same team-tab projections already ingested
+as `ATH_`. Checked against the built parquet: all 85 running backs match to the float.
+The ordering is the only thing on that tab we did not already have.
+
+### Three things this plan had wrong or did not know
+
+1. **The source is the `Rankings` tab, not `Jake's Ranks`.** The latter is a rendering
+   of the former — `=VLOOKUP(<rank>,Rankings!A:T,3,FALSE)`.
+2. **There are three lists, not one.** Non-PPR, half and full, side by side, and the
+   workbook says which is which rather than leaving it to inference: `Jake PPR` reads
+   column 23 for its backs, `Jake Non` reads column 38. Our leagues split 0.5 and 1.0,
+   so each board reads the list built for its own scoring — the same principle that
+   scores every source through the league's rules instead of the workbook's.
+3. **All 290 ranked names appear verbatim in the 434-row projections file**, so the
+   join needed no new aliases. There are also three *overall* cross-position lists;
+   they are **not** ingested, because they encode the workbook's own `Settings`
+   (12 teams, 1QB, 2RB/3WR/1TE/1FLEX), which is not GOP's IDP league.
+
+### The override has the shape that justifies showing it
+
+His hand rank against the order his own projections imply, on his half-PPR list and
+his own scoring:
+
+| Position | n | moved 5+ | mean \|Δ\| | max |
+|---|---|---|---|---|
+| QB | 40 | **0** | 1.0 | 3 |
+| TE | 45 | 4 | 2.1 | 11 |
+| RB | 85 | 26 | 3.8 | 19 |
+| WR | 120 | 55 | 4.9 | 25 |
+
+**He leaves alone the position a projection handles best and reworks the two it
+handles worst** — the same inversion the 100-point gate found for the stat lines
+(QB 9.8%, WR 20.0%). On Knights_FFL's full-PPR board, scored in that league's rules,
+it reproduces: QB 0, TE 6, RB 28, WR 50.
+
+The largest overrides are a different set of players from the largest stat-line
+disagreements above, which is the check that the column carries something `ATH_` does
+not: Dontayvion Wicks (his projection's WR84, his hand WR59), Xavier Hutchinson
+(WR94 → WR117), Adonai Mitchell, Jameson Williams. Travis Hunter and Josh Jacobs — the
+flagship stat-line calls — barely move here. Those were projection arguments; these
+are him distrusting the projection.
+
+### A join miss this surfaced, not yet fixed
+
+The rank join reported 289 of 290 matched on Knights_FFL. The miss is **Kenny
+Gainwell**, whom the workbook spells *Kenneth* — and it is not a rank problem. His
+`ATH_rushingYards_is_imputed` is `True` on the shipped board: **the stat line of a
+165-point running back has been silently replaced by the ESPN/FantasyPros mean since
+the 0.25 merge went in.** Exactly the failure `NAME_ALIASES` warns about, in its own
+words: a nickname "looks correct in both files".
+
+`_report_join_misses` did its job — it named him first in The Athletic's miss list.
+He was camouflaged by the eleven kickers behind him, which The Athletic legitimately
+does not project, so the one real name miss read like the noise around it. Worth
+knowing about that diagnostic independently of this fix.
+
+The fix is one line in `NAME_ALIASES`, `"KENNETH GAINWELL": "KENNY GAINWELL"`. It is
+**not applied here**, because it moves `TRUE_Points` and this merge's whole claim is
+that it does not. It is a draft-week judgement call of the same kind as the 0.25 merge
+at the top of this file, and it should be made deliberately rather than as a side
+effect of a display change.

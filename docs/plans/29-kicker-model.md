@@ -528,3 +528,74 @@ round is spent whether or not any of the above survives its gates.
   consecutive runs and appeared to reverse the finding. Print cross-tabs by explicit
   row/column keys, never by pivot order — the same discipline
   [plan 28](28-outcome-distributions.md) had to adopt for its room ranks.
+
+---
+
+## The 0.0 was hiding a typo, not a model — 2026-09-02
+
+The arm shipped at weight 0.0 because channel F failed G-K2. That verdict stands. But
+the *points* it was publishing beside it were wrong for a reason nobody had checked,
+and the two got confused with each other for a fortnight.
+
+`Scripts.kicking.model.project` built its distance-band column names like this:
+
+```python
+col = ("KIK_madeFieldGoalsFromUnder40" if name == "Under40"
+       else f"KIK_madeFieldGoalsFrom{name}")
+```
+
+The `BUCKETS` keys are `Under40`, `From40To49` and `From50Plus` — **two of the three
+already start with `From`**, so the ternary special-cased the wrong one and emitted
+`madeFieldGoalsFromFrom40To49` and `...FromFrom50Plus`. No league scores a column by
+those names. Two of three make-bands and one miss-band were therefore worth **exactly
+zero**, and a kicker's projection was extra points plus sub-40 field goals and nothing
+else.
+
+**The size of it.** Brandon Aubrey's `KIK_Points` of 86.8 reproduces to the digit from
+only the bands that survived. Corrected he is 138.8. Across the 32 kickers ESPN prices,
+the fix adds a remarkably flat **+50.0 to +52.3** and moves the arm from **0.577× ESPN's
+points to 0.940×** — from a model that looked incapable of projecting kickers to a
+credible second opinion.
+
+**Why it survived.** Three guards should each have caught it and none could.
+
+* `report_silent_zero_stats` exists precisely to catch a scored rule that no source
+  projects — but it is called with `prefix="ESPN_"` and has never looked at any other
+  source.
+* The weight was 0.0, so the wrong number could not reach `TRUE_Points`, and nothing
+  downstream had a reason to look at it.
+* **`tests/test_special_teams_models.py` pinned the typo.** Its bucket list asserted
+  `KIK_missedFieldGoalsFromFrom40To49` by name, so the test agreed with the code about a
+  string that ESPN has never used. A test that restates the implementation cannot
+  falsify it.
+
+The name is now built by one function, `kicking.model.fg_column`, so there is one place
+for it to be wrong.
+
+## Turning the arm on, over its own failed gate — 2026-09-02
+
+`KIK_` and `DST_` are gone; both arms write `USG_` and TOMCAT casts **one** vote instead
+of three. The arms differ in which positions they can speak about, and that is not what
+a *source* is. Position scoping now falls out of the provenance flags — a quarterback's
+`USG_madeExtraPoints` is null and flagged, so the weight is dropped and the rest
+renormalise, the same path a sportsbook with no line takes. `POSITION_SCOPED_SOURCES`
+went with them; it was never read by anything.
+
+**The consequence is that the kicking arm now votes at 0.25, and G-K2 is still
+unpassed.** That is a deliberate override and it is recorded here rather than justified.
+Three things behind it:
+
+1. The 0.577× that made the arm look unusable was the typo. G-K2 was measured on
+   **stats**, so the typo does not overturn the gate — but it does mean the gate was
+   last run against a model whose own report tables were built from miswritten columns.
+   **Re-running it is owed.**
+2. The measured cost is small. Kickers were 100% ESPN, so the old `TRUE_Points` was
+   exactly `ESPN_Points`; blending moves them by a mean of **−4.2** points (median
+   −3.4, worst −16.7 on Aubrey, whom ESPN likes most). Twenty-six of thirty-two change
+   rank, which sounds worse than it is at a position whose season-average environment
+   spreads only **1.24×** — the top kicker is unchanged.
+3. The alternative was leaving a starting slot in nine leagues at **100% ESPN with no
+   second opinion at all**, which is the condition this plan opened to fix.
+
+Read a kicker's `TOM` number as the weakest thing on the board. It is the only column
+in the blend riding over a gate it did not pass.

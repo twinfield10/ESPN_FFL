@@ -237,6 +237,33 @@ def fit(seasons: Optional[Sequence[int]] = None,
     }
 
 
+def fg_column(kind: str, bucket: str) -> str:
+    """ESPN's column name for one field-goal distance band.
+
+    Its own function because getting it wrong is silent. The :data:`BUCKETS` keys are
+    not uniform -- ``Under40`` needs a ``From`` in front of it and ``From40To49``
+    already carries one -- and the code this replaces special-cased the wrong half,
+    emitting ``madeFieldGoalsFromFrom40To49`` and ``...FromFrom50Plus``.
+
+    **No league scores a column by those names**, so two of the three make-bands and
+    one of the miss-bands were worth exactly zero. A kicker's projection was extra
+    points plus sub-40 field goals and nothing else, which is the whole of why this
+    arm read at 0.577x ESPN's points rather than 0.946x -- a defect that looked
+    exactly like a model that could not project kickers. It was invisible because the
+    arm ships at weight 0.0, so the wrong number never reached ``TRUE_Points``, and
+    because ``report_silent_zero_stats`` only ever checked the ``ESPN_`` prefix.
+
+    Args:
+        kind: ``"made"`` or ``"missed"``.
+        bucket: A :data:`BUCKETS` key.
+
+    Returns:
+        str: The prefixed column name, e.g. ``"USG_madeFieldGoalsFrom40To49"``.
+    """
+    suffix = bucket if bucket.startswith("From") else f"From{bucket}"
+    return f"USG_{kind}FieldGoals{suffix}"
+
+
 def project(season: int, model: Optional[Dict] = None) -> pl.DataFrame:
     """A full-slate kicking stat line per team.
 
@@ -245,7 +272,7 @@ def project(season: int, model: Optional[Dict] = None) -> pl.DataFrame:
         model: Output of :func:`fit`. Loaded from :data:`MODEL_PATH` when None.
 
     Returns:
-        pl.DataFrame: ``season``, ``team``, ``KIK_<stat>`` columns over a
+        pl.DataFrame: ``season``, ``team``, ``USG_<stat>`` columns over a
         :data:`SLATE`-game season, plus ``kik_n_priced`` and ``kik_evidence``.
     """
     model = load() if model is None else model
@@ -268,31 +295,29 @@ def project(season: int, model: Optional[Dict] = None) -> pl.DataFrame:
 
     made_total = fg_att * c["fg_make_rate"]
     out = d.select("season", "team", pl.col("n_priced").alias("kik_n_priced")).with_columns(
-        pl.Series("KIK_attemptedExtraPoints", pat_att),
-        pl.Series("KIK_madeExtraPoints", pat_att * c["pat_make_rate"]),
-        pl.Series("KIK_missedExtraPoints", pat_att * (1 - c["pat_make_rate"])),
-        pl.Series("KIK_attemptedFieldGoals", fg_att),
-        pl.Series("KIK_madeFieldGoals", made_total),
-        pl.Series("KIK_missedFieldGoals", fg_att - made_total),
-        pl.Series("KIK_214", made_total * c["yards_per_make"]),
+        pl.Series("USG_attemptedExtraPoints", pat_att),
+        pl.Series("USG_madeExtraPoints", pat_att * c["pat_make_rate"]),
+        pl.Series("USG_missedExtraPoints", pat_att * (1 - c["pat_make_rate"])),
+        pl.Series("USG_attemptedFieldGoals", fg_att),
+        pl.Series("USG_madeFieldGoals", made_total),
+        pl.Series("USG_missedFieldGoals", fg_att - made_total),
+        pl.Series("USG_214", made_total * c["yards_per_make"]),
     )
     for name in BUCKETS:
         share = c[f"made_share_{name}"]
-        col = ("KIK_madeFieldGoalsFromUnder40" if name == "Under40"
-               else f"KIK_madeFieldGoalsFrom{name}")
-        out = out.with_columns(pl.Series(col, made_total * share))
+        out = out.with_columns(
+            pl.Series(fg_column("made", name), made_total * share))
     # Missed-by-bucket, on the miss distribution rather than the make distribution.
     # See `_constants`: borrowing `made_share_*` here over-stated short misses 3.7x.
     # Shares are normalised so the buckets sum back to `missed` exactly, which keeps the
-    # per-bucket columns reconciling with `KIK_missedFieldGoals` however the pooled
+    # per-bucket columns reconciling with `USG_missedFieldGoals` however the pooled
     # counts drift.
     missed = fg_att - made_total
     miss_norm = sum(c[f"miss_share_{n}"] for n in BUCKETS) or 1.0
     for name in BUCKETS:
-        col = ("KIK_missedFieldGoalsFromUnder40" if name == "Under40"
-               else f"KIK_missedFieldGoalsFrom{name}")
         out = out.with_columns(
-            pl.Series(col, missed * (c[f"miss_share_{name}"] / miss_norm)))
+            pl.Series(fg_column("missed", name),
+                      missed * (c[f"miss_share_{name}"] / miss_norm)))
     return out.with_columns(
         pl.when(pl.col("kik_n_priced") == 0)
         .then(pl.lit("no line; league-average environment"))
@@ -369,13 +394,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         path = projection_path(a.season, create=True)
         pred.write_parquet(path)
         print(f"\n  wrote {pred.height} teams -> {path}")
-        top = pred.sort("KIK_madeFieldGoals", descending=True).head(5)
+        top = pred.sort("USG_madeFieldGoals", descending=True).head(5)
         print("\n  most field goals projected:")
         for r in top.iter_rows(named=True):
-            print(f"    {r['team']:4s} FGA {r['KIK_attemptedFieldGoals']:5.1f}  "
-                  f"FGM {r['KIK_madeFieldGoals']:5.1f}  "
-                  f"PAT {r['KIK_madeExtraPoints']:5.1f}  "
-                  f"FG yards {r['KIK_214']:6.0f}")
+            print(f"    {r['team']:4s} FGA {r['USG_attemptedFieldGoals']:5.1f}  "
+                  f"FGM {r['USG_madeFieldGoals']:5.1f}  "
+                  f"PAT {r['USG_madeExtraPoints']:5.1f}  "
+                  f"FG yards {r['USG_214']:6.0f}")
     return 0
 
 

@@ -67,12 +67,14 @@ source:
 | `PINNY_` | Pinnacle |
 | `BOL_` | BetOnline |
 | `ATH_` | The Athletic — Jake Ciely's workbook, offence only, at weight 0.25 |
-| `USG_` | The usage model — at weight 0.25 |
+| `USG_` | **TOMCAT — our own model, at weight 0.25.** One source, three backends: the usage arm (QB/RB/WR/TE), the defence arm (D/ST, from the betting market) and the kicking arm (K, per team). They were `USG_`, `DST_` and `KIK_` until 2026-09-02; the stat sets are disjoint, so one namespace holds all three and the model casts one vote rather than three. The lower-case `kik_*` and `dst_*` diagnostics keep their own names, because they answer *which arm spoke for this row* |
 | `MEAN_` | The unweighted cross-source mean |
 | `TRUE_` | **The blend.** This is what the board ranks on and what lineups score |
 
-`WEIGHTS` is an equal quarter each to `ESPN`, `FP`, `BOL` and `USG`, with `PINNY` at
-zero. Read that alongside the coverage numbers rather than on its own: FantasyPros
+`WEIGHTS` is an equal quarter each to `ESPN`, `FP`, `PINNY`, `BOL`, `ATH` and `USG` —
+six equal votes, and the nominal figures are never normalised to 1 because
+`compute_weighted_stats` divides by whichever of them turned out to be real. Read that
+alongside the coverage numbers rather than on its own: FantasyPros
 publishes 60 season projections and is **5.8% real** on a board, so for most players
 the blend renormalises down to ESPN and the usage model, and for the ~500 players no
 other source prices, to ESPN alone.
@@ -87,6 +89,23 @@ agreement, and these flags are the defence against it.
 `usg_*` (lower-case) columns are usage-model diagnostics rather than projections —
 `usg_arm` says which arm produced the estimate, `usg_expected_games` its availability
 term, `usg_evidence` how much history it rested on.
+
+The `ath_*` (lower-case) columns are the other lower-case family, and lower-case for
+the same reason: **they are outside the blend and cannot enter it.** They carry Jake
+Ciely's hand ranking, which comes off the same workbook as `ATH_` but is an ordering
+rather than a stat line, so it votes on nothing and only ever gets read.
+
+| Column | What it is |
+|---|---|
+| `ath_pos_rank` | His rank within position, in whichever of his three lists — non-PPR, half, full — matches this league's points per reception |
+| `ath_override` | That rank minus the rank his own `ATH_Points` implies. Positive means he ranks the player above his own numbers |
+| `ath_rank_delta` | That rank minus our `pos_rank`. Positive means he is higher on the player than we are |
+
+Both deltas re-rank each side over the 290 players he actually ranked. He ranks 85
+backs and a board carries half as many again, so comparing his 60th against a
+`pos_rank` of 60 drawn from the deeper pool would report bench depth as disagreement.
+Blank means unranked, not last — and he ranks no kicker, defence or individual
+defender at all.
 
 It also carries **ESPN's own opinion beside ours**, so the two can be differenced:
 `espn_draft_rank` is ESPN's published draft ranking (dense 1..N, no ties, every row),
@@ -210,7 +229,7 @@ sources land one file per season.
 |---|---|---|
 | **Usage** | The season model's own stat lines | Current |
 | **FantasyPros** | Weekly and season projections (`week=draft` gives season lines) | Working |
-| **The Athletic** | Season stat lines for 434 offensive players, from Jake Ciely's workbook | **Manual** — a paid `.xlsx` download with no API, imported by `python -m Scripts.load_athletic`. Nothing refreshes it; `Scripts.refresh_status` reports its age |
+| **The Athletic** | Season stat lines for 434 offensive players, plus his hand ranking of 290 of them, from Jake Ciely's workbook | **Manual** — a paid `.xlsx` download with no API, imported by `python -m Scripts.load_athletic`. Nothing refreshes it; `Scripts.refresh_status` reports its age. One import writes both files, so the ranking cannot go stale beside fresh projections |
 | **Pinnacle** | Sportsbook props, weekly and season | Working, Selenium |
 | **BetOnline** | Sportsbook props | **Weekly is broken** — 403, their API now wants a signed header. Season props still work |
 
