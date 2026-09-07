@@ -151,6 +151,12 @@ NAME_ALIASES = {
     # The Athletic's typos.
     "DERMARCUS ROBINSON": "DEMARCUS ROBINSON",
     "BRAXTON BARRIOS": "BRAXTON BERRIOS",
+    # Surfaced by the 0904 workbook. Immaterial on its own -- 17 ESPN points, 37
+    # projected receiving yards -- and added on that basis rather than despite it:
+    # a one-vowel miss that costs nothing today is the same shape as the one that
+    # cost a 165-point back his real Athletic line for two days, and the cheap time
+    # to fix it is when nobody is drafting off it.
+    "LAQUAN TREADWELL": "LAQUON TREADWELL",
 }
 
 _SUFFIXES = re.compile(r"\b(JR|SR|II|III|IV|V)\b")
