@@ -116,3 +116,42 @@ def s3_env(s3_stub, monkeypatch, tmp_path):
     monkeypatch.setattr(paths, "DATA_DIR", tmp_path)
     monkeypatch.setattr(sync, "get_season", lambda: 2026)
     return s3_stub
+
+
+#: The real store, resolved once at import before any test can redirect it.
+_REAL_STORE_ROOT = paths.STORE_DIR
+
+
+@pytest.fixture(autouse=True)
+def never_write_the_real_store(monkeypatch):
+    """Make it impossible for a test to write into ``Data/Store``.
+
+    **This exists because a test destroyed the real store.** ``test_freeze.py``'s
+    fixture redirected ``paths.DATA_DIR`` and not ``paths.STORE_DIR`` -- and
+    ``STORE_DIR`` is computed from ``DATA_DIR`` *at import*, so the patch moved
+    nothing. Three leagues' ``board.parquet`` (2.2 MB each), ``draft.parquet`` and
+    ``meta.json`` were overwritten with three-row test frames, on the afternoon of
+    two live drafts. They came back from S3, which is what the system of record is
+    for, but nothing in the suite objected at the time -- the only symptom was two
+    unrelated tests in ``test_lab_g2.py`` failing on the wreckage a run later.
+
+    Redirecting the store is still the test's own job. This only ensures that
+    forgetting to fails loudly and immediately, instead of silently succeeding
+    against real data. Autouse, because the tests that need protecting are exactly
+    the ones that did not know they did.
+    """
+    from Scripts import store as scripts_store
+
+    real = scripts_store.write_league_store
+
+    def guarded(season, league_key, **kwargs):
+        if paths.store_root() == _REAL_STORE_ROOT:
+            raise AssertionError(
+                f"a test tried to write the real store at {_REAL_STORE_ROOT}. "
+                f"Redirect it first: monkeypatch.setattr(paths, 'STORE_DIR', "
+                f"tmp_path / 'Store'). Patching DATA_DIR is not enough -- STORE_DIR "
+                f"is derived from it at import."
+            )
+        return real(season, league_key, **kwargs)
+
+    monkeypatch.setattr(scripts_store, "write_league_store", guarded)

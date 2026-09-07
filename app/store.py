@@ -231,6 +231,49 @@ def load_board(season: int, league_key: str) -> pl.DataFrame:
     return _artifact(season, league_key, "board")
 
 
+def load_frozen_board(season: int, league_key: str) -> pl.DataFrame:
+    """The board as it stood when the drafts finished, if it was frozen.
+
+    Same schema as :func:`load_board` -- it is a copy of it. What differs is that it
+    does not move: ``board.parquet`` is rebuilt every morning at 06:00, so it stops
+    being able to say what a roster looked like on the day it was drafted. That is
+    the only basis on which a draft can be graded.
+
+    Args:
+        season: Season year.
+        league_key: ``config.yaml`` league key.
+
+    Returns:
+        pl.DataFrame: The frozen board.
+
+    Raises:
+        FileNotFoundError: When ``python -m Scripts.freeze`` has not been run for
+            this league. Callers check :func:`has_artifact` first and fall back to
+            the live board, saying which one they used.
+    """
+    return _artifact(season, league_key, "board_frozen")
+
+
+def draft_basis(season: int, league_key: str):
+    """The board to grade a draft against, and a word for which one it is.
+
+    Prefers the frozen board and falls back to the live one, because a rundown that
+    silently reads a board four months of news later would be measuring luck. The
+    label is returned rather than inferred by the caller so the page cannot show one
+    and read the other.
+
+    Args:
+        season: Season year.
+        league_key: ``config.yaml`` league key.
+
+    Returns:
+        tuple: ``(frame, "frozen" | "live")``.
+    """
+    if has_artifact(season, league_key, "board_frozen"):
+        return load_frozen_board(season, league_key), "frozen"
+    return load_board(season, league_key), "live"
+
+
 def load_draft(season: int, league_key: str) -> pl.DataFrame:
     """Every pick this league has ever made, when the history has been built.
 
@@ -304,6 +347,36 @@ def has_artifact(season: int, league_key: str, what: str) -> bool:
     except (FileNotFoundError, RuntimeError):
         return False
     return what in (meta.get("artifacts") or {})
+
+
+def artifact_state(season: int, league_key: str, what: str) -> str:
+    """Whether an artifact is readable, built-but-unpublished, or genuinely absent.
+
+    ``has_artifact`` answers "can this page read it", which is the right question for
+    deciding whether to render. It is the wrong question for the *message* you show
+    when the answer is no, because two very different situations collapse into one
+    False: the artifact was never built, or it was built this morning and never
+    pushed. The app reads S3 by default, so the second is the common one right after
+    a refresh -- and telling someone to re-run the refresh they just ran is worse than
+    saying nothing.
+
+    Args:
+        season: Season year.
+        league_key: ``config.yaml`` league key.
+        what: A :data:`Scripts.store.ARTIFACTS` key.
+
+    Returns:
+        str: ``"present"`` when the configured source can read it;
+        ``"unpublished"`` when it is on local disk but not where the app is reading;
+        ``"absent"`` when it is neither.
+    """
+    if has_artifact(season, league_key, what):
+        return "present"
+    try:
+        local = _store.artifact_path(season, league_key, what).is_file()
+    except Exception:                                       # noqa: BLE001
+        local = False
+    return "unpublished" if local else "absent"
 
 
 def has_store(season: int, league_key: str) -> bool:

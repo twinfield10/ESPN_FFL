@@ -1,6 +1,6 @@
 # ESPN Fantasy Football Analytics
 
-Pulls league data from the ESPN Fantasy API for nine leagues, blends six
+Pulls league data from the ESPN Fantasy API for ten leagues, blends six
 independent projection sources into each league's **own** scoring settings, and
 publishes weekly lineup and free-agent boards to a local app and to Google
 Sheets.
@@ -195,28 +195,38 @@ this week changes 2019. `board` is opt-in for the mirror-image reason: it is the
 pre-season draft board, and nothing about week 9 changes your draft.
 
 ```bash
-python -m Scripts.refresh --all --what board      # nine draft boards, ~16s
+python -m Scripts.refresh --all --what board      # ten draft boards, ~16s
 python -m Scripts.refresh --all --what draft      # pick history + owner tendencies, ~10s
 ```
 
 The board is **league-aware**, which is the whole point of building one: replacement
 level comes from each league's real starting slots, so the same player is ranked
-differently across your nine. Josh Allen is VOR rank 9 in the 10-team superflex and
+differently across your ten. Josh Allen is VOR rank 9 in the 10-team superflex and
 21 in 14-team Knights_FFL, because a superflex `OP` slot pushes QB replacement from
 QB14 to QB20.
 
-There are **two pages over the same board**, because reading a board and drafting off
-one are different jobs.
+### Four tabs
 
-**Draft Board** is four tabs and 45 columns, and it is where you go *before* a draft to
-decide whether you believe the numbers. **Board** is the working surface — player
+One **League** picker sits above everything, with the week beside it, and four tabs in
+the order you reach for them across a season: **Draft**, **Roster**, **Free Agents**,
+**Matchup**. The selectors live in the entrypoint rather than the sidebar, which is what
+makes them govern every tab — and what removes a Streamlit behaviour that had twice
+rendered the wrong league silently. The season is **pinned, not selected**: every tab
+answers a question about the season in progress, and a control nobody moves is one that
+eventually gets moved by accident. See
+[plan 40](docs/plans/40-frontend-restructure.md).
+
+**Draft** holds six sub-tabs over one board read — the two you drive a draft from first:
+
+**Board** is the working surface and 45 columns, and it is where you go *before* a
+draft to decide whether you believe the numbers. **Board** is the working surface — player
 search, filters for position, NFL team and bye week, an auction budget, and the table,
 sorted by VOR. **Values** is where the room and our valuation disagree. **League** is
 what does not change during a draft: the positional cliff, the tier runway, and who you
 are drafting against. **Calibration** is where *we* disagree with ESPN, and whether
 that disagreement is a player or the model.
 
-**The Sheet** is the on-the-clock view: four position panels in a 2x2 grid, banded by
+**Sheet** is the on-the-clock view: four position panels in a 2x2 grid, banded by
 tier, seven columns each — `Tier · Player · TM/BYE · PTS · VALUE · PS · ADP`. Click a
 row to cross a player off; click again to put him back. Its organisation is lifted from
 `DraftSheets_2026.xlsx`, the BeerSheets replacement, which is a good draft-day interface
@@ -244,8 +254,8 @@ the table while six-team Winfield read $2,083 against $1,200. Both sides of the 
 lens now go through one allocation — every roster spot reserves its $1, and what is
 left is split in proportion to value — so our dollars and the market's sum to the same
 pool and the difference between them means something. The budget is read from ESPN,
-because it varies: GOP Degenerates plays for $250 and the other eight for $200. It is
-set on the Draft Board page and The Sheet reads it, so the two cannot drift.
+because it varies: GOP Degenerates plays for $250 and the others for $200. It is set on
+the Board sub-tab and the Sheet reads the same frame, so the two cannot drift.
 
 **Keeper leagues.** ESPN carries last season's rosters into a keeper league before
 anyone declares, so GOP's board arrives with 252 players held against a keeper limit
@@ -265,11 +275,71 @@ position, which is the right comparison when a pick is a place in a queue. `Cash
 our dollar valuation against ESPN's average auction price, which is the right one
 when there is no queue, only a price. Auction leagues open on Cash.
 
+**Rundown** appears once a league has drafted, and grades every roster in it under
+**three independent bases side by side** — ESPN's projections, The Athletic's, and ours
+— rather than averaging them into a verdict. The headline is the best *legal starting
+lineup*, because a season is scored out of one and four good quarterbacks are one good
+quarterback. A letter grade sits beside each rank as a pure rescaling of the percentile,
+labelled as such: it adds no evidence and cannot disagree with the rank it comes from.
+The row worth reading is the widest disagreement between the three, because a roster
+ESPN likes and The Athletic does not is a roster whose value rests on a claim you can go
+and check.
+
+The board a rundown grades against is **frozen** once the drafts finish
+(`python -m Scripts.freeze --all`), because `board.parquet` rebuilds every morning and
+grading a September draft against a December board measures who got lucky. The tab says
+which basis it used, every time. See [plan 41](docs/plans/41-projection-freeze.md).
+
+### Roster, Free Agents, Matchup
+
+**Roster** is the Sunday-morning tab: the lineup ESPN has set beside the best one
+available, and **the specific swaps between them**. Knowing you left 19 points on the
+table does not tell you to start Trevor Lawrence over Philip Rivers, so the swaps are
+the deliverable and the efficiency score is not. The gains sum to the difference between
+the two lineups exactly. Players on bye or ruled out are excluded from the optimum and
+flagged loudly if one is in your starting lineup.
+
+Slots are read from **what is actually being started** rather than from
+`meta["starting_slots"]`, which is written when a board is built and can be a month out
+of step with the lineups it would be applied to — GOP's metadata says its only
+defensive slot is `DP`, while its lineups hold players at `CB`, `DE`, `DT`, `LB` and `S`.
+
+**Free Agents** is the eight `FA_*` Sheets tabs collapsed into one filter. The pool is
+not a separate artifact: `lineups.parquet` carries every unrostered player as extra rows
+on a synthetic team called `Free Agent`, which is why this tab and Roster agree about
+what a player projects. **Add/drop is scored as one decision** — the difference between
+two optimal lineups — because a receiver who out-projects your worst bench player by
+four points is worth nothing if he still would not start. The common answer is "none of
+these would improve your lineup", and it is the answer worth trusting.
+
+**Matchup** puts a **calibrated win probability** on the week. A projected margin is not
+a decision: six points on a lineup whose weekly standard deviation is 23 is barely an
+edge. The dispersion is fitted per position on 15,989 started player-weeks from 2025 and
+**back-tested against four pre-committed gates** before the number was allowed on
+screen — team-level interval coverage 0.802 against a nominal 0.800, every predicted
+decile within 2.8pp of its realised win rate, Brier 0.2277 against 0.2500. If those
+fail, the tab shows the margin and says the probability did not calibrate; a
+confident-looking 63% that is really a coin flip is worse than no number.
+
+The payoff is reading a lineup change in probability rather than in points. On
+Weenieless week 1, fixing the lineup is +19.6 projected points and **+21.8pp** of win
+probability, 53% to 75%. On Knights the same tab reports +1.6 points and +1.4pp. Same
+week, two very different reasons to care. See
+[plan 42](docs/plans/42-weekly-matchup-odds.md).
+
+Matchup needs the `team_stats` artifact for the fixture list, which is opt-in:
+
+```bash
+python -m Scripts.refresh --all --what lineups,team_stats
+```
+
 ### Who the app is for
 
-The picker offers **your** leagues, not all nine. `config.yaml` holds nine across
+The picker offers **your** leagues, not all ten. `config.yaml` holds ten across
 five owners and the app scopes them through `app/auth.py`, which defaults to
-Winfield_Football. There is **no login yet** — that module is the seam one lands in,
+Winfield_Football. Adding a league takes **two** edits, not one — `config.yaml` *and*
+`DEFAULT_VIEWER.leagues` in that module; `jeffs_league` was configured, refreshed and
+published on 2026-09-01 and stayed invisible until the tuple changed. There is **no login yet** — that module is the seam one lands in,
 so identity arrives in one function rather than in every page. It is not a security
 boundary; see [plan 26](docs/plans/26-user-accounts.md) for what the real thing
 needs.
@@ -303,7 +373,7 @@ with the name.
 
 Each source is reduced to a **stat line**, never to points. The stat lines are blended,
 and only then scored through each league's own rules. That ordering is what lets one
-pipeline serve nine leagues with different scoring.
+pipeline serve ten leagues with different scoring.
 
 The weighting rule is **one equal vote per source that has an opinion**. Every source
 carries the same nominal weight, a source with no real line for a player is flagged and
@@ -373,7 +443,9 @@ Sheet is their only access. See
 
 ## Leagues
 
-Nine leagues across five owners, ranging from 6 to 16 teams, including one IDP
-league (GOP Degenerates) and one superflex (Weenieless Wanderers). Configured in
-`config.yaml`; see `display_name` for the key used throughout the pipeline,
-which must match the Google Sheet name exactly.
+Ten leagues across five owners, ranging from 6 to 16 teams, including one IDP
+league (GOP Degenerates) and two superflex (Weenieless Wanderers, Jeffs_League).
+Configured in `config.yaml`; see `display_name` for the key used throughout the
+pipeline, which must match the Google Sheet name exactly. Eight are published to
+Google Sheets and five are the app viewer's own — the four counts differ on purpose,
+and `populateGoogleSheet.py` and `app/auth.py` are where the other two live.

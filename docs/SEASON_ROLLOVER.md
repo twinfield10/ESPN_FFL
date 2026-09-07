@@ -10,9 +10,11 @@ was written down before; the 2024→2025 rollover was a single 30-file commit
 
 Do this once, before the season starts. Roughly 30 minutes.
 
-> **Two steps here have a deadline rather than an order.** Step 0 must happen
-> **before week 1** or the evidence is gone for a year. Step 9 must happen
-> **after** the season it refers to. Everything else can be done whenever.
+> **Three steps here have a deadline rather than an order.** Step 0 must happen
+> **before week 1** or the evidence is gone for a year. Step 8b must happen in the
+> window between the last draft and the first game — the 06:00 nightly closes it.
+> Step 9 must happen **after** the season it refers to. Everything else can be done
+> whenever.
 
 ### 0. Archive the G2 counterfactual — before week 1, or not at all
 
@@ -153,6 +155,37 @@ import populateGoogleSheet as p
 p.run(['Knights_FFL'])"
 ```
 
+### 8b. Freeze the season projections — after the last draft, before the first game
+
+Like step 0, a **deadline rather than an ordering**, and for a similar reason: the thing
+being preserved stops existing shortly afterwards.
+
+```bash
+python -m Scripts.refresh --all --what draft   # the leagues that just drafted
+python -m Scripts.freeze --all                 # pin the board they drafted off
+python -m Scripts.sync --push --what store
+python -m Scripts.sync --verify --what store
+```
+
+`board.parquet` is rebuilt every morning at 06:00, which is correct — ADP moves and a
+board you draft off has to be current. But it means the artifact stops being able to
+answer *what did this roster look like the day it was assembled*, which is the only
+basis on which a draft can be graded. The Draft tab's Rundown reads
+`board_frozen.parquet` where it exists and says which basis it used.
+
+**The trap is the nightly.** Freezing "the morning after" freezes a board that already
+rebuilt at 06:00 with that morning's news in it. Run it the night the last draft ends.
+`--refreeze` exists for having missed the window, not as the normal path — freezing
+twice overwrites the thing the first freeze was protecting.
+
+`--what draft` comes first because a finished draft is deliberately **not** part of the
+nightly (a finished draft never changes), so a league that drafted last night has no
+picks recorded until it is pulled — and `Scripts.freeze` refuses a league with no picks,
+since a pre-draft board projects a roster nobody owns yet.
+
+For 2026: last draft Tue 09-08 20:30, first game Wed 09-09. See
+[plan 41](plans/41-projection-freeze.md).
+
 ---
 
 ## Weekly run
@@ -165,10 +198,17 @@ python -m Scripts.scrape_BOL           # BetOnline  -- SEE WARNING
 python -m Scripts.scrape_espn_injuries # today's injury report + a dated snapshot
 python -m Scripts.injury.review        # who needs a hand-written severity  <-- read this
 #   ... edit config/injuries/<season>.yaml if it named anyone ...
-python -m Scripts.refresh --all        # build the store, once
+python -m Scripts.refresh --all --what lineups,team_stats   # build the store, once
 python -m Scripts.sync --push          # publish it to S3 -- the app reads from there
 python populateGoogleSheet.py          # render the store to Sheets
 ```
+
+`--what lineups,team_stats` rather than the bare default: `team_stats` carries the
+fixture list, and the Matchup tab cannot say who you are playing without it. It is
+opt-in because it re-derives a league's entire history (~20-60s per league), so it is a
+weekly cost rather than a daily one — nothing about this week changes 2019. A league in
+its first season gets none, because the cross-season score normalisation needs one
+prior season as a baseline.
 
 Run from the repo root. Scrapers use `-m` because modules import as
 `Scripts.<name>`.

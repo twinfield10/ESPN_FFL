@@ -1,19 +1,23 @@
-"""The sidebar: who is looking, what league, what week, how fresh, and refresh.
+"""The sidebar: how fresh the store is, what it covers, and how to rebuild it.
 
-Selections live in ``st.session_state`` so they persist as you move between
-pages -- every page reads the same ``(season, league_key, week)``.
-
-**The league list is scoped to the viewer**, through :mod:`auth`. There is no login
-yet and this module does not implement one; it asks ``auth.current_viewer()`` who is
-looking and ``auth.visible_leagues()`` what they may open, so a real identity
-provider lands in one function in one module rather than in every page that ever
-called ``store.list_leagues``. Nine leagues are configured and five belong to other
-owners; the picker offers the four the viewer plays in.
+**The league, season and week selectors are no longer here.** They moved to
+:mod:`session`, which draws them in the app's body as one context row above every
+tab -- see that module for why. What is left is the half of the old sidebar that was
+never a selection: build time, the stale badge, per-source coverage, the refresh
+button and this viewer's unbuilt leagues.
 
 Freshness is deliberately loud. The failure mode this app exists to avoid is
 rendering an hour-old number as though it were live, so the build time, the
-per-source coverage and a stale badge are all in the sidebar rather than buried
-on a settings page.
+per-source coverage and a stale badge are all on screen rather than buried on a
+settings page.
+
+Two helpers stay here because they are the sidebar's own vocabulary and are reused
+by the context row: :func:`sticky_selectbox`, which is the only dropdown primitive
+in the app and carries the account of two bugs that each rendered the wrong league,
+and :func:`stale_after_minutes`, which knows that pre-season and game-day are
+different questions.
+
+Which leagues a viewer may open is decided in :mod:`auth`, not here.
 """
 
 import _bootstrap  # noqa: F401  -- must precede the Scripts imports
@@ -21,7 +25,7 @@ import _bootstrap  # noqa: F401  -- must precede the Scripts imports
 import subprocess
 import sys
 from datetime import date
-from typing import Dict, List, NamedTuple, Optional
+from typing import Dict, List, Optional
 
 import streamlit as st
 
@@ -78,26 +82,15 @@ def stale_after_minutes(season: int, today: Optional[date] = None) -> int:
             else STALE_AFTER_MIN_IN_SEASON)
 
 
-class Selection(NamedTuple):
-    """What the sidebar resolved to.
-
-    Attributes:
-        season: Season year.
-        league_key: ``config.yaml`` league key.
-        display_name: The league's display name.
-        week: Selected week.
-        meta: The store's ``meta.json`` payload.
-    """
-    season: int
-    league_key: str
-    display_name: str
-    week: int
-    meta: dict
-
-
 @st.cache_data(ttl=600, show_spinner=False)
-def _configured_leagues() -> Dict[str, str]:
+def configured_leagues() -> Dict[str, str]:
     """League key to display name, from ``config.yaml``.
+
+    Narrowed to the two fields the UI needs on purpose. ``config.yaml`` also holds
+    live ESPN and FantasyPros cookies, so no caller gets the whole dict.
+
+    Public because :mod:`session` needs the same map for the league picker, and one
+    cached reader beats two.
 
     Returns:
         dict: ``{league_key: display_name}``.
@@ -105,7 +98,7 @@ def _configured_leagues() -> Dict[str, str]:
     return {cfg["key"]: cfg["display_name"] for cfg in build_lg_vars().values()}
 
 
-def _format_age(minutes: Optional[float]) -> str:
+def format_age(minutes: Optional[float]) -> str:
     """Render a store age the way you'd say it out loud.
 
     Args:
@@ -127,7 +120,7 @@ def _format_age(minutes: Optional[float]) -> str:
     return f"{minutes / 1440:.1f} days ago"
 
 
-def _no_store_message(seasons: List[int]) -> None:
+def no_store_message(seasons: List[int]) -> None:
     """Explain how to build a store, and stop the page.
 
     This is the state the app launches in, so it gets a real message rather than
@@ -154,11 +147,11 @@ def _no_store_message(seasons: List[int]) -> None:
     st.stop()
 
 
-def _no_visible_league_message(viewer: auth.Viewer, season: int,
+def no_visible_league_message(viewer: auth.Viewer, season: int,
                                configured: Dict[str, str]) -> None:
     """Explain that this viewer's leagues are not built for this season, and stop.
 
-    Distinct from :func:`_no_store_message` on purpose: a store that holds five
+    Distinct from :func:`no_store_message` on purpose: a store that holds five
     other owners' leagues and none of yours is not an empty store, and telling you
     to run ``--all`` would be answering a question you did not ask.
 
@@ -226,7 +219,7 @@ def _run_refresh(display_name: str, season: int) -> None:
         st.rerun()
 
 
-def _sticky_selectbox(label, state_key, options, default=None, format_func=str):
+def sticky_selectbox(label, state_key, options, default=None, format_func=str):
     """A selectbox whose value survives page navigation and changing options.
 
     **The widget owns ``state_key``.** That is the fix for a bug that ate every
@@ -276,58 +269,29 @@ def _sticky_selectbox(label, state_key, options, default=None, format_func=str):
     return st.selectbox(label, options, key=state_key, format_func=format_func)
 
 
-def render_sidebar() -> Selection:
-    """Draw the sidebar and return the current selection.
+def render_sidebar_health(selection) -> None:
+    """Draw the sidebar: who is looking, how fresh the store is, and how to rebuild.
 
-    Call this once at the top of every page.
+    Called once from ``main.py``, after :func:`session.render_context` has resolved
+    which league we are looking at. It draws no selectors -- see the module
+    docstring.
 
-    Returns:
-        Selection: The resolved season, league, week and metadata.
+    Args:
+        selection: A :class:`session.Selection`. Typed loosely because
+            :mod:`session` imports this module, so naming the class here would be a
+            cycle. Reads ``.season``, ``.display_name`` and ``.meta``.
     """
-    configured = _configured_leagues()
     viewer = auth.current_viewer()
-    seasons = store.list_seasons()
-    if not seasons:
-        _no_store_message([])
-
     with st.sidebar:
         st.markdown("### Fantasy Football")
         st.caption(f"Signed in as **{viewer.display_name}**")
 
-        season = _sticky_selectbox("Season", "season", seasons)
+        _render_freshness(selection.meta, selection.season, selection.display_name)
+        _render_coverage(selection.meta)
 
-        built = store.list_leagues(season)
-        if not built:
-            _no_store_message(seasons)
-
-        # The one place the app narrows nine leagues to this viewer's. Everything
-        # downstream reads `Selection.league_key`, so nothing else has to know.
-        mine = auth.visible_leagues(viewer, built)
-        if not mine:
-            _no_visible_league_message(viewer, season, configured)
-
-        league_key = _sticky_selectbox(
-            "League", "league_key", mine,
-            default=auth.default_league(viewer, mine),
-            format_func=lambda k: configured.get(k, k),
-        )
-
-        meta = store.load_meta(season, league_key)
-        display_name = meta.get("display_name") or configured.get(league_key, league_key)
-
-        weeks = meta.get("weeks_present") or [meta.get("current_week") or 1]
-        current_week = meta.get("current_week") or weeks[-1]
-        week = _sticky_selectbox(
-            "Week", "week", weeks,
-            default=current_week if current_week in weeks else weeks[-1],
-        )
-
-        _render_freshness(meta, season, display_name)
-        _render_coverage(meta)
-        _render_missing_leagues(viewer, configured, mine)
-
-    return Selection(season=season, league_key=league_key,
-                     display_name=display_name, week=week, meta=meta)
+        built = store.list_leagues(selection.season)
+        _render_missing_leagues(viewer, configured_leagues(),
+                                auth.visible_leagues(viewer, built))
 
 
 def _render_freshness(meta: dict, season: int, display_name: str) -> None:
@@ -342,7 +306,7 @@ def _render_freshness(meta: dict, season: int, display_name: str) -> None:
     age = store.store_age_minutes(meta)
     threshold = stale_after_minutes(season)
     stale = store.is_stale(meta, threshold)
-    when = "Build Time Unknown" if age is None else f"Built {_format_age(age)}"
+    when = "Build Time Unknown" if age is None else f"Built {format_age(age)}"
     label = f"{when} · Week {meta.get('current_week', '?')}"
 
     if stale:
@@ -417,3 +381,14 @@ def _render_missing_leagues(viewer: auth.Viewer, configured: Dict[str, str],
         st.code("python -m Scripts.refresh --all", language="bash")
         for key in missing:
             st.write(f"· {configured[key]}")
+
+
+# The private spellings these four had before the context row moved out of the
+# sidebar. Kept because ``tests/test_header_selection.py`` pins ``sticky_selectbox``
+# under its old name, and that test is the record of two bugs that each silently
+# rendered the wrong league -- renaming it would be editing the evidence.
+_sticky_selectbox = sticky_selectbox
+_format_age = format_age
+_no_store_message = no_store_message
+_no_visible_league_message = no_visible_league_message
+_configured_leagues = configured_leagues

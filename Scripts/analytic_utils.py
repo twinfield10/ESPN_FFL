@@ -107,23 +107,44 @@ def get_best_proj_lineup(league: League, lineup: List[Player]) -> float:
 
     return np.sum([player.projected_points for player in best_lineup])
 
+def top_points(lineup: List[Player], slot: str) -> float:
+    """Points scored by the best player in ``lineup`` eligible for ``slot``.
+
+    Zero when nobody on the roster is eligible, which is the case
+    :func:`get_best_trio` used to index straight past. A league *having* a slot does
+    not mean a given roster has anybody who can fill it: Winfield_Football is a
+    six-team league, and one of its historical weeks holds a lineup with no
+    tight end at all. ``get_top_players(...)[0]`` raised ``IndexError`` on it and
+    took the league's entire multi-season history down with it.
+
+    Args:
+        lineup: The players to search.
+        slot: Lineup slot they must be eligible for.
+
+    Returns:
+        float: Points, or 0.0 when nobody is eligible.
+    """
+    top = get_top_players(lineup, slot, 1)
+    return top[0].points if top else 0.0
+
+
 def get_best_trio(league: League, lineup: List[Player]) -> float:
     """Returns the the sum of the top QB/RB/Reciever trio for a team during the loaded week."""
     if "QB" in league.roster_settings["roster_slots"].keys():
         # Most leagues have a QB slot
-        qb = get_top_players(lineup, "QB", 1)[0].points
+        qb = top_points(lineup, "QB")
     elif "TQB" in league.roster_settings["roster_slots"].keys():
         # Some leagues use Team QB instead of individual QBs
-        qb = get_top_players(lineup, "TQB", 1)[0].points
+        qb = top_points(lineup, "TQB")
     else:
         # If for some reason a league doesn't have a QB slot, set it to 0
         qb = 0
 
-    rb = get_top_players(lineup, "RB", 1)[0].points
-    wr = get_top_players(lineup, "WR", 1)[0].points
+    rb = top_points(lineup, "RB")
+    wr = top_points(lineup, "WR")
 
     if "TE" in league.roster_settings["roster_slots"].keys():
-        te = get_top_players(lineup, "TE", 1)[0].points
+        te = top_points(lineup, "TE")
     else:
         # If for some reason a league doesn't have a TE slot, set it to 0
         te = 0

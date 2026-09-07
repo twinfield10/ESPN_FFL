@@ -69,6 +69,14 @@ ARTIFACTS = {
     # any question about how a season actually went reaches years before the
     # store existed. See docs/plans/25-results-backfill.md.
     "results": "results.parquet",
+    # The board as it stood when the drafts finished, and it is the *point* that it
+    # never moves again. `board.parquet` is rebuilt by the 06:00 nightly, so by
+    # Thursday it is a rest-of-season instrument and can no longer answer "what did
+    # this roster look like the day it was assembled" -- which is the only basis on
+    # which a draft can be graded. Written by `python -m Scripts.freeze`, not by
+    # `refresh`, because it is a deliberate act with a deadline rather than a
+    # by-product of an ingest. See docs/plans/41-projection-freeze.md.
+    "board_frozen": "board_frozen.parquet",
 }
 
 META_FILENAME = "meta.json"
@@ -378,6 +386,7 @@ def write_league_store(
     draft: Optional[pd.DataFrame] = None,
     tendencies: Optional[pd.DataFrame] = None,
     results: Optional[pd.DataFrame] = None,
+    board_frozen: Optional[pd.DataFrame] = None,
     league=None,
     meta_extra: Optional[Dict[str, Any]] = None,
 ) -> Path:
@@ -401,6 +410,9 @@ def write_league_store(
         results: ``get_ply_stats_by_matchup`` output, trimmed to what was
             scored. The only artifact buildable for a season before the store
             existed.
+        board_frozen: A copy of ``board`` taken once the drafts are done. Written
+            only by ``python -m Scripts.freeze``; nothing in the ingest path
+            supplies it, which is the point -- see :data:`ARTIFACTS`.
         league: The live ESPN ``League``, for metadata.
         meta_extra: Extra keys for ``meta.json``.
 
@@ -412,7 +424,8 @@ def write_league_store(
             contents would only serve to refresh ``built_at``.
     """
     candidates = {"lineups": lineups, "team_stats": team_stats, "board": board,
-                  "draft": draft, "tendencies": tendencies, "results": results}
+                  "draft": draft, "tendencies": tendencies, "results": results,
+                  "board_frozen": board_frozen}
     written = {name: df for name, df in candidates.items() if df is not None}
     if not written:
         raise ValueError(
