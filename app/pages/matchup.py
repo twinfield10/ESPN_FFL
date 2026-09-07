@@ -35,15 +35,35 @@ selection = session.current()
 
 st.title(f"Matchup · Week {selection.week}")
 
-for artifact, note in (
+for artifact, absent_note in (
     ("lineups", "No weekly lineups in this store, so there are no projections to "
                 "put a matchup on."),
     ("team_stats", "No `team_stats` in this store, so nothing knows who plays whom. "
                    "It is opt-in because it re-derives the league's whole history — "
                    "about 40 seconds of ESPN round-trips per league."),
 ):
-    if not store.has_artifact(selection.season, selection.league_key, artifact):
-        st.warning(note)
+    state = store.artifact_state(selection.season, selection.league_key, artifact)
+    if state == "present":
+        continue
+
+    # "Built but not published" and "never built" are different problems with
+    # different fixes, and the app reads S3 by default — so right after a refresh the
+    # first is the common one. Telling someone to re-run the refresh they just ran is
+    # the worst available answer.
+    if state == "unpublished":
+        st.warning(
+            f"`{artifact}` is built on this machine but has not been published, and "
+            f"the app is reading **{store.source()}**. Push it, or point the app at "
+            f"local disk."
+        )
+        st.code(
+            f"python -m Scripts.sync --push --what store --season {selection.season}\n"
+            f"# or, without publishing:\n"
+            f"ESPN_FFL_STORE_SOURCE=local streamlit run app/main.py",
+            language="bash",
+        )
+    else:
+        st.warning(absent_note)
         st.code(
             f"python -m Scripts.refresh --league {selection.display_name} "
             f"--season {selection.season} --what lineups,team_stats",
@@ -54,7 +74,7 @@ for artifact, note in (
                 "A league in its first season gets none: the score normalisation "
                 "needs one prior season as a baseline."
             )
-        st.stop()
+    st.stop()
 
 lineups = store.load_lineups(selection.season, selection.league_key)
 schedule = store.load_team_stats(selection.season, selection.league_key)

@@ -349,6 +349,36 @@ def has_artifact(season: int, league_key: str, what: str) -> bool:
     return what in (meta.get("artifacts") or {})
 
 
+def artifact_state(season: int, league_key: str, what: str) -> str:
+    """Whether an artifact is readable, built-but-unpublished, or genuinely absent.
+
+    ``has_artifact`` answers "can this page read it", which is the right question for
+    deciding whether to render. It is the wrong question for the *message* you show
+    when the answer is no, because two very different situations collapse into one
+    False: the artifact was never built, or it was built this morning and never
+    pushed. The app reads S3 by default, so the second is the common one right after
+    a refresh -- and telling someone to re-run the refresh they just ran is worse than
+    saying nothing.
+
+    Args:
+        season: Season year.
+        league_key: ``config.yaml`` league key.
+        what: A :data:`Scripts.store.ARTIFACTS` key.
+
+    Returns:
+        str: ``"present"`` when the configured source can read it;
+        ``"unpublished"`` when it is on local disk but not where the app is reading;
+        ``"absent"`` when it is neither.
+    """
+    if has_artifact(season, league_key, what):
+        return "present"
+    try:
+        local = _store.artifact_path(season, league_key, what).is_file()
+    except Exception:                                       # noqa: BLE001
+        local = False
+    return "unpublished" if local else "absent"
+
+
 def has_store(season: int, league_key: str) -> bool:
     """Whether a complete store exists for a league-season.
 
