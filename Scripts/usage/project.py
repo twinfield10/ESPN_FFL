@@ -40,7 +40,7 @@ Usage::
 from __future__ import annotations
 
 import json
-from typing import List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import polars as pl
@@ -377,6 +377,102 @@ def healthy_intervals(frame: pl.DataFrame, model: sn.SeasonUsageModel,
     return frame.with_columns(columns) if columns else frame
 
 
+#: The three volume terms the model already predicts, promoted to blended stat lines.
+#:
+#: **The model has always projected these; it just did not publish them.** Every stat
+#: in :data:`Scripts.usage.season.STAT_TERMS` is a volume term times an efficiency
+#: rate -- ``receivingYards = targets_pg x yards_per_target`` -- so ``pred_targets_pg``
+#: is a first-class prediction that was being carried as a lower-case diagnostic and
+#: then thrown away by the blend.
+#:
+#: Publishing it matters more than it sounds. Volume is the **forecastable half** of a
+#: projection: carries per game persist year over year at +0.895 against +0.260 for
+#: the yards-per-carry it gets multiplied by. And it was the thinnest-covered part of
+#: the board -- FantasyPros publishes no ``receivingTargets`` column at all and neither
+#: book prices a target, so before this the entire blend's opinion on how many balls a
+#: receiver would see came from ESPN and The Athletic, two sources, at 0.500 each.
+#:
+#: Multiplied by the full slate rather than by expected games, to match what
+#: :func:`to_full_slate` has just done to the stat lines beside them. A target count
+#: on an expected-games basis sitting next to yardage on a 17-game basis would break
+#: the very identity -- ``yards = targets x yards_per_target`` -- that makes the pair
+#: worth publishing together.
+VOLUME_STATS: Dict[str, str] = {
+    "pred_targets_pg": "USG_receivingTargets",
+    "pred_carries_pg": "USG_rushingAttempts",
+    "pred_pass_attempts_pg": "USG_passingAttempts",
+}
+
+
+def volume_witness(term: str) -> Optional[str]:
+    """The published stat that proves the model has an opinion about ``term``.
+
+    Derived from :data:`Scripts.usage.season.STAT_TERMS` rather than listed, so a stat
+    cannot be added to the model and silently left without a witness. Each volume term
+    feeds a yardage stat -- ``targets_pg`` feeds ``receivingYards`` -- and that yardage
+    is what :meth:`SeasonUsageModel.predict` nulls when it declines.
+
+    Args:
+        term: A :data:`Scripts.usage.season.VOLUME_TARGETS` entry, e.g. ``"targets_pg"``.
+
+    Returns:
+        The witness stat name, or None when the term feeds no yardage stat.
+    """
+    for stat, (volume, _) in sn.STAT_TERMS.items():
+        if volume == term and stat.endswith("Yards"):
+            return stat
+    return None
+
+
+def attach_volume(frame: pl.DataFrame,
+                  slate: float = sn.DEFAULT_TARGET_SLATE) -> Tuple[pl.DataFrame, List[str]]:
+    """Publish the per-game volume terms as full-slate season counts.
+
+    **Only where the model has an opinion, and that clause is the whole function.**
+    The volume heads predict for everybody -- ``pred_pass_attempts_pg`` is a number
+    for any quarterback with a snap of history -- while
+    :meth:`SeasonUsageModel.predict` *abstains* on the derived stats when the evidence
+    is too thin, nulling them so the blend sees an absent source rather than a
+    projection of zero. Publishing the volume unconditionally breaks that contract in
+    the worst available direction: the count arrives with ``_is_imputed`` False, so it
+    is not an abstention the blend skips, it is a **confident vote**.
+
+    Measured on the 2026 board when this shipped without the guard: **all 148
+    abstaining players** carried at least one voting volume line -- 131 receiving
+    targets, 56 carries, 23 pass attempts. Deshaun Watson, whose ``usg_arm`` is
+    ``abstain`` and whose ``expected_games`` is **2.73**, was publishing **344.8**
+    pass attempts and **35.1** carries beside a null passing line: a full starter's
+    season of volume for a man the model believes plays three games, voting in a blend
+    that had no other opinion from us at all. That is the Jayden Higgins shape -- four
+    correct abstentions and one confident number -- with us as the offending source.
+
+    The guard is the identity that made publishing volume worth doing:
+    ``yards = attempts x yards_per_attempt``. If the model will not say the yards, it
+    does not get to say the attempts. The witness is derived through
+    :func:`volume_witness` so the two cannot drift apart.
+
+    Args:
+        frame: Predictions carrying the ``pred_*_pg`` columns and the stat lines.
+        slate: Games to express the counts over.
+
+    Returns:
+        The frame with the new columns, and their names.
+    """
+    added: List[str] = []
+    for source, target in VOLUME_STATS.items():
+        if source not in frame.columns:
+            continue
+        value = pl.col(source) * slate
+        witness = volume_witness(source[len("pred_"):])
+        witness_column = f"USG_{witness}" if witness else None
+        if witness_column and witness_column in frame.columns:
+            value = (pl.when(pl.col(witness_column).is_not_null())
+                     .then(value).otherwise(None))
+        frame = frame.with_columns(value.alias(target))
+        added.append(target)
+    return frame, added
+
+
 def to_full_slate(frame: pl.DataFrame, columns: Sequence[str],
                   slate: float = sn.DEFAULT_TARGET_SLATE) -> pl.DataFrame:
     """Rescale the stat lines from expected games to a full healthy season.
@@ -532,6 +628,13 @@ def build(season: int, refit: bool = False,
                         if f"{c}{suffix}" in predicted.columns]
 
     predicted = to_full_slate(predicted, stat_columns)
+
+    # After `to_full_slate`, so the counts and the yardage they multiply into are on
+    # the same basis. Added to `stat_columns` so they pick up the provenance flags
+    # below like every other stat -- without a flag an absent volume line would count
+    # as a real opinion of zero.
+    predicted, volume_columns = attach_volume(predicted)
+    stat_columns = list(stat_columns) + volume_columns
 
     # The provenance flags, and the reason this function exists. A null here means
     # the model declined -- no prior season, a declined position, or no opportunity

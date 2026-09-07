@@ -448,6 +448,8 @@ class SeasonUsageModel:
     rookie_volume: Dict[Tuple[str, str], VolumeFit] = field(default_factory=dict)
     rookie_games: Dict[str, Dict[str, float]] = field(default_factory=dict)
     rookie_efficiency: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    #: Whole-population efficiency per position, the rate of last resort.
+    pool_efficiency: Dict[str, Dict[str, float]] = field(default_factory=dict)
     #: Beta-Binomial concentration for games played, per position. Absent for a
     #: position whose residuals are not overdispersed or too few to fit.
     games_dispersion: Dict[str, float] = field(default_factory=dict)
@@ -816,7 +818,7 @@ class SeasonUsageModel:
 
     @staticmethod
     def _veteran_terms(frame: pl.DataFrame, target: str, lag1: str,
-                       lag2: str) -> Dict[str, pl.Expr]:
+                       lag2: str, rank: Optional[int] = None) -> Dict[str, pl.Expr]:
         """The veteran regressors, as expressions.
 
         A frame without the situational columns still works: those terms go to zero,
@@ -828,6 +830,12 @@ class SeasonUsageModel:
             target: Volume target, to pick the matching coach-prior column.
             lag1: Prior-season volume column.
             lag2: Two-seasons-prior volume column.
+            rank: Evaluate the depth-chart terms at this rank instead of the
+                player's listed one. Used by :meth:`expected_volume` to price the
+                *distribution* over roles rather than the point estimate -- the
+                listed chart is only 58.8% right about a settled starter, so a
+                projection built at the listed rank alone asserts a certainty the
+                chart does not have.
 
         Returns:
             dict: Regressor name to expression.
@@ -847,8 +855,10 @@ class SeasonUsageModel:
             # the far end of the decline curve.
             "age": age_expr(frame),
             # Same trap in the other direction -- rank 0 would be better than rank 1.
-            "depth_rank": depth_rank_expr(frame),
-            "is_first_string": column("is_first_string"),
+            "depth_rank": (depth_rank_expr(frame) if rank is None
+                           else pl.lit(float(rank))),
+            "is_first_string": (column("is_first_string") if rank is None
+                                else pl.lit(1.0 if rank == 1 else 0.0)),
             "coach_volume": column(coach_column) if coach_column else pl.lit(0.0),
             "staff_continuity": column("staff_continuity"),
             # --- plan 22 candidates ---------------------------------------
@@ -886,12 +896,14 @@ class SeasonUsageModel:
             "peak5_volume": column(f"{ft.PEAK_PREFIXES[5]}{target}"),
         }
 
-    def predict_volume(self, frame: pl.DataFrame, target: str) -> pl.Expr:
+    def predict_volume(self, frame: pl.DataFrame, target: str,
+                       rank: Optional[int] = None) -> pl.Expr:
         """One volume stat, predicted forward per position.
 
         Args:
             frame: Feature frame.
             target: A :data:`VOLUME_TARGETS` entry.
+            rank: Evaluate at this depth rank rather than the listed one.
 
         Returns:
             pl.Expr: Predicted per-game volume, clipped at zero, null where the
@@ -904,7 +916,7 @@ class SeasonUsageModel:
             if fitted_target != target:
                 continue
             terms = pl.lit(fit.intercept)
-            values = self._veteran_terms(frame, target, lag1, lag2)
+            values = self._veteran_terms(frame, target, lag1, lag2, rank=rank)
             for name, coefficient in fit.coefficients.items():
                 if name in values:
                     terms = terms + values[name] * coefficient
@@ -912,6 +924,69 @@ class SeasonUsageModel:
                 terms.clip(lower_bound=0.0)).otherwise(expression)
 
         return expression
+
+    def expected_volume(self, frame: pl.DataFrame, target: str,
+                        probabilities: Optional[Dict] = None) -> pl.Expr:
+        """Volume priced over the *distribution* of roles, not the listed one.
+
+        **The listed depth chart is not a fact and the model was treating it as one.**
+        Plan 33 fitted ``P(true rank | listed rank, cohort)`` and found the chart is
+        right about a settled starter only **58.8%** of the time -- the rest is 22.0%
+        rank 2 and 19.2% rank 3. That table has existed since 2026-08-26 and only
+        :mod:`Scripts.outcomes.simulate` read it; the mean projection kept evaluating
+        the volume head at the listed rank and asserting a certainty nobody measured.
+
+        The cost of that ran both ways. A returning starter was priced as a lock on his
+        old job, and a man listed behind him was priced as though he could never take
+        it -- when a listed rank 2 is the actual lead 16.7% of the time.
+
+        So each volume term is evaluated at every rank the chart could be wrong about
+        and averaged by how often it is wrong in that direction. No new coefficients:
+        the volume regression already takes ``depth_rank`` and ``is_first_string`` as
+        regressors, so this re-reads a fitted model rather than fitting another.
+
+        Args:
+            frame: Feature frame carrying ``depth_rank``, ``is_rookie`` and
+                ``team_changed``.
+            target: A :data:`VOLUME_TARGETS` entry.
+            probabilities: :func:`Scripts.usage.role.rank_probabilities` output. None
+                loads it.
+
+        Returns:
+            pl.Expr: Expected per-game volume. Falls back to the point estimate at the
+            listed rank wherever the calibration has no cell for a player -- which is
+            the behaviour before this existed rather than an invented distribution.
+        """
+        if probabilities is None:
+            from Scripts.usage import role as rl
+            probabilities = rl.rank_probabilities()
+        point = self.predict_volume(frame, target)
+        if not probabilities or "depth_rank" not in frame.columns:
+            return point
+
+        from Scripts.usage import role as rl
+        cohort = rl.cohort_expression()
+        listed = depth_rank_expr(frame).cast(pl.Int32)
+        ranks = sorted({r for vector in probabilities.values()
+                        for r in range(1, len(vector) + 1)})
+
+        numerator = pl.lit(0.0)
+        denominator = pl.lit(0.0)
+        for rank in ranks:
+            weight = pl.lit(0.0)
+            for (cohort_name, listed_rank), vector in probabilities.items():
+                if rank - 1 >= len(vector):
+                    continue
+                weight = (pl.when((cohort == cohort_name)
+                                  & (listed == int(listed_rank)))
+                          .then(pl.lit(float(vector[rank - 1])))
+                          .otherwise(weight))
+            at_rank = self.predict_volume(frame, target, rank=rank)
+            numerator = numerator + weight * at_rank.fill_null(0.0)
+            denominator = denominator + weight * at_rank.is_not_null()
+
+        # A player the calibration has no row for gets the point estimate, not a zero.
+        return pl.when(denominator > 0).then(numerator / denominator).otherwise(point)
 
     def predict(self, frame: pl.DataFrame, rookies: bool = True,
                 abstain_positions: Optional[Sequence[str]] = None,
@@ -963,6 +1038,14 @@ class SeasonUsageModel:
         declined = (pl.col("position").is_in(list(abstain_positions))
                     if abstain_positions else pl.lit(False))
 
+        # Switching the rookie arm off must still mean *silence*, not a quiet
+        # substitution. Plan 18's G-gate is the rookie arm measured against an
+        # abstention, and once `baseline` existed a `rookies=False` run started
+        # answering a different question -- arm against positional baseline -- while
+        # the gate's name went on claiming the old one. A pre-registered comparison
+        # does not get to change meaning as a side effect of an unrelated change.
+        switched_off = is_rookie & ~has_history & ~pl.lit(rookies)
+
         out = frame.with_columns(
             pl.when(use_rookie)
             .then(self.rookie_expected_games(frame, target_slate=target_slate))
@@ -972,16 +1055,22 @@ class SeasonUsageModel:
             # A declined position is an abstention like any other, so it reaches the
             # blend down the path plan 07 already built for a wholly absent source
             # rather than needing one of its own.
-            pl.when(declined).then(pl.lit("abstain"))
+            # `baseline` was the catch-all `abstain` until 2026-09-03, and it was
+            # swallowing 32 players who had a career -- just not a *last* season.
+            # Deshaun Watson played 6 games in 2023 and 7 in 2024 and none in 2025,
+            # so `has_history` (which reads lag 1 only) called him unknown and the
+            # model went silent on a quarterback listed first on his own depth chart.
+            # He now takes the positional rate and is named as doing so.
+            pl.when(declined | switched_off).then(pl.lit("abstain"))
             .when(use_rookie).then(pl.lit("rookie"))
             .when(has_history).then(pl.lit("veteran"))
-            .otherwise(pl.lit("abstain")).alias("usg_arm"),
+            .otherwise(pl.lit("baseline")).alias("usg_arm"),
         )
         out = out.with_columns([
             pl.when(pl.col("usg_arm") == "rookie")
             .then(self._rookie_linear(
                 out, self.rookie_volume, lambda p, t=target: (p, t), target=target))
-            .otherwise(self.predict_volume(out, target))
+            .otherwise(self.expected_volume(out, target))
             .alias(f"pred_{target}")
             for target in VOLUME_TARGETS
         ])
@@ -1003,9 +1092,20 @@ class SeasonUsageModel:
                     rookie_rate = pl.when(pl.col("position") == position).then(
                         pl.lit(float(rates[rate]))).otherwise(rookie_rate)
 
+            # The rate of last resort. A veteran with no prior season had no rate at
+            # all, so every stat built on one came out null beside a perfectly good
+            # volume estimate -- 345 pass attempts and no passing yards. A hundred
+            # carries is not five yards: league-average yards per carry is 4.27 and
+            # that is known without knowing the player.
+            pool_rate = pl.lit(None, dtype=pl.Float64)
+            for position, rates in self.pool_efficiency.items():
+                if rate in rates:
+                    pool_rate = pl.when(pl.col("position") == position).then(
+                        pl.lit(float(rates[rate]))).otherwise(pool_rate)
+
             effective_rate = (pl.when(pl.col("usg_arm") == "rookie")
                               .then(rookie_rate)
-                              .otherwise(pl.col(rate_column)))
+                              .otherwise(pl.coalesce(pl.col(rate_column), pool_rate)))
             predicted = (pl.col("expected_games")
                          * pl.col(f"pred_{volume}")
                          * effective_rate)
@@ -1122,6 +1222,7 @@ class SeasonUsageModel:
             "rookie_volume_fits": [asdict(fit)
                                    for fit in self.rookie_volume.values()],
             "rookie_efficiency": self.rookie_efficiency,
+            "pool_efficiency": self.pool_efficiency,
             "games_dispersion": self.games_dispersion,
             "stat_dispersion": self.stat_dispersion,
             "games_elasticity": self.games_elasticity,
@@ -1193,6 +1294,7 @@ class SeasonUsageModel:
             rookie_volume=fits("rookie_volume_fits"),
             rookie_games=payload.get("rookie_games_by_bin", {}),
             rookie_efficiency=payload.get("rookie_efficiency", {}),
+            pool_efficiency=payload.get("pool_efficiency", {}),
             games_dispersion=payload.get("games_dispersion", {}),
             stat_dispersion=payload.get("stat_dispersion", {}),
             # Absent from every 1.1.0 file. Empty means "not fitted", and each reader
@@ -1953,6 +2055,54 @@ def _fit_rookie_games(frame: pl.DataFrame, position: str) -> Dict[str, float]:
     return {row["bin"]: float(row["games"]) for row in grouped.iter_rows(named=True)}
 
 
+def pool_efficiency(frame: pl.DataFrame,
+                    positions: Sequence[str] = ft.MODELLED_POSITIONS
+                    ) -> Dict[str, Dict[str, float]]:
+    """Pooled efficiency rates over the whole population, per position.
+
+    **The rate of last resort, and the reason it exists is that there was none.**
+    :meth:`SeasonUsageModel.predict` took a rookie's rate from
+    :func:`rookie_efficiency` and everyone else's from his own prior season -- so a
+    veteran with no prior season had no rate at all, and every stat built on it came
+    out null even though the volume head had produced a perfectly good opportunity
+    estimate. Deshaun Watson was projected 345 pass attempts and no passing yards.
+
+    That is not a defensible abstention, it is a hole. If a back is going to get a
+    hundred carries he is not going to gain five yards on them: league-average yards
+    per carry is 4.27 and that number is known without knowing anything about him.
+
+    Pooled from realised totals so a player with two targets does not weigh as much
+    as one with a hundred, and fitted only on permitted seasons like every other
+    coefficient here.
+
+    Args:
+        frame: Training rows carrying ``y_tot_<stat>`` outcomes.
+        positions: Positions to compute.
+
+    Returns:
+        dict: ``{position: {rate_name: value}}``, omitting rates with no volume.
+    """
+    out: Dict[str, Dict[str, float]] = {}
+    for position in positions:
+        rows = frame.filter(pl.col("position") == position)
+        if rows.is_empty():
+            continue
+        rates: Dict[str, float] = {}
+        for name, numerator, denominator in ft.EFFICIENCY_RATES:
+            num, den = f"y_tot_{numerator}", f"y_tot_{denominator}"
+            if num not in rows.columns or den not in rows.columns:
+                continue
+            totals = rows.select(
+                pl.col(num).cast(pl.Float64).sum().alias("num"),
+                pl.col(den).cast(pl.Float64).sum().alias("den"),
+            ).row(0, named=True)
+            if totals["den"] and totals["den"] >= MIN_RATE_DENOMINATOR:
+                rates[name] = float(totals["num"]) / float(totals["den"])
+        if rates:
+            out[position] = rates
+    return out
+
+
 def rookie_efficiency(frame: pl.DataFrame,
                       positions: Sequence[str] = ft.MODELLED_POSITIONS
                       ) -> Dict[str, Dict[str, float]]:
@@ -2166,6 +2316,7 @@ def fit(train: pl.DataFrame, train_seasons: Sequence[int],
         rookie_volume=rookie_vol,
         rookie_games=rookie_gms,
         rookie_efficiency=rookie_efficiency(train, positions),
+        pool_efficiency=pool_efficiency(train, positions),
         train_seasons=tuple(sorted(train_seasons)),
         fitted_at=fitted_at,
     )

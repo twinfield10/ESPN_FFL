@@ -29,7 +29,7 @@ from typing import Dict, List, Optional, Sequence
 
 import polars as pl
 
-from Scripts.paths import PLAYER_IDS_PARQUET, nfl_season_dir
+from Scripts.paths import DATA_DIR, PLAYER_IDS_PARQUET, nfl_season_dir
 
 #: Report designations, worst first. Ordered because the useful summary is
 #: "the worst thing said about him this week", and a player can carry a report
@@ -425,10 +425,46 @@ def season_availability(seasons: Sequence[int],
 #: to the coarse scale loses granularity and is the only version that transfers.
 MAX_DEPTH_RANK = 3
 
-#: A depth chart is a pre-season feature, so it is read from the last snapshot before
-#: the season starts rather than the most recent one. September 1 is comfortably
-#: after the final pre-season update and before any regular-season game.
+#: Fallback cutoff, used only when the schedule cannot be read.
+#:
+#: **This used to be the cutoff itself, and it went stale in the way a hardcoded date
+#: always does.** Its comment claimed September 1 was "comfortably after the final
+#: pre-season update"; by 2026 the feed was still publishing on September 1 itself and
+#: the first game was not until the 9th, so a whole week of final depth-chart movement
+#: fell outside the window. MarShawn Lloyd was promoted to RB1 at Green Bay on
+#: 2026-09-01 and every board built afterwards still had him at RB2 -- with drafts on
+#: the 6th and 7th.
 PRESEASON_CUTOFF = (9, 1)
+
+
+def season_kickoff(season: int) -> Optional[str]:
+    """The date of the season's first regular-season game, as ``YYYY-MM-DD``.
+
+    The right boundary for a pre-season feature: every snapshot before kickoff is
+    information a drafter genuinely had, and every snapshot after it is leakage. Read
+    from the schedule rather than assumed, so it needs no maintenance and cannot drift
+    -- 2025 opened on the 4th and 2026 on the 9th, a five-day swing that a fixed date
+    cannot track.
+
+    Args:
+        season: Season year.
+
+    Returns:
+        The kickoff date, or None when the schedule is unavailable.
+    """
+    path = DATA_DIR / "NFL" / "schedules.parquet"
+    if not path.is_file():
+        return None
+    try:
+        frame = pl.read_parquet(path, columns=["season", "game_type", "gameday"])
+    except Exception:
+        return None
+    scoped = frame.filter((pl.col("season") == season)
+                          & (pl.col("game_type") == "REG"))
+    if scoped.is_empty():
+        return None
+    first = scoped["gameday"].min()
+    return None if first is None else str(first)
 
 #: Fantasy-relevant slots in the new schema's ``pos_abb``. Alignment-specific
 #: receiver codes do not appear for these positions -- 2026 lists 397 players under a
@@ -518,8 +554,10 @@ def preseason_snapshot(depth: pl.DataFrame, season: int) -> pl.DataFrame:
     if scoped.is_empty():
         return scoped
 
-    month, day = PRESEASON_CUTOFF
-    cutoff = f"{season}-{month:02d}-{day:02d}"
+    cutoff = season_kickoff(season)
+    if cutoff is None:
+        month, day = PRESEASON_CUTOFF
+        cutoff = f"{season}-{month:02d}-{day:02d}"
     # The old schema's as_of is a zero-padded week, so it sorts before any timestamp
     # and the cutoff filter leaves it untouched -- week 1 is already the pre-season
     # chart there.

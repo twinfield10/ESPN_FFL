@@ -299,13 +299,15 @@ class Column(NamedTuple):
         lens: ``""`` to always render, else the :data:`VALUE_LENS_ADP` or
             :data:`VALUE_LENS_CASH` this spec belongs to.
         positions: ``()`` to always render, else the positions this column can hold a
-            value for. A source that models **one** position -- the D/ST model, the
-            kicker model -- is null on every other row, and a column of blanks is not
-            a neutral thing to show: it reads as missing data about the player rather
-            than as a question that was never asked of him. So it is dropped entirely
-            unless the frame on screen actually contains one of these positions.
-            Presence in the frame is not enough on its own, because the board carries
-            the column for all 2,504 rows and only 32 of them are defences.
+            value for. A source that does not cover the whole board -- the D/ST model,
+            which is one position; The Athletic's hand ranking, which is the four
+            offensive skill positions and no kicker, defence or individual defender --
+            is null on every other row, and a column of blanks is not a neutral thing
+            to show: it reads as missing data about the player rather than as a
+            question that was never asked of him. So it is dropped entirely unless the
+            frame on screen actually contains one of these positions. Presence in the
+            frame is not enough on its own, because the board carries the column for
+            all 2,504 rows and only 32 of them are defences.
         width: Streamlit width hint, for the one column holding a sentence.
     """
 
@@ -430,35 +432,32 @@ COLUMNS: List[Column] = [
                   "this table is built from this column."),
     Column("USG_Points", "Points", "TOM", "number", fmt="%.1f",
            source_of="TOMCAT",
-           how="**TOMCAT** — Touches, Opportunity, Market, Context, Availability, Tiers — "
+           how="**TOMCAT** \u2014 Touches, Opportunity, Market, Context, Availability, Tiers \u2014 "
                "is our own model, and the only source here built from observed usage "
-               "rather than from somebody else's projection. This is its usage arm — "
-               "QB, RB, WR and TE — quoted over a full healthy 17 games, so it means "
-               "the same thing as the columns beside it: the availability estimate is "
-               "divided back out rather than baked in.",
+               "rather than from somebody else's projection. **One source, three "
+               "backends, every position.** The usage arm covers QB/RB/WR/TE from "
+               "observed usage; the defence arm projects a D/ST from the **betting "
+               "market** rather than from last season, because implied points allowed "
+               "beats prior season on seven of eight components and the ladders are "
+               "integrated over a weekly distribution rather than scored at the season "
+               "mean; the kicking arm projects a team's extra points and field goals by "
+               "distance band, because a kicker's own accuracy does not persist "
+               "(year-over-year r = 0.009) and the volume belongs to the offence. All "
+               "three are quoted over a full healthy 17 games, so this column means the "
+               "same thing as the ones beside it: the availability estimate is divided "
+               "back out rather than baked in.",
            caveat="Runs a few percent below `ESPN` at the top of the board because the "
                   "model shrinks toward positional baselines while ESPN extrapolates. "
-                  "That is disagreement about players, not a scale difference — but "
-                  "`Position Ranks | Δ TOM` is still the cleaner read, since a rank "
-                  "cannot be moved by it at all. The column is still named `USG_` "
-                  "underneath: renaming it would orphan the frozen G2 archive."),
-    Column("DST_Points", "Points", "DST", "number", fmt="%.1f",
-           positions=("D/ST",),
-           source_of="TOMCAT · defence arm",
-           how="TOMCAT's defence arm — the same model as `TOM`, a different backend. "
-               "Team defence projected from the **betting market** rather than from "
-               "last season: implied points allowed beats prior season on seven of "
-               "eight components, because opponent offences drive defensive events "
-               "and the market prices opponent offences. The points-allowed and "
-               "yards-allowed ladders are integrated over a weekly distribution "
-               "rather than scored at the season mean.",
-           caveat="Team defences only — blank at every other position, which is not a "
-                  "gap. It carries TOMCAT's vote on a D/ST row the way `TOM` carries it "
-                  "on a receiver's. Blended at a quarter since 2026-08-24, so `Us` already "
-                  "carries it; this column is what the model says on its own. It "
-                  "cleared its gate against prior-season points by 34–46% in all nine "
-                  "leagues, but the gate against **ESPN** cannot be run until 2027, so "
-                  "read it as a co-equal second opinion rather than the better number."),
+                  "That is disagreement about players, not a scale difference \u2014 but "
+                  "`Position Ranks | \u0394 TOM` is still the cleaner read, since a rank "
+                  "cannot be moved by it at all. **The kicking arm is the one to read "
+                  "most sceptically**: it is blended from 2026-09-02 and its "
+                  "field-goal channel has still not passed its own gate, so a kicker's "
+                  "number here is a deliberate second opinion rather than a proven "
+                  "one. The defence arm cleared its gate against prior-season points by "
+                  "34\u201346% in all nine leagues, but the gate against **ESPN** cannot be "
+                  "run until 2027. The column is named `USG_` underneath: renaming it "
+                  "would orphan the frozen G2 archive."),
     Column("points_delta", "Points", "Δ", "number", fmt="%+.1f", emphasis=True,
            shade="delta",
            source_of="Board build",
@@ -512,6 +511,32 @@ COLUMNS: List[Column] = [
            caveat="Not an outside opinion: the model is one of the three voices "
                   "already inside `Us`, shown separately so you can see it pull. "
                   "Being a rank, it survives the level mismatch that denies `USG` a Δ."),
+    Column("ath_pos_rank", "Position Ranks", "JAKE", "number", fmt="%.0f",
+           positions=("QB", "RB", "WR", "TE"), source_of="The Athletic",
+           how="Jake Ciely's hand ranking of the position, read from the workbook's "
+               "`Rankings` tab in whichever of its three lists matches this league's "
+               "points per reception.",
+           caveat="290 players, so it runs out well before the board does — blank "
+                  "means unranked, not last. He ranks no kickers or defences."),
+    Column("ath_rank_delta", "Position Ranks", "Δ JAKE", "number", fmt="%+.0f",
+           emphasis=True, shade="delta", positions=("QB", "RB", "WR", "TE"),
+           source_of="The Athletic",
+           how="`Us − JAKE` within position. Positive means he is higher on the "
+               "player than we are — the same direction as `Δ TOM` beside it.",
+           caveat="Both sides are re-ranked over the players he actually ranked. "
+                  "Reading his 60th back against our 60th would score him against a "
+                  "deeper pool and report bench depth as disagreement."),
+    Column("ath_override", "Position Ranks", "Δ SELF", "number", fmt="%+.0f",
+           emphasis=True, shade="delta", positions=("QB", "RB", "WR", "TE"),
+           source_of="The Athletic",
+           how="His hand rank against the rank his own projection implies, scored in "
+               "this league's rules. Positive means he ranks the player above his own "
+               "numbers.",
+           caveat="Not an outside opinion either — it is one man disagreeing with "
+                  "his own spreadsheet, and those stat lines already vote as `ATH`. "
+                  "It is dense at back and receiver and empty at quarterback by his "
+                  "choice, not for want of data: no quarterback moves five spots and "
+                  "50 of 118 receivers do."),
 
     # --- the draft's own currency ---------------------------------------
     Column("adp", "Draft Metric", "ESPN", "number", fmt="%.1f", lens=VALUE_LENS_ADP,

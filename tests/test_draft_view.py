@@ -332,47 +332,67 @@ def test_the_points_group_reads_left_to_right_from_source_to_blend():
     points = [c.label for c in dv.COLUMNS if c.group == "Points"]
     assert points.index("ESPN") < points.index("Us")
     assert points.index("FP") < points.index("Us")
-    for after in ("TOM", "DST"):
-        assert points.index("Us") < points.index(after), (
-            f"{after} is a single-position aside and belongs after the blend")
+    assert points.index("Us") < points.index("TOM"), (
+        "TOM is our own second opinion and belongs after the blend it feeds")
+
+
+def test_the_three_tomcat_arms_render_as_one_column():
+    """One source, one vote, one column.
+
+    There used to be a separate `DST` column beside `TOM`, and a kicking arm with no
+    column at all. Since 2026-09-02 all three write `USG_`, so a team defence's
+    projection and a receiver's arrive in the same place -- and a second column would
+    now be a duplicate of the first rather than an aside.
+    """
+    labels = [c.label for c in dv.COLUMNS if c.group == "Points"]
+    assert labels.count("TOM") == 1
+    assert "DST" not in labels, "the defence arm is TOMCAT, not a source of its own"
+    sources = {c.source for c in dv.COLUMNS}
+    assert "DST_Points" not in sources and "KIK_Points" not in sources
 
 
 def test_a_single_position_column_is_dropped_where_it_cannot_apply():
-    """A team defence's projection is not *missing* from a receiver's row.
+    """A question never asked of a player is not missing data about him.
 
-    `DST_Points` is on all 2,504 board rows and null for 2,472 of them, so presence in
-    the frame is not enough to decide whether to render it. A column of blanks reads as
-    missing data about the player rather than as a question never asked of him.
+    The Athletic's hand ranking covers the four offensive skill positions and nothing
+    else, so it is null on every kicker and defence row. Presence in the frame is not
+    enough to decide whether to render it: a column of blanks reads as missing data
+    rather than as a question out of scope.
     """
     board = pl.DataFrame({
         "primaryPosition": ["RB", "WR", "D/ST"],
         "player_name": ["a", "b", "c"],
         "ESPN_Points": [1.0, 2.0, 3.0],
-        "DST_Points": [None, None, 3.0],
+        "ath_pos_rank": [4.0, 5.0, None],
     })
-    labels = lambda f: {c.label for c in dv.shown_columns(f) if c.group == "Points"}
+    labels = lambda f: {c.source for c in dv.shown_columns(f)}
 
-    assert "DST" in labels(board)
-    assert "DST" in labels(board.filter(pl.col("primaryPosition") == "D/ST"))
-    assert "DST" not in labels(board.filter(pl.col("primaryPosition") == "RB"))
-    assert "DST" not in labels(board.filter(pl.col("primaryPosition").is_in(["RB", "WR"])))
+    assert "ath_pos_rank" in labels(board)
+    assert "ath_pos_rank" in labels(board.filter(pl.col("primaryPosition") == "RB"))
+    assert "ath_pos_rank" not in labels(
+        board.filter(pl.col("primaryPosition") == "D/ST"))
 
 
 def test_a_frame_with_no_position_column_keeps_every_spec():
     """Nothing to filter on is not the same as nothing matching."""
     board = pl.DataFrame({"player_name": ["a"], "ESPN_Points": [1.0],
-                          "DST_Points": [3.0]})
-    assert "DST" in {c.label for c in dv.shown_columns(board) if c.group == "Points"}
+                          "ath_pos_rank": [3.0]})
+    assert "ath_pos_rank" in {c.source for c in dv.shown_columns(board)}
 
 
-def test_only_single_position_sources_are_position_scoped():
-    """The scoping is for sources that model one position, not a general filter.
+def test_only_partial_coverage_sources_are_position_scoped():
+    """The scoping is for sources that cannot cover the board, not a general filter.
 
     ESPN, FantasyPros, BetOnline and the blend must never be gated this way -- they
-    project every position, and a blank there is genuinely missing data.
+    project every position, and a blank there is genuinely missing data rather than a
+    question nobody asked. **TOMCAT must not be gated either, and that is the change
+    of 2026-09-02**: its three arms between them cover every position, so `USG_Points`
+    is a full-board column and a blank in it means something is wrong. What remains is
+    The Athletic's hand ranking, which is the four offensive skill positions.
     """
     scoped = {c.source for c in dv.COLUMNS if c.positions}
-    assert scoped == {"DST_Points"}, f"unexpected position-scoped columns: {scoped}"
+    assert scoped == {"ath_pos_rank", "ath_rank_delta", "ath_override"}, \
+        f"unexpected position-scoped columns: {scoped}"
     for always in ("ESPN_Points", "FP_Points", "BOL_Points", "TRUE_Points"):
         spec = next(c for c in dv.COLUMNS if c.source == always)
         assert spec.positions == ()

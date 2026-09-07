@@ -28,6 +28,7 @@ import pytest
 from Scripts import vegas
 from Scripts.dst import model as dst
 from Scripts.kicking import model as kick
+import Scripts.projection_utils as pu
 from Scripts.projection_utils import IMPUTED_SUFFIX, compute_weighted_stats
 
 
@@ -201,15 +202,15 @@ def test_misses_are_allocated_on_the_miss_distribution_not_the_make_one():
 def test_projected_misses_sum_back_to_the_total():
     """Per-bucket misses are normalised, so they reconcile however the pool drifts."""
     pred = kick.project(2026)
-    buckets = ["KIK_missedFieldGoalsFromUnder40",
-               "KIK_missedFieldGoalsFromFrom40To49",
-               "KIK_missedFieldGoalsFromFrom50Plus"]
-    total = pred["KIK_missedFieldGoals"].to_numpy()
+    buckets = ["USG_missedFieldGoalsFromUnder40",
+               "USG_missedFieldGoalsFrom40To49",
+               "USG_missedFieldGoalsFrom50Plus"]
+    total = pred["USG_missedFieldGoals"].to_numpy()
     parts = sum(pred[b].to_numpy() for b in buckets)
     assert np.allclose(parts, total, rtol=1e-9), "bucket misses must sum to the total"
     # And the short bucket must be the small one, on real projected output.
-    short = pred["KIK_missedFieldGoalsFromUnder40"].mean()
-    assert short < pred["KIK_missedFieldGoalsFromFrom50Plus"].mean()
+    short = pred["USG_missedFieldGoalsFromUnder40"].mean()
+    assert short < pred["USG_missedFieldGoalsFrom50Plus"].mean()
     assert short < 1.5, f"short misses back above the pre-fix level: {short:.2f}"
 
 
@@ -240,12 +241,12 @@ def test_the_team_merge_translates_espn_abbreviations():
     and WAS. A silent miss here would drop two teams from every projection."""
     from Scripts.season_projections import _merge_team_source
 
-    out = _merge_team_source(board(), source("KIK", ["KIK_madeFieldGoals"]),
-                             "KIK", ("K",), "Kicking")
+    out = _merge_team_source(board(), source("USG", ["USG_madeFieldGoals"]),
+                             "USG", ("K",), "Kicking")
     lar = out[(out["pro_team"] == "LAR") & (out["primaryPosition"] == "K")]
-    assert lar["KIK_madeFieldGoals"].notna().all(), "LAR did not resolve to LA"
+    assert lar["USG_madeFieldGoals"].notna().all(), "LAR did not resolve to LA"
     wsh = out[out["pro_team"] == "WSH"]
-    assert wsh["KIK_madeFieldGoals"].isna().all(), "WSH is a D/ST row here, not a kicker"
+    assert wsh["USG_madeFieldGoals"].isna().all(), "WSH is a D/ST row here, not a kicker"
 
 
 def test_the_team_merge_flags_every_off_position_row_as_imputed():
@@ -253,49 +254,69 @@ def test_the_team_merge_flags_every_off_position_row_as_imputed():
     non-kicker on the board -- the trap ESPN falls into by shipping no provenance."""
     from Scripts.season_projections import _merge_team_source
 
-    out = _merge_team_source(board(), source("KIK", ["KIK_madeFieldGoals"]),
-                             "KIK", ("K",), "Kicking")
-    flag = f"KIK_madeFieldGoals{IMPUTED_SUFFIX}"
+    out = _merge_team_source(board(), source("USG", ["USG_madeFieldGoals"]),
+                             "USG", ("K",), "Kicking")
+    flag = f"USG_madeFieldGoals{IMPUTED_SUFFIX}"
     assert flag in out.columns
     wr = out[out["primaryPosition"] == "WR"]
     assert wr[flag].all(), "a receiver must be flagged imputed for a kicking stat"
-    assert wr["KIK_madeFieldGoals"].isna().all()
+    assert wr["USG_madeFieldGoals"].isna().all()
     k = out[out["primaryPosition"] == "K"]
     assert not k[flag].any(), "a matched kicker must not be flagged imputed"
 
 
 def test_a_source_at_weight_zero_cannot_move_the_blend():
-    """The shipping invariant. Both models are registered at 0.0 so their columns reach
-    the board while ``TRUE_`` is untouched -- plan 18's pattern, checked rather than
-    asserted."""
+    """The zero-weight mechanism, kept after the last shipped user of it went away.
+
+    Both special-teams arms used to ride at 0.0 so their columns could reach the board
+    with ``TRUE_`` untouched. Since 2026-09-02 they are TOMCAT rather than sources of
+    their own and carry its 0.25, so **no shipped source sits at 0.0 any more.** The
+    path stays pinned because it is the one plan 03 warns about: an *exact* zero
+    collapses the renormalised denominator, and the fallback it takes has to be the
+    one that leaves the other sources alone.
+    """
     df = pd.DataFrame({
         "ESPN_receivingYards": [900.0, 1100.0],
+        f"ESPN_receivingYards{IMPUTED_SUFFIX}": [False, False],
         "USG_receivingYards": [800.0, 1000.0],
         f"USG_receivingYards{IMPUTED_SUFFIX}": [False, False],
-        "KIK_receivingYards": [1e6, 1e6],
-        f"KIK_receivingYards{IMPUTED_SUFFIX}": [False, False],
+        "MUTE_receivingYards": [1e6, 1e6],
+        f"MUTE_receivingYards{IMPUTED_SUFFIX}": [False, False],
     })
-    with_kik = compute_weighted_stats(
+    with_mute = compute_weighted_stats(
         df.copy(), ["receivingYards"],
-        {"default": {"ESPN": 0.5, "USG": 0.5, "KIK": 0.0}})
+        {"default": {"ESPN": 0.5, "USG": 0.5, "MUTE": 0.0}})
     without = compute_weighted_stats(
-        df.drop(columns=["KIK_receivingYards",
-                         f"KIK_receivingYards{IMPUTED_SUFFIX}"]).copy(),
+        df.drop(columns=["MUTE_receivingYards",
+                         f"MUTE_receivingYards{IMPUTED_SUFFIX}"]).copy(),
         ["receivingYards"], {"default": {"ESPN": 0.5, "USG": 0.5}})
-    assert (with_kik["TRUE_receivingYards"]
+    assert (with_mute["TRUE_receivingYards"]
             == without["TRUE_receivingYards"]).all(), (
-        "a weight-0.0 source moved TRUE_, so shipping it off is not safe")
+        "a weight-0.0 source moved TRUE_, so shipping one off is not safe")
+
+
+def test_no_shipped_source_rides_at_weight_zero():
+    """The other half of the change above, so it cannot be undone by accident.
+
+    A 0.0 entry is how a source ships dark, and it is also how a source gets forgotten:
+    the kicking arm sat at 0.0 for a fortnight while emitting a column name no league
+    scored, and nothing caught it because the wrong number could not reach
+    ``TRUE_Points``. If one is reintroduced, it should be a decision that edits this
+    test.
+    """
+    assert all(w > 0.0 for w in pu.WEIGHTS["default"].values()), (
+        f"a source is registered at 0.0: {pu.WEIGHTS['default']}")
 
 
 def test_a_flagged_source_loses_its_weight_and_the_rest_renormalise():
     """Why the flags matter: an absent kicking line must not dilute ESPN toward zero."""
     df = pd.DataFrame({
         "ESPN_madeFieldGoals": [30.0],
-        "KIK_madeFieldGoals": [np.nan],
-        f"KIK_madeFieldGoals{IMPUTED_SUFFIX}": [True],
+        "USG_madeFieldGoals": [np.nan],
+        f"USG_madeFieldGoals{IMPUTED_SUFFIX}": [True],
     })
     out = compute_weighted_stats(df, ["madeFieldGoals"],
-                                {"default": {"ESPN": 0.5, "KIK": 0.5}})
+                                {"default": {"ESPN": 0.5, "USG": 0.5}})
     assert out["TRUE_madeFieldGoals"].iloc[0] == pytest.approx(30.0), (
         "a flagged-absent source must drop its weight, not contribute a zero")
 
@@ -309,8 +330,8 @@ def test_realised_tier_counts_are_a_full_slate_and_never_negative():
     from Scripts.dst import gates
 
     truth = gates.realised([2024])
-    pa = [f"DST_defensive{t}" for t, _, _ in dst.PA_TIERS]
-    yd = [f"DST_defensive{t}" for t, _, _ in dst.YD_TIERS]
+    pa = [f"USG_defensive{t}" for t, _, _ in dst.PA_TIERS]
+    yd = [f"USG_defensive{t}" for t, _, _ in dst.YD_TIERS]
     for group in (pa, yd):
         total = sum(truth[c].to_numpy() for c in group)
         assert (total >= 14).all(), "a team-season should carry a near-full slate"
@@ -418,3 +439,65 @@ def test_every_schedule_team_maps_from_its_book_name():
     covered = {row["team_abbr"] for row in names.iter_rows(named=True)
                if row["team_name"] in mapped and row["team_abbr"] in in_use}
     assert covered == in_use, f"no book name maps to {sorted(in_use - covered)}"
+
+
+# --- the column names the arms emit ---------------------------------------
+
+def test_field_goal_band_columns_are_names_espn_actually_scores():
+    """The regression for the `FromFrom` defect.
+
+    `BUCKETS` keys are not uniform -- `Under40` needs a `From` prefix and `From40To49`
+    already carries one -- and the code this guards special-cased the wrong half,
+    emitting `madeFieldGoalsFromFrom40To49` for two of three bands. No league scores a
+    column by that name, so two thirds of a kicker's field-goal value was silently
+    worth zero and the arm read at 0.577x ESPN's points instead of 0.946x.
+
+    Pinned by the property rather than only by the literals: a doubled `From` is the
+    defect class, and asserting the exact strings is what let the old version through
+    -- the previous test restated the typo by name, so it agreed with the code about a
+    string ESPN has never used.
+    """
+    emitted = {kick.fg_column(kind, b)
+               for kind in ("made", "missed") for b in kick.BUCKETS}
+    assert emitted == {
+        "USG_madeFieldGoalsFromUnder40",
+        "USG_madeFieldGoalsFrom40To49",
+        "USG_madeFieldGoalsFrom50Plus",
+        "USG_missedFieldGoalsFromUnder40",
+        "USG_missedFieldGoalsFrom40To49",
+        "USG_missedFieldGoalsFrom50Plus",
+    }
+    for name in emitted:
+        assert "FromFrom" not in name, f"doubled From in {name}"
+
+
+def test_every_arm_writes_the_one_tomcat_namespace():
+    """Three backends, one prefix. A stray `KIK_` or `DST_` would not be blended at
+    all -- `WEIGHTS` no longer carries an entry for either, so the column would ride
+    the board looking like a source and voting on nothing."""
+    for arm in (kick.project(2026), dst.project(2026)):
+        stray = [c for c in arm.columns if c.startswith(("KIK_", "DST_"))]
+        assert not stray, f"arm still writes its own prefix: {stray}"
+        assert any(c.startswith("USG_") for c in arm.columns)
+
+
+def test_the_three_arms_stat_sets_stay_disjoint():
+    """What makes one namespace safe. If an arm ever emitted a name another already
+    used, the second merge would silently overwrite the first -- so this is the
+    precondition for the whole unification, checked rather than assumed."""
+    def stats(frame):
+        return {c[4:] for c in frame.columns if c.startswith("USG_")}
+    k, d = stats(kick.project(2026)), stats(dst.project(2026))
+    assert not (k & d), f"kicking and defence arms collide on {sorted(k & d)}"
+
+
+def test_the_defence_gate_scores_into_the_shared_namespace():
+    """`gates.score` builds its own frame and scores it by prefix, which is a second
+    place the rename had to land. It returned `USG_Points` while `_apply_scoring` was
+    still writing `DST_Points`, and nothing failed because the gate is not in this
+    suite -- it needs seasons of registry data the tests do not carry."""
+    import inspect
+    from Scripts.dst import gates
+    body = inspect.getsource(gates.score)
+    assert '["USG"]' in body, "the gate scores a prefix the arm no longer writes"
+    assert '"DST_Points"' not in body

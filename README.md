@@ -1,6 +1,6 @@
 # ESPN Fantasy Football Analytics
 
-Pulls league data from the ESPN Fantasy API for nine leagues, blends four
+Pulls league data from the ESPN Fantasy API for nine leagues, blends six
 independent projection sources into each league's **own** scoring settings, and
 publishes weekly lineup and free-agent boards to a local app and to Google
 Sheets.
@@ -11,9 +11,14 @@ IDP league, and a superflex league without special-casing.
 
 - **[docs/STATE_OF_THE_REPO.md](docs/STATE_OF_THE_REPO.md)** — what works, what
   is broken, and the prioritised backlog. Start here.
-- **[docs/projection_pipeline.html](docs/projection_pipeline.html)** — every source,
-  how they blend into `TRUE_Points`, and what the app shows. A living document;
-  open it in a browser, no build step.
+- **[docs/projection_pipeline.html](docs/projection_pipeline.html)** — how the blend
+  works: stat lines in, one equal vote per source with an opinion, `TRUE_Points` out.
+  The narrative. Hand-written, and its figures are stamped 2026-08-24.
+- **[docs/projection_sources.html](docs/projection_sources.html)** — what each source
+  *is*: how it is fetched, whether it is available at the draft or week to week, what
+  it depends on, and which way it is biased by stat and position. Generated from the
+  live board by `python -m Scripts.lab.sources`; open either in a browser, no build
+  step.
 - **[docs/DRAFT_READINESS.md](docs/DRAFT_READINESS.md)** — the 2026 draft countdown:
   the dates ESPN has, what is verified working, and what to do on which day.
   Temporary — retire it after the last draft.

@@ -217,9 +217,15 @@
       <span>Board: 2,504 rows × 1,355 columns</span>
       <span>1,285 draftable</span>
     </div>
-    <p class="living">A living document. When the sources, the weights or the board's
-      columns change, this changes with them — figures below are measured on the current
-      build, not remembered.</p>
+    <p class="living">A living document — but a hand-written one, and it has fallen behind
+      once. <strong>Every figure below is measured on the 2026-08-24 board</strong>, before
+      The Athletic became a sixth equal vote on 2026-09-01 and before the availability gates
+      landed. The architecture it describes is current; the numbers are a snapshot with a date
+      on them. For per-source figures generated from the live board — coverage, per-position
+      bias, realised weights and all eight voting prefixes — see
+      <a href="projection_sources.html"><strong>projection_sources.html</strong></a>, which is
+      re-rendered by <span class="mono">python -m Scripts.lab.sources</span> rather than
+      maintained by hand.</p>
   </header>
 
   <!-- ============ ARCHITECTURE ============ -->
@@ -239,7 +245,7 @@
     <figure>
       <div class="figbox">
         <svg viewBox="0 0 960 372" role="img"
-             aria-label="Four external sources and one internal model are imputed and flagged, then blended with flagged weights dropped and the remainder renormalised, producing a TRUE_ stat line scored separately under each of nine leagues' rules.">
+             aria-label="Five external sources and one internal model are imputed and flagged, then blended with flagged weights dropped and the remainder renormalised, producing a TRUE_ stat line scored separately under each of nine leagues' rules.">
           <defs>
             <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
               <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
@@ -252,15 +258,17 @@
 
             <text x="16" y="22" font-size="10.5" fill="var(--ink-mute)" letter-spacing="1.6">EXTERNAL</text>
             <g stroke="currentColor" stroke-width="1" fill="none">
-              <rect x="16" y="32"  width="152" height="28" rx="3"/>
-              <rect x="16" y="66"  width="152" height="28" rx="3"/>
-              <rect x="16" y="100" width="152" height="28" rx="3"/>
-              <rect x="16" y="134" width="152" height="28" rx="3"/>
+              <rect x="16" y="32"  width="152" height="24" rx="3"/>
+              <rect x="16" y="62"  width="152" height="24" rx="3"/>
+              <rect x="16" y="92"  width="152" height="24" rx="3"/>
+              <rect x="16" y="122" width="152" height="24" rx="3"/>
+              <rect x="16" y="152" width="152" height="24" rx="3"/>
             </g>
-            <text x="28" y="50">ESPN</text>        <text x="156" y="50" text-anchor="end">.25</text>
-            <text x="28" y="84">FantasyPros</text> <text x="156" y="84" text-anchor="end">.25</text>
-            <text x="28" y="118">BetOnline</text>  <text x="156" y="118" text-anchor="end">.25</text>
-            <text x="28" y="152">Pinnacle</text>   <text x="156" y="152" text-anchor="end">.25</text>
+            <text x="28" y="48" font-size="11">ESPN</text>          <text x="156" y="48" text-anchor="end" font-size="11">.25</text>
+            <text x="28" y="78" font-size="11">FantasyPros</text>   <text x="156" y="78" text-anchor="end" font-size="11">.25</text>
+            <text x="28" y="108" font-size="11">The Athletic</text> <text x="156" y="108" text-anchor="end" font-size="11">.25</text>
+            <text x="28" y="138" font-size="11">BetOnline</text>    <text x="156" y="138" text-anchor="end" font-size="11">.25</text>
+            <text x="28" y="168" font-size="11">Pinnacle</text>     <text x="156" y="168" text-anchor="end" font-size="11">.25</text>
 
             <text x="16" y="190" font-size="10.5" fill="var(--brass)" letter-spacing="1.6">OURS · TOMCAT</text>
             <rect x="16" y="200" width="152" height="112" rx="3"
@@ -270,14 +278,15 @@
             <line x1="28" y1="230" x2="156" y2="230" stroke="var(--brass)" stroke-width=".6" opacity=".5"/>
             <text x="34" y="250" font-size="10.5" fill="var(--ink-soft)">usage arm · QB RB WR TE</text>
             <text x="34" y="270" font-size="10.5" fill="var(--ink-soft)">defence arm · D/ST</text>
-            <text x="34" y="290" font-size="10.5" fill="var(--dormant)">kicking arm · K (held)</text>
+            <text x="34" y="290" font-size="10.5" fill="var(--ink-soft)">kicking arm · K</text>
             <text x="34" y="306" font-size="9.5" fill="var(--ink-mute)">one source, three backends</text>
 
             <g stroke="currentColor" stroke-width="1" fill="none" marker-end="url(#ar)" opacity=".55">
-              <path d="M 172 46  C 205 46, 205 156, 236 156"/>
-              <path d="M 172 80  C 205 80, 205 156, 236 156"/>
-              <path d="M 172 114 C 205 114, 205 156, 236 156"/>
-              <path d="M 172 148 C 205 148, 205 156, 236 156"/>
+              <path d="M 172 44  C 205 44, 205 156, 236 156"/>
+              <path d="M 172 74  C 205 74, 205 156, 236 156"/>
+              <path d="M 172 104 C 205 104, 205 156, 236 156"/>
+              <path d="M 172 134 C 205 134, 205 156, 236 156"/>
+              <path d="M 172 164 C 205 164, 205 156, 236 156"/>
             </g>
             <path d="M 172 256 C 205 256, 205 156, 236 156" stroke="var(--brass)"
                   stroke-width="1.2" fill="none" marker-end="url(#arb)"/>
@@ -403,11 +412,17 @@
   <!-- ============ SOURCES ============ -->
   <section id="sources">
     <p class="kicker">Inputs</p>
-    <h2>Four external sources, and ours</h2>
+    <h2>Five external sources, and ours</h2>
     <div class="measure">
-      <p>Four feeds we do not control, and one internal model that covers every position
+      <p>Five feeds we do not control, and one internal model that covers every position
         through three different backends. Coverage below is real, non-imputed cells among
         the 1,285 draftable players on the 2026 GOP&nbsp;Degenerates board.</p>
+      <p class="note"><strong>The table below is the four-source world and predates
+        <span class="mono">ATH_</span></strong> — The Athletic joined at an equal 0.25 on
+        2026-09-01, after this page was measured. Rather than restate its numbers here at a
+        second date, the current per-source figures live in
+        <a href="projection_sources.html">projection_sources.html</a>, which is generated from
+        the live board and covers all eight voting prefixes.</p>
     </div>
 
     <div class="tablewrap">
@@ -469,9 +484,9 @@
           <tr class="arm">
             <td class="src">kicking arm</td>
             <td>K — extra points from the implied total, field goals from red-zone volume</td>
-            <td class="num"><span class="pill pill-off">held</span></td>
-            <td class="num">36 kickers</td>
-            <td class="note">Built and withheld from the blend: the extra-point channel is strong (+45.9%), the field-goal channel failed its gate at +1.2% against a 5% bar</td>
+            <td class="num">.25</td>
+            <td class="num">32 teams</td>
+            <td class="note">Blended from 2026-09-02, <strong>over a gate it did not pass</strong>: the extra-point channel is strong (+45.9%), the field-goal channel failed at +1.2% against a 5% bar. Turned on because the 0.0 was hiding a column-name defect rather than a model, and the measured cost is ~4 points a kicker</td>
           </tr>
         </tbody>
       </table>
@@ -495,10 +510,27 @@
         implementation detail: the usage arm reads snap share, the defence arm reads implied
         points allowed, the kicking arm reads red-zone volume. Above that line they are one
         opinion, cast once, weighted like everybody else's.</p>
-      <p>The kicking arm is the exception, and deliberately so. It ships as a readable column
-        and is kept out of the blend until its field-goal channel clears the bar it was
-        pre-registered against. One model, three arms, and the arms mature at different
-        rates.</p>
+      <p><strong>Since 2026-09-02 that is literally true rather than aspirational.</strong>
+        The three arms wrote <span class="mono">USG_</span>, <span class="mono">DST_</span>
+        and <span class="mono">KIK_</span> and carried three separate entries in
+        <span class="mono">WEIGHTS</span>, which made the table claim eight sources where
+        there are six. They now share one prefix and one vote. The stat sets are disjoint —
+        no receiver has a field goal — so one namespace holds all three, and position
+        scoping falls out of the provenance flags instead of needing its own weights: a
+        quarterback's <span class="mono">USG_madeExtraPoints</span> is null and flagged, so
+        the weight is dropped and the rest renormalise, exactly as for a book with no line.</p>
+      <p>The kicking arm was the exception until then, kept out of the blend until its
+        field-goal channel cleared the bar it was pre-registered against. <strong>It now
+        votes without having cleared it</strong>, which is an override rather than a pass.
+        The 0.0 had been hiding a defect rather than a model: the arm emitted
+        <span class="mono">madeFieldGoalsFromFrom40To49</span> for two of three distance
+        bands, which no league scores, so two thirds of a kicker's field-goal value was
+        silently zero and the arm read at <strong>0.577×</strong> ESPN's points. Corrected it
+        reads 0.946×, and letting it vote costs a kicker about <strong>four points</strong> —
+        against the alternative of leaving a starting slot in nine leagues at 100% ESPN.
+        Read a kicker's <span class="mono">TOM</span> as the weakest number on the board;
+        it is the only column in the blend riding over a gate it did not pass. See
+        <a href="plans/29-kicker-model.md">plan 29</a>.</p>
       <p style="font-size:.9rem;color:var(--ink-soft)">The column prefix underneath is still
         <span class="mono">USG_</span>. Renaming it would orphan
         <span class="mono">Data/G2/2026/</span> — the pre-season counterfactual archived to
@@ -617,10 +649,15 @@
         VOR on the table is built from it. <strong>DST</strong> renders only when defences are
         in view; a team defence's projection is not <em>missing</em> from a receiver's row, it
         is a question never asked of him.</p>
-      <p>Compare <span class="mono">TOM</span> by <em>rank</em> rather than points.
-        <span class="mono">USG_Points</span> is injury-adjusted and
-        <span class="mono">TRUE_Points</span> is not, so the rank delta is the comparison that
-        survives.</p>
+      <p>Compare <span class="mono">TOM</span> by <em>rank</em> rather than points — but not
+        for the reason this page used to give. It said <span class="mono">USG_Points</span> is
+        injury-adjusted and <span class="mono">TRUE_Points</span> is not, and that is
+        <strong>backwards</strong>: <span class="mono">to_full_slate</span> divides expected
+        games back out before the blend reads the model, so all six sources describe a full
+        seventeen-game season and the board&#39;s <em>Availability</em> toggle is what applies a
+        discount to the whole blend. The rank delta is still the comparison that survives, because
+        the model shrinks toward positional baselines where the other sources extrapolate — a
+        difference in spread rather than in units.</p>
     </div>
   </section>
 
@@ -644,7 +681,11 @@
   </section>
 
   <footer class="end">
-    <p>Figures measured on the 2026-08-24 board build, GOP&nbsp;Degenerates unless stated.
+    <p><strong>Figures measured on the 2026-08-24 board build</strong>, GOP&nbsp;Degenerates
+      unless stated — so the coverage, realised-weight and sources-with-a-real-line tables above
+      all describe the four-source world that preceded <span class="mono">ATH_</span>, and top
+      out at five sources rather than six. They are stamped rather than restated;
+      <a href="projection_sources.html">projection_sources.html</a> carries the current ones.
       Coverage counts are non-imputed cells among draftable players. Blend weights live in
       <span class="mono">Scripts/projection_utils.py</span>; the column specs and their
       glossary entries live in <span class="mono">app/draft_view.py</span>, which is the single

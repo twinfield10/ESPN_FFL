@@ -388,7 +388,8 @@ def build_board(
         pd.DataFrame: One row per player, sorted by ``vor`` descending, with
         ``vor``, ``vor_rank``, ``pos_rank``, ``tier``, ``adp``, ``adp_rank``,
         ``value``, ``adp_is_priced``, ``replacement_rank``, ``bye_week``, the four
-        ESPN comparison columns of :func:`_attach_espn_comparison` and the market
+        ESPN comparison columns of :func:`_attach_espn_comparison`,
+        ``ath_rank_delta`` from :func:`_attach_athletic_comparison`, and the market
         columns. ``value`` is NaN wherever the market has not priced the player --
         see :func:`adp_plateau`.
 
@@ -459,6 +460,7 @@ def build_board(
     board["value"] = board["value_rank_adp"] - board["value_rank_vor"]
 
     board = _attach_espn_comparison(board, points_column)
+    board = _attach_athletic_comparison(board)
 
     board["tier"] = (
         board.groupby("primaryPosition")[points_column]
@@ -622,6 +624,50 @@ def _attach_espn_comparison(board: pd.DataFrame, points_column: str) -> pd.DataF
         if "espn_draft_rank" in board.columns else missing
     )
     board["pos_rank_delta"] = board["espn_pos_rank"] - board["pos_rank"]
+    return board
+
+
+def _attach_athletic_comparison(board: pd.DataFrame) -> pd.DataFrame:
+    """Our positional order against The Athletic's hand ranking.
+
+    ``ath_pos_rank`` is Jake Ciely's hand rank, merged in
+    :func:`Scripts.season_projections.build_season_projections`. It is an expert's
+    ordering rather than a projection -- the stat lines behind it already vote as
+    ``ATH_`` -- so it is compared here, at the board layer, next to ESPN's published
+    draft ranking and for the same reason: a ranking belongs against a ranking, and
+    is not re-derived from anybody's points.
+
+    **Both sides re-ranked over the players he ranked.** He ranks 85 backs and this
+    board carries roughly half as many again, so reading his 60 against a ``pos_rank``
+    of 60 drawn from the deeper pool would report a disagreement that is really pool
+    depth. This is the restricted comparison ``value_rank_adp``/``value_rank_vor``
+    already make against the market, for the same reason.
+
+    Positive means **he is higher on the player than we are**, matching
+    ``USG_PosRankDelta`` rather than the ``rank_delta``/``pos_rank_delta`` beside it,
+    which read the other way round. The two conventions already coexist in the board's
+    ``Position Ranks`` group; this follows the one that reads correctly for an
+    opinion.
+
+    Args:
+        board: The merged frame, after ``pos_rank``.
+
+    Returns:
+        pd.DataFrame: ``board`` with ``ath_rank_delta``. All-NaN where the ranking
+        was never built, so the board's shape does not depend on which files existed
+        -- the same contract :func:`_attach_espn_comparison` keeps.
+    """
+    if "ath_pos_rank" not in board.columns:
+        return board
+
+    board["ath_rank_delta"] = np.nan
+    ranked = board["ath_pos_rank"].notna() & board["pos_rank"].notna()
+    if not ranked.any():
+        return board
+
+    ours = board.loc[ranked].groupby("primaryPosition")["pos_rank"].rank(
+        ascending=True, method="min")
+    board.loc[ranked, "ath_rank_delta"] = ours - board.loc[ranked, "ath_pos_rank"]
     return board
 
 

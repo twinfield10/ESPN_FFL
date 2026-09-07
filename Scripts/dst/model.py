@@ -220,7 +220,7 @@ def project(season: int, model: Optional[Dict] = None) -> pl.DataFrame:
         model: Output of :func:`fit`. Loaded from :data:`MODEL_PATH` when None.
 
     Returns:
-        pl.DataFrame: ``season``, ``team``, ``DST_<stat>`` over a :data:`SLATE`-game
+        pl.DataFrame: ``season``, ``team``, ``USG_<stat>`` over a :data:`SLATE`-game
         season -- rate components, both tier vectors as expected games, and the two
         season totals -- plus ``dst_n_priced`` and ``dst_evidence``.
     """
@@ -235,12 +235,12 @@ def project(season: int, model: Optional[Dict] = None) -> pl.DataFrame:
         if c == "def_tds":
             share = model["int_td_share"]
             out = out.with_columns(
-                pl.Series("DST_interceptionReturnTouchdowns", per_game * SLATE * share),
-                pl.Series("DST_fumbleReturnTouchdowns", per_game * SLATE * (1 - share)),
-                pl.Series("DST_fumbleRecoveredForTD", per_game * SLATE * (1 - share)),
-                pl.Series("DST_defensiveTouchdowns", per_game * SLATE))
+                pl.Series("USG_interceptionReturnTouchdowns", per_game * SLATE * share),
+                pl.Series("USG_fumbleReturnTouchdowns", per_game * SLATE * (1 - share)),
+                pl.Series("USG_fumbleRecoveredForTD", per_game * SLATE * (1 - share)),
+                pl.Series("USG_defensiveTouchdowns", per_game * SLATE))
         else:
-            out = out.with_columns(pl.Series(f"DST_{RATES[c]}", per_game * SLATE))
+            out = out.with_columns(pl.Series(f"USG_{RATES[c]}", per_game * SLATE))
 
     for name, ladder in (("points_allowed", PA_TIERS), ("yards_allowed", YD_TIERS)):
         spec = model["tiers"][name]
@@ -248,9 +248,9 @@ def project(season: int, model: Optional[Dict] = None) -> pl.DataFrame:
         probs = _tier_probs(mean, np.array(spec["residuals"]), ladder)
         for j, (tier, _, _) in enumerate(ladder):
             out = out.with_columns(
-                pl.Series(f"DST_defensive{tier}", probs[:, j] * SLATE))
-        total = "DST_defensivePointsAllowed" if name == "points_allowed" \
-            else "DST_defensiveYardsAllowed"
+                pl.Series(f"USG_defensive{tier}", probs[:, j] * SLATE))
+        total = "USG_defensivePointsAllowed" if name == "points_allowed" \
+            else "USG_defensiveYardsAllowed"
         out = out.with_columns(pl.Series(total, np.clip(mean, 0.0, None) * SLATE))
 
     return out.with_columns(
@@ -317,18 +317,18 @@ def main(argv: Optional[List[str]] = None) -> int:
         path = projection_path(a.season, create=True)
         pred.write_parquet(path)
         print(f"\n  wrote {pred.height} teams -> {path}")
-        pa = [f"DST_defensive{t}" for t, _, _ in PA_TIERS]
+        pa = [f"USG_defensive{t}" for t, _, _ in PA_TIERS]
         chk = pred.with_columns(sum(pl.col(c) for c in pa).alias("tier_sum"))
         print(f"  points-allowed tier vectors sum to "
               f"[{chk['tier_sum'].min():.3f}, {chk['tier_sum'].max():.3f}] "
               f"(must be {SLATE})")
-        top = pred.sort("DST_defensiveSacks", descending=True).head(5)
+        top = pred.sort("USG_defensiveSacks", descending=True).head(5)
         print("\n  most sacks projected:")
         for r in top.iter_rows(named=True):
-            print(f"    {r['team']:4s} sacks {r['DST_defensiveSacks']:5.1f}  "
-                  f"INT {r['DST_defensiveInterceptions']:4.1f}  "
-                  f"pts allowed {r['DST_defensivePointsAllowed']:6.1f}  "
-                  f"shutouts {r['DST_defensive0PointsAllowed']:.2f}")
+            print(f"    {r['team']:4s} sacks {r['USG_defensiveSacks']:5.1f}  "
+                  f"INT {r['USG_defensiveInterceptions']:4.1f}  "
+                  f"pts allowed {r['USG_defensivePointsAllowed']:6.1f}  "
+                  f"shutouts {r['USG_defensive0PointsAllowed']:.2f}")
     return 0
 
 

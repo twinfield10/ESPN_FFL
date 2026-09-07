@@ -57,38 +57,38 @@ def realised(seasons: Sequence[int]) -> pl.DataFrame:
         seasons: Seasons to summarise.
 
     Returns:
-        pl.DataFrame: ``season``, ``team`` and ``DST_<stat>`` columns.
+        pl.DataFrame: ``season``, ``team`` and ``USG_<stat>`` columns.
     """
     tw = dm.team_weeks(list(seasons))
 
     aggs = [pl.len().alias("games")]
     for col, espn in dm.RATES.items():
-        aggs.append(pl.col(col).fill_null(0).sum().alias(f"DST_{espn}"))
+        aggs.append(pl.col(col).fill_null(0).sum().alias(f"USG_{espn}"))
     aggs.append(pl.col("def_tds").fill_null(0).sum().alias("_def_tds"))
     aggs.append(pl.col("points_allowed").fill_null(0).sum()
-                .alias("DST_defensivePointsAllowed"))
+                .alias("USG_defensivePointsAllowed"))
     aggs.append(pl.col("yards_allowed").fill_null(0).sum()
-                .alias("DST_defensiveYardsAllowed"))
+                .alias("USG_defensiveYardsAllowed"))
 
     # Games in each tier, counted one week at a time.
     for name, ladder, src in (("pa", dm.PA_TIERS, "points_allowed"),
                               ("yd", dm.YD_TIERS, "yards_allowed")):
         for tier, lo, hi in ladder:
             aggs.append(((pl.col(src) >= lo) & (pl.col(src) <= hi))
-                        .sum().cast(pl.Float64).alias(f"DST_defensive{tier}"))
+                        .sum().cast(pl.Float64).alias(f"USG_defensive{tier}"))
 
     out = tw.group_by(["season", "team"]).agg(aggs)
     share = dm.INT_TD_SHARE
     return out.with_columns(
-        (pl.col("_def_tds") * share).alias("DST_interceptionReturnTouchdowns"),
-        (pl.col("_def_tds") * (1 - share)).alias("DST_fumbleReturnTouchdowns"),
-        (pl.col("_def_tds") * (1 - share)).alias("DST_fumbleRecoveredForTD"),
-        pl.col("_def_tds").cast(pl.Float64).alias("DST_defensiveTouchdowns"),
+        (pl.col("_def_tds") * share).alias("USG_interceptionReturnTouchdowns"),
+        (pl.col("_def_tds") * (1 - share)).alias("USG_fumbleReturnTouchdowns"),
+        (pl.col("_def_tds") * (1 - share)).alias("USG_fumbleRecoveredForTD"),
+        pl.col("_def_tds").cast(pl.Float64).alias("USG_defensiveTouchdowns"),
     ).drop("_def_tds")
 
 
 def score(frame: pl.DataFrame, league_key: str, season: int) -> pd.DataFrame:
-    """Score a ``DST_``-prefixed component frame under one league's slot-16 rules.
+    """Score a ``USG_``-prefixed component frame under one league's slot-16 rules.
 
     Args:
         frame: Output of :func:`realised` or :func:`dm.project`.
@@ -96,14 +96,14 @@ def score(frame: pl.DataFrame, league_key: str, season: int) -> pd.DataFrame:
         season: Season whose scoring table applies.
 
     Returns:
-        pd.DataFrame: ``team`` and ``DST_Points``.
+        pd.DataFrame: ``team`` and ``USG_Points``.
     """
     pdf = frame.to_pandas()
     pdf["primaryPosition"] = "D/ST"
     table = get_scoring_table(league_key=league_key, season=season,
                               verify=False, slot=SLOT_DST)
-    _apply_scoring(pdf, table, ["DST"])
-    return pdf[["team", "DST_Points"]].copy()
+    _apply_scoring(pdf, table, ["USG"])
+    return pdf[["team", "USG_Points"]].copy()
 
 
 def _walk_forward(test_seasons: Sequence[int],
@@ -146,9 +146,9 @@ def run(test_seasons: Optional[Sequence[int]] = None,
             before = score(truth.filter(pl.col("season") == s - 1), key, s)
             pred = score(preds[s], key, s)
 
-            a = actual.rename(columns={"DST_Points": "actual"})
-            m = a.merge(pred.rename(columns={"DST_Points": "model"}), on="team")
-            m = m.merge(before.rename(columns={"DST_Points": "prior"}), on="team")
+            a = actual.rename(columns={"USG_Points": "actual"})
+            m = a.merge(pred.rename(columns={"USG_Points": "model"}), on="team")
+            m = m.merge(before.rename(columns={"USG_Points": "prior"}), on="team")
             m = m.dropna(subset=["actual", "model", "prior"])
             model_err.append((m["model"] - m["actual"]).abs())
             prior_err.append((m["prior"] - m["actual"]).abs())

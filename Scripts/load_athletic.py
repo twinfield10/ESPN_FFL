@@ -25,8 +25,12 @@ What this deliberately does not read:
   ``0 PT GAMES``..``35+ PT GAMES`` columns are null for all 32 teams, so the
   workbook's own defence values omit the points-allowed component entirely. This
   repo's ``DST`` model is blended at 0.25 and is the better number.
-- ``Jake's Ranks`` -- a human overlay that deliberately disagrees with his own
-  projections. A rank is not a stat line and has nowhere to go in the blend.
+
+And what it reads *besides* the stat lines: the ``Rankings`` tab, which carries Jake
+Ciely's hand ranking of 290 players. An ordering is not a stat line and has nowhere to
+go in a blend that works in stat space, so it is written to a **separate** file and
+reaches the board as lowercase ``ath_`` columns that no blend or scoring pass can see.
+See :data:`RANK_TAB` for why it is that tab and not the one named after him.
 """
 
 from __future__ import annotations
@@ -122,6 +126,43 @@ POSITION_STATS: Dict[str, frozenset] = {
 POSITIONS: Sequence[str] = tuple(POSITION_STATS)
 
 
+#: The tab the hand ranking actually lives on.
+#:
+#: Not ``Jake's Ranks``, which looks like the source and is not. Every cell on that tab
+#: is a lookup: ``=VLOOKUP(<rank>,Rankings!A:T,3,FALSE)`` for the name, and
+#: ``=VLOOKUP(<player>,QB!B:O,4,FALSE)`` for the stat columns beside it. Those stats are
+#: the same projections the team tabs already give us -- checked against the built
+#: parquet, all 85 running backs match to the float -- so the ordering is the only thing
+#: on it we do not already have, and the ordering comes from here.
+RANK_TAB = "Rankings"
+
+#: Rank flavors, in the order their column blocks appear on :data:`RANK_TAB`.
+#:
+#: The workbook says which block is which rather than leaving it to be inferred:
+#: ``Jake PPR`` reads ``Rankings`` column 23 for its backs and ``Jake Non`` reads column
+#: 38 -- the second and third running-back blocks. The first is what the default
+#: ``Jake's Ranks`` tab renders, and ``Settings`` prices a reception at 0.5, so it is the
+#: half-PPR list. Cross-checked against the other two rather than taken on faith: the
+#: first block's rank sits between them for 77 of 85 backs, which is what a half-point
+#: list must do.
+#:
+#: Quarterbacks get one block, not three. Receptions do not move them, and the workbook
+#: agrees -- all three ``Jake`` tabs read the same column 3 for their quarterbacks.
+RANK_FLAVORS: Sequence[str] = ("half", "ppr", "std")
+
+#: Flavor -> output column. Lowercase for the reason :data:`DIAGNOSTIC_COLUMNS` gives:
+#: ``UPPER_`` is the blendable namespace and a rank must never enter it.
+RANK_COLUMNS: Dict[str, str] = {f: f"ath_rank_{f}" for f in RANK_FLAVORS}
+
+#: Output filename for the ranking.
+#:
+#: A second file rather than more columns on the first. The stat table is 434 players and
+#: the ranking is 290 of them, so merging them here would write nulls meaning "he is not
+#: ranked" into a file whose nulls already mean "this source does not project that stat".
+#: Two different facts should not share a hole.
+RANKS_FILENAME = f"{SOURCE}_Ranks_Season.parquet"
+
+
 def _header_map(row: Sequence) -> Dict[str, int]:
     """Column index for each header on a team tab.
 
@@ -211,6 +252,109 @@ def read_workbook(path: Path) -> pd.DataFrame:
     return frame
 
 
+def read_rankings(path: Path) -> pd.DataFrame:
+    """Parse the ``Rankings`` tab into one tidy row per ranked player.
+
+    The tab is ten position blocks laid side by side sharing one ``RK`` column down
+    the left: four for the half-PPR list, then three each for the full-PPR and
+    non-PPR lists. Quarterbacks appear once, in the first group only, so their rank
+    is carried to all three flavors.
+
+    Block positions are read from the header row rather than hard-coded to
+    spreadsheet letters, the way :func:`_header_map` does for the team tabs, and the
+    grouping is derived from where a position *repeats* rather than from a count --
+    a workbook that gains a flavor or a column then shifts instead of silently
+    reading a receiver's rank into the tight ends.
+
+    Args:
+        path: The ``.xlsx`` workbook.
+
+    Returns:
+        pd.DataFrame: ``player_name``, ``position``, ``pro_team`` and one column per
+        entry in :data:`RANK_COLUMNS`. One row per ranked player, ordered by the
+        half-PPR list within position.
+
+    Raises:
+        FileNotFoundError: If ``path`` does not exist.
+        KeyError: If :data:`RANK_TAB` is missing, its rank column is not ``RK``, or
+            the header does not yield one block per flavor and position.
+    """
+    import openpyxl
+
+    if not path.exists():
+        raise FileNotFoundError(path)
+
+    book = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    try:
+        if RANK_TAB not in book.sheetnames:
+            raise KeyError(f"tab {RANK_TAB!r} missing from {path.name}")
+        rows = list(book[RANK_TAB].iter_rows(values_only=True))
+    finally:
+        book.close()
+
+    if not rows or str(rows[0][0]).strip().upper() != "RK":
+        raise KeyError(f"{RANK_TAB}: first column is not RK")
+
+    heads = [(i, str(cell).strip().upper())
+             for i, cell in enumerate(rows[0])
+             if isinstance(cell, str) and str(cell).strip().upper() in POSITION_STATS]
+
+    # A repeat marks the next flavor. Counting four-then-three-then-three would work
+    # on this download and break silently on the one where he ranks kickers.
+    groups: List[List[tuple]] = []
+    current: List[tuple] = []
+    seen: set = set()
+    for index, position in heads:
+        if position in seen:
+            groups.append(current)
+            current, seen = [], set()
+        current.append((index, position))
+        seen.add(position)
+    if current:
+        groups.append(current)
+
+    if len(groups) != len(RANK_FLAVORS):
+        raise KeyError(f"{RANK_TAB}: found {len(groups)} rank blocks, "
+                       f"expected {len(RANK_FLAVORS)} ({', '.join(RANK_FLAVORS)})")
+
+    # Quarterbacks are ranked once. Their block sits in the first group and the other
+    # two inherit it, which is what the workbook's own `Jake PPR`/`Jake Non` tabs do.
+    later = {position for group in groups[1:] for _, position in group}
+    shared = {position: index for index, position in groups[0]
+              if position not in later}
+
+    records: Dict[str, dict] = {}
+    for flavor, group in zip(RANK_FLAVORS, groups):
+        block = dict((position, index) for index, position in group)
+        block.update({p: i for p, i in shared.items() if p not in block})
+        missing = sorted(set(POSITION_STATS) - set(block))
+        if missing:
+            raise KeyError(f"{RANK_TAB}: {flavor} block has no "
+                           f"{'/'.join(missing)} column")
+        for position, index in block.items():
+            for raw in rows[2:]:
+                rank = raw[0]
+                name = raw[index] if index < len(raw) else None
+                if not isinstance(name, str) or not isinstance(rank, (int, float)):
+                    continue
+                record = records.setdefault(str(name).strip(), {
+                    "player_name": str(name).strip(),
+                    "position": position,
+                    "pro_team": (str(raw[index + 1]).strip()
+                                 if index + 1 < len(raw)
+                                 and isinstance(raw[index + 1], str) else None),
+                })
+                record[RANK_COLUMNS[flavor]] = int(rank)
+
+    frame = pd.DataFrame(list(records.values()),
+                         columns=["player_name", "position", "pro_team",
+                                  *RANK_COLUMNS.values()])
+    for column in RANK_COLUMNS.values():
+        frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    return frame.sort_values(
+        ["position", RANK_COLUMNS[RANK_FLAVORS[0]]]).reset_index(drop=True)
+
+
 #: Columns of :func:`read_workbook` that are diagnostics rather than stats.
 #:
 #: ``masked_stats`` is lowercase and stays out of the ``ATH_`` namespace on purpose:
@@ -273,22 +417,63 @@ def audit(frame: pd.DataFrame, top: int = 12) -> None:
                   f"({row['position']}, {row['pro_team']})")
 
 
+def audit_ranks(ranks: pd.DataFrame, frame: pd.DataFrame) -> None:
+    """Print what the ranking covers and whether it agrees with the stat table.
+
+    The second check is the one worth running. Both frames come out of the same
+    download, so every ranked player must also be a projected player -- 290 of the
+    434. A name on the ranking that the team tabs do not carry means the workbook
+    spells him two ways, and that is a join miss waiting to happen downstream where
+    it costs a board column rather than a print.
+
+    Args:
+        ranks: Output of :func:`read_rankings`.
+        frame: Output of :func:`read_workbook`, from the same workbook.
+    """
+    counts = ranks["position"].value_counts().to_dict()
+    print(f"  ranked {len(ranks)} players: "
+          + " / ".join(f"{p} {counts.get(p, 0)}" for p in POSITIONS))
+
+    projected = set(frame["player_name"])
+    orphans = sorted(set(ranks["player_name"]) - projected)
+    if orphans:
+        print(f"  ranked but not projected: {len(orphans)} "
+              f"-- {', '.join(orphans[:8])}")
+    else:
+        print(f"  every ranked player is also projected ({len(ranks)}/{len(ranks)})")
+
+    # Where the three flavors actually disagree, so a download that silently ships one
+    # list three times is visible rather than assumed away.
+    half, ppr, std = (RANK_COLUMNS[f] for f in RANK_FLAVORS)
+    moved = int(((ranks[ppr] - ranks[std]).abs() >= 5).sum())
+    print(f"  flavors: {moved} players move 5+ spots between PPR and non-PPR")
+
+
 def build(season: int, path: Path) -> pd.DataFrame:
     """Import the workbook and write the season files.
 
-    Keeps the ``.xlsx`` under ``Landing/`` unmodified, so the tidy table can always
+    Keeps the ``.xlsx`` under ``Landing/`` unmodified, so the tidy tables can always
     be rebuilt from what was actually downloaded, and writes both parquet and csv
     like every other source -- parquet is authoritative, the csv is for eyeballing.
+
+    **Both artifacts, always, from one call.** The stat table and the hand ranking are
+    two files off one workbook, and writing them separately would let a ranking from an
+    older download sit beside fresh projections with nothing to notice. That is the
+    failure this module's own third trap is about: a hand-dropped file goes stale
+    because nobody downloaded a new one, and here it could go half-stale.
 
     Args:
         season: Season year, for the output path.
         path: The workbook to read.
 
     Returns:
-        pd.DataFrame: The tidy table that was written.
+        pd.DataFrame: The tidy stat table. The ranking is written beside it and is
+        read back with :func:`read_rankings` or from :data:`RANKS_FILENAME`.
     """
     frame = read_workbook(path)
     audit(frame)
+    ranks = read_rankings(path)
+    audit_ranks(ranks, frame)
 
     kept = landing_dir(SOURCE, season, path.name)
     if path.resolve() != kept.resolve():
@@ -300,6 +485,12 @@ def build(season: int, path: Path) -> pd.DataFrame:
     frame.to_csv(out.with_suffix(".csv"), index=False)
     print(f"The Athletic season-long {season}: {len(frame)} rows, "
           f"{frame['player_name'].nunique()} players -> {out.name}")
+
+    ranks_out = season_dir(SOURCE, season, RANKS_FILENAME)
+    ranks.to_parquet(ranks_out)
+    ranks.to_csv(ranks_out.with_suffix(".csv"), index=False)
+    print(f"The Athletic hand ranking {season}: {len(ranks)} players "
+          f"-> {ranks_out.name}")
     return frame
 
 
