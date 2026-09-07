@@ -1,9 +1,17 @@
 # 08 — Local frontend: week-to-week views
 
-**Status:** TO DO
+**Status:** IN PROGRESS
 
-**Priority:** High · **Effort:** Medium · **Where it stands:** Not started
-**Depends on:** [07 (foundation)](07-frontend-foundation.md)
+**Priority:** High · **Effort:** Medium · **Where it stands:** **Three of the eight
+pages shipped 2026-09-07 as tabs** rather than as pages, via
+[40](40-frontend-restructure.md): **My Matchup** became the *Roster* tab and the
+*Matchup* tab between them, **League Slate** folded into Matchup, and **Free Agents**
+is its own tab. The remaining five are sub-tabs of those four rather than pages of
+their own, which is the structural point of the restructure — see
+[What is left](#what-is-left-2026-09-07).
+**Depends on:** [07 (foundation)](07-frontend-foundation.md) ·
+**Feeds:** [40 (frontend restructure)](40-frontend-restructure.md) ·
+[42 (weekly matchup odds)](42-weekly-matchup-odds.md)
 
 ## Goal
 
@@ -143,3 +151,41 @@ which it currently is for anything the Sheet doesn't cover.
 - `League Slate` totals match `get_league_projections` exactly.
 - Pages render pre-season with no data and no traceback.
 - Week switching stays under 100ms.
+
+---
+
+## What is left, 2026-09-07
+
+Three of the eight are built. What each of the other five now needs, and where it
+lands:
+
+| # | Page | Becomes | Blocked on |
+|---|---|---|---|
+| 4 | Player Explorer | a **Roster** sub-tab | nothing |
+| 5 | Projection Accuracy | a **Roster** sub-tab, beside the blend weights it should inform | nothing |
+| 6 | Playoff Odds | a **Matchup** sub-tab | porting `simulate_season` off the live `League` object, and caching it into the store during refresh rather than running it on page load |
+| 7 | Standings | a **Matchup** sub-tab | `luck_index.py` carries seven TODOs calling its own scaling "crude and trash" — worth revisiting before it gets screen space |
+| 8 | History | a **Matchup** sub-tab | **unblocked**: `team_stats.parquet` now exists for nine of ten leagues, which it did not when this plan was written |
+
+Corrections to this plan, from building it:
+
+- **`get_best_lineup` / `get_best_proj_lineup` could not be reused.** §1 proposed them
+  for the start/sit deltas. Both take a live `espn_api.League`, which the app promises
+  never to have in a render path, and both return a *float* — the optimal total — when
+  the actionable half is which player to bench for which. `app/lineup.py` is the
+  replacement, and it returns the swaps.
+- **`simulate_matchup` could not serve the win probability** either, for a third
+  reason beyond those two: it draws from the last six weeks of *actual* team scores, so
+  it says nothing at all in week 1. [Plan 42](42-weekly-matchup-odds.md) fits a weekly
+  dispersion instead.
+- **A shared table component did land**, as `app/views/weekly.py` rather than
+  `components/tables.py`. It carries the labels, the tooltips and — the part that
+  earns it — the rule that a source the store marked absent is **dropped rather than
+  shown**, because the blend imputes it from the ESPN/FantasyPros mean and an absent
+  book would otherwise read as unanimous agreement.
+- **`current_week` is 1 pre-season, and the empty states this plan asked for are the
+  condition the app launched in.** Every tab has one and they are checked across all
+  ten leagues.
+- **The `weeks_present` week-switching this plan assumed does not exist.** That key is
+  absent from every 2026 `meta.json`, so the Week control offered `[1]` and always
+  would have. `session.available_weeks` reads the artifact instead.

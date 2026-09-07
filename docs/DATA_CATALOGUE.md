@@ -49,7 +49,16 @@ and a point in the superflex league mean what they say. Nothing downstream re-sc
 | `draft.parquet` | A **pick**, across every season the league has existed | `--what draft` |
 | `tendencies.parquet` | A **manager**, and what they reliably do that the room does not | `--what draft` |
 | `team_stats.parquet` | A **team-week** of matchup history | `--what team_stats`, opt-in |
+| `board_frozen.parquet` | A **draftable player**, as the board stood when the drafts finished | `python -m Scripts.freeze`, once a season |
 | `meta.json` | Build time, current week, roster slots, source coverage, versions, git sha | always, **last** |
+
+`board_frozen.parquet` is the only artifact **not** written by `Scripts.refresh`, and
+that is the point of it. It is a copy of `board.parquet` taken once the drafts are over
+and never rebuilt, because `board.parquet` refreshes every morning and therefore stops
+being able to say what a roster looked like the day it was assembled — which is the only
+basis on which a draft can be graded. Same schema as `board.parquet`; `meta.json` gains
+`frozen_at`, `frozen_git_sha` and `frozen_picks`. See
+[plan 41](plans/41-projection-freeze.md).
 
 `meta.json` is written last on purpose: its presence is what distinguishes a finished
 store from one mid-build, and both `Scripts.store` and `Scripts.s3_store` key on it.

@@ -1,11 +1,14 @@
-"""Draft Board — the pre-draft artifact (``docs/plans/09-frontend-draft-views.md``).
+"""The Draft tab's four analytic sub-tabs, over one board read.
 
-Reads ``board.parquet`` and nothing else. Replacement level, VOR, tiers and value
-are computed during ``python -m Scripts.refresh --what board``, not here, because a
-page render has to stay a parquet read: the board takes ~1.6s of ESPN round-trips
-per league to build against 11ms to read back.
+Lifted wholesale out of the old ``pages/draft_board.py`` when the app went to four
+top-level tabs. **The bodies are the same code**: each ``render_*`` function opens by
+naming the pieces of :class:`BoardContext` it uses, and everything after that
+preamble is the block that used to sit under ``with board_tab:`` and friends. That is
+deliberate -- this was a re-parenting, not a rewrite, and it happened the week of
+four live drafts. ``app/draft_view.py`` was not touched at all.
 
-The page is built around two things the plan argues are what a board is for:
+The page is built around two things ``docs/plans/09-frontend-draft-views.md`` argues
+are what a board is for:
 
 - **Sorted by value, not by rank.** A rank-ordered list is a worse version of what
   ESPN already shows you. Where our valuation disagrees with the room is the only
@@ -14,32 +17,35 @@ The page is built around two things the plan argues are what a board is for:
   "this player is one spot better than that one" is not.
 
 League-awareness is the point: replacement level comes from each league's real
-starting slots, so the same player is legitimately ranked differently across the
-nine leagues. Josh Allen is a different player in the superflex.
+starting slots, so the same player is legitimately ranked differently across the ten
+leagues. Josh Allen is a different player in the superflex.
 
-**Four tabs, split by what you are doing at that moment.** The page had grown to
-one scroll holding a filterable table, two charts, six manager cards and a decade of
-acquisition history, which is three jobs stacked vertically:
+**Four sub-tabs, split by what you are doing at that moment:**
 
-- **Board** — the working surface. Find a player, filter the pool, read the table.
+- **Board** -- the working surface. Find a player, filter the pool, read the table.
   Defaults to VOR order: on the tab you drive the draft from, the question is who is
   worth the most, and value against ADP is a second opinion the Values tab is for.
-- **Values** — where the room and our valuation disagree, on its own so it is a
+- **Values** -- where the room and our valuation disagree, on its own so it is a
   place you go rather than something you scroll past.
-- **League** — what does not change during a draft: the shape of this league, the
+- **League** -- what does not change during a draft: the shape of this league, the
   positional cliff, the tier runway, and who you are sitting across from.
-- **Calibration** — where *we* disagree with ESPN, and whether that disagreement is
-  a player or the model. The only tab that is not read during a draft: it is where
-  you go beforehand to decide whether the numbers the other three are built on are
-  ones you believe.
+- **Calibration** -- where *we* disagree with ESPN, and whether that disagreement is
+  a player or the model. The only sub-tab not read during a draft: it is where you go
+  beforehand to decide whether the numbers the other three stand on are believable.
 
-Each tab carries its own position filter. They are deliberately independent: the
-Board's filter is "what am I looking at right now" and gets narrowed constantly,
-while the League tab's is "which curves am I comparing" and should not be dragged
-around by it.
+Each carries its own position filter. They are deliberately independent: the Board's
+is "what am I looking at right now" and gets narrowed constantly, while the League
+tab's is "which curves am I comparing" and should not be dragged around by it.
+
+Reads ``board.parquet`` and nothing else. Replacement level, VOR, tiers and value are
+computed during ``python -m Scripts.refresh --what board``, not here, because a page
+render has to stay a parquet read: the board takes ~1.6s of ESPN round-trips per
+league to build against 11ms to read it back.
 """
 
 import _bootstrap  # noqa: F401  -- must precede the Scripts imports
+
+from typing import Any, List, NamedTuple, Optional
 
 import altair as alt
 import polars as pl
@@ -47,7 +53,8 @@ import streamlit as st
 
 import draft_view as dv
 import store
-from components.header import render_sidebar
+
+
 
 
 def _column_config(frame, lens, click_key=None):
@@ -170,105 +177,190 @@ AGREEMENT_SUMMARY_CONFIG = {
              "have no second source, so our number *is* ESPN's."),
 }
 
-selection = render_sidebar()
-meta = selection.meta
 
-st.title(f"Draft Board · {selection.display_name} {selection.season}")
+class BoardContext(NamedTuple):
+    """One board read, plus everything derived from it that more than one sub-tab needs.
 
-if not store.has_artifact(selection.season, selection.league_key, "board"):
-    st.warning(
-        "No draft board in this store. It is a separate artifact because it costs "
-        "one `kona_player_info` request per league."
+    Built once by :func:`prepare` and passed to each renderer, which is the whole
+    reason this type exists: the four sub-tabs used to be one script and closed over
+    these as module globals. Bundling them keeps the bodies unchanged while making the
+    sharing explicit -- and it means the board is read, rescaled and shaded **once**
+    per render instead of once per tab.
+
+    Attributes:
+        selection: The active :class:`session.Selection`.
+        meta: ``selection.meta``, unpacked because most of these read it.
+        default_budget: This league's own auction budget from ESPN.
+        budget_state_key: Per-league ``session_state`` key the budget input owns.
+        budget: The budget actually in force this run.
+        keepers: This league's keeper limit.
+        board: The board, rescaled to ``budget`` and fully enriched.
+        board_lens: Which currency the Draft Metric group speaks, from draft type.
+        shading: Conditional-fill scales, measured on the *unfiltered* board so the
+            colours do not shift when a filter changes.
+        theme: ``"light"`` or ``"dark"``.
+        colors: Chart series palette for ``theme``.
+        ink: Chart gridline/text palette for ``theme``.
+        pending: Whether ``on_team_id`` means anything yet -- False once keepers are
+            declared. See :func:`draft_view.keepers_pending`.
+        held_now: How many players are currently shown as rostered.
+        starting_slots: This league's real starting slots.
+        my_owner: ``meta["primary_owner"]``.
+        my_roster: The viewer's rostered rows, empty while ``pending``.
+        needed: Positions still unfilled on ``my_roster``.
+        all_positions: Every position on the board.
+        default_positions: The four skill positions, for filter defaults.
+    """
+    selection: Any
+    meta: dict
+    default_budget: int
+    budget_state_key: str
+    budget: int
+    keepers: int
+    board: pl.DataFrame
+    board_lens: str
+    shading: Any
+    theme: str
+    colors: Any
+    ink: Any
+    pending: bool
+    held_now: int
+    starting_slots: dict
+    my_owner: Optional[str]
+    my_roster: pl.DataFrame
+    needed: Any
+    all_positions: List[str]
+    default_positions: List[str]
+
+
+def prepare(selection) -> BoardContext:
+    """Read the board for this league and derive everything the sub-tabs share.
+
+    Args:
+        selection: A :class:`session.Selection`.
+
+    Returns:
+        BoardContext: Passed to each ``render_*`` function.
+    """
+    meta = selection.meta
+
+    # This league's own budget, from ESPN, as the input's starting value. It really does
+    # vary -- GOP Degenerates plays for $250 and the other eight for $200 -- while the
+    # market values on every board are denominated in ESPN's $200 default regardless.
+    default_budget = dv.league_auction_budget(meta)
+
+    # Per-league key: a shared one is remembered across a league change, and a keyed
+    # widget ignores its `value=` once the key exists -- so GOP's $250 auction rendered
+    # at Winfield's $200. See dv.budget_key.
+    #
+    # Read before the widget that sets it is drawn. Streamlit reruns the whole script
+    # with session state already updated, so this is the budget the user just typed --
+    # which is what lets the Values tab price at it even though the input lives on the
+    # Board tab, and what keeps the $ column right on the same run rather than one late.
+    budget_state_key = dv.budget_key(selection.league_key)
+    budget = int(st.session_state.get(budget_state_key, default_budget))
+
+    keepers = dv.keeper_count(meta)
+
+    board = dv.at_budget(
+        dv.with_model_evidence(store.load_board(selection.season, selection.league_key)),
+        budget,
+        meta=meta,
     )
-    st.code(
-        f"python -m Scripts.refresh --league {selection.display_name} "
-        f"--season {selection.season} --what board",
-        language="bash",
+    # Both of these subtract from the market price, so both come after the rescale that
+    # puts the market price in this league's dollars.
+    board = dv.with_cash_value(board, meta, budget)
+    board = dv.with_keeper_price(board, keepers)
+    # Abbreviates the injury status and turns the estimated return into something a
+    # reader can act on. Last, so it sees whichever of those columns the artifact has.
+    board = dv.with_injury_code(board)
+    # What the injury is and how long for, which the status alone cannot say: ESPN had
+    # Jeremiyah Love ACTIVE at ADP 18 while the override file had him four to six weeks out.
+    board = dv.with_injury_severity(board)
+    # And why a projection is zero rather than merely absent — the availability gates
+    # withdraw every source but ESPN, and a blank cell cannot tell that from a rookie
+    # nobody has priced.
+    board = dv.with_availability_evidence(board)
+    # The 0-1 probabilities into the 0-100 their `%` formats expect. Without it every one
+    # of them renders as 0% -- see `with_percent_columns`.
+    board = dv.with_percent_columns(board)
+
+    # Which currency the Draft Metric group speaks: a snake draft has a queue, so the
+    # comparison is rank against rank; an auction has a price. Read from the league's
+    # own ESPN draft settings rather than offered as a toggle, because it is a fact
+    # about the draft. The Values tab lets you ask for the other one.
+    board_lens = dv.default_value_lens(meta)
+    # Measured on the unfiltered board so the fills do not shift when a filter changes.
+    shading = dv.shade_scales(board, board_lens)
+
+    theme = getattr(getattr(st.context, "theme", None), "type", "light") or "light"
+    colors = dv.SERIES_COLORS[theme]
+    ink = dv.CHART_INK[theme]
+
+    # Whether `on_team_id` means anything yet. In a keeper league ESPN carries last
+    # season's rosters into the new season, so before keepers are declared the column
+    # says who was on that roster in 2025 -- 252 players across GOP's 16 teams, against
+    # a keeper limit of 2. Everyone is available until those 2 are named.
+    pending = dv.keepers_pending(board, keepers)
+    held_now = sum(dv.rostered_counts(board).values())
+
+    starting_slots = meta.get("starting_slots") or {}
+    my_owner = meta.get("primary_owner")
+    # Empty while keepers are pending, and for the same reason the availability filter
+    # is off: those 15 players are last season's roster, not this year's team. Counting
+    # them as filled slots reports every position as covered and quietly turns the
+    # roster-needs toggle into a no-op.
+    my_roster = board.filter(
+        pl.col("team_owner").fill_null("") == (my_owner or "\0")
+    ) if "team_owner" in board.columns and not pending else board.head(0)
+    needed = dv.positions_needed(starting_slots, my_roster["primaryPosition"].to_list())
+
+    all_positions = dv.board_positions(board)
+    default_positions = [p for p in all_positions if p in ("QB", "RB", "WR", "TE")]
+    return BoardContext(
+        selection=selection,
+        meta=meta,
+        default_budget=default_budget,
+        budget_state_key=budget_state_key,
+        budget=budget,
+        keepers=keepers,
+        board=board,
+        board_lens=board_lens,
+        shading=shading,
+        theme=theme,
+        colors=colors,
+        ink=ink,
+        pending=pending,
+        held_now=held_now,
+        starting_slots=starting_slots,
+        my_owner=my_owner,
+        my_roster=my_roster,
+        needed=needed,
+        all_positions=all_positions,
+        default_positions=default_positions,
     )
-    st.stop()
 
-# This league's own budget, from ESPN, as the input's starting value. It really does
-# vary -- GOP Degenerates plays for $250 and the other eight for $200 -- while the
-# market values on every board are denominated in ESPN's $200 default regardless.
-default_budget = dv.league_auction_budget(meta)
 
-# Per-league key: a shared one is remembered across a league change, and a keyed
-# widget ignores its `value=` once the key exists -- so GOP's $250 auction rendered
-# at Winfield's $200. See dv.budget_key.
-#
-# Read before the widget that sets it is drawn. Streamlit reruns the whole script
-# with session state already updated, so this is the budget the user just typed --
-# which is what lets the Values tab price at it even though the input lives on the
-# Board tab, and what keeps the $ column right on the same run rather than one late.
-budget_state_key = dv.budget_key(selection.league_key)
-budget = int(st.session_state.get(budget_state_key, default_budget))
+def render_board(ctx: BoardContext) -> None:
+    """Render the Board sub-tab -- the working surface.
 
-keepers = dv.keeper_count(meta)
+    Args:
+        ctx: From :func:`prepare`.
+    """
+    all_positions = ctx.all_positions
+    board = ctx.board
+    board_lens = ctx.board_lens
+    budget_state_key = ctx.budget_state_key
+    default_budget = ctx.default_budget
+    default_positions = ctx.default_positions
+    held_now = ctx.held_now
+    keepers = ctx.keepers
+    needed = ctx.needed
+    pending = ctx.pending
+    selection = ctx.selection
+    shading = ctx.shading
+    theme = ctx.theme
 
-board = dv.at_budget(
-    dv.with_model_evidence(store.load_board(selection.season, selection.league_key)),
-    budget,
-    meta=meta,
-)
-# Both of these subtract from the market price, so both come after the rescale that
-# puts the market price in this league's dollars.
-board = dv.with_cash_value(board, meta, budget)
-board = dv.with_keeper_price(board, keepers)
-# Abbreviates the injury status and turns the estimated return into something a
-# reader can act on. Last, so it sees whichever of those columns the artifact has.
-board = dv.with_injury_code(board)
-# What the injury is and how long for, which the status alone cannot say: ESPN had
-# Jeremiyah Love ACTIVE at ADP 18 while the override file had him four to six weeks out.
-board = dv.with_injury_severity(board)
-# And why a projection is zero rather than merely absent — the availability gates
-# withdraw every source but ESPN, and a blank cell cannot tell that from a rookie
-# nobody has priced.
-board = dv.with_availability_evidence(board)
-# The 0-1 probabilities into the 0-100 their `%` formats expect. Without it every one
-# of them renders as 0% -- see `with_percent_columns`.
-board = dv.with_percent_columns(board)
-
-# Which currency the Draft Metric group speaks: a snake draft has a queue, so the
-# comparison is rank against rank; an auction has a price. Read from the league's
-# own ESPN draft settings rather than offered as a toggle, because it is a fact
-# about the draft. The Values tab lets you ask for the other one.
-board_lens = dv.default_value_lens(meta)
-# Measured on the unfiltered board so the fills do not shift when a filter changes.
-shading = dv.shade_scales(board, board_lens)
-
-theme = getattr(getattr(st.context, "theme", None), "type", "light") or "light"
-colors = dv.SERIES_COLORS[theme]
-ink = dv.CHART_INK[theme]
-
-# Whether `on_team_id` means anything yet. In a keeper league ESPN carries last
-# season's rosters into the new season, so before keepers are declared the column
-# says who was on that roster in 2025 -- 252 players across GOP's 16 teams, against
-# a keeper limit of 2. Everyone is available until those 2 are named.
-pending = dv.keepers_pending(board, keepers)
-held_now = sum(dv.rostered_counts(board).values())
-
-starting_slots = meta.get("starting_slots") or {}
-my_owner = meta.get("primary_owner")
-# Empty while keepers are pending, and for the same reason the availability filter
-# is off: those 15 players are last season's roster, not this year's team. Counting
-# them as filled slots reports every position as covered and quietly turns the
-# roster-needs toggle into a no-op.
-my_roster = board.filter(
-    pl.col("team_owner").fill_null("") == (my_owner or "\0")
-) if "team_owner" in board.columns and not pending else board.head(0)
-needed = dv.positions_needed(starting_slots, my_roster["primaryPosition"].to_list())
-
-all_positions = dv.board_positions(board)
-default_positions = [p for p in all_positions if p in ("QB", "RB", "WR", "TE")]
-
-board_tab, values_tab, league_tab, calibration_tab = st.tabs(
-    ["Board", "Values", "League", "Calibration"])
-
-# =========================================================================
-# Board — the working surface
-# =========================================================================
-
-with board_tab:
 
     # --- filters ---------------------------------------------------------
 
@@ -452,27 +544,27 @@ with board_tab:
                   if "adp_is_priced" in board.columns else 0)
         unpriced = board.height - priced
         st.markdown(f"""
-#### What none of these columns say
+    #### What none of these columns say
 
-- **The market has no opinion on {unpriced:,} of {board.height:,} players.** ESPN
-  parks every player it does not price on one ADP — 758 of 1,000 shared exactly 170.0
-  in 2026 — so `Draft Metric` and its Δ are blank for most of the pool. A high-VOR
-  player the market has no opinion on is its own signal, shown rather than scored.
-- **Half the pool has no projection at all** and is hidden: their blended points are
-  a literal 0.0 rather than a null, so they would otherwise sort as the league's
-  worst players rather than as unknowns.
-- **The two ESPN columns are two different opinions, and neither is the room.**
-  `Points | ESPN` is ESPN's projection; `Ranks | ESPN` is ESPN's editors; the room is
-  `Draft Metric`. All three disagree, which is most of what this table is for.
-- **The disagreement between forecasters is no longer shown.** `Floor` and `Ceil` —
-  the range across the sources with a real, non-imputed line — were measured for only
-  221 of 2,503 players and were cut when the table was grouped. Prior-season variance,
-  the other half of what plan 09 asks for there, was never in.
-- **Draft history says what managers do, not how it went.** Positional tendency by
-  round is on the League tab. Points-over-expectation per manager is not: it needs
-  every past season scored in this league's own rules, and the store holds one
-  season.
-""")
+    - **The market has no opinion on {unpriced:,} of {board.height:,} players.** ESPN
+      parks every player it does not price on one ADP — 758 of 1,000 shared exactly 170.0
+      in 2026 — so `Draft Metric` and its Δ are blank for most of the pool. A high-VOR
+      player the market has no opinion on is its own signal, shown rather than scored.
+    - **Half the pool has no projection at all** and is hidden: their blended points are
+      a literal 0.0 rather than a null, so they would otherwise sort as the league's
+      worst players rather than as unknowns.
+    - **The two ESPN columns are two different opinions, and neither is the room.**
+      `Points | ESPN` is ESPN's projection; `Ranks | ESPN` is ESPN's editors; the room is
+      `Draft Metric`. All three disagree, which is most of what this table is for.
+    - **The disagreement between forecasters is no longer shown.** `Floor` and `Ceil` —
+      the range across the sources with a real, non-imputed line — were measured for only
+      221 of 2,503 players and were cut when the table was grouped. Prior-season variance,
+      the other half of what plan 09 asks for there, was never in.
+    - **Draft history says what managers do, not how it went.** Positional tendency by
+      round is on the League tab. Points-over-expectation per manager is not: it needs
+      every past season scored in this league's own rules, and the store holds one
+      season.
+    """)
 
         if "usg_evidence_label" in board.columns:
             label = board["usg_evidence_label"]
@@ -485,35 +577,46 @@ with board_tab:
             flagged = int(label.is_in([dv.EVIDENCE_CLEAR, dv.EVIDENCE_NOT_MODELLED,
                                        *withdrawals]).not_().sum())
             st.markdown(f"""
-- **`Points | USG` is on the same footing as the columns beside it**, and has been
-  since 2026-08-07: the model's line is put on a full healthy slate before it is
-  blended, so all of them describe a 17-game season. `Exp G` shows the availability
-  view separately rather than being baked in. **`Position Ranks | Δ USG` is still the
-  cleaner comparison**, because the model shrinks toward positional baselines while
-  ESPN extrapolates — so it reads a few percent low at the top of the board, which is
-  disagreement about players and not about units. It is the same residual that keeps
-  the model out of the floor/ceiling spread, where it still sits below all four other
-  sources for 47% of draftable players.
-- **The model says nothing about {not_modelled:,} of {board.height:,} players, and
-  withdrew on {withdrawn:,} more — {backups:,} of those as backups.** It has never
-  modelled K or D/ST; it declines a player whose expected games are too low to price
-  or whose injury report withdraws them outright; and the board build withdraws it
-  where the depth chart says backup *and* ESPN has priced him out, because a starter's
-  slate is the wrong basis for a man who will not play. An empty `USG` is one of those
-  four, and `Model Evidence` says which — a blank there would read as agreement.
-- **{flagged:,} players carry a thin-evidence flag,** and the flags were chosen by
-  measurement rather than intuition: a prior season under 8 games raises rank error
-  42%, a team change 32%, bottom-quartile prior volume 23%. Two plausible candidates
-  were *rejected* by the same measurement — one prior season is no worse than two,
-  and a rookie orders **14% better** than the pool, so flagging rookies would have
-  marked the model's strongest arm as its weakest.
-""")
+    - **`Points | USG` is on the same footing as the columns beside it**, and has been
+      since 2026-08-07: the model's line is put on a full healthy slate before it is
+      blended, so all of them describe a 17-game season. `Exp G` shows the availability
+      view separately rather than being baked in. **`Position Ranks | Δ USG` is still the
+      cleaner comparison**, because the model shrinks toward positional baselines while
+      ESPN extrapolates — so it reads a few percent low at the top of the board, which is
+      disagreement about players and not about units. It is the same residual that keeps
+      the model out of the floor/ceiling spread, where it still sits below all four other
+      sources for 47% of draftable players.
+    - **The model says nothing about {not_modelled:,} of {board.height:,} players, and
+      withdrew on {withdrawn:,} more — {backups:,} of those as backups.** It has never
+      modelled K or D/ST; it declines a player whose expected games are too low to price
+      or whose injury report withdraws them outright; and the board build withdraws it
+      where the depth chart says backup *and* ESPN has priced him out, because a starter's
+      slate is the wrong basis for a man who will not play. An empty `USG` is one of those
+      four, and `Model Evidence` says which — a blank there would read as agreement.
+    - **{flagged:,} players carry a thin-evidence flag,** and the flags were chosen by
+      measurement rather than intuition: a prior season under 8 games raises rank error
+      42%, a team change 32%, bottom-quartile prior volume 23%. Two plausible candidates
+      were *rejected* by the same measurement — one prior season is no worse than two,
+      and a rookie orders **14% better** than the pool, so flagging rookies would have
+      marked the model's strongest arm as its weakest.
+    """)
 
-# =========================================================================
-# Values — where the room and our valuation disagree
-# =========================================================================
 
-with values_tab:
+def render_values(ctx: BoardContext) -> None:
+    """Render the Values sub-tab -- where the room is wrong.
+
+    Args:
+        ctx: From :func:`prepare`.
+    """
+    all_positions = ctx.all_positions
+    board = ctx.board
+    budget = ctx.budget
+    default_positions = ctx.default_positions
+    meta = ctx.meta
+    pending = ctx.pending
+    selection = ctx.selection
+    theme = ctx.theme
+
     st.subheader("Falling Past Their Price")
 
     # Which question "value" means, and it is a property of the draft rather than a
@@ -608,11 +711,23 @@ with values_tab:
         with st.expander("Glossary — Where Every Column Comes From"):
             st.markdown(dv.glossary_markdown(target_frame.columns, lens))
 
-# =========================================================================
-# League — what does not change during a draft
-# =========================================================================
 
-with league_tab:
+def render_league(ctx: BoardContext) -> None:
+    """Render the League sub-tab -- what does not change during a draft.
+
+    Args:
+        ctx: From :func:`prepare`.
+    """
+    all_positions = ctx.all_positions
+    board = ctx.board
+    colors = ctx.colors
+    default_positions = ctx.default_positions
+    ink = ctx.ink
+    meta = ctx.meta
+    my_owner = ctx.my_owner
+    pending = ctx.pending
+    selection = ctx.selection
+
 
     # --- toplines --------------------------------------------------------
 
@@ -1031,27 +1146,20 @@ with league_tab:
                 st.dataframe(dv.acquisition_frame(split), width="stretch",
                              hide_index=True, column_config=ACQUISITION_CONFIG)
 
-# =========================================================================
-# Calibration — is a disagreement a player, or is it the model
-# =========================================================================
-#
-# **Faceted rather than pooled, and that is a measurement rather than a taste.** One
-# panel per position, each holding one colour, because the repo's categorical palette
-# passes the CVD checks for *adjacent* pairs — which is all a line chart or a grouped
-# bar needs, since their series sit in a fixed order — and fails for *all* pairs,
-# which is what a scatter needs, where any two dots can land next to each other. The
-# validator puts `#eda100`↔`#eb6834` at ΔE 13.7 for normal vision (below the floor of
-# 15) and `#008300`↔`#eb6834` at 3.2 under protanopia. A pooled scatter of six
-# positions would ask the reader to tell those apart. A facet asks nobody to: the
-# panel header carries the identity and the colour is redundant with it.
-#
-# The facets also happen to be the honest form for the data. The gap is strongly
-# position-dependent — +27.3 points at QB against +5.9 at RB on the 2026 Winfield
-# board — so one pooled cloud is six different calibration regimes drawn on top of
-# each other, and the QB offset would read as the model's headline problem while
-# hiding every real one.
 
-with calibration_tab:
+def render_calibration(ctx: BoardContext) -> None:
+    """Render the Calibration sub-tab -- whether the numbers are believable.
+
+    Args:
+        ctx: From :func:`prepare`.
+    """
+    all_positions = ctx.all_positions
+    board = ctx.board
+    colors = ctx.colors
+    default_positions = ctx.default_positions
+    ink = ctx.ink
+    pending = ctx.pending
+
 
     st.subheader("Us Against ESPN")
     st.caption(
@@ -1336,23 +1444,23 @@ with calibration_tab:
                 column_config=AGREEMENT_SUMMARY_CONFIG, lazy=False,
             )
             st.markdown("""
-#### What this comparison is not
+    #### What this comparison is not
 
-- **These are not two independent forecasts.** ESPN is one of the three equal thirds
-  inside `Us`, alongside FantasyPros and the usage model. The gap is damped by
-  construction and reads as *how far the blend moved off ESPN* — a player two
-  standard deviations out is one the other two sources dragged, which is the useful
-  reading, but it is not two forecasters disagreeing.
-- **σ is measured over what you are currently showing.** Change a filter and every
-  score is recomputed against the new population, because "an outlier among the
-  players the market prices" and "an outlier in the whole pool" are different
-  questions and the second one is usually not the one being asked. It is why the
-  *Market-Priced Only* toggle moves the WR mean from +8.8 to −3.4.
-- **A big gap is not evidence either way on its own.** It says the sources disagree,
-  not who is right. Nothing here is scored against outcomes — that needs finished
-  seasons projected in advance and then graded, which the store does not hold.
-- **Neither column knows about injuries.** Both project a healthy 17 games. The
-  usage model is the only source that prices availability, and its own season number
-  lives in `Points | USG` on the Board tab, deliberately kept out of this comparison
-  because it measures a different quantity.
-""")
+    - **These are not two independent forecasts.** ESPN is one of the three equal thirds
+      inside `Us`, alongside FantasyPros and the usage model. The gap is damped by
+      construction and reads as *how far the blend moved off ESPN* — a player two
+      standard deviations out is one the other two sources dragged, which is the useful
+      reading, but it is not two forecasters disagreeing.
+    - **σ is measured over what you are currently showing.** Change a filter and every
+      score is recomputed against the new population, because "an outlier among the
+      players the market prices" and "an outlier in the whole pool" are different
+      questions and the second one is usually not the one being asked. It is why the
+      *Market-Priced Only* toggle moves the WR mean from +8.8 to −3.4.
+    - **A big gap is not evidence either way on its own.** It says the sources disagree,
+      not who is right. Nothing here is scored against outcomes — that needs finished
+      seasons projected in advance and then graded, which the store does not hold.
+    - **Neither column knows about injuries.** Both project a healthy 17 games. The
+      usage model is the only source that prices availability, and its own season number
+      lives in `Points | USG` on the Board tab, deliberately kept out of this comparison
+      because it measures a different quantity.
+    """)

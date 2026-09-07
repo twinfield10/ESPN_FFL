@@ -2,14 +2,22 @@
 
     streamlit run app/main.py
 
-Read-only by construction: every page reads ``Data/Store`` and nothing here
-imports an ESPN client. Ingest is ``python -m Scripts.refresh``, which the sidebar
-can shell out to. The separation is the point -- one league is seconds of ESPN
-round-trips against 11ms to read the same frame back from parquet, so recomputing
-on interaction would make the UI unusable.
+Read-only by construction: every page reads ``Data/Store`` and nothing here imports
+an ESPN client. Ingest is ``python -m Scripts.refresh``, which the sidebar can shell
+out to. The separation is the point -- one league is seconds of ESPN round-trips
+against 11ms to read the same frame back from parquet, so recomputing on interaction
+would make the UI unusable.
 
-Pages are registered below. Plans 08 and 09 add to this list; the navigation and
-the sidebar do not change as they do.
+**This file is the router frame, and that is load-bearing.** Streamlit executes the
+entrypoint on every rerun before it executes the current page, so anything drawn here
+appears above every tab and -- more importantly -- is guaranteed to have rendered.
+That is why the league and week selectors live in :func:`session.render_context`
+rather than on the pages: a widget Streamlit has not yet rendered on the current page
+has its state discarded, which twice showed the wrong league. See
+:func:`components.header.sticky_selectbox`.
+
+Four tabs, in the order you use them across a season: you draft, then you set a
+lineup, then you work the wire, then you find out whether you won.
 
 Every title, header and column label in this app is **Title Case** -- one house
 style, applied to labels rather than to prose. Captions and explanatory paragraphs
@@ -30,18 +38,27 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-#: Every page. Each script calls ``components.header.render_sidebar()`` itself, so
-#: the league/season/week selection is identical wherever you are.
+import session                                    # noqa: E402
+from components import header                     # noqa: E402
+
+#: The four tabs. Rendered in the top header rather than the sidebar so the sidebar
+#: is free for store health, and so the tab bar sits above the one context row that
+#: governs all four.
+#:
+#: Plan 08's remaining pages -- Player Explorer, Projection Accuracy, Playoff Odds,
+#: Standings, History -- are not a fifth tab. They are sub-tabs of whichever of
+#: these four they answer a question for. See ``docs/plans/40-frontend-restructure.md``.
 PAGES = [
-    st.Page("pages/overview.py", title="Store Overview", icon="📦", default=True),
-    st.Page("pages/draft_board.py", title="Draft Board", icon="📋"),
-    # The on-the-clock view of the same artifact: four position panels, tier bands,
-    # cross-off and live positional scarcity. Plan 37.
-    st.Page("pages/draft_sheet.py", title="The Sheet", icon="📄"),
-    # Plan 08: My Matchup, League Slate, Free Agents, Player Explorer,
-    #          Projection Accuracy, Playoff Odds, Standings, History
-    # Plan 09: Live Draft (polls the ESPN draft endpoint in the render path; The
-    #          Sheet is its manual half), Draft History (needs Phase 1's backfill)
+    st.Page("pages/draft.py", title="Draft", icon="📋", default=True),
+    st.Page("pages/roster.py", title="Roster", icon="📊"),
+    st.Page("pages/free_agents.py", title="Free Agents", icon="🔎"),
+    st.Page("pages/matchup.py", title="Matchup", icon="⚔️"),
 ]
 
-st.navigation(PAGES).run()
+# Order matters. The context row is drawn before the page body so it reads as a
+# header for it; the sidebar is drawn after, because it needs the resolved league.
+selection = session.render_context()
+header.render_sidebar_health(selection)
+st.divider()
+
+st.navigation(PAGES, position="top").run()

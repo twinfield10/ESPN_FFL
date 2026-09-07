@@ -1,0 +1,251 @@
+"""The Sheet -- the on-the-clock board (``docs/plans/37-draft-sheet.md``).
+
+Four position panels two-by-two, banded by tier, with a cross-off column and a live
+positional-scarcity read. Was its own page until the app went to four top-level tabs;
+it is now the Draft tab's second sub-tab, and the body below is the same code.
+
+**Why this sits next to the Board sub-tab rather than replacing it.** The Board is 45
+columns across eight spanner groups, which is the right shape for the hour *before* a
+draft -- it is where you decide whether you believe the numbers, and where the
+disagreement with ESPN and with the room lives. It is the wrong shape for the ninety
+seconds you have on the clock. This answers one question, in one screen, with no
+horizontal scroll: **who, at which position, and is there anything left behind him.**
+
+The organisation is lifted from ``DraftSheets_2026.xlsx``, the BeerSheets replacement,
+because it is a genuinely good draft-day interface. Its projections are hand-entered
+stat lines and its VBD math has column-drift bugs in two of four positions -- the plan
+records them -- so what is taken is the layout and the auction discipline, not the
+arithmetic. The numbers are ours.
+
+**One board read, shared with the analytic sub-tabs.** This used to load and enrich
+``board.parquet`` for itself, which meant two enrichment chains for one artifact and
+two chances for the Board and the Sheet to price at different budgets. It now takes
+:class:`views.draft_tabs.BoardContext` and adds the one column the other sub-tabs do
+not need -- ``avail_points``. The budget is therefore the same number by construction
+rather than by both sides reading the same session key.
+
+**No ESPN client in the render path.** ``app/main.py`` states the app is read-only by
+construction and this keeps that: crossing a player off is a click, exactly as the
+workbook has you type an ``x``. Polling the live draft endpoint is
+``docs/plans/09-frontend-draft-views.md`` §2 and stays unbuilt on purpose -- it is the
+half of that page most likely to break on the night, and the manual fallback is the
+half that cannot.
+"""
+
+import _bootstrap  # noqa: F401  -- must precede the Scripts imports
+
+import streamlit as st
+
+import draft_view as dv
+import sheet_view as sv
+
+from views.draft_tabs import BoardContext
+
+
+def _column_config(panel):
+    """Streamlit column config for one panel, from `sv.column_specs`.
+
+    Generated rather than hand-written for the reason the board page's version is: a
+    format dict here and a help dict in `sheet_view` cannot be kept in step, and
+    Streamlit ignores config for a column the frame does not carry — so a stale label
+    stops formatting in silence.
+
+    Args:
+        panel: A `sv.Panel`.
+
+    Returns:
+        dict: Column name to a `st.column_config` object.
+    """
+    config = {}
+    for column in sv.column_specs(panel):
+        tooltip = dv.escape_dollars(column.help)
+        if column.kind == "number":
+            config[column.label] = st.column_config.NumberColumn(
+                format=column.fmt, help=tooltip, pinned=column.pinned)
+        elif column.kind == "button":
+            # The cell value *is* the button label, which is what makes the mark
+            # itself the thing you click. `key=` is what enables the click at all.
+            config[column.label] = st.column_config.ButtonColumn(
+                help=tooltip, width="small", type="tertiary",
+                key=sv.click_key(panel.position))
+        else:
+            config[column.label] = st.column_config.TextColumn(
+                help=tooltip, pinned=column.pinned)
+    return config
+
+
+def render_sheet(ctx: BoardContext) -> None:
+    """Render the Sheet sub-tab -- the surface you drive a live draft from.
+
+    Args:
+        ctx: From :func:`views.draft_tabs.prepare`.
+    """
+    selection = ctx.selection
+    meta = ctx.meta
+    theme = ctx.theme
+    budget = ctx.budget
+
+    # The one enrichment the analytic sub-tabs have no use for: every projection
+    # discounted by the games the model expects a player to miss. Applied here rather
+    # than in `prepare` so a board nobody asks for it on does not pay for it.
+    board = dv.with_availability_points(ctx.board)
+
+    # --- the controls ---------------------------------------------------------
+    #
+    # Five, and no more. Every control on this page is one you would reach for with a pick
+    # clock running; anything you would only touch beforehand belongs on the Board page.
+    controls = st.columns([2, 1, 1, 1, 1])
+    search = controls[0].text_input(
+        "Find A Player", placeholder="Surname is enough",
+        help="Narrows every panel. Matched literally, not as a regex — the names on a "
+             "board are full of dots and hyphens.")
+    depth_multiple = controls[1].slider(
+        "Panel Depth", 1.0, 3.0, sv.PANEL_DEPTH_MULTIPLE, 0.5,
+        help="As a multiple of this league's replacement rank. Twice replacement is the "
+             "last player who could plausibly start for somebody.")
+    use_availability = controls[2].toggle(
+        "Availability", value=False,
+        help="Discount every projection by the games the model expects him to miss. Off "
+             "by default: the availability head is the weakest arm of the model that "
+             "produces it (r = +0.343 on prior-season games), and it moves the top of the "
+             "board. Worth looking at, not worth being the default.")
+    show_streamed = controls[3].toggle(
+        "K / D·ST", value=False,
+        help="Kickers and team defences. Off by default because a season-total value over "
+             "replacement does not describe a position you stream — `VALUE` is blank for "
+             "them for that reason.")
+
+    # --- players the store already says are gone -------------------------------
+    #
+    # `on_team_id` is 0 for a free agent and a team id once somebody holds them -- but in a
+    # keeper league before declarations it is *last season's* roster. GOP's 2026 board
+    # arrives with 252 players held against a keeper limit of 2, so believing it there would
+    # cross off every good player in the league five days before its auction. `keepers_pending`
+    # is that check, and it resolves itself the day rosters shrink to the limit.
+    keepers = dv.keeper_count(meta)
+    pending = dv.keepers_pending(board, keepers)
+    held = sv.rostered_ids(board) if not pending else set()
+
+    show_rostered = controls[4].toggle(
+        "Already Drafted", value=False, disabled=pending or not held,
+        help=(
+            "Cross off everyone the store says is already on a roster. Off by default — "
+            "before a draft that column is either empty or last season's keepers, and it is "
+            "the leagues that have *finished* drafting where it earns its place."
+            if not pending else
+            "Unavailable here: this league's rosters are still last season's. "
+            f"{sum(dv.rostered_counts(board).values())} players are held against a keeper "
+            f"limit of {keepers}, so `on_team_id` does not yet mean 'taken'."
+        ))
+
+    points_column = "avail_points" if use_availability else "TRUE_Points"
+    if use_availability and "avail_points" not in board.columns:
+        st.info(
+            "This board carries no `usg_expected_games`, so there is no availability "
+            "estimate to discount by. Showing `TRUE_Points`."
+        )
+        points_column = "TRUE_Points"
+
+    # --- who is off the board -------------------------------------------------
+    #
+    # Read before the panels are drawn, so a click lands on the same run it is made rather
+    # than one behind. Each panel resolves its own click to a player id immediately, because
+    # a row number is a position in a panel that crossing somebody off has just changed.
+    drafted = sv.apply_rostered(st.session_state, selection.league_key, held,
+                                bool(show_rostered))
+
+    positions = list(sv.SHEET_POSITIONS)
+    if show_streamed:
+        positions += list(sv.SHEET_STREAMED)
+    # Scarcity is measured against who is still available, which is the entire point of the
+    # column -- so it is computed after the crossed-off set is known and before any panel is
+    # built from it.
+    board = dv.positional_scarcity(board, drafted=drafted)
+
+    panels = {
+        position: sv.sheet_panel(
+            board, position, meta, drafted=drafted, points_column=points_column,
+            depth=sv.panel_depth(board, position, depth_multiple), search=search)
+        for position in positions
+    }
+
+    for position, panel in panels.items():
+        updated = sv.toggle_drafted(st.session_state, panel.table,
+                                   selection.league_key, position)
+        if updated != drafted:
+            # A click changed the board, and `ps` and every panel below this one are now
+            # stale. Rerunning is cheaper and much clearer than patching them in place.
+            st.rerun()
+
+    # --- the panels -----------------------------------------------------------
+    #
+    # **Two by two, not four across, and that was decided by looking at it.** Four panels
+    # on one row gives each ~348px on a 1600px main block, which holds Player, Tier,
+    # TM/BYE, PTS and VALUE and then runs out -- clipping `PS` and the cross-off button,
+    # which are the two things this page exists for. The workbook gets away with four
+    # across because its own column widths total ~660px per panel and a spreadsheet is
+    # happy to be 2,600px wide; a browser is not.
+    #
+    # So each panel gets ~790px and every column is readable, at the cost of WR and TE
+    # sitting below QB and RB. Headless rendering could not have caught this -- `AppTest`
+    # reports the frame, never its width -- which is why the plan's own verification says
+    # to read it on a real screen.
+    def _draw(position: str, height_cap: int, caption: str) -> None:
+        """Render one panel under its heading.
+
+        Args:
+            position: Which panel.
+            height_cap: Tallest the table may be, in pixels.
+            caption: The line above it.
+        """
+        panel = panels[position]
+        st.markdown(caption)
+        st.dataframe(
+            sv.panel_styler(panel, theme),
+            width="stretch", hide_index=True,
+            height=min(height_cap, 60 + 35 * panel.depth),
+            column_config=_column_config(panel),
+            # A blank cell rather than the word "None", which on an unpriced player's
+            # VALUE reads as an answer rather than as an absence.
+            placeholder="",
+            lazy=False,
+        )
+
+
+    for row_start in range(0, len(sv.SHEET_POSITIONS), 2):
+        pair = sv.SHEET_POSITIONS[row_start:row_start + 2]
+        for column, position in zip(st.columns(len(pair)), pair):
+            with column:
+                _draw(position, 640,
+                      f"**{position}** · {panels[position].remaining} left above "
+                      f"replacement")
+
+    if show_streamed:
+        st.divider()
+        streamed = st.columns(len(sv.SHEET_STREAMED))
+        for column, position in zip(streamed, sv.SHEET_STREAMED):
+            with column:
+                _draw(position, 400,
+                      f"**{position}** · streamed, so `VALUE` is blank")
+
+    # --- the state, and how to clear it ---------------------------------------
+    st.divider()
+    footer = st.columns([3, 1])
+    rostered_note = (
+        f" Of those, **{len(held & drafted)}** came from the store rather than from you."
+        if show_rostered and held else "")
+    footer[0].caption(
+        f"**{len(drafted)} crossed off.**{rostered_note} "
+        f"Held for this browser session and this league "
+        f"only — nothing is written to the store, and closing the tab loses it. `PS` and "
+        f"the counts above each panel are measured against who is still available, so they "
+        f"decay as the draft runs. Prices are in **${budget}**, set on the Draft Board "
+        f"page."
+    )
+    if footer[1].button("Clear Crossed Off", width="stretch",
+                        disabled=not drafted):
+        st.session_state[sv.drafted_key(selection.league_key)] = set()
+        # Otherwise a toggle left on reads as "already applied" over an empty set, and the
+        # rostered players never come back until it is flipped twice.
+        sv.forget_rostered(st.session_state, selection.league_key)
+        st.rerun()

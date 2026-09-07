@@ -231,6 +231,49 @@ def load_board(season: int, league_key: str) -> pl.DataFrame:
     return _artifact(season, league_key, "board")
 
 
+def load_frozen_board(season: int, league_key: str) -> pl.DataFrame:
+    """The board as it stood when the drafts finished, if it was frozen.
+
+    Same schema as :func:`load_board` -- it is a copy of it. What differs is that it
+    does not move: ``board.parquet`` is rebuilt every morning at 06:00, so it stops
+    being able to say what a roster looked like on the day it was drafted. That is
+    the only basis on which a draft can be graded.
+
+    Args:
+        season: Season year.
+        league_key: ``config.yaml`` league key.
+
+    Returns:
+        pl.DataFrame: The frozen board.
+
+    Raises:
+        FileNotFoundError: When ``python -m Scripts.freeze`` has not been run for
+            this league. Callers check :func:`has_artifact` first and fall back to
+            the live board, saying which one they used.
+    """
+    return _artifact(season, league_key, "board_frozen")
+
+
+def draft_basis(season: int, league_key: str):
+    """The board to grade a draft against, and a word for which one it is.
+
+    Prefers the frozen board and falls back to the live one, because a rundown that
+    silently reads a board four months of news later would be measuring luck. The
+    label is returned rather than inferred by the caller so the page cannot show one
+    and read the other.
+
+    Args:
+        season: Season year.
+        league_key: ``config.yaml`` league key.
+
+    Returns:
+        tuple: ``(frame, "frozen" | "live")``.
+    """
+    if has_artifact(season, league_key, "board_frozen"):
+        return load_frozen_board(season, league_key), "frozen"
+    return load_board(season, league_key), "live"
+
+
 def load_draft(season: int, league_key: str) -> pl.DataFrame:
     """Every pick this league has ever made, when the history has been built.
 

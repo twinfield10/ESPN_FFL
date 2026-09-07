@@ -5,7 +5,9 @@
 **Priority:** High (seasonal) · **Effort:** Large · **Where it stands:** **Board done
 2026-08-07, model columns added 2026-08-14, split into three tabs 2026-08-14,
 keeper handling and the cash lens 2026-08-17, spanners and the ESPN comparison
-2026-08-17, Calibration tab 2026-08-17**; Live not started; History unblocked
+2026-08-17, Calibration tab 2026-08-17, re-parented under the Draft tab with The Sheet
+and a post-draft Rundown 2026-09-07** ([40](40-frontend-restructure.md)); Live still
+not started, and still refused; History unblocked
 **Depends on:** [07 (foundation)](07-frontend-foundation.md), and the draft
 phases in [`../STATE_OF_THE_REPO.md`](../STATE_OF_THE_REPO.md#roadmap--draft-strategy)
 

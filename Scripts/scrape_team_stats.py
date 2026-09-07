@@ -191,7 +191,17 @@ def get_stats_by_matchup(
     # Loop through each week that has happened
     current_matchup_period = league.settings.week_to_matchup_period[league.current_week]
     for week in range(current_matchup_period):
-        box_scores = league.box_scores(week + 1)
+        try:
+            box_scores = league.box_scores(week + 1)
+        except KeyError as e:
+            # ESPN does not always serve `rosterForCurrentScoringPeriod` for an old
+            # week, and `espn_api` indexes it unconditionally. One week it will not
+            # serve is not a reason to lose the league's whole history -- the same
+            # argument `Scripts.refresh` makes one level up about one league not
+            # costing you the rest. The gap is reported rather than swallowed.
+            print(f"  week {week + 1} of {year}: ESPN served no {e}, skipped",
+                  flush=True)
+            continue
 
         # Instantiate week data frame
         df_week = pd.DataFrame()
@@ -309,6 +319,15 @@ def get_stats_by_matchup(
 
         # Concatenate week's data
         df = pd.concat([df, df_week])
+
+    if df.empty:
+        # Every week of this season was one ESPN would not serve a roster for, so
+        # there is nothing to derive from. Returning the empty frame lets the caller
+        # drop the season; computing `score_dif` on it raised `KeyError: team_score`
+        # -- an empty frame has no columns at all -- and cost the league every other
+        # season with it. Weenieless_Wanderers 2019 is the case.
+        print(f"  {year}: no week returned a box score, season skipped", flush=True)
+        return df
 
     # Calculated fields
     df["score_dif"] = df["team_score"] - df["opp_score"]
@@ -430,6 +449,11 @@ def scrape_team_stats(
             df_year = get_stats_by_matchup(league_id, year, swid, espn_s2)
             df_year["box_score_available"] = True
 
+        if df_year.empty:
+            # A season with no servable box scores. Skipped rather than concatenated,
+            # because an empty frame carries no columns to cast or align.
+            continue
+
         # Properly cast boolean columns to bool
         bool_cols = {
             col: bool for col in df_year.columns[df_year.columns.str.contains("is_")]
@@ -442,19 +466,35 @@ def scrape_team_stats(
     # Get adjusted score
     # The score multiplier is defined as the median score of the league in a given year
     # divided by the median score of the league in the most recent completed year.
-    year_multiplier_map = (
-        df[df.is_meaningful_game][["year", "team_score"]]
-        .groupby("year")
-        .median()
-        .team_score
-        / df[(df.is_meaningful_game) & (df.year == end_year - 1)].team_score.median()
-    ).to_dict()
+    #
+    # Two degenerate cases have to resolve to "do not adjust" rather than to a
+    # division. **The season in progress has no played games**, so its median score is
+    # 0.0 and the vectorised form above produced a multiplier of exactly zero -- then
+    # raised `ZeroDivisionError: float division by zero` on the first row of it. That
+    # is not an edge case: it is every call for the current season before week 1
+    # finishes, which is precisely when the Matchup tab wants this artifact. The
+    # baseline can also be absent or zero (a league whose `end_year - 1` was never
+    # played), which leaves nothing to divide by at all.
+    #
+    # Both mean the same thing -- there is no cross-season level difference to correct
+    # -- so both take 1.0 and leave the raw score alone. Fully played seasons are
+    # unaffected and reproduce the previous numbers exactly.
+    baseline = df[(df.is_meaningful_game) & (df.year == end_year - 1)].team_score.median()
+    medians = df[df.is_meaningful_game].groupby("year").team_score.median()
+
+    def _multiplier(median):
+        if pd.isna(baseline) or baseline <= 0 or pd.isna(median) or median <= 0:
+            return 1.0
+        return median / baseline
+
+    year_multiplier_map = {year: _multiplier(median)
+                           for year, median in medians.items()}
 
     def get_adjusted_score(s):
-        return s.team_score / year_multiplier_map[s.year]
+        return s.team_score / year_multiplier_map.get(s.year, 1.0)
 
     def get_opp_adjusted_score(s):
-        return s.opp_score / year_multiplier_map[s.year]
+        return s.opp_score / year_multiplier_map.get(s.year, 1.0)
 
     df["team_score_adj"] = df.apply(get_adjusted_score, axis=1)
     df["opp_score_adj"] = df.apply(get_opp_adjusted_score, axis=1)
