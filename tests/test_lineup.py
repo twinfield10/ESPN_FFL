@@ -214,6 +214,93 @@ def test_greedy_matches_brute_force(slots):
     assert greedy == pytest.approx(brute_force(rows, trimmed))
 
 
+# --- slot ordering -------------------------------------------------------
+
+def test_slots_sort_in_espns_order():
+    """QB, RB, WR, TE, FLEX, OP, DP, D/ST, K — then the bench and IR."""
+    slots = ["K", "IR", "QB", "BE", "D/ST", "DP", "OP", "RB/WR/TE", "TE", "WR", "RB"]
+    assert sorted(slots, key=lu.slot_rank) == [
+        "QB", "RB", "WR", "TE", "RB/WR/TE", "OP", "DP", "D/ST", "K", "BE", "IR"]
+
+
+@pytest.mark.parametrize("flex", ["RB/WR/TE", "RB/WR", "WR/TE"])
+def test_every_flex_spelling_sorts_as_flex(flex):
+    """Aliased on the slash rather than enumerated, so a new flex needs no edit."""
+    assert lu.slot_rank(flex) == lu.slot_rank("RB/WR/TE")
+
+
+def test_dst_is_not_read_as_a_flex():
+    """It carries a slash and is one position. The one exception to the rule above."""
+    assert lu.slot_rank("D/ST") > lu.slot_rank("RB/WR/TE")
+    assert lu.slot_rank("D/ST") < lu.slot_rank("K")
+
+
+@pytest.mark.parametrize("idp", ["LB", "CB", "S", "DE", "DT"])
+def test_individual_defenders_sort_with_dp(idp):
+    """An IDP league reads in the same order as everything else, rather than
+    scattering five new slots through it."""
+    assert lu.slot_rank(idp) == lu.slot_rank("DP")
+
+
+def test_an_unrecognised_slot_lands_between_the_kicker_and_the_bench():
+    """Visible among the starters rather than hidden after IR — and distinct from
+    K, which it collided with before the ranks were scaled."""
+    assert lu.slot_rank("K") < lu.slot_rank("NEW") < lu.slot_rank("BE")
+
+
+def test_position_and_slot_are_different_things():
+    """A receiver in the flex sorts under FLEX, not among the receivers.
+
+    The whole point of ordering on `slotPosition` rather than `player_position`.
+    """
+    frame = pl.DataFrame([
+        player("Flexed", "WR", 12.0, slot="RB/WR/TE"),
+        player("Started", "WR", 11.0, slot="WR"),
+    ])
+    out = lu.sort_by_slot(frame, slot_column="slotPosition")
+    assert out["player_name"].to_list() == ["Started", "Flexed"]
+
+
+def test_within_a_slot_the_higher_projection_comes_first():
+    frame = pl.DataFrame([
+        player("RB2", "RB", 8.0, slot="RB"),
+        player("RB1", "RB", 18.0, slot="RB"),
+    ])
+    out = lu.sort_by_slot(frame, slot_column="slotPosition")
+    assert out["player_name"].to_list() == ["RB1", "RB2"]
+
+
+def test_a_league_missing_slots_keeps_the_order_of_what_it_has():
+    """12 Dudes has no D/ST; Jeff's has no kicker. Missing slots just do not appear."""
+    frame = pl.DataFrame([
+        player("K1", "K", 8.0, slot="K"),
+        player("Q1", "QB", 20.0, slot="QB"),
+        player("F1", "WR", 10.0, slot="RB/WR/TE"),
+    ])
+    out = lu.sort_by_slot(frame, slot_column="slotPosition")
+    assert out["slotPosition"].to_list() == ["QB", "RB/WR/TE", "K"]
+
+
+def test_bench_and_ir_come_last_however_good_the_player():
+    frame = pl.DataFrame([
+        player("Stud", "RB", 30.0, slot="BE"),
+        player("Hurt", "RB", 25.0, slot="IR"),
+        player("Starter", "RB", 4.0, slot="RB"),
+    ])
+    out = lu.sort_by_slot(frame, slot_column="slotPosition")
+    assert out["player_name"].to_list() == ["Starter", "Stud", "Hurt"]
+
+
+def test_sorting_a_frame_with_no_slot_column_is_a_no_op():
+    frame = pl.DataFrame({"player_name": ["A", "B"]})
+    assert lu.sort_by_slot(frame).equals(frame)
+
+
+def test_the_sort_column_is_not_left_behind():
+    frame = pl.DataFrame([player("A", "RB", 10.0, slot="RB")])
+    assert "__slot_rank" not in lu.sort_by_slot(frame, slot_column="slotPosition").columns
+
+
 # --- swaps ---------------------------------------------------------------
 
 def test_a_lineup_already_optimal_has_no_swaps():

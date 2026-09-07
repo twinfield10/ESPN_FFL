@@ -220,19 +220,26 @@ with right:
 # --- the two lineups ------------------------------------------------------
 st.divider()
 st.subheader("Both Lineups, As Set")
+st.caption(
+    "Both sides in ESPN's slot order — QB, RB, WR, TE, FLEX, OP, DP, D/ST, K — so "
+    "the two columns line up row for row and a matchup can be read across."
+)
 
 missing = weekly.missing_sources_note(selection.meta)
 if missing:
     st.caption(missing)
 
+# Derived from a frame that carries `slot`. The starters do; `rostered` carries
+# `slotPosition` instead, and deriving from it silently dropped the Slot column —
+# which is the column the whole ordering is there to make readable.
 columns = weekly.display_columns(
-    lu.with_source_spread(rostered, selection.meta), selection.meta)
+    lu.with_source_spread(rostered, selection.meta)
+      .with_columns(pl.col("slotPosition").alias("slot")),
+    selection.meta)
 pair = st.columns(2)
 for column, name in zip(pair, (owner, opponent)):
     with column:
         st.markdown(f"**{name}** · {sides[name].projected:.1f}")
         starters = lineups_by_owner[name][1]
         frame = pl.DataFrame(starters) if starters else rostered.head(0)
-        weekly.render_table(
-            frame.sort("TRUE_Points", descending=True), selection.meta,
-            columns=columns)
+        weekly.render_table(lu.sort_by_slot(frame), selection.meta, columns=columns)

@@ -119,10 +119,14 @@ def render_table(frame: pl.DataFrame, meta: dict, *, columns: Sequence[str],
         {c: labels[c] for c in present if c in labels})
 
     config: Dict[str, object] = {
+        # 100px rather than auto: auto sizes to the *header*, and "Slot" is four
+        # characters while `RB/WR/TE` is eight, so the widest slot in the league
+        # rendered as "RB/WR," — truncating the one column the ordering exists for.
         "Slot": st.column_config.TextColumn(
-            pinned=True,
-            help="The starting slot this player occupies. `BE` is the bench and "
-                 "`IR` is injured reserve; neither scores."),
+            width=100, pinned=True,
+            help="The starting slot this player occupies — the slot, not the "
+                 "position, so a receiver in the flex shows as the flex. `BE` is the "
+                 "bench and `IR` is injured reserve; neither scores."),
         "Player": st.column_config.TextColumn(pinned=True),
         "Pos": st.column_config.TextColumn(),
         "NFL": st.column_config.TextColumn(),

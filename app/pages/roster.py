@@ -134,24 +134,29 @@ if note:
 
 st.divider()
 
-columns = weekly.display_columns(team, selection.meta)
+# Derived from a frame that carries `slot`. `team` carries `slotPosition`, and
+# deriving from it dropped the Slot column from both tables below — which is the
+# column the slot ordering exists to make readable.
+columns = weekly.display_columns(
+    team.with_columns(pl.col("slotPosition").alias("slot")), selection.meta)
 
 st.subheader("The Best Lineup Available")
 best = pl.DataFrame(optimal) if optimal else team.head(0)
-weekly.render_table(best.sort("TRUE_Points", descending=True), selection.meta,
-                    columns=columns)
+weekly.render_table(lu.sort_by_slot(best), selection.meta, columns=columns)
 st.caption(
-    "Slot is where the optimiser puts each player, not where ESPN has him. "
-    "Eligibility comes from ESPN's own `eligiblePositions`, which is what makes "
-    "superflex (`OP`) and this league's defensive slots work without a lookup table."
+    "In ESPN's slot order — QB, RB, WR, TE, FLEX, OP, DP, D/ST, K — and by "
+    "projection within a slot. Slot is where the optimiser puts each player, not "
+    "where ESPN has him. Eligibility comes from ESPN's own `eligiblePositions`, "
+    "which is what makes superflex (`OP`) and this league's defensive slots work "
+    "without a lookup table."
 )
 
 st.subheader("Everyone On The Roster")
-order = pl.when(pl.col("slotPosition").is_in(list(NON_STARTING_SLOTS))).then(1) \
-          .otherwise(0).alias("__bench")
 weekly.render_table(
-    team.with_columns(order).sort(["__bench", "TRUE_Points"],
-                                  descending=[False, True]).drop("__bench"),
-    selection.meta,
+    lu.sort_by_slot(team, slot_column="slotPosition"), selection.meta,
     columns=[c if c != "slot" else "slotPosition" for c in columns])
-st.caption("As ESPN has it set, starters first. `Slot` here is the real one.")
+st.caption(
+    "As ESPN has it set, in ESPN's own slot order, with the bench and IR last. "
+    "`Slot` here is the real one, not the optimiser's — and it is the *slot*, not "
+    "the position, so a receiver in the flex sits under FLEX."
+)

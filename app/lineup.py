@@ -216,6 +216,90 @@ def slot_counts(frame: pl.DataFrame, meta: dict) -> Dict[str, int]:
     return counts
 
 
+#: Starting slots in the order ESPN lists them, which is the order a roster reads in.
+#:
+#: Position and *slot* are different things and this orders on the slot: a receiver
+#: filling the flex belongs under FLEX, not among the receivers. Bench and IR come
+#: last because they did not play.
+#:
+#: A league has some subset of these, never all -- 12 Dudes has no D/ST, Jeff's has no
+#: kicker, only GOP has DP. Missing slots simply do not appear; the order of what
+#: remains is unchanged.
+SLOT_ORDER: Tuple[str, ...] = (
+    "QB", "RB", "WR", "TE", "FLEX", "OP", "DP", "D/ST", "K", "BE", "IR",
+)
+
+#: Individual defensive positions, which sort with the DP slot they fill.
+#:
+#: ESPN reports a roster's defensive slot as ``DP`` in every league configured here,
+#: but it names the specific position when a league defines per-position defensive
+#: slots. Grouping them with DP keeps an IDP league reading in the same order as
+#: everything else rather than scattering five new slots through it.
+IDP_SLOTS = frozenset({"DL", "DE", "DT", "NT", "LB", "OLB", "CB", "S", "DB"})
+
+
+def slot_rank(slot: Optional[str]) -> int:
+    """Where a slot sorts, by :data:`SLOT_ORDER`.
+
+    Three aliases, so the map does not need extending every time ESPN names a flex
+    differently:
+
+    * Any slot naming more than one position -- ``RB/WR/TE``, ``RB/WR``, ``WR/TE`` --
+      is a flex. ``D/ST`` is the exception: it carries a slash and is one position.
+    * An individual defensive position sorts with ``DP``.
+    * Anything unrecognised sorts just before the bench, so a slot nobody anticipated
+      is visible among the starters rather than hidden after IR.
+
+    Args:
+        slot: A ``slotPosition`` value, or the optimiser's assigned ``slot``.
+
+    Returns:
+        int: Sort key.
+    """
+    # Scaled by ten so an unrecognised slot can sit *between* two known ones rather
+    # than colliding with whichever it rounds to. Unscaled, "just before the bench"
+    # resolved to the same key as K.
+    if not slot:
+        return len(SLOT_ORDER) * 10
+    if slot in SLOT_ORDER:
+        return SLOT_ORDER.index(slot) * 10
+    if slot in IDP_SLOTS:
+        return SLOT_ORDER.index("DP") * 10
+    if "/" in slot:
+        return SLOT_ORDER.index("FLEX") * 10
+    return SLOT_ORDER.index("BE") * 10 - 5
+
+
+def sort_by_slot(frame: pl.DataFrame, slot_column: str = "slot",
+                 points_column: str = "TRUE_Points") -> pl.DataFrame:
+    """Order a roster the way ESPN shows it: by slot, then by projection.
+
+    Within a slot the higher projection comes first, so a two-back league reads RB1
+    then RB2 rather than in whatever order the artifact happened to hold them.
+
+    Args:
+        frame: Rows carrying ``slot_column``.
+        slot_column: ``"slot"`` for an optimiser assignment, ``"slotPosition"`` for
+            the lineup as ESPN has it set.
+        points_column: Tie-break within a slot.
+
+    Returns:
+        pl.DataFrame: Sorted. Returned unchanged when it has no slot column.
+    """
+    if frame.is_empty() or slot_column not in frame.columns:
+        return frame
+    ordered = frame.with_columns(
+        pl.col(slot_column)
+        .map_elements(slot_rank, return_dtype=pl.Int32)
+        .alias("__slot_rank"))
+    by = ["__slot_rank"]
+    descending = [False]
+    if points_column in ordered.columns:
+        by.append(points_column)
+        descending.append(True)
+    return ordered.sort(by, descending=descending).drop("__slot_rank")
+
+
 def _eligible(row: dict) -> List[str]:
     """Slots a player may legally fill.
 
