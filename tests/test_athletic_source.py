@@ -30,7 +30,7 @@ def test_ath_is_registered_at_an_equal_vote():
     `test_usage_fifth_source` holds the general form of it and this pins the value."""
     entry = pu.WEIGHTS["default"]
     assert entry["ATH"] == 0.25
-    assert {entry[k] for k in ("ESPN", "FP", "PINNY", "BOL", "ATH", "USG")} == {0.25}
+    assert {entry[k] for k in ("ESPN", "FP", "PINNY", "BOL", "ATH")} == {0.25}
 
 
 def test_ath_is_scored_like_every_other_source():

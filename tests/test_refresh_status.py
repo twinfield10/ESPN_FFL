@@ -206,3 +206,63 @@ def test_an_overdue_odds_pull_is_stale(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(rs, "ODDS_STATUS_PATH", path)
     assert rs._report_odds(2026) is True
     assert "DID NOT RUN" in capsys.readouterr().out
+
+
+# --- the weekly manifest --------------------------------------------------
+#
+# Added 2026-09-08. `PROJECTION_SOURCES` names every source the *draft board* blends
+# and nothing had ever named a weekly file -- so the FantasyPros weekly parquet sat
+# 25 days stale with 60 rows in it while this module reported everything healthy.
+
+
+def test_every_weekly_source_is_named_in_the_weekly_manifest():
+    named = {name for name, _, _, _ in rs.WEEKLY_PROJECTION_SOURCES}
+    assert named == {"FP weekly", "PINNY weekly", "BOL weekly"}
+
+
+def test_the_weekly_manifest_resolves_paths_without_creating_directories():
+    """A status check must not have side effects on the data tree."""
+    for _, resolve, _, _ in rs.WEEKLY_PROJECTION_SOURCES:
+        path = resolve(2099)
+        assert not path.exists()
+        assert not path.parent.exists(), "resolving a path must not create a directory"
+
+
+def test_a_dead_weekly_source_is_advisory_rather_than_stale_making(tmp_path, capsys):
+    """Pinnacle's weekly Selenium path and BetOnline's 403 will both be missing for
+    stretches of the season, and a check that is red every night is one nobody
+    reads -- which this module's own docstring warns about."""
+    missing = tmp_path / "nope.parquet"
+    advisory_only = (
+        ("PINNY weekly", lambda s: missing, "python -m Scripts.scrape_pinnacle", True),
+        ("BOL weekly", lambda s: missing, "blocked, see docs/plans/02", True),
+    )
+    assert rs._report_sources(2026, 25.0, sources=advisory_only) is False
+    assert "(advisory)" in capsys.readouterr().out
+
+
+def test_a_stale_fantasypros_weekly_file_does_make_the_run_stale(tmp_path):
+    """The one weekly source that is meant to refresh every night."""
+    import os
+    import time
+
+    path = tmp_path / "FantasyPros_Projections_Week_All.parquet"
+    path.write_bytes(b"x")
+    old = time.time() - 40 * 3600
+    os.utime(path, (old, old))
+    manifest = (("FP weekly", lambda s: path,
+                 "python -m Scripts.scrape_FP --what weekly", False),)
+    assert rs._report_sources(2026, 25.0, sources=manifest) is True
+
+
+def test_report_sources_reads_the_manifest_at_call_time(monkeypatch, tmp_path):
+    """`sources=None` resolving the global inside the body is load-bearing.
+
+    Two tests above monkeypatch `rs.PROJECTION_SOURCES` and then call
+    `_report_sources(2026, 25.0)`. A default argument of
+    `sources=PROJECTION_SOURCES` binds at `def` time, so the patch would not apply
+    and those tests would quietly pass against the real manifest instead.
+    """
+    monkeypatch.setattr(rs, "PROJECTION_SOURCES",
+                        (("Fake", lambda s: tmp_path / "absent.parquet", "fix"),))
+    assert rs._report_sources(2026, 25.0) is True

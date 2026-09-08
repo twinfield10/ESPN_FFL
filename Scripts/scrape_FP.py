@@ -282,18 +282,81 @@ def get_fp(wk, year=None):
     return out[named].reset_index(drop=True)
 
 
-def scrape_weekly(season=None, week=None):
-    """Scrape week-by-week projections and write the season file.
+#: Join key of the weekly file, and what a merge de-duplicates on.
+WEEKLY_KEYS = ["week", "player_name"]
+
+
+def parse_weeks(spec):
+    """``"1-3"`` or ``"1,4,7"`` to a list of week numbers.
+
+    Args:
+        spec: The ``--weeks`` argument, or None.
+
+    Returns:
+        list | None: Weeks, in ascending order without duplicates, or None when
+        ``spec`` is empty so the caller falls back to the current week.
+
+    Raises:
+        ValueError: On anything that is not a number or an ascending range.
+    """
+    if not spec:
+        return None
+    weeks = set()
+    for part in str(spec).split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            low, _, high = part.partition("-")
+            low, high = int(low), int(high)
+            if high < low:
+                raise ValueError(f"week range {part!r} runs backwards")
+            weeks.update(range(low, high + 1))
+        else:
+            weeks.add(int(part))
+    return sorted(weeks)
+
+
+def scrape_weekly(season=None, week=None, weeks=None, merge=True):
+    """Scrape the current week's projections and merge them into the season file.
+
+    **The current week alone, and merged rather than rewritten.** This used to fetch
+    ``range(1, week + 1)`` on every call, which is wrong in two directions once a
+    season is under way.
+
+    Too slow: six requests a week at the 5s crawl delay ``robots.txt`` asks for is
+    30s at week 1 and **nine minutes at week 18**, on a nightly job.
+
+    Worse, it re-requests a *projections* page for weeks already played. What
+    FantasyPros serves for a completed week is not necessarily the number it served
+    before kickoff, so re-scraping quietly rewrites history -- and the whole point of
+    this file is to be the pre-game opinion the blend voted with. Merging with
+    ``keep="first"`` on the existing rows freezes each week at first capture, the
+    same rule ``Scripts.freeze`` applies to the draft board.
+
+    The file **must stay cumulative** whichever way it is written:
+    :func:`Scripts.projection_utils.clean_lineups` re-merges it onto every week in
+    the lineup frame on ``["week", "player_name"]``, and that frame gains a week
+    every Tuesday. A current-week-only file would blank FantasyPros for every prior
+    week and turn stored history into an ESPN-only board retroactively.
 
     Args:
         season: Season for the output path. Defaults to the schedule's season.
-        week: Highest week to fetch. Defaults to the schedule's current week.
+        week: The week to fetch. Defaults to the schedule's current week, resolved
+            **at call time** -- ``WEEK`` is bound at import, and with a stale
+            schedule that is week 1 for the rest of the season.
+        weeks: Explicit weeks to fetch, for a backfill. Overrides ``week``.
+        merge: Combine with whatever the file already holds, existing rows winning.
+            False rewrites it, which is how to replace a bad capture on purpose.
 
     Returns:
-        pd.DataFrame: One row per player-week.
+        pd.DataFrame: The whole file as written -- every week it now holds, not just
+        the ones this call fetched, so a caller can row-count what shipped.
     """
     season = SEASON if season is None else season
-    week = WEEK if week is None else week
+    if weeks is None:
+        weeks = [current_week() if week is None else week]
+    weeks = [int(w) for w in weeks]
 
     # `season` used to name the output directory and nothing else, so asking for 2025
     # wrote the *current* season's numbers into `Data/Projections/FantasyPros/2025/`
@@ -301,14 +364,30 @@ def scrape_weekly(season=None, week=None):
     # parameter was believed not to exist. It does (`year`), so the argument now
     # reaches the request as well as the path.
     year = None if int(season) == int(SEASON) else int(season)
-    proj_list = [get_fp(wk=w, year=year) for w in range(1, week + 1)]
-    df = pd.concat(proj_list, ignore_index=True)
+    fetched = pd.concat([get_fp(wk=w, year=year) for w in weeks], ignore_index=True)
 
-    df.to_csv(season_dir("FantasyPros", season, "FantasyPros_Projections_Week_All.csv"))
-    df.to_parquet(season_dir("FantasyPros", season,
-                             "FantasyPros_Projections_Week_All.parquet"))
-    print(f"FantasyPros weekly {season}: {len(df)} rows, weeks 1-{week}, "
-          f"{df['player_name'].nunique()} players")
+    parquet = season_dir("FantasyPros", season,
+                         "FantasyPros_Projections_Week_All.parquet")
+    df = fetched
+    if merge and parquet.is_file():
+        existing = pd.read_parquet(parquet)
+        # Existing first, so `keep="first"` preserves a week already captured.
+        df = pd.concat([existing, fetched], ignore_index=True)
+        df = df.drop_duplicates(subset=WEEKLY_KEYS, keep="first")
+        df = df.sort_values(WEEKLY_KEYS).reset_index(drop=True)
+
+    df.to_parquet(parquet)
+    df.to_csv(parquet.with_suffix(".csv"), index=False)
+
+    scraped = int(fetched["player_name"].nunique())
+    print(f"FantasyPros weekly {season}: fetched week(s) "
+          f"{', '.join(str(w) for w in weeks)} -- {len(fetched)} rows, "
+          f"{scraped} players; file now holds {len(df)} rows over weeks "
+          f"{sorted(pd.unique(df['week']))}")
+    if scraped <= 60:
+        print("  NOTE: FantasyPros caps its public tables at 10 rows per position. "
+              "This is a top-10 teaser, not full coverage -- check the "
+              "`fantasypros.cookie` session in config.yaml (docs/plans/03).")
     return df
 
 
@@ -354,12 +433,18 @@ def main(argv=None):
         description="Scrape FantasyPros projections.",
     )
     p.add_argument("--season", type=int, help="defaults to the schedule's season")
-    p.add_argument("--week", type=int, help="highest week for the weekly scrape")
+    p.add_argument("--week", type=int,
+                   help="week for the weekly scrape; defaults to the current week")
+    p.add_argument("--weeks",
+                   help="explicit weeks to fetch, e.g. 1-3 or 1,4,7 (a backfill)")
+    p.add_argument("--no-merge", action="store_true",
+                   help="rewrite the weekly file instead of merging into it")
     p.add_argument("--what", choices=["weekly", "season", "both"], default="both")
     args = p.parse_args(argv)
 
     if args.what in ("weekly", "both"):
-        scrape_weekly(season=args.season, week=args.week)
+        scrape_weekly(season=args.season, week=args.week,
+                      weeks=parse_weeks(args.weeks), merge=not args.no_merge)
     if args.what in ("season", "both"):
         scrape_season_long(season=args.season)
     return 0

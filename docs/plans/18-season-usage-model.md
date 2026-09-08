@@ -2,8 +2,14 @@
 
 **Status:** COMPLETE
 
-**Priority:** High (seasonal) · **Effort:** M · **Where it stands:** **Built, backtested, and
-carrying real weight since 2026-08-07.**
+**Priority:** High (seasonal) · **Effort:** M · **Where it stands:** **Built and
+backtested. It carried real weight from 2026-08-17 and was withdrawn from the season
+blend on 2026-09-07** — on a team-carries level error, not on anything measured here.
+Everything below stands: the walk-forward result, the rookie arm, the coverage figures.
+What changed is that beating the naive heuristic out of sample turned out not to be
+sufficient for a source to blend, because a blend adds up levels and this one is 0.903
+of the field on carries. See [43](43-tomcat-out-of-season-blend.md), whose owed item 1 —
+a team rushing identity — is the route back.
 `Scripts/usage/{features,season,project,backtest}.py`, 84 tests. Walk-forward
 2019–2025 beats the naive draft heuristic on ordering at RB/WR/TE; it does not improve
 yardage. **The rookie draft-capital arm passed its gate decisively.** `USG_` reaches

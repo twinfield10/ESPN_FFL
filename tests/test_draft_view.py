@@ -328,27 +328,38 @@ def test_every_blended_source_has_a_column_of_its_own():
 
 
 def test_the_points_group_reads_left_to_right_from_source_to_blend():
-    """ESPN, FP, then Us: the inputs, then what they make. Order is the argument."""
+    """ESPN, FP, then Us: the inputs, then what they make. Order is the argument.
+
+    `TOM` used to sit after `Us` -- our own second opinion, placed after the blend it
+    fed. It left the board with TOMCAT's withdrawal from the season blend on
+    2026-09-07, so the ordering claim is now only about the sources that remain."""
     points = [c.label for c in dv.COLUMNS if c.group == "Points"]
     assert points.index("ESPN") < points.index("Us")
     assert points.index("FP") < points.index("Us")
-    assert points.index("Us") < points.index("TOM"), (
-        "TOM is our own second opinion and belongs after the blend it feeds")
 
 
-def test_the_three_tomcat_arms_render_as_one_column():
-    """One source, one vote, one column.
+def test_no_tomcat_column_survives_on_the_board():
+    """TOMCAT is off the draft board entirely as of 2026-09-07.
 
-    There used to be a separate `DST` column beside `TOM`, and a kicking arm with no
-    column at all. Since 2026-09-02 all three write `USG_`, so a team defence's
-    projection and a receiver's arrive in the same place -- and a second column would
-    now be a duplicate of the first rather than an aside.
+    This used to assert its three arms rendered as **one** column rather than three --
+    a defence arm with its own `DST` column and a kicking arm with none. That argument
+    is settled the other way now: the source was withdrawn from the season blend, so
+    every column derived from it goes, including the diagnostics that only made sense
+    beside it (`Exp G`, `Role %`, `Model Evidence`).
+
+    The `USG_` stat lines are still in the store, unweighted and unpriced -- see
+    docs/plans/43-tomcat-out-of-season-blend.md -- so this is about the board, not the
+    data. A column reappearing here without that plan being revisited is the failure
+    to catch.
     """
-    labels = [c.label for c in dv.COLUMNS if c.group == "Points"]
-    assert labels.count("TOM") == 1
-    assert "DST" not in labels, "the defence arm is TOMCAT, not a source of its own"
+    labels = [c.label for c in dv.COLUMNS]
+    for gone in ("TOM", "\u0394 TOM", "DST", "Exp G", "Role %", "Model Evidence"):
+        assert gone not in labels, f"{gone} is back on the board"
     sources = {c.source for c in dv.COLUMNS}
-    assert "DST_Points" not in sources and "KIK_Points" not in sources
+    for gone in ("USG_Points", "USG_PosRankDelta", "DST_Points", "KIK_Points",
+                 "usg_expected_games", "usg_role_confidence_pct",
+                 "usg_evidence_label"):
+        assert gone not in sources, f"{gone} is back on the board"
 
 
 def test_a_single_position_column_is_dropped_where_it_cannot_apply():
@@ -1320,85 +1331,62 @@ def test_one_source_can_sit_under_two_headers():
     assert frame[("Draft Metric", "Us")].to_list() == [7.0]
 
 
-# --- the model's own account of itself -----------------------------------
+# --- the model is off the board ------------------------------------------
 #
-# Five states, and the whole point of the column is that three of them would
-# otherwise render as the same empty cell.
+# `with_model_evidence` and its five-state `EVIDENCE_*` vocabulary lived here until
+# 2026-09-07. They resolved the four different things an empty TOMCAT cell could mean
+# -- position not covered, model declined, injury withdrew a price, backup ESPN priced
+# out -- into one readable string, because three of them otherwise rendered as the same
+# blank and a blank reads as agreement.
+#
+# All of it went with TOMCAT's withdrawal from the season blend: there is no TOMCAT cell
+# left to explain. The tests below hold the *withdrawal* rather than the vocabulary --
+# that nothing model-derived is back on the board, and that the half of the machinery
+# which never depended on TOMCAT still works.
+#
+# `AVAILABILITY_MARKERS` is that surviving half, and the distinction is worth keeping
+# straight: the removed column answered "why is one source of five quiet", this one
+# answers "why is there no projection at all". Its tests are with the availability
+# gates in test_availability_withdrawal.py.
+
 
 def _modelled(rows):
-    """A board carrying the usage model's columns."""
-    defaults = {"usg_arm": "veteran", "USG_Points": 90.0, "usg_evidence": "",
-                "usg_expected_games": 15.0, "USG_PosRankDelta": 0.0}
+    """A board carrying the usage model's surviving lower-case diagnostics.
+
+    No `USG_Points` and no `USG_PosRankDelta`: those are not written any more. The
+    `usg_*` columns are, because the injury vacancy transfer and
+    `_withdraw_usage_on_role` read them.
+    """
+    defaults = {"usg_arm": "veteran", "usg_evidence": "",
+                "usg_expected_games": 15.0}
     return _board([{**defaults, **row} for row in rows])
 
 
-def _labels(board):
-    return dv.with_model_evidence(board)["usg_evidence_label"].to_list()
+def test_the_model_block_is_absent_from_a_board_that_still_carries_its_diagnostics():
+    """The store keeps `usg_arm` and `usg_expected_games` -- other machinery needs them
+    -- and none of that may put a column back on the draft board."""
+    frame = dv.display_frame(_modelled([{}]))
+    for key in (("Points", "TOM"), ("Position Ranks", "\u0394 TOM"),
+                ("Notes", "Exp G"), ("Notes", "Role %"),
+                ("Notes", "Model Evidence")):
+        assert key not in frame.columns, f"{key} is back on the board"
 
 
-def test_a_priced_player_with_nothing_flagged_reads_as_clear():
-    assert _labels(_modelled([{}])) == [dv.EVIDENCE_CLEAR]
+def test_the_model_evidence_helper_is_gone_rather_than_left_dangling():
+    """Removed with the column it fed. A helper deriving a label nothing renders is the
+    kind of dead code that gets re-wired by accident later."""
+    assert not hasattr(dv, "with_model_evidence")
+    for name in ("EVIDENCE_CLEAR", "EVIDENCE_NOT_MODELLED",
+                 "EVIDENCE_WITHDRAWN_AVAILABILITY", "EVIDENCE_WITHDRAWN_INJURY",
+                 "EVIDENCE_WITHDRAWN_ROLE", "EVIDENCE_ROLE_MARKER"):
+        assert not hasattr(dv, name), f"{name} outlived the column it labelled"
 
 
-def test_a_flagged_player_shows_the_models_reason_verbatim():
-    board = _modelled([{"usg_evidence": "changed teams"}])
-    assert _labels(board) == ["changed teams"]
-
-
-def test_a_position_the_model_never_covers_is_not_confused_with_agreement():
-    board = _modelled([{"usg_arm": None, "USG_Points": None,
-                        "usg_evidence": None, "usg_expected_games": None}])
-    assert _labels(board) == [dv.EVIDENCE_NOT_MODELLED]
-
-
-def test_an_abstention_reads_as_withdrawn_on_availability():
-    board = _modelled([{"usg_arm": "abstain", "USG_Points": None,
-                        "usg_expected_games": 4.9}])
-    assert _labels(board) == [dv.EVIDENCE_WITHDRAWN_AVAILABILITY]
-
-
-def test_an_injury_withdrawal_is_told_apart_from_an_abstention():
-    """Same empty USG, different reason: the arm ran and the report pulled it."""
-    board = _modelled([{"usg_arm": "veteran", "USG_Points": None,
-                        "usg_expected_games": 11.3}])
-    assert _labels(board) == [dv.EVIDENCE_WITHDRAWN_INJURY]
-
-
-def test_a_withdrawal_outranks_the_evidence_text_it_also_carries():
-    """The 7 real rows that are flagged *and* unpriced: absence is the headline."""
-    board = _modelled([{"usg_arm": "veteran", "USG_Points": None,
-                        "usg_evidence": "thin prior season; changed teams"}])
-    assert _labels(board) == [dv.EVIDENCE_WITHDRAWN_INJURY]
-
-
-def test_a_board_predating_the_model_is_returned_untouched():
-    board = _board([{}])
-    assert dv.with_model_evidence(board).columns == board.columns
-
-
-def test_the_model_block_is_dropped_from_a_board_that_predates_it():
-    frame = dv.display_frame(dv.with_model_evidence(_board([{}])))
-    for key in (("Points", "TOM"), ("Position Ranks", "Δ TOM"),
-                ("Notes", "Exp G"), ("Notes", "Model Evidence")):
-        assert key not in frame.columns
-
-
-def test_the_model_sits_with_the_quantity_it_is_an_opinion_about():
-    """`TOM` beside the points it is a projection of, and its rank dissent beside the
-    positional ranks it dissents from — which is the arrangement that makes the level
-    mismatch visible instead of inviting the subtraction.
-
-    Labelled `TOM` since 2026-08-24, for TOMCAT — Touches, Opportunity, Market, Context,
-    Availability, Tiers. The underlying column is still `USG_Points`; see
-    `Scripts/usage/__init__.py` for why the prefix did not move with the name."""
-    frame = dv.display_frame(
-        dv.at_budget(dv.with_model_evidence(_modelled([{}])),
-                     dv.DEFAULT_AUCTION_BUDGET, meta=CASH_META),
-        dv.VALUE_LENS_CASH)
-    order = list(frame.columns)
-    assert order.index(("Points", "Us")) < order.index(("Points", "TOM"))
-    assert order.index(("Position Ranks", "Δ")) < order.index(("Position Ranks", "Δ TOM"))
-    assert order.index(("Notes", "Exp G")) < order.index(("Notes", "Model Evidence"))
+def test_the_availability_half_of_the_pair_survived():
+    """It answers a different question and never depended on TOMCAT: why every source
+    but ESPN was withdrawn and the projection is zero rather than merely absent."""
+    assert dv.AVAILABILITY_MARKERS
+    assert dv.with_availability_evidence(_board([{}])) is not None
 
 
 # --- where the points came from ------------------------------------------
@@ -1971,22 +1959,24 @@ def test_the_palette_covers_every_hue_slot(theme):
     assert set(dv.POSITION_HUES.values()) <= set(dv.SERIES_COLORS[theme])
 
 
-def test_the_role_withdrawal_marker_matches_its_producer():
-    """`draft_view` duplicates the string rather than importing the board builder,
-    which would drag the ESPN and scoring stack into a process that only reads
-    parquet. Duplication is fine; silent divergence is not."""
+def test_the_role_withdrawal_marker_is_still_written_even_though_nothing_renders_it():
+    """`draft_view` used to duplicate this string to tell a role withdrawal from an
+    injury one on the board. That reader went with TOMCAT on 2026-09-07, so there is no
+    copy left to diverge -- but the producer must keep writing it, because the
+    withdrawal it labels still happens and a silent one is what the constant exists to
+    prevent."""
     from Scripts.season_projections import ROLE_WITHDRAWN_EVIDENCE
 
-    assert dv.EVIDENCE_ROLE_MARKER == ROLE_WITHDRAWN_EVIDENCE
+    assert ROLE_WITHDRAWN_EVIDENCE == "withdrawn: backup"
+    assert not hasattr(dv, "EVIDENCE_ROLE_MARKER")
 
 
-def test_a_backup_withdrawal_does_not_read_as_an_injury():
-    """Both null `USG_Points`, and they mean different things to a drafter: an
-    injured starter comes back, a backup needs someone ahead of him to get hurt."""
-    board = pl.DataFrame({
-        "usg_arm": ["veteran", "veteran"],
-        "usg_evidence": [dv.EVIDENCE_ROLE_MARKER, ""],
-        "USG_Points": [None, None],
-    })
-    labels = dv.with_model_evidence(board)["usg_evidence_label"].to_list()
-    assert labels == [dv.EVIDENCE_WITHDRAWN_ROLE, dv.EVIDENCE_WITHDRAWN_INJURY]
+# `test_a_backup_withdrawal_does_not_read_as_an_injury` was here. It held that two
+# rows with an empty TOMCAT cell -- one a backup ESPN priced out, one an injury
+# withdrawal -- rendered as different strings, because an injured starter comes back
+# and a backup needs someone ahead of him to get hurt.
+#
+# It went with the column on 2026-09-07. The distinction it protected still exists one
+# layer down, in the `usg_evidence` marker `_withdraw_usage_on_role` writes, and is
+# tested at the producer in `tests/test_availability_withdrawal.py`. Nothing renders it
+# today; if a TOMCAT column ever returns, this is the test to bring back with it.

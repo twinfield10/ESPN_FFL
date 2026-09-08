@@ -202,9 +202,18 @@ def test_every_voting_source_has_a_card():
 
 
 def test_the_source_list_matches_the_weight_table():
-    """Read from `WEIGHTS` rather than restated, so registering a seventh source
-    fails here instead of silently going undocumented."""
-    assert set(ls.SOURCES) == set(ls.WEIGHTS["default"])
+    """Read from `WEIGHTS` rather than restated, so registering a further source
+    fails here instead of silently going undocumented.
+
+    The page documents **what is on the board**, which stopped being the same set as
+    what votes on 2026-09-07: TOMCAT was withdrawn from the blend but its `USG_` stat
+    lines are still merged, so the atlas still has real coverage and bias tables to
+    render for it. `ls.WITHDRAWN` is the difference, and it has to be exactly that --
+    a source that is in neither the weight table nor `WITHDRAWN` is one nobody decided
+    about."""
+    assert set(ls.BLENDED) == set(ls.WEIGHTS["default"])
+    assert set(ls.SOURCES) == set(ls.BLENDED) | set(ls.WITHDRAWN)
+    assert not set(ls.BLENDED) & set(ls.WITHDRAWN)
 
 
 def test_tomcat_is_outside_the_imputation_chain():
@@ -219,7 +228,9 @@ def test_tomcat_is_outside_the_imputation_chain():
 def test_availability_is_read_from_the_pipeline_not_asserted():
     assert ls.availability("ESPN") == "draft + weekly"
     assert ls.availability("ATH") == "draft only"
-    assert ls.availability("USG") == "draft only"
+    # Withdrawn is checked before the prefix lists: TOMCAT is in neither of them, and
+    # "draft only" would be a wrong answer rather than a stale one.
+    assert "withdrawn" in ls.availability("USG")
 
 
 def test_a_missing_board_fails_loudly():

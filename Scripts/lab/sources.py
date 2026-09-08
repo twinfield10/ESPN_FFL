@@ -65,6 +65,26 @@ GATE_POINTS = 100.0
 #: dropped and the rest renormalise, exactly as for a book with no line.
 SOURCES: Tuple[str, ...] = ("ESPN", "FP", "PINNY", "BOL", "ATH", "USG")
 
+#: Sources whose columns are on the board but which no longer vote in ``TRUE_``.
+#:
+#: **This page documents what is on the board, not what is in the blend**, and those
+#: stopped being the same thing on 2026-09-07 when TOMCAT was withdrawn from the
+#: season-long blend. Its ``USG_`` stat lines are still merged, so every coverage
+#: count and bias table here still measures something real -- which is the point of
+#: keeping them. What it no longer has is a weight, a ``USG_Points`` column, or a
+#: place on the draft board.
+#:
+#: Rendering it as a 0.00 weight beside the sources that vote would read as "measured
+#: and found worthless", which is not what happened: the model beats the naive
+#: heuristic out of sample at every position. It was withdrawn on a level error --
+#: 384 projected carries per team against a realised 450-465 -- that
+#: :data:`Scripts.usage.coherence.IDENTITIES` has no rushing pair to correct. So it is
+#: labelled rather than scored. See docs/plans/43-tomcat-out-of-season-blend.md.
+WITHDRAWN: Tuple[str, ...] = ("USG",)
+
+#: The sources that actually carry a weight in ``TRUE_``, in page order.
+BLENDED: Tuple[str, ...] = tuple(s for s in SOURCES if s not in WITHDRAWN)
+
 #: Sources that fill their gaps from another source, and from which.
 #:
 #: This is the dependency graph, and it is the answer to "does this source depend on
@@ -557,7 +577,16 @@ SOURCE_CARDS: Dict[str, Dict[str, object]] = {
                 "<code>…_Ranks_Season.parquet</code> (290)",
         "when": "<strong>Draft only.</strong> One file per season, and it only goes "
                 "stale by human neglect — which is why "
-                "<code>Scripts.refresh_status</code> names it.",
+                "<code>Scripts.refresh_status</code> names it. "
+                "<strong>A weekly workbook is expected in-season</strong>, and when "
+                "it arrives it registers the way every source does: a loader, a "
+                "<code>WEEKLY_PREFIXES</code> entry and provenance flags. Do "
+                "<em>not</em> synthesise one by dividing this file by games — a "
+                "season total over 17 cannot disagree with itself week to week, so "
+                "it would add a vote that is a constant, and renormalisation would "
+                "give that constant a full share on every row it covers. Same "
+                "argument as <code>docs/plans/39-source-basis.md</code>, one grain "
+                "down. See <code>docs/plans/44-weekly-sources-and-coverage.md</code>.",
         "depends": "Imputes from <code>MEAN_</code>. Contributed four name aliases: "
                    "two nicknames and two of the workbook's own typos.",
         "carries": "Twelve raw stats. <strong>No <code>lostFumbles</code></strong>. "
@@ -606,8 +635,13 @@ SOURCE_CARDS: Dict[str, Dict[str, object]] = {
                  "<code>project.py</code> writes",
         "file": "<code>Data/Projections/Usage/Season/&lt;season&gt;/"
                 "Usage_SeasonProjections.parquet</code>",
-        "when": "<strong>Draft only.</strong> There is no weekly head — "
-                "<code>docs/plans/19-weekly-usage-model.md</code> is not started.",
+        "when": "<strong>Withdrawn from the blend 2026-09-07.</strong> Its stat "
+                "lines are still merged onto the board so this page can keep "
+                "measuring them and the decision stays reversible, but they carry no "
+                "weight, are not scored, and are off the draft board. There is no "
+                "weekly head either — <code>docs/plans/19-weekly-usage-model.md</code> "
+                "is not started — so a weekly arm would be a fresh registration "
+                "rather than a reinstatement.",
         "depends": "<strong>Deliberately outside the imputation chain.</strong> "
                    "Filling the one independent source from an average of two that "
                    "are not would turn it into a copy of them. Its gaps stay null. "
@@ -626,10 +660,11 @@ SOURCE_CARDS: Dict[str, Dict[str, object]] = {
                    "the model always predicted (every stat is a volume term × a rate) "
                    "but carried as a diagnostic and never blended.",
         "strengths": [
-            "<strong>The most independent source in the blend by a distance</strong> "
-            "— +0.113 residual independence against the best external's +0.068, "
-            "and +0.371 partialled against +0.180. External consensus is a "
-            "saturated channel; this is not part of it.",
+            "<strong>The most independent source ever registered here, by a "
+            "distance</strong> — +0.113 residual independence against the best "
+            "external's +0.068, and +0.371 partialled against +0.180. External "
+            "consensus is a saturated channel; this is not part of it. That is why "
+            "the withdrawal is a level problem to fix rather than a verdict.",
             "<strong>The best-calibrated single source</strong> on realised "
             "results, against FantasyPros over-spread at 0.65–0.95 and BetOnline "
             "at 0.21–0.81.",
@@ -649,6 +684,30 @@ SOURCE_CARDS: Dict[str, Dict[str, object]] = {
             "read rather than only noted.",
         ],
         "weaknesses": [
+            "<strong>Its projected league does not run the ball enough, and that is "
+            "what withdrew it.</strong> An NFL team ran a median 454 / 450 / 465 "
+            "times in 2023 / 2024 / 2025; ESPN projects 462 per team for 2026 and The "
+            "Athletic 452. TOMCAT projects <strong>384</strong> — 417 once its "
+            "abstentions are filled from the field. On players it and the field both "
+            "price it runs <strong>0.903</strong> of the field's carries and 0.891 of "
+            "its pass attempts, while receiving targets come in at 0.999. A team's "
+            "carry count is knowable, so this is a level error rather than a "
+            "disagreement.",
+            "<strong>Nothing corrects it.</strong> "
+            "<code>Scripts/usage/coherence.py</code> holds three accounting "
+            "identities and all three are passing↔receiving; there is no rushing "
+            "identity, so the receiving side is pulled onto the passing side and "
+            "lands at 0.999 while the rushing head's error travels straight to the "
+            "board.",
+            "<strong>It discounted the top of the draft hardest.</strong> On the "
+            "draftable pool it read <strong>0.836</strong> of ESPN at ADP 1–50 and "
+            "1.089 at 150+, stable across all nine leagues. Against each back's own "
+            "realised 2025 per-game rate it sat at 0.82–0.87 at every volume level "
+            "while the field sat at 0.96–1.04.",
+            "<strong>The defence arm was the largest single distortion.</strong> "
+            "Blending it moved D/ST to 0.879 of the field against 0.975–0.990 for "
+            "the skill positions — 12.5% of cross-position movement — off an ordering "
+            "that correlates with the field at a Spearman of only <strong>0.168</strong>.",
             "<strong>Under-spread on receiving volume</strong> — RB receptions "
             "1.315, TE receiving yards 1.370, QB rushing TDs 1.510 against "
             "realised. It shrinks toward positional baselines where the others "
@@ -658,10 +717,10 @@ SOURCE_CARDS: Dict[str, Dict[str, object]] = {
             "Its availability arm is its weakest: prior-season games predict next "
             "season at r = <strong>+0.343</strong>.",
             "Covers only QB/RB/WR/TE — silent on kickers and defences.",
-            "Excluded from the floor/ceiling spread on purpose: it answers "
-            "\"what does the model expect\" rather than \"what do forecasters "
-            "disagree about\", and mixing the two makes the interval read as "
-            "bearish rather than uncertain.",
+            "Was excluded from the floor/ceiling spread on purpose even while it "
+            "voted: it answers \"what does the model expect\" rather than \"what do "
+            "forecasters disagree about\", and mixing the two makes the interval read "
+            "as bearish rather than uncertain.",
         ],
     },
 }
@@ -672,7 +731,14 @@ SOURCE_CARDS: Dict[str, Dict[str, object]] = {
 # --------------------------------------------------------------------------- #
 
 def availability(source: str) -> str:
-    """Draft, weekly or both — read from the pipeline's own prefix lists."""
+    """Draft, weekly, both, or withdrawn — read from the pipeline's own prefix lists.
+
+    ``WITHDRAWN`` is checked first because a withdrawn source is in neither prefix
+    list, and "draft only" would be the wrong answer rather than a stale one: it is
+    on the board and in no blend at all.
+    """
+    if source in WITHDRAWN:
+        return '<span class="muted">withdrawn</span>'
     return "draft + weekly" if source in WEEKLY_PREFIXES else "draft only"
 
 
@@ -682,7 +748,9 @@ def register_section(df: pl.DataFrame, league: str) -> str:
     rows = []
     for source in SOURCES:
         card = SOURCE_CARDS[source]
-        weight = float(weights.get(source, 0.0))
+        withdrawn = source in WITHDRAWN
+        weight = ('<span class="muted">withdrawn</span>' if withdrawn
+                  else f"{float(weights.get(source, 0.0)):.2f}")
         scope = ("QB/RB/WR/TE + K + D/ST, three backends"
                  if source == "USG" else "universal")
         rows.append([
@@ -691,7 +759,7 @@ def register_section(df: pl.DataFrame, league: str) -> str:
             availability(source),
             (str(IMPUTED_FROM[source]) if source in IMPUTED_FROM
              else '<span class="muted">nothing</span>'),
-            f"{weight:.2f}",
+            weight,
             scope,
         ])
     rows.append(["<code>MEAN_</code>", "avg(ESPN, FantasyPros, The Athletic) over "
@@ -960,7 +1028,7 @@ def weights_section(df: pl.DataFrame) -> str:
         for stat in STATS_BY_POSITION[position]:
             realised = realised_weights(df, position, stat)
             row = [f"<code>{esc(stat)}</code>"]
-            for source in ("ESPN", "FP", "PINNY", "BOL", "ATH", "USG"):
+            for source in BLENDED:
                 value = realised.get(source)
                 row.append('<span class="muted">—</span>' if value is None
                            else f"{value:.3f}")
@@ -968,7 +1036,7 @@ def weights_section(df: pl.DataFrame) -> str:
         if rows:
             blocks.append(
                 f'<h3>{esc(position)}</h3>'
-                + table(["stat", "ESPN", "FP", "PINNY", "BOL", "ATH", "USG"], rows, 1))
+                + table(["stat", *BLENDED], rows, 1))
 
     return f"""
 <section id="weights">
@@ -984,17 +1052,20 @@ def weights_section(df: pl.DataFrame) -> str:
   {"".join(blocks)}
   <p class="note">Averaged per row over gated players, so it reads as "what did the
   typical player's blend look like" rather than what the pooled totals did.</p>
-  <p><strong>The volume rows used to be the thin ones, and volume is the half that
-  persists.</strong> Until 2026-09-02 <code>receivingTargets</code> was a
-  <em>two</em>-source blend \u2014 ESPN and The Athletic at 0.500 each \u2014 because
-  FantasyPros publishes no targets column, TOMCAT emitted no volume terms, and neither
-  book prices a target. That was the thinnest coverage on the board sitting on its most
-  forecastable quantity: carries per game persist year over year at
-  <strong>+0.895</strong> against <strong>+0.260</strong> for the efficiency rate they
-  get multiplied by. <strong>TOMCAT now publishes the volume it always modelled</strong>
-  \u2014 every stat it emits is a volume term \u00d7 a rate, so the prediction existed
-  and was being carried as a diagnostic and discarded \u2014 which gives targets, carries
-  and pass attempts a third independent voter. The rows below are after that change.</p>
+  <p><strong>The volume rows are the thin ones again, and volume is the half that
+  persists.</strong> <code>receivingTargets</code> is a <em>two</em>-source blend \u2014
+  ESPN and The Athletic at 0.500 each \u2014 because FantasyPros publishes no targets
+  column and neither book prices a target. TOMCAT briefly made it three: it publishes
+  the volume it always modelled (every stat it emits is a volume term \u00d7 a rate, so
+  the prediction existed and was being carried as a diagnostic and discarded), and
+  <strong>its targets were the one volume head that was well calibrated</strong> \u2014
+  0.999 of the field in aggregate. Its carries were 0.903 and that is what withdrew the
+  whole source on 2026-09-07, targets included.</p>
+  <p>So the thinnest coverage on the board sits on its most forecastable quantity:
+  carries per game persist year over year at <strong>+0.895</strong> against
+  <strong>+0.260</strong> for the efficiency rate they get multiplied by. Restoring a
+  third voter on volume is the clearest thing a rushing identity in
+  <code>Scripts/usage/coherence.py</code> would buy back.</p>
 </section>"""
 
 
@@ -1355,13 +1426,17 @@ def tools_section(df: pl.DataFrame) -> str:
             "BOL": "In the weekly list, but the weekly scraper has been 403 since "
                    "before this season — so the column exists and the data does not.",
             "ATH": "Season-only file. No weekly stat line exists to score.",
-            "USG": "No weekly head. Scoring it weekly wrote a column that was null "
-                   "3,602 times out of 3,602.",
+            "USG": "Withdrawn from the season blend 2026-09-07 on a carries level "
+                   "error; its columns stay on the board unweighted. Never had a "
+                   "weekly head either — scoring it weekly wrote a column that was "
+                   "null 3,602 times out of 3,602.",
         }.get(source, "")
+        draft = ('<span class="badge reject">withdrawn</span>'
+                 if source in WITHDRAWN else "yes")
         rows.append([
             f"<code>{esc(source)}</code>",
             str(SOURCE_CARDS[source]["name"]),
-            "yes",
+            draft,
             ("yes" if weekly and source != "BOL"
              else '<span class="badge reject">'
                   + ("listed, no data" if source == "BOL" else "no")
@@ -1375,15 +1450,18 @@ def tools_section(df: pl.DataFrame) -> str:
   <p>This is the largest structural asymmetry in the system and it is easy to miss,
   because both views render the same column names.</p>
   {table(["prefix", "source", "draft board", "weekly view", "why"], rows, 2)}
-  <p><strong>Three of the six votes that build a draft board are structurally absent
-  week to week</strong>, and a fourth has no live data. The draft board is a
-  six-source blend; the weekly view is an ESPN/FantasyPros blend with a thin
-  sportsbook overlay. They are not the same instrument and should not be read as
-  though a number carried the same weight of evidence in both.</p>
+  <p><strong>The asymmetry narrowed on 2026-09-07, and not in a good way.</strong>
+  With TOMCAT withdrawn the draft board is a five-source blend and The Athletic is the
+  one vote of the five that is structurally absent week to week, with BetOnline listed
+  but dark. The two views are closer than they were because the draft side lost a
+  source, not because the weekly side gained one.</p>
   <p>The gap is named work rather than an oversight —
   <code>docs/plans/19-weekly-usage-model.md</code> is the weekly usage head, and it
   is where the larger edge is thought to be, precisely because the weekly path is
-  the thinner of the two.</p>
+  the thinner of the two. <strong>Nothing in the season-long withdrawal decides that
+  question</strong>: a weekly head would be fitted on in-season usage and judged on its
+  own evidence, and the level error that removed the season arm is a team-total
+  identity problem that a weekly arm would have to solve regardless.</p>
 </section>"""
 
 

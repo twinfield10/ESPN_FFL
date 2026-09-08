@@ -76,17 +76,21 @@ source:
 | `PINNY_` | Pinnacle |
 | `BOL_` | BetOnline |
 | `ATH_` | The Athletic — Jake Ciely's workbook, offence only, at weight 0.25 |
-| `USG_` | **TOMCAT — our own model, at weight 0.25.** One source, three backends: the usage arm (QB/RB/WR/TE), the defence arm (D/ST, from the betting market) and the kicking arm (K, per team). They were `USG_`, `DST_` and `KIK_` until 2026-09-02; the stat sets are disjoint, so one namespace holds all three and the model casts one vote rather than three. The lower-case `kik_*` and `dst_*` diagnostics keep their own names, because they answer *which arm spoke for this row* |
+| `USG_` | **TOMCAT — our own model. Withdrawn from the blend 2026-09-07, at weight *nothing*.** The columns are still written and still real; they carry no weight, are not scored into a `USG_Points`, and are off the draft board. One source, three backends: the usage arm (QB/RB/WR/TE), the defence arm (D/ST, from the betting market) and the kicking arm (K, per team). They were `USG_`, `DST_` and `KIK_` until 2026-09-02; the stat sets are disjoint, so one namespace holds all three and the model cast one vote rather than three. The lower-case `kik_*` and `dst_*` diagnostics keep their own names, because they answer *which arm spoke for this row*. Why it went: [plan 43](plans/43-tomcat-out-of-season-blend.md) |
 | `MEAN_` | The unweighted cross-source mean |
 | `TRUE_` | **The blend.** This is what the board ranks on and what lineups score |
 
-`WEIGHTS` is an equal quarter each to `ESPN`, `FP`, `PINNY`, `BOL`, `ATH` and `USG` —
-six equal votes, and the nominal figures are never normalised to 1 because
-`compute_weighted_stats` divides by whichever of them turned out to be real. Read that
-alongside the coverage numbers rather than on its own: FantasyPros
-publishes 60 season projections and is **5.8% real** on a board, so for most players
-the blend renormalises down to ESPN and the usage model, and for the ~500 players no
-other source prices, to ESPN alone.
+`WEIGHTS` is an equal quarter each to `ESPN`, `FP`, `PINNY`, `BOL` and `ATH` — five
+equal votes since TOMCAT was withdrawn on 2026-09-07 — and the nominal figures are never
+normalised to 1 because `compute_weighted_stats` divides by whichever of them turned out
+to be real. **A source at 0.0 is dormant; a source with no entry has been withdrawn.**
+`USG` has no entry.
+
+Read the weights alongside the coverage numbers rather than on their own: FantasyPros
+publishes 60 season projections and is **5.8% real** on a board, so for most players the
+blend renormalises down to ESPN alone, and to `(ESPN + BOL)/2` or `(ESPN + ATH)/2` where
+a second source genuinely has a line. That thinning is the direct cost of the
+withdrawal.
 
 Every source also carries `*_is_imputed` flags per stat. That is the mechanism by
 which a broken source shows up as a measured number rather than being quietly
@@ -316,12 +320,17 @@ Team D/ST units match no id in any provider and join on name alone.
 
 - **Never compare points across leagues.** Everything in the store is scored in its
   own league's rules. Ranks compare; points do not.
-- **`USG_Points` and `TRUE_Points` *are* on the same footing**, since 2026-08-07 —
-  `to_full_slate` divides each player's own `expected_games` back out and puts the
-  model on a full 17-game slate before the blend, so it carries no availability
-  discount at all. `usg_expected_games` travels beside the line rather than inside it.
-  Ranks are still the better comparison, because the model shrinks toward positional
-  baselines where ESPN extrapolates.
+- **There is no `USG_Points` column any more.** TOMCAT left the blend on 2026-09-07 and
+  is no longer priced, so nothing scores its stat line. The `USG_<stat>` columns are
+  still there and still on a full 17-game slate — `to_full_slate` divides each player's
+  own `expected_games` back out, and `usg_expected_games` travels beside the line rather
+  than inside it. To compare the model against the blend, score the stat lines yourself
+  or read `python -m Scripts.lab.sources`, which still measures them.
+- **The model's carry lines run about 10% light**, which is why it was withdrawn: 384
+  projected carries per team against a realised 450–465. Anything you build on
+  `USG_rushingAttempts` or `USG_passingAttempts` inherits that; `USG_receivingTargets`
+  is unaffected and sits at 0.999 of the field. See
+  [plan 43](plans/43-tomcat-out-of-season-blend.md).
 - **`TRUE_` is reconciled to team totals; the source columns are not.** A completed
   pass is one team's passing yard and one of its receivers' receiving yards, so those
   two sums must match — and player-by-player projections have nothing holding them

@@ -167,8 +167,14 @@ def freeze(leagues: Optional[Sequence[str]] = None, season: Optional[int] = None
     done = sum(1 for v in results.values() if v.startswith("frozen"))
     _log(f"\n{done} of {len(results)} leagues frozen.")
     if done:
-        _log("Publish it:  python -m Scripts.sync --push --what board_frozen")
-        _log("Then verify: python -m Scripts.sync --verify --what board_frozen")
+        # `--what` selects a *bucket prefix*, not an artifact: `Scripts.sync` accepts
+        # only store / archive / nfl, and `board_frozen` rides inside `store` like
+        # every other artifact in `Scripts.store.ARTIFACTS`. This used to print
+        # `--what board_frozen`, which exits 2 with "unknown --what value(s)" -- so
+        # the one instruction printed at the one moment it matters did not run. Found
+        # 2026-09-07, freezing the first five leagues.
+        _log("Publish it:  python -m Scripts.sync --push")
+        _log("Then verify: python -m Scripts.sync --verify --what store")
     return results
 
 

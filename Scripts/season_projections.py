@@ -48,6 +48,7 @@ import polars as pl
 from Scripts.config_utils import get_season
 from Scripts.paths import season_dir
 from Scripts.projection_utils import (
+    FREE_AGENT_OWNER,
     IMPUTED_SUFFIX,
     WEIGHTS,
     blended_stats,
@@ -56,6 +57,7 @@ from Scripts.projection_utils import (
     impute_columns,
     print_coverage_report,
     proj_to_score,
+    source_contributed,
 )
 from Scripts.scoring import get_scoring_table
 from Scripts.scrape_player_stats import DERIVED_STATS
@@ -446,7 +448,7 @@ def espn_season_projections(league, market: Optional[pd.DataFrame] = None) -> pd
     for position in ("QB", "RB", "WR", "TE", "K", "D/ST", "LB", "DE", "CB", "S", "DT"):
         try:
             for player in league.free_agents(size=60, position=position):
-                add(player, "Free Agent")
+                add(player, FREE_AGENT_OWNER)
         except Exception:                    # noqa: BLE001 - a slot the league lacks
             continue
 
@@ -564,7 +566,7 @@ def _projections_from_market(league, market: pd.DataFrame) -> pd.DataFrame:
     out = market[[c for c in keep if c in market.columns]].copy()
     out["team_owner"] = market.get(
         "on_team_id", pd.Series(0, index=market.index)
-    ).map(lambda tid: owners.get(int(tid or 0), "Free Agent"))
+    ).map(lambda tid: owners.get(int(tid or 0), FREE_AGENT_OWNER))
     return out.reset_index(drop=True)
 
 
@@ -1260,18 +1262,24 @@ STARTER_COUNT = {"QB": 12, "RB": 24, "WR": 36, "TE": 12}
 
 #: What :func:`_withdraw_usage_on_role` writes into ``usg_evidence``.
 #:
-#: Read back by ``app.draft_view.with_model_evidence`` to tell a role withdrawal from
-#: an injury one -- both null ``USG_Points``, and a drafter should not read "buried on
-#: the depth chart" as "hurt". The app cannot import this module (it would pull the
-#: whole ESPN and scoring stack into a process that only reads parquet), so the string
-#: is duplicated there and pinned equal by a test.
+#: It was read back by ``app.draft_view.with_model_evidence`` to tell a role withdrawal
+#: from an injury one, because both nulled the board's TOMCAT column and a drafter
+#: should not read "buried on the depth chart" as "hurt". **That reader is gone with
+#: TOMCAT's withdrawal from the board on 2026-09-07** and this string is now written
+#: and never displayed.
+#:
+#: It stays because the withdrawal it labels still happens: ``_withdraw_usage_on_role``
+#: keeps the model's line off players ESPN has priced out, which matters for the
+#: ``USG_`` columns the store still carries and for the outcome distributions built on
+#: them. A silent withdrawal is the thing this constant exists to prevent.
 ROLE_WITHDRAWN_EVIDENCE = "withdrawn: backup"
 
 #: Share of that starter baseline below which ESPN has said a player will not play.
 #:
-#: Measured on the 2026 Knights board: the players this catches have a **median
-#: ``ESPN_projected_total`` of 0.0** and a maximum of 39.8, against a median
-#: ``USG_Points`` of 46.4. The cut is a share rather than a point value because
+#: Measured on the 2026 Knights board while TOMCAT was still priced: the players this
+#: catches have a **median ``ESPN_projected_total`` of 0.0** and a maximum of 39.8,
+#: against a median scored usage line of 46.4. The cut is a share rather than a point
+#: value because
 #: ``ESPN_projected_total`` arrives scored in each league's own rules, so a fixed
 #: number would mean different things in the IDP league and the superflex one.
 PRICED_OUT_SHARE = 0.15
@@ -1907,9 +1915,16 @@ def _attach_injury_severity(base: pd.DataFrame, season: int) -> pd.DataFrame:
 #: Those are two different quantities and this column should only ever hold one of
 #: them. Disagreement *between* forecasters belongs here; uncertainty *within* a
 #: forecast is a predictive interval, which the usage model can supply properly
-#: because it decomposes into volume x efficiency x games. Until that exists, the
-#: model's dissent is carried by ``USG_PosRankDelta``, which is scale-free and cannot
-#: contaminate the spread.
+#: because it decomposes into volume x efficiency x games.
+#:
+#: **The exclusion is moot as of 2026-09-07** -- TOMCAT was withdrawn from the season
+#: blend entirely, so there is no longer a vote to keep out of the bracket, and
+#: ``USG_PosRankDelta``, which used to carry the model's dissent in a scale-free form,
+#: is gone with it. The reasoning is kept because it is the argument this list is built
+#: on: a source belongs here when it answers the same question as its neighbours, which
+#: is a stricter test than being informative, and the next candidate will have to pass
+#: it. See :data:`Scripts.projection_utils.WEIGHTS` and
+#: docs/plans/43-tomcat-out-of-season-blend.md.
 #: Sources averaged into ``MEAN_``, the imputation basis.
 #:
 #: **Real cells only.** A source whose cell was itself filled in cannot contribute to
@@ -1940,20 +1955,23 @@ OPINION_PREFIXES = ("ESPN", "FP", "PINNY", "BOL", "ATH")
 
 #: Sources that can supply a player's projection at all, for coverage counting.
 #:
-#: **Deliberately wider than :data:`OPINION_PREFIXES`, and the two must not be
-#: merged.** They answer different questions:
+#: **Kept separate from :data:`OPINION_PREFIXES`, and the two must not be merged**,
+#: even though TOMCAT's withdrawal on 2026-09-07 has made them equal in content. They
+#: answer different questions:
 #:
 #: - *Do the forecasters disagree, and by how much?* -- the floor/ceiling spread, which
-#:   needs sources measuring the same quantity, and therefore excludes ``USG``.
+#:   needs sources measuring the same quantity.
 #: - *Does this player have a projection at all?* -- ``projection_missing`` and
 #:   ``sources_real``, which must include every source that moves ``TRUE_Points``.
 #:
-#: Conflating them is a live bug, not a hypothetical: with ``USG`` weighted into the
-#: blend but absent from the coverage list, a player the usage model projects and
-#: nobody else does gets a real ``TRUE_Points`` and a ``projection_missing`` of True.
-#: The board would then hide, as unprojected, exactly the players the model exists to
-#: differentiate.
-PROJECTION_PREFIXES = ("ESPN", "FP", "PINNY", "BOL", "ATH", "USG")
+#: They diverged for a reason and will again. While ``USG`` was weighted into the blend
+#: but absent from the coverage list, a player the usage model projected and nobody
+#: else did got a real ``TRUE_Points`` and a ``projection_missing`` of True -- the board
+#: hid, as unprojected, exactly the players the model existed to differentiate. Merging
+#: the two constants now would delete the guard rather than the duplication, and the
+#: next source that speaks for players the others skip would reintroduce the bug
+#: silently.
+PROJECTION_PREFIXES = ("ESPN", "FP", "PINNY", "BOL", "ATH")
 
 
 #: What ``outcome_evidence`` says when a row has no distribution, and why.
@@ -2435,26 +2453,24 @@ def attach_source_spread(df: pd.DataFrame, stats: List[str],
         if points_col not in df.columns:
             continue
 
-        # A scored cell this source really supplied. ESPN carries no imputation
-        # flags -- it is the source everything else is imputed *from*.
+        # A scored cell this source really supplied -- the rule now lives in
+        # `projection_utils.source_contributed`, so the board, the store's coverage
+        # panel and the app cannot drift on what "real" means. The argument for each
+        # of its two clauses (a zero does not count; an imputed cell does not count)
+        # is in that function's docstring, including the Cameron Dicker case it was
+        # written for.
         #
-        # A zero does not count. The frame is dense with structural zeros -- a
-        # kicker's ``FP_passingYards`` is 0.0 and unflagged, because nobody imputed
-        # it and nobody asserted it either. Counting those made FantasyPros a
-        # "real" source for Cameron Dicker on the strength of twelve zeros, and his
-        # floor and ceiling came back exactly equal to ESPN's total: a spread of
-        # zero reported as measured agreement. That is the same mistake this
-        # function exists to avoid, one level down.
-        contributed = pd.Series(False, index=df.index)
-        for stat in stats:
-            stat_col = f"{prefix}_{stat}"
-            if stat_col not in df.columns:
-                continue
-            has_value = df[stat_col].notna() & (df[stat_col] != 0)
-            imputed_col = f"{stat_col}_is_imputed"
-            if imputed_col in df.columns:
-                has_value &= ~df[imputed_col].fillna(False).astype(bool)
-            contributed |= has_value
+        # `missing_flag_is_imputed=False` preserves this function's own reading of a
+        # NaN flag, which is the opposite of the blend's. Latent rather than live:
+        # measured 2026-09-08, no flag cell is NaN on any of the twenty stored
+        # artifacts, so nothing published depends on it.
+        #
+        # `points_fallback=False` because a source with no stat column here has
+        # nothing to bracket the blend *with*; falling back to its points total
+        # would let it set a floor it never justified.
+        contributed = source_contributed(
+            df, prefix, stats,
+            points_fallback=False, missing_flag_is_imputed=False)
 
         real_points[prefix] = df[points_col].where(contributed)
 
@@ -2696,34 +2712,16 @@ def build_season_projections(league, season: Optional[int] = None,
     final["TRUE_PosRank"] = final.groupby("primaryPosition")["TRUE_Points"].rank(
         ascending=False, method="min")
 
-    # The usage model's own ordering, and its disagreement with the consensus.
+    # `USG_PosRank` and `USG_PosRankDelta` used to be computed here, ranking the usage
+    # model's own points against the blend's. Both are gone with TOMCAT's withdrawal
+    # from the season blend on 2026-09-07: `proj_to_score` no longer prices `USG_`, so
+    # there is no `USG_Points` to rank, and a delta against a source with no vote would
+    # be a column the board could not act on.
     #
-    # `USG_Points` and `TRUE_Points` are on the same footing as of 2026-08-07:
-    # `to_full_slate` puts the model's line on a full healthy slate before the blend
-    # sees it, so both describe a 17-game season and the ~20% deflation this comment
-    # used to warn about is gone. Among the top 100 by ADP the two now sit within a
-    # few percent of each other.
-    #
-    # Rank is still the better comparison, for a different reason: the model shrinks
-    # toward positional baselines while the other sources extrapolate, so it reads
-    # slightly low exactly where the pool is strongest. That is real disagreement
-    # about players rather than a units mismatch, and a rank carries it without the
-    # level. Measured on Knights_FFL's 2026 draftable pool, the two
-    # orderings agree at Spearman 0.78 (RB), 0.70 (WR) and 0.44 (TE), so the column
-    # carries real information rather than restating the blend.
-    #
-    # `USG_PosRankDelta` is positive where the model likes a player more than the
-    # consensus does. The two tails decompose cleanly and are worth knowing before
-    # trusting either: the fades are mostly the availability head discounting injury
-    # history (Nabers at 9.2 expected games, Garrett Wilson 10.3), and the buys are
-    # mostly rookies the four sources price thinly (Tate, Tyson, Lemon). Availability
-    # is the weaker of the two -- plan 18 measured prior-season games at r = +0.343
-    # among players who managed 8+, so a fade is an injury-risk discount and not a
-    # verdict on the player.
-    if "USG_Points" in final.columns:
-        final["USG_PosRank"] = final.groupby("primaryPosition")["USG_Points"].rank(
-            ascending=False, method="min")
-        final["USG_PosRankDelta"] = final["TRUE_PosRank"] - final["USG_PosRank"]
+    # The `USG_` *stat* lines are still merged onto the board -- see :data:`WEIGHTS` --
+    # so `Scripts.lab.sources` can keep measuring the model against the field and the
+    # decision stays reversible. What was removed is the pricing and the ranking, not
+    # the data. See docs/plans/43-tomcat-out-of-season-blend.md.
 
     final = _attach_athletic_override(final)
     return final
@@ -2747,10 +2745,11 @@ def _attach_athletic_override(final: pd.DataFrame) -> pd.DataFrame:
     ``value_rank_adp``/``value_rank_vor`` already do for the market comparison in
     :func:`Scripts.draft.board.build_board`.
 
-    Positive means he is **higher** on the player than his own numbers are, matching
-    ``USG_PosRankDelta``'s convention that positive is the named voice liking a player
-    more. Note this is the opposite of ``pos_rank_delta``'s, which the two have
-    disagreed about since before either of these columns existed.
+    Positive means he is **higher** on the player than his own numbers are -- the
+    convention ``USG_PosRankDelta`` used before it was removed on 2026-09-07, that
+    positive is the named voice liking a player more. Note this is the opposite of
+    ``pos_rank_delta``'s, which the two have disagreed about since before either of
+    these columns existed.
 
     Args:
         final: The scored frame, after ``TRUE_PosRank``.

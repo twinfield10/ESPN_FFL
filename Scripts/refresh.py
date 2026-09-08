@@ -235,7 +235,13 @@ def refresh_league(
             "display_name": cfg["display_name"],
             "primary_owner": cfg["primary_own"],
             "league_id": int(cfg["ID"]),
-            "weekly_sources_present": weekly_sources_present(season),
+            # The week matters: "present" now means the file also carries rows for
+            # the week being built, because a 60-row file from three weeks ago was
+            # reporting FantasyPros as live. `league` is None on a run that built
+            # no artifact needing it (`--what team_stats`), and None week means
+            # "any week", which is the old meaning.
+            "weekly_sources_present": weekly_sources_present(
+                season, week=getattr(league, "current_week", None)),
         },
     )
     timings["write"] = time.time() - start

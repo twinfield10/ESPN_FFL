@@ -65,9 +65,25 @@ def test_the_two_variants_differ_only_in_usg():
         assert len(live) == 1, f"weighted sources must weight equally: {variant}"
 
 
-def test_with_usg_is_exactly_the_shipped_weighting():
-    """The archived 'with' arm has to be the board that was really drafted from."""
-    assert g2.VARIANTS["with_usg"] == WEIGHTS["default"]
+def test_the_variants_match_the_manifest_they_were_archived_under():
+    """The archived arms have to be the weights the archive was actually taken under.
+
+    This asserted ``VARIANTS["with_usg"] == WEIGHTS["default"]`` until 2026-09-07, when
+    TOMCAT was withdrawn from the blend. A live read is exactly the wrong thing here:
+    with no ``USG`` entry the two variants collapse to the same blend, and a re-archive
+    would overwrite the one artifact in this repo that cannot be rebuilt with a pair
+    that answers nothing. ``VARIANTS`` is now pinned literally, and the manifest of the
+    archive already on disk is what it must agree with."""
+    import json
+    from Scripts.paths import DATA_DIR
+
+    manifest = json.loads((DATA_DIR / "G2" / "2026" / "manifest.json").read_text())
+    assert manifest["variants"] == {name: dict(weights)
+                                    for name, weights in g2.VARIANTS.items()}
+    assert g2.VARIANTS["with_usg"]["USG"] > 0.0
+    assert "USG" not in WEIGHTS["default"], (
+        "TOMCAT is back in the blend; this file's pinned VARIANTS and the frozen "
+        "archive both need re-reading before that ships")
 
 
 def test_without_usg_ignores_the_usg_column_entirely():
@@ -170,8 +186,13 @@ def test_reblend_reproduces_the_shipped_board(league_key):
         pytest.skip(f"no board for {league_key}; run `python -m Scripts.refresh`")
 
     board = pl.read_parquet(path).to_pandas()
+    # **Production weights, not `VARIANTS["with_usg"]`.** What this test checks is that
+    # `g2.blend` reproduces the pipeline, so it has to reblend under whatever the
+    # shipped board was actually built from. The two were the same thing until
+    # 2026-09-07; since TOMCAT's withdrawal `with_usg` is a frozen historical weighting
+    # and reblending under it would measure the archive's age rather than this code.
     rebuilt = g2.blend(board, league_key, 2026,
-                       g2.VARIANTS["with_usg"]).set_index("player_id")
+                       dict(WEIGHTS["default"])).set_index("player_id")
     original = board.set_index("player_id")
     shared = original.index.intersection(rebuilt.index)
 

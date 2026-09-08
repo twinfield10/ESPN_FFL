@@ -90,6 +90,38 @@ PROJECTION_SOURCES = (
      "python -m Scripts.scrape_espn_injuries"),
 )
 
+#: The **weekly** blend's sources, separate from :data:`PROJECTION_SOURCES`.
+#:
+#: Separate rather than appended, for three reasons. That tuple's docstring scopes it
+#: to "every projection source the draft board blends", and the draft board and the
+#: weekly board are different questions with different fixes. Its test asserts every
+#: fix hint starts with ``python -m`` or ``Rscript``, and one of these has no command
+#: to name. And two of the three are known-dead, so they must not move the exit code.
+#:
+#: The fourth element is ``advisory``: reported, never stale-making. Pinnacle has
+#: posted **zero** weekly player props across all sixteen week-1 games (plan 36 step
+#: 3) and BetOnline's weekly host answers **403 invalid_security_headers** and wants a
+#: signed request (plan 02, closed). Both will be missing for the whole season, and a
+#: check that is red every night is one nobody reads -- which is the failure this
+#: module's own docstring exists to avoid.
+#:
+#: Added 2026-09-08. Nothing had ever watched a weekly file, and the FantasyPros one
+#: was 25 days stale with 60 rows in it while everything here reported healthy -- the
+#: same shape of miss that put the season sources in this file in the first place.
+WEEKLY_PROJECTION_SOURCES = (
+    ("FP weekly",
+     lambda s: season_dir("FantasyPros", s,
+                          "FantasyPros_Projections_Week_All.parquet", create=False),
+     "python -m Scripts.scrape_FP --what weekly", False),
+    ("PINNY weekly",
+     lambda s: season_dir("Pinnacle", s, "Pinnacle_Props_Week_All.parquet",
+                          create=False),
+     "python -m Scripts.scrape_pinnacle", True),
+    ("BOL weekly",
+     lambda s: season_dir("BetOnline", s, "BetOnline_AllProps.parquet", create=False),
+     "blocked: 403 invalid_security_headers, see docs/plans/02", True),
+)
+
 #: Hours past which the data is considered stale.
 #:
 #: 25 rather than 24, and rather than the app's 60 *minutes*. The job runs at 6am, so
@@ -179,8 +211,18 @@ def main(argv: Optional[List[str]] = None) -> int:
                                    if oldest and newest and oldest - newest > 1
                                    else ""))
 
-    # --- each source the blend votes on -----------------------------------
+    # --- each source the draft board votes on ------------------------------
     if _report_sources(season, args.max_age_hours):
+        stale = True
+
+    # --- and the weekly blend's own, which nothing watched before ----------
+    #
+    # Under its own header rather than mixed in: they have different fixes, two of
+    # the three are permanently dead, and a reader looking at a Sunday morning wants
+    # to know about the weekly file specifically.
+    print("  -- weekly blend --")
+    if _report_sources(season, args.max_age_hours,
+                       sources=WEEKLY_PROJECTION_SOURCES):
         stale = True
 
     # --- the odds pull, on its own clock ----------------------------------
@@ -192,26 +234,42 @@ def main(argv: Optional[List[str]] = None) -> int:
     return 1 if stale else 0
 
 
-def _report_sources(season: int, max_age_hours: float) -> bool:
+def _report_sources(season: int, max_age_hours: float, sources=None) -> bool:
     """One line per projection source, with the command that refreshes it.
 
+    Args:
+        season: Season year.
+        max_age_hours: Age past which a source counts as stale.
+        sources: Manifest to report on. ``None`` means
+            :data:`PROJECTION_SOURCES`, **resolved inside the body rather than as a
+            default argument** -- a default binds at ``def`` time, and two tests
+            monkeypatch the module global and then call this, so a bound default
+            would have them silently passing against the real manifest. Entries are
+            ``(name, resolver, fix)``, or ``(name, resolver, fix, advisory)`` where
+            an advisory source is printed but never moves the return value.
+
     Returns:
-        bool: True if any source is missing or stale.
+        bool: True if any non-advisory source is missing or stale.
     """
+    sources = PROJECTION_SOURCES if sources is None else sources
     stale = False
-    for name, resolve, fix in PROJECTION_SOURCES:
+    for entry in sources:
+        name, resolve, fix = entry[0], entry[1], entry[2]
+        advisory = entry[3] if len(entry) > 3 else False
+        note = "" if not advisory else "  (advisory)"
         path = resolve(season)
         if not path.is_file():
-            print(f"  {name:<11} MISSING — {fix.replace('<season>', str(season))}")
-            stale = True
+            print(f"  {name:<13} MISSING — {fix.replace('<season>', str(season))}"
+                  f"{note}")
+            stale = stale or not advisory
             continue
         age = (datetime.now(timezone.utc).timestamp() - path.stat().st_mtime) / 3600.0
         if age > max_age_hours:
-            print(f"  {name:<11} STALE, written {_fmt(age)} — "
-                  f"{fix.replace('<season>', str(season))}")
-            stale = True
+            print(f"  {name:<13} STALE, written {_fmt(age)} — "
+                  f"{fix.replace('<season>', str(season))}{note}")
+            stale = stale or not advisory
         else:
-            print(f"  {name:<11} ok, {_fmt(age)}")
+            print(f"  {name:<13} ok, {_fmt(age)}")
     return stale
 
 

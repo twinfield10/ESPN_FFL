@@ -362,9 +362,23 @@ says so in the sidebar.
 
 ## How the projection blend works
 
-Four external sources — **ESPN**, **FantasyPros**, **BetOnline** and **Pinnacle** —
-plus **TOMCAT**, our own model, which covers every position through three backends: a
-usage arm for QB/RB/WR/TE, a defence arm for D/ST, and a kicking arm for K.
+Five external sources — **ESPN**, **FantasyPros**, **The Athletic**, **BetOnline** and
+**Pinnacle**.
+
+**TOMCAT**, our own model, was the sixth from 2026-08-17 until **2026-09-07, when it was
+withdrawn from the season-long blend.** It projects every position through three
+backends — a usage arm for QB/RB/WR/TE, a defence arm for D/ST, a kicking arm for K —
+and it was not removed for being uninformative: it beats the naive draft heuristic out
+of sample at every position and is the most independent source ever registered here. It
+was removed on a **level** error. Its projected league runs the ball **384 times per
+team against a realised 450–465**, so every runner carried roughly a 10% haircut that
+had nothing to do with the player, and nothing in the pipeline corrected it — the team
+accounting identities are all passing↔receiving and there is no rushing pair. The full
+argument, and what it costs, is `docs/plans/43-tomcat-out-of-season-blend.md`.
+
+The model still runs and its `USG_` stat lines are still written to the board,
+unweighted and unpriced, so it can keep being measured and the decision is one line to
+reverse. Nothing here touches the weekly path: TOMCAT has never had a weekly head.
 
 **TOMCAT** is **T**ouches · **O**pportunity · **M**arket · **C**ontext ·
 **A**vailability · **T**iers — its six feature families. The columns it writes are
@@ -379,13 +393,15 @@ The weighting rule is **one equal vote per source that has an opinion**. Every s
 carries the same nominal weight, a source with no real line for a player is flagged and
 drops out, and the survivors renormalise — so four real sources weight 0.25 each, three
 weight 0.333, two weight 0.5. Weights live in `WEIGHTS` in
-`Scripts/projection_utils.py`.
+`Scripts/projection_utils.py`, where **a source at 0.0 is dormant and a source that is
+absent has been withdrawn** — TOMCAT is absent.
 
 **A source that cannot be right is withdrawn before the vote.** Equal votes have one
 failure mode: when four sources correctly abstain on a player nobody can start, the
 fifth becomes 100% of the projection. Jayden Higgins went on injured reserve for the
-season, ESPN priced him at 0.0, FantasyPros and Pinnacle dropped him and TOMCAT was
-withdrawn — and he still read 36.3 points, because BetOnline was still posting a 575-yard
+season, ESPN priced him at 0.0, FantasyPros and Pinnacle dropped him and TOMCAT (then
+still voting) was withdrawn — and he still read 36.3 points, because BetOnline was still
+posting a 575-yard
 season prop and a book does not take its market down. So three gates in
 `_withdraw_sources_on_availability` pull every non-ESPN source where the player is out
 for the season, or ESPN prices him at zero and he is out, or ESPN prices him at zero and

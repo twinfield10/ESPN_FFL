@@ -85,10 +85,17 @@ def render_sheet(ctx: BoardContext) -> None:
     theme = ctx.theme
     budget = ctx.budget
 
-    # The one enrichment the analytic sub-tabs have no use for: every projection
-    # discounted by the games the model expects a player to miss. Applied here rather
-    # than in `prepare` so a board nobody asks for it on does not pay for it.
-    board = dv.with_availability_points(ctx.board)
+    # The availability lens used to hang here -- every projection discounted by the
+    # games TOMCAT expected a player to miss, via `dv.with_availability_points`. It is
+    # **not applied since 2026-09-07**, when TOMCAT was withdrawn from the season-long
+    # blend: the discount is the output of the weakest arm of a model this board no
+    # longer trusts for the draft, and a lens that reprices every player off it would
+    # be the one place TOMCAT still moved a draft-night number.
+    #
+    # The function is kept rather than deleted -- see its docstring -- because the
+    # argument for a per-player availability discount is sound and outlives the source
+    # that supplied it. Re-enabling is this line plus the toggle below.
+    board = ctx.board
 
     # --- the controls ---------------------------------------------------------
     #
@@ -104,11 +111,12 @@ def render_sheet(ctx: BoardContext) -> None:
         help="As a multiple of this league's replacement rank. Twice replacement is the "
              "last player who could plausibly start for somebody.")
     use_availability = controls[2].toggle(
-        "Availability", value=False,
-        help="Discount every projection by the games the model expects him to miss. Off "
-             "by default: the availability head is the weakest arm of the model that "
-             "produces it (r = +0.343 on prior-season games), and it moves the top of the "
-             "board. Worth looking at, not worth being the default.")
+        "Availability", value=False, disabled=True,
+        help="Unavailable since 2026-09-07. This discounted every projection by the "
+             "games TOMCAT expected a player to miss; TOMCAT was withdrawn from the "
+             "season-long blend, and its availability head was already its weakest arm "
+             "(r = +0.343 on prior-season games). The lens will come back when there is "
+             "an availability estimate the board stands behind.")
     show_streamed = controls[3].toggle(
         "K / D·ST", value=False,
         help="Kickers and team defences. Off by default because a season-total value over "
@@ -141,8 +149,8 @@ def render_sheet(ctx: BoardContext) -> None:
     points_column = "avail_points" if use_availability else "TRUE_Points"
     if use_availability and "avail_points" not in board.columns:
         st.info(
-            "This board carries no `usg_expected_games`, so there is no availability "
-            "estimate to discount by. Showing `TRUE_Points`."
+            "The availability lens is off while TOMCAT is out of the season blend, so "
+            "there is no per-player estimate to discount by. Showing `TRUE_Points`."
         )
         points_column = "TRUE_Points"
 

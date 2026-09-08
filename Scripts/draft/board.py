@@ -643,11 +643,12 @@ def _attach_athletic_comparison(board: pd.DataFrame) -> pd.DataFrame:
     depth. This is the restricted comparison ``value_rank_adp``/``value_rank_vor``
     already make against the market, for the same reason.
 
-    Positive means **he is higher on the player than we are**, matching
-    ``USG_PosRankDelta`` rather than the ``rank_delta``/``pos_rank_delta`` beside it,
-    which read the other way round. The two conventions already coexist in the board's
-    ``Position Ranks`` group; this follows the one that reads correctly for an
-    opinion.
+    Positive means **he is higher on the player than we are**, rather than the
+    ``rank_delta``/``pos_rank_delta`` convention beside it, which reads the other way
+    round. It matched ``USG_PosRankDelta`` when that column existed; that one is gone
+    with TOMCAT's withdrawal from the board on 2026-09-07, so this is now the only
+    column in the ``Position Ranks`` group that reads positive-means-higher. The two
+    conventions still coexist there, which is worth knowing before reading the group.
 
     Args:
         board: The merged frame, after ``pos_rank``.

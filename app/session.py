@@ -32,6 +32,7 @@ import streamlit as st
 import auth
 import store
 from components import header
+from Scripts.scrape_player_stats import FREE_AGENT_OWNER  # noqa: F401  -- re-exported
 
 #: Where :func:`render_context` leaves its result for :func:`current` to read.
 #:
@@ -44,7 +45,14 @@ SELECTION_KEY = "_selection"
 #: ``lineups.parquet`` holds the free-agent pool as extra rows on a synthetic
 #: team rather than as a separate artifact. That is why the Free Agents tab is a
 #: filter and not a second ingest -- and why every owner picker has to exclude it.
-FREE_AGENT_OWNER = "Free Agent"
+#:
+#: Re-exported from ``Scripts.projection_utils`` rather than defined here, which is
+#: where it now lives: ``coverage_population`` needs it and ``Scripts/`` cannot import
+#: ``app/`` -- the dependency runs the other way. Imported at module scope rather than
+#: deferred the way ``app.store`` defers the same module, because ``app.lineup``
+#: already pulls it in transitively through ``Scripts.draft.board``, so the app pays
+#: this import either way. Every caller of ``session.FREE_AGENT_OWNER`` is unchanged,
+#: and there is now one copy of the string instead of two that could drift.
 
 #: ``st.session_state`` keys the two body-row widgets own.
 LEAGUE_KEY = "league_key"

@@ -41,7 +41,6 @@ from Scripts.config_utils import build_lg_vars
 from Scripts.paths import DATA_DIR, REPO_ROOT, store_dir
 from Scripts.projection_utils import (
     DST_POSITIONS,
-    WEIGHTS,
     _apply_scoring,
     compute_weighted_stats,
 )
@@ -54,8 +53,24 @@ G2_DIR = DATA_DIR / "G2"
 #: never shipped a two-source blend -- it is the counterfactual the shipped weights
 #: are being compared against, with USG's third redistributed over the sources that
 #: would have carried it.
+#:
+#: **Pinned literally, and no longer read from** :data:`Scripts.projection_utils.WEIGHTS`.
+#: It used to be ``dict(WEIGHTS["default"])``, which was correct while TOMCAT carried a
+#: vote and became a trap the moment it stopped: TOMCAT was withdrawn from the blend on
+#: 2026-09-07, so a live read would make ``with_usg`` and ``without_usg`` the same
+#: blend and a re-archive would overwrite the one artifact in this repo that cannot be
+#: rebuilt with a pair that answers nothing. These are the weights of 2026-08-09, when
+#: the archive was actually taken, and they must keep matching
+#: ``Data/G2/2026/manifest.json``.
+#:
+#: The question this file exists to answer is **unchanged and still live**. Withdrawing
+#: TOMCAT was decided on a level error measured against team carry totals, not on G2 --
+#: G2 asks whether the blend containing it scored better against realised 2026, and the
+#: archive can still answer that after the season. A "no" would confirm the removal by
+#: a second route; a "yes" would say the level error was worth fixing rather than
+#: routing around. See docs/plans/43-tomcat-out-of-season-blend.md.
 VARIANTS: Dict[str, Dict[str, float]] = {
-    "with_usg": dict(WEIGHTS["default"]),
+    "with_usg": {"ESPN": 1 / 3, "FP": 1 / 3, "PINNY": 0.0, "BOL": 0.0, "USG": 1 / 3},
     "without_usg": {"ESPN": 0.5, "FP": 0.5, "PINNY": 0.0, "BOL": 0.0, "USG": 0.0},
 }
 

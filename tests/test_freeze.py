@@ -198,3 +198,45 @@ def test_one_league_failing_does_not_stop_the_others(scratch, monkeypatch):
     results = freeze.freeze(None, 2026)
     assert "ValueError" in results["a"]
     assert results["winfield_football"].startswith("frozen")
+
+
+def test_the_commands_it_tells_you_to_run_are_actually_runnable(
+        scratch, monkeypatch, capsys):
+    """The publish hint is the one instruction printed at the one moment it matters,
+    and it was wrong.
+
+    `Scripts.freeze` used to print `sync --push --what board_frozen`. `--what` selects a
+    *bucket prefix* -- store / archive / nfl -- not an artifact, so that exits 2 with
+    `unknown --what value(s) ['board_frozen']`. `board_frozen` rides inside `store` like
+    every other entry in `Scripts.store.ARTIFACTS`, which the module docstring says
+    correctly; only the printed line disagreed. Found 2026-09-07 while freezing the
+    first five leagues, with five more still to freeze before the season's first game.
+
+    Checked against `sync.WHAT_CHOICES` rather than eyeballed, because the failure mode
+    is that nobody runs the command until the deadline it exists to meet -- and by then
+    the window it protects has closed.
+    """
+    import shlex
+    from Scripts import sync
+
+    _write(2026, "knights_ffl", picks=[2026])
+    monkeypatch.setattr(freeze, "build_lg_vars", lambda: {"knights_ffl": {}})
+    monkeypatch.setattr(freeze, "resolve_league",
+                        lambda name: {"key": "knights_ffl",
+                                      "display_name": "Knights_FFL"})
+    freeze.freeze(None, 2026)
+
+    printed = [line for line in capsys.readouterr().out.splitlines()
+               if "Scripts.sync" in line]
+    assert printed, "the publish hint stopped being printed"
+
+    for line in printed:
+        argv = shlex.split(line.split("python -m Scripts.sync", 1)[1])
+        assert argv, line
+        assert argv[0] in ("--push", "--pull", "--verify"), line
+        if "--what" in argv:
+            values = argv[argv.index("--what") + 1].split(",")
+            unknown = [v for v in values if v not in sync.WHAT_CHOICES]
+            assert not unknown, (
+                f"{line!r} passes --what {unknown}, which sync rejects; "
+                f"known values are {list(sync.WHAT_CHOICES)}")

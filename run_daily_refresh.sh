@@ -138,6 +138,33 @@ print(load_config()['season'])
 " 2>/dev/null)" || fail "could not read season from config.yaml"
 log "season ${SEASON}"
 
+# --- 0b. The NFL schedule -----------------------------------------------
+# First, because everything below reads the file it writes and two things break
+# silently when it is stale.
+#
+# `Scripts.nfl_utils.current_week()` is "the first week with an unplayed game", so a
+# schedule carrying no scores returns **1 forever** -- and the FantasyPros weekly
+# stage below scrapes whatever week that says. Found 2026-09-08 with the file frozen
+# at 2026-08-14, 272 rows and zero scores, one day before week 1 kicked off.
+#
+# Worse, `SEASON_STARTED` below is derived from the same column, so a frozen file
+# pins it at 0 and keeps the two book stages **fatal** for the whole season. The
+# first night a book retires its season-long market -- which the comment on
+# `book_stage` says it will -- `fail()` fires and the boards stop rebuilding.
+#
+# `R/GetNFL.R` refuses to write a schedule under 250 rows, so a truncated upstream
+# response fails here rather than producing a file that breaks week detection. It
+# also refreshes `NFL_Tackles_By_Position.csv`, which `get_tackle_dim()` reads to
+# split a projected tackle line for the IDP league.
+log "pulling NFL schedule and reference data (R/GetNFL.R)"
+"${RSCRIPT}" R/GetNFL.R "${SEASON}" >>"${LOG}" 2>&1 || fail "R/GetNFL.R"
+
+WEEK="$("${PYTHON}" -c "
+from Scripts.nfl_utils import current_week
+print(current_week())
+" 2>/dev/null)" || fail "could not read the current week from the schedule"
+log "week ${WEEK}"
+
 # Has a regular-season game actually been played? It decides whether an empty book
 # scrape is an emergency or a Tuesday.
 #
@@ -272,6 +299,66 @@ if [ "${FP_ROWS}" -le 60 ]; then
 means the session cookie in config.yaml has expired. Log in again and replace it."
 fi
 
+# --- 2b'. FantasyPros weekly projections --------------------------------
+# Directly after the season pull: they share one session cookie, so they fail for
+# the same reason and the log reads in one place.
+#
+# Added 2026-09-08, one day before week 1, because the weekly file was the
+# **anonymous** teaser -- 60 rows, week 1 only, stamped 2026-08-03, from before the
+# free account landed on 08-24 -- and nothing had ever run this. The weekly blend was
+# therefore ESPN plus 47 players. Authenticated the same page returns **597 rows over
+# 595 players**, which took FantasyPros from 17.7% real on the key stats to 96.4% and
+# gave 284 of 334 Knights players a genuine second opinion instead of 48.
+#
+# `scrape_weekly` fetches the current week alone and merges, so this is a flat ~30s
+# all season rather than 9 minutes by week 18, and a week already captured is never
+# rewritten by a later scrape of a game that has since been played.
+log "pulling FantasyPros weekly projections (week ${WEEK})"
+"${PYTHON}" -m Scripts.scrape_FP --what weekly --week "${WEEK}" >>"${LOG}" 2>&1 \
+  || fail "Scripts.scrape_FP --what weekly"
+
+# Counted **for this week only**, which is the whole point of the guard. The file is
+# cumulative, so a whole-file count would sail past 60 from week 2 onward on the
+# strength of one good week plus a teaser -- reporting health while the cookie was
+# dead. Same 60-row teaser threshold as the season stage above, same cause, same fix.
+FP_WK_ROWS="$("${PYTHON}" -c "
+import polars as pl
+from Scripts.paths import season_dir
+p = season_dir('FantasyPros', ${SEASON}, 'FantasyPros_Projections_Week_All.parquet',
+                create=False)
+if not p.is_file():
+    print(0)
+else:
+    df = pl.read_parquet(p)
+    print(df.filter(pl.col('week').cast(pl.Utf8) == '${WEEK}').height)
+" 2>/dev/null)" || FP_WK_ROWS=0
+log "FantasyPros weekly rows for week ${WEEK}: ${FP_WK_ROWS}"
+if [ "${FP_WK_ROWS}" -le 60 ]; then
+  fail "FantasyPros weekly returned ${FP_WK_ROWS} rows for week ${WEEK} against a teaser threshold of 60 -- the registration fence is back, which means the session cookie in config.yaml has expired. Log in again and replace it."
+fi
+
+# --- 2b''. Pinnacle weekly player props ---------------------------------
+# **Non-fatal, deliberately, and it is the only stage here that is.**
+#
+# Plan 36 step 3 deferred retiring this Selenium path because Pinnacle had posted
+# zero weekly player props across all sixteen week-1 games. Re-probed 2026-09-08 it
+# answers: **165 props over 165 players and all 16 games, in 35 seconds**. So it goes
+# in -- but not with `|| fail`, because a book's weekly board is genuinely empty
+# some of the time (early in a week, or once it winds a market down) and an empty
+# scrape must not stop the boards rebuilding. `scrape_pinnacle` exits 1 on an empty
+# result, which is the right contract for a human running it and the wrong one for
+# cron.
+#
+# What watches it instead is `Scripts.refresh_status`, which now names every weekly
+# file. Advisory there for the same reason: a check that is red every Tuesday is one
+# nobody reads.
+log "pulling Pinnacle weekly player props"
+if "${PYTHON}" -m Scripts.scrape_pinnacle >>"${LOG}" 2>&1; then
+  log "Pinnacle weekly props: ok"
+else
+  log "NOTE: Pinnacle weekly props returned nothing or the Selenium path failed. Not fatal -- a book's weekly board is empty some of the time, and the weekly blend renormalises around an absent source. Scripts.refresh_status reports the file's age; plan 36 step 3 has the history."
+fi
+
 # --- 2c. Pinnacle season-long player props ------------------------------
 # Added 2026-08-27. Both books that vote on the draft board were last written
 # 2026-08-14 -- thirteen days stale against a 09-07 draft, while everything else in
@@ -336,6 +423,25 @@ log "re-projecting the usage model"
 log "rebuilding draft boards for all leagues"
 "${PYTHON}" -m Scripts.refresh --all --what board >>"${LOG}" 2>&1 \
   || fail "Scripts.refresh --what board"
+
+# --- 4b. Rebuild the weekly lineups -------------------------------------
+# `lineups.parquet` is the artifact the entire in-season app reads -- Roster, Free
+# Agents and Matchup are all filters over it -- and until 2026-09-08 **nothing built
+# it on a schedule**. `DEFAULT_WHAT` is `("lineups",)`, but only a human ever invoked
+# it: the boards were four hours old at 06:01 and the lineups were from whenever
+# someone last ran the command by hand. A refreshed FantasyPros feed would have
+# reached nobody.
+#
+# **After the board stage, not combined with it.** If `clean_lineups` raises on any
+# one of ten leagues, `refresh` returns non-zero and `fail()` fires -- but the boards
+# are already written and correct by then, and the only thing withheld is the S3
+# push. That is this script's own rule (S3 never receives stale data wearing a fresh
+# timestamp) without making the boards hostage to the longer, less-exercised path.
+# `write_league_store` carries forward the meta entries for artifacts a run did not
+# touch, so the second pass cannot make the boards invisible.
+log "rebuilding weekly lineups for all leagues"
+"${PYTHON}" -m Scripts.refresh --all --what lineups >>"${LOG}" 2>&1 \
+  || fail "Scripts.refresh --what lineups"
 
 # --- 5. Verify the data actually moved ----------------------------------
 # Exit code 0 means the commands ran. It does not mean upstream served anything new.
