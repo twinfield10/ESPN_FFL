@@ -259,7 +259,8 @@ Fixed this cycle:
 - **Removed the weekly manual step.** `id_var` in `scrape_BOL.py` was a
   BetOnline game-ID seed hand-edited before nearly every weekly run
   (`259322 → … → 259563` across 2025), documented nowhere. Replaced with
-  auto-discovery plus a `BOL_FIRST_GAME_ID` override.
+  auto-discovery plus a `BOL_FIRST_GAME_ID` override — and since 2026-09-08 with
+  neither: the props widget lists the week's games, so nothing is guessed or seeded.
 - **Unified imports.** Three conventions coexisted (`from Scripts.x`, `from .x`,
   bare `from nfl_utils`), and the scrapers required a working directory that was
   mutually incompatible with the one their data paths needed. Everything is

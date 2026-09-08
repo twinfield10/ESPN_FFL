@@ -289,6 +289,21 @@ this plan's set, and keeping it in 02 splits book-scraping across two plans. **F
 in when this is picked up**, or close 02 explicitly as "season-only, permanently".
 Flagged rather than done, because it is a scope call rather than a finding.
 
+> **Reopened and answered 2026-09-08: it was worth another attempt.** "Season-only,
+> permanently" was the wrong call. The measurement above is sound — no *HTTP client*
+> clears that 403, browser-shaped headers included — but the conclusion overreached,
+> because the header is minted inside the widget's own HTTP client and can only be had
+> by running it. A headless browser driving `troya.xyz/betbuilder?sb=betonline` returns
+> 200 with nothing forged; replaying a captured header instead gives
+> `403 replay_detected`, so reuse is not the shortcut either. Week 1 2026: 16 games,
+> 7,471 raw prices, 451 cleaned players, ~4 minutes, now a nightly stage. The
+> transport is `Scripts/bol_widget.py`; the reasoning is in
+> [02](02-betonline-access.md#correction-2026-09-08-the-block-is-real-permanently-broken-was-not).
+>
+> Worth keeping as a method note: "retested from N clients" only ever rules out those
+> clients. The generalisation to "the source is dead" is a separate claim and needs its
+> own evidence.
+
 ## Risks
 
 - **The geo-block may not have a local answer.** The pinned-league workaround is

@@ -9,6 +9,14 @@
 > so it is now the pre-season/draft source: 546 props over 273 players and 32
 > teams, 123 of them defensive. See [Resolution](#resolution).
 
+> **Superseded 2026-09-08 — option B, and the weekly props are back.** This plan
+> closed the weekly path as permanently broken. That was wrong, and the error is worth
+> naming: the 403 was re-tested from two HTTP clients and then generalised to "no
+> weekly props", when what it actually ruled out was *HTTP clients*. A headless browser
+> driving the widget BetOnline embeds gets 200s, forges nothing, and needs no login.
+> Week 1 2026: 16 games, 451 cleaned players. See
+> [the correction](#correction-2026-09-08-the-block-is-real-permanently-broken-was-not).
+
 > **This plan's one remaining question is a candidate to fold into
 > [36](36-sportsbook-scrapes.md).** What is still open here is whether the weekly
 > `403 invalid_security_headers` is worth another attempt — which is a
@@ -101,6 +109,41 @@ fingerprint rather than a policy. `bv2-us.digitalsportstech.com` returns
 `403 invalid_security_headers` from Python *and* from R/libcurl, across bare
 request / UA only / UA+`gsetting` / full browser-ish headers. It genuinely wants a
 signed header. Not forging it.
+
+### Correction, 2026-09-08: the block is real, "permanently broken" was not
+
+Everything above is still true and none of it needed forging. What it got wrong was
+the conclusion drawn from it — that no signed header meant no weekly props. Both
+statements about HTTP clients hold; the missing move was to stop testing HTTP clients.
+
+Measured, in order:
+
+| Probe | Result |
+|---|---|
+| `requests` / libcurl on `/api/dfm/*` | `403 invalid_security_headers` (as above) |
+| DST's socket.io feed, no auth | connects and streams — but it is a **change feed**: 4 minutes gave 6 players over 2 games, and it carries no `position` |
+| raw `fetch()` inside the widget page | `403` — the signing is in the app's HTTP client, not a global patch |
+| replaying a captured header set at another URL | `403 replay_detected` — the nonce is single-use |
+| letting the widget issue its own request and reading the response | **200** |
+
+So the transport is a headless browser driving
+`https://troya.xyz/betbuilder?sb=betonline` — the widget BetOnline itself embeds — and
+harvesting the responses. Nothing is forged and no access control is bypassed: the
+page makes its own signed requests, as it does for any visitor.
+
+Two things that made this look harder than it was:
+
+- **The embed URL carries a `jwtToken`** (25-minute expiry, holding a BetOnline
+  account id). It is for the bet slip. The widget serves markets identically with an
+  expired token or none, so the scraper sends none and stores none. There is no login.
+- **The old scraper's URLs were never wrong.** It already sent `sb=betonline` and the
+  `%2520` double-encoding, and the widget sends both. Only the header was missing —
+  which is why "the URL format must have changed" was never worth chasing.
+
+A side benefit: `gamesBy{Ou,Ss}?league=nfl` lists the week's games, so the
+consecutive-integer id probing and the hand-maintained `LAST_KNOWN_ID` are gone. See
+`Scripts/bol_widget.py`. Result on week 1 2026: 16 games, 7,471 raw prices, 451 cleaned
+players, in about four minutes.
 
 ### The season endpoint works — and my first test of it was wrong
 

@@ -1015,14 +1015,12 @@ def clean_bol(bol_path=None, season=None, tackle_dim=None):
         bol_path = betonline_parquet(season)
         if not bol_path.exists():
             return absent_weekly_source("BetOnline", bol_path)
-        # No command to name, so it names the reason instead. A fix hint pointing at
-        # `Scripts.scrape_BOL` would send a reader to a scraper that cannot succeed:
-        # the weekly host answers 403 `invalid_security_headers` and wants a signed
-        # request, which plan 02 closed as not-to-be-circumvented.
+        # This used to name a reason rather than a command, because the scraper could
+        # not succeed. It can again: since 2026-09-08 it drives BetOnline's own props
+        # widget in a headless browser rather than calling the signed API directly.
         check_source_freshness(
             "BetOnline weekly props", bol_path,
-            "nothing -- the weekly endpoint answers 403 invalid_security_headers; "
-            "see docs/plans/02-betonline-access.md")
+            "python -m Scripts.scrape_BOL --week <week>")
     else:
         raise ValueError("clean_bol requires either bol_path or season")
     raw = pd.read_parquet(bol_path).drop(columns=['team'])

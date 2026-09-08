@@ -373,9 +373,11 @@ fi
 # numbers come from the two pulls below, and both were already runnable. Nobody had
 # added them here, which is the entire cause.
 #
-# The weekly pair are deliberately still absent. Both are broken -- Pinnacle's Selenium
-# path times out, BetOnline's weekly API answers 403 -- and a `|| fail` on either would
-# stop the boards rebuilding every night. They go in when they answer.
+# The weekly pair were deliberately absent here for a while: Pinnacle's Selenium path
+# times out and BetOnline's weekly API answers 403, and a `|| fail` on either would stop
+# the boards rebuilding every night. Both now run as their own stages (2b'' and 2e) --
+# BetOnline answers again as of 2026-09-08, through a browser rather than the API --
+# and neither can fail the run. The `|| fail` reasoning above is why.
 log "pulling Pinnacle season-long player props"
 book_stage "Scripts.scrape_pinnacle_season" "${PYTHON}" -m Scripts.scrape_pinnacle_season
 
@@ -408,6 +410,43 @@ print(pl.read_csv(p).height if p.is_file() else 0)
 # 546 rows measured 2026-08-27, across 32 teams.
 book_rows_guard "BetOnline season props" "${BOL_ROWS}" 200 \
   "Check the futures endpoint still answers: Rscript R/GetSeasonProps.R ${SEASON}"
+
+# --- 2e. BetOnline weekly player props ----------------------------------
+# Restored 2026-09-08. This was dead for a month behind a 403 and plan 02 had closed it
+# as permanently broken; the block turned out to be a signed-header requirement that a
+# real browser session satisfies, not a block on the data. See Scripts/bol_widget.py.
+#
+# Slower than every other stage -- it drives a headless Chromium through ~350 clicks and
+# takes about four minutes.
+#
+# Deliberately NOT book_stage. That helper is fatal pre-season and forgiving in-season,
+# which is the right contract for season-long markets and the inverse of the one weekly
+# props want: nothing here should be able to stop the board rebuild below, and a failure
+# in week 10 matters more than one today, not less. Same shape as Pinnacle weekly above --
+# never fatal, always reported, with Scripts.refresh_status watching the file's age.
+log "pulling BetOnline weekly player props"
+if "${PYTHON}" -m Scripts.scrape_BOL --season "${SEASON}" --week "${WEEK}" >>"${LOG}" 2>&1; then
+  BOL_WK_ROWS="$("${PYTHON}" -c "
+import polars as pl
+from Scripts.paths import season_dir
+p = season_dir('BetOnline', ${SEASON}, 'BetOnline_AllProps.parquet', create=False)
+print(pl.read_parquet(p).height if p.is_file() else 0)
+" 2>/dev/null)" || BOL_WK_ROWS=0
+  log "BetOnline weekly props: ok, ${BOL_WK_ROWS} players"
+  # 451 players measured 2026-09-08 across all 16 week-1 games. Reported rather than
+  # enforced: a bye week is a real reason for fewer, and the way this breaks is zero
+  # rows or a non-zero exit, both of which are already visible.
+  if [ "${BOL_WK_ROWS}" -lt 150 ]; then
+    log "NOTE: BetOnline weekly props returned ${BOL_WK_ROWS} players against the ~451 \
+of a full slate. Check the widget still answers: ${PYTHON} -m Scripts.scrape_BOL \
+--week ${WEEK} --dry-run"
+  fi
+else
+  log "NOTE: BetOnline weekly props failed. Not fatal -- the weekly blend renormalises \
+around an absent source, and failing here would cost the board rebuild below. This stage \
+drives a headless Chromium, so a DST page restructure or a missing browser surfaces here \
+first: ${PYTHON} -m Scripts.scrape_BOL --week ${WEEK} --dry-run. See Scripts/bol_widget.py."
+fi
 
 # --- 3. Re-project the usage head ---------------------------------------
 # Reads the fresh depth chart and roster. Refits only if the stored model is stale;
