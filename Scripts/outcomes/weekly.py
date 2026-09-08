@@ -57,6 +57,7 @@ import numpy as np
 import polars as pl
 
 from Scripts import paths
+from Scripts.scrape_player_stats import FREE_AGENT_OWNER
 
 #: Bump when the fitted form changes meaning. Readers refuse a version they do not
 #: understand rather than mis-read its coefficients.
@@ -76,9 +77,6 @@ TRAIN_SEASONS: Tuple[int, ...] = (2025,)
 
 #: Slots whose points do not count.
 BENCH_SLOTS = ("BE", "IR")
-
-#: The synthetic team ESPN's unrostered players arrive under.
-FREE_AGENT_OWNER = "Free Agent"
 
 #: Fewest player-weeks a position needs for its own coefficients.
 #:

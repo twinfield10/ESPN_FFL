@@ -113,3 +113,128 @@ def test_both_maps_cover_all_thirty_two_teams_and_spell_chicago_correctly():
 def test_every_position_is_scraped():
     assert fp.pos_list == ["qb", "rb", "wr", "te", "k", "dst"]
     assert fp.DRAFT_WEEK == "draft"
+
+
+# --- the weekly scrape's cadence and its merge ---------------------------
+#
+# Added 2026-09-08. The weekly file on disk that day held 60 rows for week 1, stamped
+# 2026-08-03 -- the anonymous teaser, scraped three weeks before the account that
+# lifts the fence existed, and nothing had ever re-run it. Authenticated the same
+# page returns 597 rows over 595 players.
+
+
+def _recorder(monkeypatch, rows_per_week=3):
+    """Swap `get_fp` for something that records the weeks asked for."""
+    import pandas as pd
+    asked = []
+
+    def fake_get_fp(wk, year=None):
+        asked.append(wk)
+        return pd.DataFrame({"week": [wk] * rows_per_week,
+                             "player_name": [f"w{wk}p{i}" for i in range(rows_per_week)],
+                             "proj_rushingYards": [10.0] * rows_per_week})
+
+    monkeypatch.setattr(fp, "get_fp", fake_get_fp)
+    return asked
+
+
+@pytest.fixture
+def fp_season_dir(tmp_path, monkeypatch):
+    """Redirect the scraper's output so no test writes the real projections."""
+    def fake_season_dir(source, season, *parts, **kwargs):
+        out = tmp_path / str(source) / str(season)
+        out.mkdir(parents=True, exist_ok=True)
+        return out.joinpath(*parts) if parts else out
+    monkeypatch.setattr(fp, "season_dir", fake_season_dir)
+    return tmp_path
+
+
+def test_the_weekly_scrape_fetches_the_current_week_alone(monkeypatch, fp_season_dir):
+    """It used to fetch `range(1, week + 1)` every time.
+
+    Six requests a week at the 5s crawl delay is 30s at week 1 and **nine minutes at
+    week 18**, on a nightly job -- and it re-requests a projections page for games
+    already played, which is not necessarily the number the blend voted with.
+    """
+    asked = _recorder(monkeypatch)
+    monkeypatch.setattr(fp, "current_week", lambda: 7)
+    fp.scrape_weekly(season=2026)
+    assert asked == [7]
+
+
+def test_the_week_is_resolved_at_call_time_not_at_import_time(monkeypatch,
+                                                              fp_season_dir):
+    """`WEEK = current_week()` is bound at import, and a stale schedule pins it at 1.
+
+    Found 2026-09-08: `Data/NFL_Schedules.csv` was frozen at 08-14 with no scores, so
+    `current_week()` returned 1 -- and would have returned 1 for the rest of the
+    season, scraping week 1 every night. The schedule is refreshed by the nightly
+    now, which only helps if this reads it after that runs.
+    """
+    asked = _recorder(monkeypatch)
+    monkeypatch.setattr(fp, "WEEK", 1)
+    monkeypatch.setattr(fp, "current_week", lambda: 9)
+    fp.scrape_weekly(season=2026)
+    assert asked == [9]
+
+
+def test_a_backfill_still_reaches_every_week(monkeypatch, fp_season_dir):
+    asked = _recorder(monkeypatch)
+    fp.scrape_weekly(season=2026, weeks=[1, 2, 3])
+    assert asked == [1, 2, 3]
+
+
+def test_merging_never_overwrites_a_week_already_captured(monkeypatch, fp_season_dir):
+    """Each week freezes at first capture -- the rule `Scripts.freeze` uses.
+
+    Re-scraping a played week would silently rewrite what the blend voted with, and
+    the file is the only record of that.
+    """
+    import pandas as pd
+    _recorder(monkeypatch)
+    monkeypatch.setattr(fp, "current_week", lambda: 1)
+    monkeypatch.setattr(fp, "get_fp", lambda wk, year=None: pd.DataFrame(
+        {"week": [1], "player_name": ["A"], "proj_rushingYards": [100.0]}))
+    fp.scrape_weekly(season=2026)
+
+    monkeypatch.setattr(fp, "get_fp", lambda wk, year=None: pd.DataFrame(
+        {"week": [1], "player_name": ["A"], "proj_rushingYards": [999.0]}))
+    out = fp.scrape_weekly(season=2026)
+    assert out["proj_rushingYards"].tolist() == [100.0]
+
+    # And `--no-merge` is how to replace a bad capture on purpose -- which is what
+    # the authenticated re-scrape of week 1 had to do on 2026-09-08.
+    out = fp.scrape_weekly(season=2026, merge=False)
+    assert out["proj_rushingYards"].tolist() == [999.0]
+
+
+def test_merging_keeps_the_weeks_it_did_not_scrape(monkeypatch, fp_season_dir):
+    """The file must stay cumulative.
+
+    `clean_lineups` re-merges it onto every week in the lineup frame, and that frame
+    gains a week every Tuesday -- so a current-week-only file would blank FantasyPros
+    for every prior week and turn stored history into an ESPN-only board.
+    """
+    _recorder(monkeypatch)
+    fp.scrape_weekly(season=2026, weeks=[1, 2])
+    out = fp.scrape_weekly(season=2026, weeks=[3])
+    assert sorted(out["week"].unique().tolist()) == [1, 2, 3]
+
+
+# --- the --weeks spec -----------------------------------------------------
+
+def test_parse_weeks_accepts_a_range_and_a_list():
+    assert fp.parse_weeks("1-3") == [1, 2, 3]
+    assert fp.parse_weeks("1,4,7") == [1, 4, 7]
+    assert fp.parse_weeks("1-2,5") == [1, 2, 5]
+
+
+def test_parse_weeks_is_empty_rather_than_zero_for_no_spec():
+    """None means "fall back to the current week", and 0 would mean week zero."""
+    assert fp.parse_weeks(None) is None
+    assert fp.parse_weeks("") is None
+
+
+def test_parse_weeks_refuses_a_backwards_range():
+    with pytest.raises(ValueError, match="backwards"):
+        fp.parse_weeks("5-2")

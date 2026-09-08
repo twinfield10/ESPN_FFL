@@ -128,9 +128,64 @@ def test_a_prefix_with_only_a_points_column_is_not_a_source():
     assert pu.present_prefixes(frame, ("ESPN", "USG", "TRUE")) == ["ESPN", "TRUE"]
 
 
-def test_the_weekly_prefix_list_excludes_the_season_only_sources():
-    """TOMCAT, the kicker arm and the defence arm have no weekly stat line."""
-    assert set(pu.WEEKLY_PREFIXES).isdisjoint({"USG", "KIK", "DST"})
+def test_the_kicker_and_defence_arms_are_not_weekly_prefixes():
+    """Neither has a weekly stat line, and neither is a source any more.
+
+    ``KIK`` and ``DST`` were folded into ``USG`` on 2026-09-02 -- one source, three
+    backends over disjoint stat sets -- so a prefix of either name would now be a
+    stale second spelling of the same thing rather than an unwired source.
+    """
+    assert set(pu.WEEKLY_PREFIXES).isdisjoint({"KIK", "DST"})
+
+
+def test_a_registered_prefix_with_no_weekly_stat_line_cannot_be_scored():
+    """The property the ``USG``-exclusion used to stand in for, stated directly.
+
+    ``USG`` was struck from ``WEEKLY_PREFIXES`` by plan 34 because scoring it wrote
+    a ``USG_Points`` that was null for all 3,602 rows of every 2025 store, and a
+    column shaped like a source that never has an opinion reads as a source that
+    agreed. It was **put back on 2026-09-08** as the seam
+    ``docs/plans/19-weekly-usage-model.md`` step 5 asks for, which is only safe
+    because ``present_prefixes`` enforces the property rather than the membership.
+
+    So this asserts the property on the frame ``clean_lineups`` actually builds: a
+    prefix in the list with no stat column of its own gets no ``_Points`` at all --
+    not a null one.
+    """
+    assert "USG" in pu.WEEKLY_PREFIXES, (
+        "if USG has left the weekly prefixes again, docs/plans/19 step 5's seam has "
+        "been unwired -- check clean_usage_weekly before deleting this test")
+
+    frame = pd.DataFrame({
+        "primaryPosition": ["WR"],
+        "ESPN_receivingYards": [80.0], "ESPN_receivingReceptions": [5.0],
+        "ESPN_receivingTouchdowns": [0.5],
+        "TRUE_receivingYards": [80.0], "TRUE_receivingReceptions": [5.0],
+        "TRUE_receivingTouchdowns": [0.5],
+    })
+    prefixes = pu.present_prefixes(frame, pu.WEEKLY_PREFIXES)
+    assert "USG" not in prefixes
+    pu._apply_scoring(frame, PPR, prefixes)
+    assert "USG_Points" not in frame.columns
+
+
+def test_a_weekly_usage_stat_line_would_be_scored_once_it_exists():
+    """The other half: the seam has to actually work when a head writes one.
+
+    Otherwise the test above passes for the wrong reason -- a prefix that can never
+    be scored is not a seam, it is dead text.
+    """
+    frame = pd.DataFrame({
+        "primaryPosition": ["WR"],
+        "TRUE_receivingYards": [80.0], "TRUE_receivingReceptions": [5.0],
+        "TRUE_receivingTouchdowns": [0.5],
+        "USG_receivingYards": [70.0], "USG_receivingReceptions": [4.0],
+        "USG_receivingTouchdowns": [0.4],
+    })
+    prefixes = pu.present_prefixes(frame, pu.WEEKLY_PREFIXES)
+    assert "USG" in prefixes
+    pu._apply_scoring(frame, PPR, prefixes)
+    assert frame["USG_Points"][0] == pytest.approx(70.0 * 0.1 + 4.0 + 0.4 * 6.0)
 
 
 # --- the identity --------------------------------------------------------

@@ -33,6 +33,7 @@ from Scripts.paths import NFL_TACKLES_CSV, resolve, season_dir
 from Scripts.scoring import get_scoring_table
 from Scripts.scrape_player_stats import (
     DERIVED_STATS,
+    FREE_AGENT_OWNER,
     SLOT_BASE,
     SLOT_DST,
     VOLUME_STATS,
@@ -58,6 +59,17 @@ def pinnacle_parquet(season: int):
 def betonline_parquet(season: int):
     """Season's accumulated BetOnline props file."""
     return season_dir("BetOnline", season, "BetOnline_AllProps.parquet",
+                      create=False)
+
+
+def usage_weekly_parquet(season: int):
+    """Season's weekly TOMCAT projections file.
+
+    Nothing writes this yet. ``docs/plans/19-weekly-usage-model.md`` is the plan for
+    the head that would, and the path is named here so that when it lands the wiring
+    below is already in place -- see :func:`clean_usage_weekly`.
+    """
+    return season_dir("Usage", season, "Usage_WeeklyProjections.parquet",
                       create=False)
 
 
@@ -183,24 +195,91 @@ def absent_weekly_source(label: str, path) -> pd.DataFrame:
     })
 
 
-def weekly_sources_present(season: int) -> Dict[str, bool]:
-    """Which weekly projection sources have a file for ``season``.
+#: The weekly sources, and where each one's file lives.
+WEEKLY_SOURCE_FILES = {
+    "fantasypros": fantasypros_parquet,
+    "pinnacle": pinnacle_parquet,
+    "betonline": betonline_parquet,
+    # TOMCAT is deliberately absent. This dict drives the app's "no weekly props
+    # this season for X" caption, and TOMCAT is not a props feed that went quiet --
+    # it is a head nobody has built (`docs/plans/19-weekly-usage-model.md`). Listing
+    # it would put a model in a sentence about sportsbooks and make the key set
+    # unstable for every consumer. It joins here when it ships; see
+    # `clean_usage_weekly`.
+}
+
+
+def weekly_source_status(season: int, week=None) -> Dict[str, Dict]:
+    """Per weekly source: whether there is a file, how old it is, and what it holds.
+
+    The detail behind :func:`weekly_sources_present`, kept separate so a caller that
+    wants to say *why* a source is absent can, without the boolean growing a shape
+    every reader has to handle.
+
+    Args:
+        season: Season year.
+        week: Week to count rows for. None counts the whole file.
+
+    Returns:
+        dict: source name to ``{exists, age_hours, stale, rows, usable}``.
+    """
+    out: Dict[str, Dict] = {}
+    for name, resolver in WEEKLY_SOURCE_FILES.items():
+        path = resolver(season)
+        age = source_age_hours(path)
+        entry = {"exists": age is not None, "age_hours": age,
+                 "stale": age is not None and age > STALE_AFTER_HOURS,
+                 "rows": None}
+        if age is not None:
+            try:
+                frame = pd.read_parquet(path, columns=["week"])
+                if week is None:
+                    entry["rows"] = int(len(frame))
+                else:
+                    matched = frame["week"].astype(str) == str(week)
+                    entry["rows"] = int(matched.sum())
+            except Exception:                                  # noqa: BLE001
+                # A file that cannot be read is not a source. Reporting it as
+                # unusable is the honest answer and is what the caller acts on;
+                # raising here would take a store write down over metadata.
+                entry["rows"] = 0
+        entry["usable"] = bool(entry["exists"] and not entry["stale"]
+                               and (entry["rows"] or 0) > 0)
+        out[name] = entry
+    return out
+
+
+def weekly_sources_present(season: int, week=None) -> Dict[str, bool]:
+    """Which weekly projection sources have a *usable* file.
 
     Recorded in the store's ``meta.json`` so the app can show a degraded source
     rather than rendering an ESPN-only number that looks like a four-source
     blend.
 
+    Present means all three of: the file exists, it is younger than
+    :data:`STALE_AFTER_HOURS`, and it carries at least one row for ``week``.
+
+    **It used to mean existence alone, and that reported a dead source as live.** On
+    2026-09-08 this returned ``fantasypros: True`` off a file holding **60 rows for
+    week 1, written 2026-08-03** -- the anonymous ten-per-position teaser, 25 days
+    stale, scraped three weeks before the account that lifts the fence existed, for a
+    week that had not been played. Every consumer of this dict -- the weekly table's
+    column list, the sidebar's absent-source caption, ``real_sources`` -- was told
+    FantasyPros was fine. An absent source reading as agreement is this repo's oldest
+    failure mode (``docs/plans/03-projection-source-coverage.md``) and this function
+    was one of the guards against it.
+
     Args:
         season: Season year.
+        week: Week the store is being built for. None means "any week", which
+            preserves the old meaning for a caller that does not know the week --
+            ``Scripts.refresh`` passes None on a run with no live league.
 
     Returns:
         dict: ``{"fantasypros": bool, "pinnacle": bool, "betonline": bool}``.
     """
-    return {
-        "fantasypros": fantasypros_parquet(season).exists(),
-        "pinnacle": pinnacle_parquet(season).exists(),
-        "betonline": betonline_parquet(season).exists(),
-    }
+    return {name: entry["usable"]
+            for name, entry in weekly_source_status(season, week=week).items()}
 
 
 _TACKLE_DIM: Optional[pd.DataFrame] = None
@@ -233,6 +312,25 @@ def change_col_prefix(df, old_pfix, new_pfix):
 #: where that projection came from another source rather than from Pinnacle.
 IMPUTED_SUFFIX = "_is_imputed"
 
+#: Columns that carry a source's prefix but are not one of its lines.
+#:
+#: ``<SOURCE>_Points`` and ``<SOURCE>_PosRank`` are computed *from* a stat line by
+#: :func:`proj_to_score`, so they have no ``MEAN_`` counterpart to be imputed from
+#: and therefore no ``_is_imputed`` companion -- which drops them into
+#: :func:`coverage_report`'s ``notna()`` branch, where a derived number that is
+#: always populated reads as 100% real.
+#:
+#: Measured on the 2026 weekly stores on 2026-09-08: the sidebar reported
+#: **Pinnacle 4.1% and BetOnline 4.1% for two sources with no weekly line at all**,
+#: and 4.1% is exactly 2/49 columns -- these two. Every genuine PINNY and BOL stat
+#: column was 0.0%. The panel that exists to stop an absent source reading as
+#: agreement was doing precisely that, which is this repo's oldest failure mode
+#: (``docs/plans/03-projection-source-coverage.md``).
+#:
+#: :func:`present_prefixes` had excluded the same two names by literal since plan 34.
+#: They are named once here so the two lists cannot drift apart.
+DERIVED_SOURCE_COLUMNS: Tuple[str, ...] = ("Points", "PosRank")
+
 #: Working name for ESPN's own published point total inside ``clean_lineups``.
 #:
 #: It exists because :func:`change_col_prefix` replaces the *substring* ``proj``
@@ -248,45 +346,65 @@ ESPN_PUBLISHED_POINTS = "espn_published_points"
 #: whatever subset is real, so a set summing to 1.0 is conventional rather than
 #: required.
 #:
-#: **An equal split across the four sources that can speak** -- ESPN, FantasyPros,
-#: BetOnline and the usage model -- with Pinnacle at zero. Set three-way on
-#: 2026-08-07 and widened to four on 2026-08-17. This is an owner decision, not a
-#: fitted result, and its parts deserve separate notes.
+#: **An equal split across the four external sources that can speak** -- ESPN,
+#: FantasyPros, Pinnacle and BetOnline, plus The Athletic. Set three-way on
+#: 2026-08-07, widened to include the usage model on 2026-08-17, and **narrowed again
+#: on 2026-09-07 when TOMCAT was withdrawn from the season-long blend.** This is an
+#: owner decision, not a fitted result, and its parts deserve separate notes.
 #:
-#: **On ``USG`` moving off 0.0.** Plan 18 gated a non-zero weight on G2 -- the blend
-#: with and without the model, scored against realised results -- which cannot be run
-#: on any past season, because FantasyPros' URLs take no season parameter and no
-#: historical pre-season blend survives. That remains true and G2 remains unanswered.
-#: What changed is the evidence around it: the model now beats the naive draft
-#: heuristic on **every metric at every position**, out of sample, in 26 of 28
-#: season-position cells across a seven-fold walk-forward, and the folds never used for
-#: feature selection score as well as or better than the ones that were. Weighting it
-#: in is still an assertion rather than a measurement; it is now an assertion with a
-#: lot behind it, made deliberately rather than inherited.
+#: **On ``USG`` being removed, 2026-09-07.** It carried an equal vote for three weeks
+#: on the strength of its own backtest -- it beats the naive draft heuristic on every
+#: metric at every position, out of sample, in 26 of 28 season-position cells. That
+#: result stands and the model is not being retired; what it does not establish is
+#: that the model's *level* is fit to blend, and a measurement against the board says
+#: it is not.
 #:
-#: ``USG`` enters on an **if-healthy basis** -- :func:`Scripts.usage.project.to_full_slate`
-#: rescales the model's expected-value line to a full 17-game slate before it reaches
-#: the blend, so all three sources describe the same quantity. Without that the blend
-#: mixed an availability-discounted source with two undiscounted ones, and did so
-#: unevenly: the usage model covers QB/RB/WR/TE and not K or D/ST, so skill positions
-#: came out at 0.887-0.900 of their ESPN/FantasyPros level while kickers and defences
-#: sat at exactly 1.000. That is 11% of cross-position distortion in a blend whose job
-#: is to be comparable across positions. Rescaled, the same ratios are 0.974-1.012.
+#: The disqualifying number is a team total. An NFL team ran the ball a median 454,
+#: 450 and 465 times in 2023, 2024 and 2025. For 2026 ESPN projects 462 per team, The
+#: Athletic 452 and the ESPN/FP/ATH mean 466; **TOMCAT projects 384**, or 417 once its
+#: abstentions are filled from the field. On the players it and the field both price it
+#: runs 0.903 of the field's carries and 0.891 of its pass attempts, while receiving
+#: targets come in at 0.999. A team's carry count is not a matter of opinion, so this
+#: is a level error rather than a disagreement -- and it survives to the board because
+#: :data:`Scripts.usage.coherence.IDENTITIES` holds three passing/receiving pairs and
+#: **no rushing identity**, so nothing constrains a team's carries the way the
+#: passing side is constrained.
+#:
+#: What that cost the blend: on the draftable pool the model read 0.836 of ESPN at ADP
+#: 1-50 and 1.089 at 150+, stable across all nine leagues, so it discounted precisely
+#: the picks the board exists to get right. Rebuilt with and without it, including it
+#: moved skill-position levels to 0.975-0.990 and **D/ST to 0.879** -- 12.5% of
+#: cross-position distortion, nearly all of it the defence arm, whose ordering
+#: correlates with the field at a Spearman of only 0.168.
+#:
+#: **The weekly path is a separate question and is not foreclosed.** ``USG`` has never
+#: been in :data:`WEEKLY_PREFIXES` -- TOMCAT has no weekly head -- so nothing about
+#: this removal touches it, and a weekly arm fitted on in-season usage would be judged
+#: on its own evidence. See ``docs/plans/43-tomcat-out-of-season-blend.md``.
+#:
+#: **The model keeps running and its columns stay in the store.** ``USG_`` stat lines
+#: are still merged onto the board so the source atlas can keep measuring them and so
+#: the decision is reversible; they simply carry no weight, are no longer scored into
+#: ``USG_Points``, and no longer appear on the draft board. The lower-case ``usg_*``
+#: diagnostics -- ``usg_depth_rank``, ``usg_role_cohort`` -- are depth-chart facts
+#: rather than projections and remain load-bearing for the injury vacancy transfer and
+#: :func:`Scripts.season_projections._withdraw_usage_on_role`.
 #:
 #: **On BetOnline coming back off zero, 2026-08-17.** It went to zero alongside
 #: Pinnacle and that was the wrong half to drop. BetOnline's season endpoint works
 #: and resolves **273 players with 13 stat columns including IDP tackles and sacks**,
 #: against FantasyPros' 60 -- only the *weekly* endpoint is blocked, on a different
-#: host which never fed this path. Meanwhile the nominal three-way split is not one:
-#: FantasyPros is **5.8% real** on the 2026 board, so ``TRUE_`` is
-#: ``(ESPN + USG)/2`` wherever the usage model speaks and ``ESPN`` alone elsewhere.
+#: host which never fed this path. Meanwhile the nominal split is never the realised
+#: one: FantasyPros is **5.8% real** on the 2026 board, so with TOMCAT withdrawn
+#: ``TRUE_`` is ``ESPN`` alone on most rows and ``(ESPN + BOL)/2`` or
+#: ``(ESPN + ATH)/2`` where a second source actually has a line.
 #:
-#: The four-way split below is **additive rather than a re-tune**, which is what makes
-#: it safe to ship beside a change to the usage basis. Because
-#: :func:`compute_weighted_stats` renormalises over the sources that are *real*, a
-#: player with no BetOnline line gets ESPN/FP/USG at 0.25 each, which renormalises to
-#: exactly the 1/3 each he had before -- byte-identical output. The weight can only
-#: bite on the 273 players BetOnline actually covers.
+#: That widening was **additive rather than a re-tune**, which is what made it safe to
+#: ship beside a change to the usage basis. Because :func:`compute_weighted_stats`
+#: renormalises over the sources that are *real*, a player with no BetOnline line kept
+#: exactly the split he had before -- byte-identical output. The weight could only bite
+#: on the 273 players BetOnline actually covers. **Removing ``USG`` is not additive and
+#: was never going to be**: it moves every row the model spoke for, which is the point.
 #:
 #: **Pinnacle was at zero until 2026-08-24 and is now an equal quarter like the rest.**
 #: The reasoning for zeroing it -- 76 props, offence only, 94-100% imputed on the board --
@@ -299,14 +417,19 @@ ESPN_PUBLISHED_POINTS = "espn_published_points"
 #: `USG` is **TOMCAT** -- Touches, Opportunity, Market, Context, Availability, Tiers --
 #: this repo's own model, and `KIK`/`DST` are two of its three arms rather than separate
 #: sources. The prefix stayed `USG_` when the name landed on 2026-08-24; see
-#: `Scripts/usage/__init__.py`.
+#: `Scripts/usage/__init__.py`. **It is absent from this table as of 2026-09-07** -- not
+#: at 0.0, but absent, so that a reader counting entries counts the sources that vote.
+#: Kickers and team defences lose their only second opinion with it and fall back to
+#: ESPN plus whatever FantasyPros has; that is a real cost of the removal and it is
+#: recorded rather than smoothed over.
 #:
 #: The rule these nominal weights encode is **one equal vote per source that actually has
 #: an opinion**. Because every universal source carries the same 0.25, renormalisation makes
 #: that literal: four real sources weight 0.25 each, three weight 0.333, two weight 0.5.
-#: Measured on the 2026 board's draftable receiving lines -- 29 rows carry five real
-#: sources, 67 carry four, 160 carry three, 102 carry two. The nominal number is therefore
-#: almost never the realised one, and that is the design rather than a defect.
+#: Measured on the 2026 board's draftable receiving lines before TOMCAT was withdrawn --
+#: 29 rows carried five real sources, 67 carried four, 160 carried three, 102 carried
+#: two. The nominal number is therefore almost never the realised one, and that is the
+#: design rather than a defect.
 #:
 #: The previous hand-tuned table, for the record and for plan 03 step 3's re-tune:
 #:
@@ -323,19 +446,33 @@ ESPN_PUBLISHED_POINTS = "espn_published_points"
 
 #: Prefixes the weekly path may score, in the order the pipeline builds them.
 #:
-#: ``proj_to_score``'s default list is the *season* one and includes ``USG``,
-#: ``KIK`` and ``DST``. None of the three has a weekly stat line -- TOMCAT's
-#: weekly head does not exist (``docs/plans/19-weekly-usage-model.md`` is not
-#: started) and the kicking and defence arms are season-long -- so scoring them
-#: weekly wrote a column that was null for every row of every store. ``USG_Points``
-#: was null 3,602 of 3,602 times on Knights_FFL 2025.
+#: This list and ``proj_to_score``'s default are now the same set of external
+#: sources plus ``MEAN`` and ``TRUE``, and they arrived there from opposite
+#: directions. ``USG`` was struck from the *weekly* list because TOMCAT has no
+#: weekly head (``docs/plans/19-weekly-usage-model.md`` is not started) and the
+#: kicking and defence arms are season-long, so scoring it weekly wrote a column
+#: that was null for every row of every store -- null 3,602 of 3,602 times on
+#: Knights_FFL 2025. It was struck from the *season* list on 2026-09-07 for an
+#: unrelated reason: the model was withdrawn from the blend, so pricing its line
+#: would publish a ``USG_Points`` column nothing consumes. See :data:`WEIGHTS`.
 #:
-#: That is not cosmetic. ``_apply_scoring`` writes ``NaN`` for a source that
-#: projected nothing *deliberately*, to distinguish it from a source projecting
-#: zero -- so an all-NaN column is indistinguishable from a source that had an
-#: opinion and could not be reached, and every coverage count built on ``notna()``
-#: reads it the same way.
-WEEKLY_PREFIXES: Tuple[str, ...] = ("ESPN", "FP", "MEAN", "PINNY", "BOL", "TRUE")
+#: The weekly exclusion was never cosmetic and still is not. ``_apply_scoring``
+#: writes ``NaN`` for a source that projected nothing *deliberately*, to
+#: distinguish it from a source projecting zero -- so an all-NaN column is
+#: indistinguishable from a source that had an opinion and could not be reached,
+#: and every coverage count built on ``notna()`` reads it the same way.
+#:
+#: **``USG`` joined this tuple on 2026-09-08 without joining the blend**, which is
+#: only safe because ``present_prefixes`` exists. It carries no weekly stat columns
+#: until ``docs/plans/19-weekly-usage-model.md`` ships a head that writes some, and
+#: until then the prefix is filtered out before ``proj_to_score`` runs, so no
+#: all-null ``USG_Points`` is published. It is listed rather than omitted so the
+#: registration is one line of data rather than a change to this file, and it is
+#: **not** in :data:`WEIGHTS`: that dict is shared with the season path, where TOMCAT
+#: was withdrawn on 2026-09-07, so an entry there would re-admit it to the draft
+#: board as a side effect. See :func:`clean_usage_weekly`.
+WEEKLY_PREFIXES: Tuple[str, ...] = ("ESPN", "FP", "MEAN", "PINNY", "BOL", "USG",
+                                    "TRUE")
 
 
 def present_prefixes(df, candidates=WEEKLY_PREFIXES) -> list:
@@ -354,7 +491,7 @@ def present_prefixes(df, candidates=WEEKLY_PREFIXES) -> list:
     for prefix in candidates:
         start = f"{prefix}_"
         if any(c.startswith(start) and not c.endswith(IMPUTED_SUFFIX)
-               and c != f"{prefix}_Points" and c != f"{prefix}_PosRank"
+               and c[len(start):] not in DERIVED_SOURCE_COLUMNS
                for c in df.columns):
             out.append(prefix)
     return out
@@ -362,51 +499,40 @@ def present_prefixes(df, candidates=WEEKLY_PREFIXES) -> list:
 
 
 WEIGHTS = {
-    # `TOMCAT` is one source with three backends, and it is registered once.
+    # `TOMCAT` was one source with three backends -- the usage arm, kicking and team
+    # defence, all writing `USG_` and carrying one vote between them. **It was
+    # withdrawn from the season-long blend on 2026-09-07** and there is no entry for
+    # it here. The measurement that removed it is in the module docstring above and
+    # the decision is written up in
+    # docs/plans/43-tomcat-out-of-season-blend.md.
     #
-    # It was three entries until 2026-09-02 -- `USG` for the usage arm, `KIK` for
-    # kicking and `DST` for team defence -- which made the table say there were eight
-    # sources when there have only ever been six. The arms share a model family, a
-    # fitting harness and an owner; they differ in which positions they can speak
-    # about, and that is not what a *source* is. So they now all write `USG_` and
-    # carry one vote.
+    # Two things it took with it, recorded because they are costs rather than
+    # tidy-ups. **Kickers and team defences lose their only second opinion**: the
+    # kicking arm was deliberately switched on over an unpassed G-K2 gate precisely
+    # because the alternative was a starting slot in nine leagues at 100% ESPN, and
+    # that alternative is now what we have (docs/plans/29-kicker-model.md). And
+    # **`USG_receivingTargets` was the blend's third opinion on volume** -- FantasyPros
+    # publishes no target column and neither book prices one, so targets are back to
+    # ESPN and The Athletic alone.
     #
-    # **Position scoping falls out of the flags rather than the weights.** A
-    # quarterback has no `USG_madeExtraPoints`, so the cell is null and flagged and
-    # `compute_weighted_stats` drops the weight and renormalises -- the same path a
-    # sportsbook with no line takes. The old `POSITION_SCOPED_SOURCES` constant
-    # existed to warn that summing this table would not reach 1.0; it was never read
-    # by anything and is gone with the entries it described.
-    #
-    # **Turning the kicking arm on is a real change and not a consequence of the
-    # rename, so it is recorded here.** It sat at 0.0 because channel F (field goals)
-    # failed G-K2 at +1.2% against a 5% bar while channel P (extra points) held out at
-    # +45.9%, and blending the arm carried the failed channel in with the good one.
-    # That gate is measured on stats and is *still unpassed*; this is a deliberate
-    # override of it, made on two grounds. First, the 0.0 was hiding a defect rather
-    # than a model: `Scripts.kicking.model` was emitting
-    # `madeFieldGoalsFromFrom40To49` for two of the three distance bands, which no
-    # league scores, so two thirds of a kicker's field-goal value was silently zero
-    # and the arm read at 0.577x ESPN's points. Corrected it reads 0.946x, and the
-    # measured cost of letting it vote is about four points a kicker -- noise at a
-    # position whose season-average environment spreads only 1.24x. Second, the
-    # alternative was leaving a starting slot in nine leagues at 100% ESPN with no
-    # second opinion at all. See docs/plans/29-kicker-model.md.
+    # **Position scoping used to fall out of the flags rather than the weights**, and
+    # that mechanism is unchanged for the sources that remain: a player a source has
+    # no line for arrives null and flagged, `compute_weighted_stats` drops the weight
+    # and the rest renormalise.
     #
     # `ATH` -- The Athletic (Jake Ciely's workbook) -- registered at 0.25 on
-    # 2026-09-01, as a sixth equal vote. It covers 434 offensive players with a raw
+    # 2026-09-01, as an equal vote. It covers 434 offensive players with a raw
     # stat line and abstains on kickers and defences, so on those rows the weight is
     # dropped and the rest renormalise as usual.
     #
     # Registered straight to 0.25 rather than shipping dark at 0.0 first, which is
-    # what `USG`, `KIK` and `DST` each did. Two things worth writing down about that:
+    # what the TOMCAT arms each did. Two things worth writing down about that:
     # it moves `TRUE_Points` for every player the source covers, and it was merged
     # five days before the GOP auction, which is the week docs/DRAFT_READINESS.md
     # asks to be left alone. The out-of-sample MAE measurement that plan 20 asks for
     # is therefore owed *after* the fact rather than before -- see
     # docs/plans/38-the-athletic.md.
-    'default': {'ESPN': 0.25, 'FP': 0.25, 'PINNY': 0.25, 'BOL': 0.25, 'ATH': 0.25,
-                'USG': 0.25},
+    'default': {'ESPN': 0.25, 'FP': 0.25, 'PINNY': 0.25, 'BOL': 0.25, 'ATH': 0.25},
 }
 
 
@@ -490,7 +616,62 @@ def imputed_flag_columns(df):
     return [c for c in df.columns if c.endswith(IMPUTED_SUFFIX)]
 
 
-def coverage_report(df, sources=('ESPN', 'FP', 'PINNY', 'BOL', 'ATH', 'USG'),
+def clean_usage_weekly(usage_path=None, season=None):
+    """Load TOMCAT's weekly stat lines, if a weekly head has ever written any.
+
+    **Today this always returns the empty frame, and that is the point.** It is the
+    seam ``docs/plans/19-weekly-usage-model.md`` step 5 asks for -- "loader +
+    ``WEIGHTS`` entry + ``proj_to_score`` prefix, following the ``clean_pinny`` /
+    ``clean_bol`` pattern including its absent-source path" -- built now, while the
+    surrounding code is being touched anyway, so that shipping a weekly arm is a data
+    change rather than a plumbing change.
+
+    Nothing null reaches the store while it is empty. With no file there are no
+    ``USG_`` columns on the frame, so :func:`present_prefixes` drops the prefix
+    before :func:`proj_to_score` ever sees it. That function exists for exactly this:
+    plan 34 added it after ``USG_Points`` was written null for all 3,602 rows of
+    every 2025 weekly store, because a column shaped like a source that never has an
+    opinion reads as a source that agreed.
+
+    **``USG`` is deliberately not in :data:`WEIGHTS`, and adding it is not this
+    function's job.** That dict is shared by both grains, so a weekly entry would
+    also re-admit TOMCAT to the season board it was withdrawn from on 2026-09-07 for
+    a measured level error (see this module's ``WEIGHTS`` docstring and
+    ``docs/plans/43-tomcat-out-of-season-blend.md``). Turning the weekly arm on is one
+    deliberate line, taken on in-season evidence, against plan 03's pre-registered
+    bar: a crude weekly head at an equal vote cost **+16.91%** MAE over all rostered
+    player-weeks and **+1.55%** on players who actually took a snap, so roughly nine
+    tenths of the harm was availability rather than accuracy -- which is why plan 19
+    builds the availability head first.
+
+    Args:
+        usage_path: Explicit parquet location. Takes precedence over ``season``.
+        season: Season to load. Required unless ``usage_path`` is given.
+
+    Returns:
+        pd.DataFrame: Weekly ``proj_<stat>`` lines keyed on
+        :data:`SOURCE_JOIN_KEYS`, or the empty frame from
+        :func:`absent_weekly_source` when no weekly head has written one.
+
+    Raises:
+        FileNotFoundError: When an explicit ``usage_path`` does not exist. A named
+            file that is missing is a typo, not an absent season.
+    """
+    if usage_path is not None:
+        usage_path = resolve(usage_path)
+    elif season is not None:
+        usage_path = usage_weekly_parquet(season)
+        if not usage_path.exists():
+            return absent_weekly_source("TOMCAT weekly", usage_path)
+        check_source_freshness("TOMCAT weekly projections", usage_path,
+                               "python -m Scripts.usage.weekly")
+    else:
+        raise ValueError("clean_usage_weekly requires either usage_path or season")
+
+    return pd.read_parquet(usage_path)
+
+
+def coverage_report(df, sources=('ESPN', 'FP', 'PINNY', 'BOL', 'ATH'),
                     stats=None):
     """Per-source share of cells that are real rather than imputed.
 
@@ -501,11 +682,15 @@ def coverage_report(df, sources=('ESPN', 'FP', 'PINNY', 'BOL', 'ATH', 'USG'),
     Args:
         df: Blended frame carrying ``*_is_imputed`` columns.
         sources: Source prefixes to report on.
-        stats: Restrict to these stat names. Defaults to every stat found. A
-            market-implied dispersion column (``<stat>_sd``) is never a stat: it
-            has no ``MEAN_`` counterpart to be imputed from, so counting it would
-            drag a source's coverage average toward whatever share of its columns
-            happen to carry one.
+        stats: Restrict to these stat names. Defaults to every stat found. Two
+            kinds of column are never a stat and are excluded whatever ``stats``
+            says. A market-implied dispersion column (``<stat>_sd``) has no
+            ``MEAN_`` counterpart to be imputed from, so counting it would drag a
+            source's coverage average toward whatever share of its columns happen
+            to carry one. :data:`DERIVED_SOURCE_COLUMNS` -- ``_Points`` and
+            ``_PosRank`` -- are worse: they are always populated *and* have no
+            provenance flag, so they read 100% and were the entire reported
+            coverage of two sources with no weekly line at all.
 
     Returns:
         pd.DataFrame: Columns ``source``, ``stat``, ``n``, ``real``, ``real_pct``,
@@ -518,6 +703,7 @@ def coverage_report(df, sources=('ESPN', 'FP', 'PINNY', 'BOL', 'ATH', 'USG'),
             c for c in df.columns
             if c.startswith(prefix) and not c.endswith(IMPUTED_SUFFIX)
             and not c.endswith(mk.SD_SUFFIX)
+            and c[len(prefix):] not in DERIVED_SOURCE_COLUMNS
         ]
         for col in cols:
             stat = col[len(prefix):]
@@ -541,6 +727,138 @@ def coverage_report(df, sources=('ESPN', 'FP', 'PINNY', 'BOL', 'ATH', 'USG'),
     return out.sort_values(["real_pct", "source", "stat"]).reset_index(drop=True)
 
 
+def source_contributed(df, prefix, stats, *, points_fallback=True,
+                       missing_flag_is_imputed=True):
+    """Per row: did ``prefix`` supply at least one real cell to a scored stat?
+
+    Extracted from :func:`Scripts.season_projections.attach_source_spread` so the
+    store, the board and the app answer this one question the same way. Two clauses
+    carry the whole meaning, and both were learned from a defect:
+
+    **A zero does not count.** These frames are dense with structural zeros -- a
+    kicker's ``FP_passingYards`` is 0.0 and unflagged, because nobody imputed it and
+    nobody asserted it either. Counting those made FantasyPros a real source for
+    Cameron Dicker on the strength of twelve zeros, and his floor and ceiling came
+    back exactly equal to ESPN's total: a spread of zero, reported as measured
+    agreement.
+
+    **An imputed cell does not count.** That is what the flags are for. ESPN carries
+    no flags at all -- it is the source every other one is imputed *from* -- so it
+    counts wherever it has a non-zero number.
+
+    Args:
+        df: Frame carrying ``<prefix>_<stat>`` columns and their ``_is_imputed``
+            companions.
+        prefix: Source prefix, without the underscore.
+        stats: Stat names to consider. Scored stats for a points question; the
+            blended stats for a coverage question.
+        points_fallback: When ``prefix`` has no stat column on the frame at all, fall
+            back to ``<prefix>_Points`` being non-null. This is what
+            ``app.lineup.real_sources`` already does at league level, and it is what
+            keeps this usable on the points-only frames the tests and the Sheets
+            renderer pass around -- ``tests/test_lineup.py``'s ``one_real_source``
+            and ``two_real_sources`` fixtures carry no stat columns whatever.
+        missing_flag_is_imputed: What a **NaN** provenance flag means. True -- a row
+            that never joined counts as imputed -- matches
+            :func:`compute_weighted_stats` and :func:`coverage_report`.
+            ``attach_source_spread`` has always read it the other way and passes
+            False to keep its published output identical. The disagreement is latent
+            rather than live: measured 2026-09-08, **zero** flag cells are NaN across
+            all ten leagues' ``lineups.parquet`` and ``board.parquet``, so no shipped
+            number depends on which way it is read.
+
+    Returns:
+        pd.Series: Boolean, indexed like ``df``.
+    """
+    contributed = pd.Series(False, index=df.index)
+    seen_stat_column = False
+
+    for stat in stats:
+        stat_col = f"{prefix}_{stat}"
+        if stat_col not in df.columns:
+            continue
+        seen_stat_column = True
+        values = pd.to_numeric(df[stat_col], errors="coerce")
+        has_value = values.notna() & (values != 0)
+        flag_col = stat_col + IMPUTED_SUFFIX
+        if flag_col in df.columns:
+            imputed = df[flag_col].fillna(missing_flag_is_imputed).astype(bool)
+            has_value &= ~imputed
+        contributed |= has_value
+
+    if not seen_stat_column and points_fallback:
+        points_col = f"{prefix}_Points"
+        if points_col in df.columns:
+            return df[points_col].notna()
+
+    return contributed
+
+
+def player_coverage(df, sources=('ESPN', 'FP', 'PINNY', 'BOL', 'ATH'), stats=None):
+    """Per source: the share of *players* it really has a line for.
+
+    The companion to :func:`coverage_report`, which asks the same question of cells
+    and answers it in a way that does not survive being read off a sidebar. Averaging
+    ``real_pct`` over every column a source carries divides by 45-odd stats, most of
+    which that source structurally never publishes -- so on the 2026 weekly stores
+    FantasyPros read **12.4%** when it had a real line for **21.8%** of the players
+    the owner can actually start, and the two numbers are not measuring the same
+    thing. A denominator of players wants a numerator of players.
+
+    Args:
+        df: Frame with one row per player, or per player-week.
+        sources: Source prefixes to report on.
+        stats: Stat names a source can contribute to. Defaults to every stat with a
+            ``TRUE_<stat>`` column -- the blend's own definition of a stat that
+            matters, which needs no scoring table -- falling back to the union of
+            the requested sources' own stat columns on a frame that carries no
+            blend yet. Without that fallback a frame holding ``ESPN_rushingYards``
+            and no ``TRUE_rushingYards`` reported 0% for every source, which is the
+            shape ``tests/test_store.py``'s fixture has.
+            :data:`DERIVED_SOURCE_COLUMNS` are removed either way: leaving them in
+            is what made a first draft of this function report 100% for all four
+            sources, for exactly the reason those two names exist.
+
+    Returns:
+        pd.DataFrame: Columns ``source``, ``players``, ``real``, ``real_pct``, sorted
+        worst-covered first. Empty with those columns when there is nothing to
+        measure, matching :func:`coverage_report` rather than raising.
+    """
+    columns = ["source", "players", "real", "real_pct"]
+    if df is None or not len(df):
+        return pd.DataFrame(columns=columns)
+
+    if stats is None:
+        stats = [c[len("TRUE_"):] for c in df.columns if c.startswith("TRUE_")]
+        stats = [s for s in stats if s not in DERIVED_SOURCE_COLUMNS]
+        if not stats:
+            found = []
+            for source in sources:
+                prefix = f"{source}_"
+                found += [c[len(prefix):] for c in df.columns
+                          if c.startswith(prefix)
+                          and not c.endswith(IMPUTED_SUFFIX)
+                          and not c.endswith(mk.SD_SUFFIX)]
+            stats = list(dict.fromkeys(found))
+    stats = [s for s in stats if s not in DERIVED_SOURCE_COLUMNS]
+
+    rows = []
+    total = len(df)
+    for source in sources:
+        prefix = f"{source}_"
+        if not any(c.startswith(prefix) for c in df.columns):
+            continue
+        real = int(source_contributed(df, source, stats).sum())
+        rows.append({"source": source, "players": total, "real": real,
+                     "real_pct": round(100.0 * real / total, 1) if total else 0.0})
+
+    if not rows:
+        return pd.DataFrame(columns=columns)
+    return (pd.DataFrame(rows)
+            .sort_values(["real_pct", "source"])
+            .reset_index(drop=True))
+
+
 def print_coverage_report(df, weights_dict=None, key_stats=(
     'passingYards', 'passingTouchdowns', 'rushingYards',
     'receivingYards', 'receivingReceptions',
@@ -560,7 +878,7 @@ def print_coverage_report(df, weights_dict=None, key_stats=(
     print("")
     print("========== Projection Source Coverage (% real, not imputed) ==========")
     overall = rep.groupby("source")["real_pct"].mean().round(1)
-    sources = [s for s in ("ESPN", "FP", "PINNY", "BOL", "ATH", "USG")
+    sources = [s for s in ("ESPN", "FP", "PINNY", "BOL", "ATH")
                if s in overall.index]
 
     header = f"  {'stat':<24}" + "".join(f"{s:>12}" for s in sources)
@@ -631,6 +949,8 @@ def clean_pinny(pinny_path=None, season=None):
         pinny_path = pinnacle_parquet(season)
         if not pinny_path.exists():
             return absent_weekly_source("Pinnacle", pinny_path)
+        check_source_freshness("Pinnacle weekly props", pinny_path,
+                               "python -m Scripts.scrape_pinnacle")
     else:
         raise ValueError("clean_pinny requires either pinny_path or season")
 
@@ -695,6 +1015,14 @@ def clean_bol(bol_path=None, season=None, tackle_dim=None):
         bol_path = betonline_parquet(season)
         if not bol_path.exists():
             return absent_weekly_source("BetOnline", bol_path)
+        # No command to name, so it names the reason instead. A fix hint pointing at
+        # `Scripts.scrape_BOL` would send a reader to a scraper that cannot succeed:
+        # the weekly host answers 403 `invalid_security_headers` and wants a signed
+        # request, which plan 02 closed as not-to-be-circumvented.
+        check_source_freshness(
+            "BetOnline weekly props", bol_path,
+            "nothing -- the weekly endpoint answers 403 invalid_security_headers; "
+            "see docs/plans/02-betonline-access.md")
     else:
         raise ValueError("clean_bol requires either bol_path or season")
     raw = pd.read_parquet(bol_path).drop(columns=['team'])
@@ -1125,6 +1453,101 @@ IDP_POSITIONS = ['DL', 'DE', 'LB', 'NT', 'CB', 'S', 'DT', 'DB', 'OLB']
 #: rule's base value, because ESPN sets no override for those slots.
 DST_POSITIONS = ['D/ST']
 
+#: :data:`Scripts.scrape_player_stats.FREE_AGENT_OWNER` is re-exported through this
+#: module's import above, because this is where most readers of it look:
+#: :func:`coverage_population` needs it, and ``app.session`` and ``app.draft_view``
+#: both import it from here.
+
+#: Free agents kept per position when scoping a coverage denominator.
+#:
+#: :func:`Scripts.scrape_player_stats.build_fa_market` pulls 20-30 per position plus
+#: every D/ST, so on a six-team league the pool is 146 rows against 96 rostered ones
+#: -- 60% of the frame is players nobody has. Twenty is the owner's number and it is
+#: about the depth a waiver claim ever reaches.
+COVERAGE_FREE_AGENTS_PER_POSITION = 20
+
+
+def coverage_population(df, *,
+                        free_agents_per_position=COVERAGE_FREE_AGENTS_PER_POSITION,
+                        exclude_positions=tuple(IDP_POSITIONS),
+                        owner_col="team_owner", position_col="primaryPosition",
+                        rank_col="ESPN_Points", group_cols=("week",)):
+    """The players a coverage number should be measured over.
+
+    Every rostered player, plus the best ``free_agents_per_position`` free agents at
+    each position, minus ``exclude_positions``. The point is that a coverage
+    percentage is only meaningful over a population somebody would actually start:
+    the free-agent pool is 12-100% of ``lineups.parquet`` depending on the league,
+    and measuring FantasyPros against the 30th-best available tight end says nothing
+    about whether the projections you read are backed by more than ESPN.
+
+    **IDP positions are excluded unconditionally, and that is not a shortcut.**
+    Measured on the 2026 stores, exactly one of ten leagues rosters individual
+    defenders -- ``league.free_agents(position='DT')`` returns nothing for the other
+    nine, so they carry zero IDP rows and dropping the positions is arithmetically a
+    no-op there. In the league that does, the 195 IDP rows have **no** real cell from
+    FantasyPros, Pinnacle or BetOnline, so including them measured those sources
+    against players they do not publish. The alternative -- probing
+    ``meta["starting_slots"]`` for a defensive slot -- would read the one field
+    ``app.lineup.slot_counts`` documents as disagreeing with the lineups *for exactly
+    that league*, and would not be available here at all: this runs inside
+    ``store.build_meta``, where the live league is often ``None``.
+
+    Args:
+        df: Any frame with one row per player, or per player-week.
+        free_agents_per_position: How many free agents to keep at each position.
+        exclude_positions: Positions dropped entirely, before the ranking, so the
+            top-N is taken from what survives.
+        owner_col: Column separating rostered players from the pool. **When it is
+            absent the frame is returned unchanged** -- that is what makes this safe
+            to call on a frame that has no notion of ownership.
+        position_col: Column holding the player's position.
+        rank_col: Column ranked descending to pick the best free agents. Falls back
+            to ``projPoints`` then ``TRUE_Points`` then arrival order.
+        group_cols: Additional columns the ranking is taken within. ``("week",)``
+            because ``lineups.parquet`` gains a week every Tuesday, and a global
+            top-20 would apply week 1's twenty to every week after it. Names absent
+            from the frame are dropped, which is what lets one function serve both
+            grains.
+
+    Returns:
+        pd.DataFrame: The scoped rows, index reset. Never raises -- a coverage
+        annotation must not be able to take a store write down, the same reason
+        :func:`coverage_report` returns an empty typed frame rather than failing.
+    """
+    if df is None or not len(df):
+        return df
+
+    scoped = df
+    if position_col in scoped.columns and exclude_positions:
+        scoped = scoped[~scoped[position_col].isin(list(exclude_positions))]
+
+    if owner_col not in scoped.columns:
+        return scoped.reset_index(drop=True)
+
+    is_fa = scoped[owner_col] == FREE_AGENT_OWNER
+    rostered = scoped[~is_fa]
+    pool = scoped[is_fa]
+    if pool.empty:
+        return rostered.reset_index(drop=True)
+
+    keys = [c for c in group_cols if c in pool.columns]
+    if position_col in pool.columns:
+        keys = keys + [position_col]
+    if not keys:
+        kept = pool.head(free_agents_per_position)
+    else:
+        ranked = pool
+        for candidate in (rank_col, "projPoints", "TRUE_Points"):
+            if candidate and candidate in pool.columns:
+                ranked = pool.sort_values(candidate, ascending=False,
+                                          na_position="last")
+                break
+        kept = ranked.groupby(keys, dropna=False, sort=False).head(
+            free_agents_per_position)
+
+    return pd.concat([rostered, kept]).reset_index(drop=True)
+
 
 def _apply_scoring(df, s_df, col_pfix_list):
     """Sum each prefix's stat columns into a ``<prefix>_Points`` column.
@@ -1173,7 +1596,7 @@ def _apply_scoring(df, s_df, col_pfix_list):
 
 
 def proj_to_score(proj_df, s_league, col_pfix_list=['ESPN', 'FP', 'MEAN', 'PINNY',
-                                                    'BOL', 'ATH', 'USG', 'TRUE']):
+                                                    'BOL', 'ATH', 'TRUE']):
     """Score projected stat lines with a league's rules, per lineup slot.
 
     ESPN prices the same rule differently depending on the slot a player occupies
@@ -1275,7 +1698,22 @@ def clean_lineups(df, lg, season=None):
     espn_proj = change_col_prefix(df=espn_proj, old_pfix="proj", new_pfix="ESPN")
 
     ## b) Build Fantasy Pros From Scrape
-    fp_proj = pd.read_parquet(fantasypros_parquet(season)).drop(columns=['STD_FantasyPoints', 'TimeStamp'])
+    ##
+    ## Guarded and freshness-checked like the two books below, which it was not.
+    ## This was a bare `pd.read_parquet`, so a season with no weekly FantasyPros file
+    ## raised `FileNotFoundError` where an absent book degrades cleanly -- and,
+    ## worse, no staleness check ran anywhere on the weekly path, so the 25-day-old
+    ## 60-row registration teaser found on 2026-09-08 read exactly like a file
+    ## written this morning. `check_source_freshness` had five call sites and all
+    ## five were in the season path.
+    fp_path = fantasypros_parquet(season)
+    if not fp_path.exists():
+        fp_proj = absent_weekly_source("FantasyPros", fp_path)
+    else:
+        check_source_freshness("FantasyPros weekly projections", fp_path,
+                               "python -m Scripts.scrape_FP --what weekly")
+        fp_proj = pd.read_parquet(fp_path).drop(
+            columns=['STD_FantasyPoints', 'TimeStamp'], errors='ignore')
     fp_proj = change_col_prefix(df=fp_proj, old_pfix="proj", new_pfix="FP")
 
     ## c) Combine ESPN and FP
@@ -1358,6 +1796,36 @@ def clean_lineups(df, lg, season=None):
     base = impute_columns(base, target_prefix='PINNY_', source_prefix='MEAN_')
     base = impute_columns(base, target_prefix='BOL_', source_prefix='MEAN_')
 
+    # 3b) TOMCAT's weekly lines, if a weekly head has written any.
+    #
+    # No head has (`docs/plans/19-weekly-usage-model.md`), so `clean_usage_weekly`
+    # returns the empty frame and this whole block is skipped -- today's output is
+    # byte-identical without it. It is here so that shipping the arm is a data
+    # change, which is what plan 19 step 5 asks for.
+    #
+    # **Deliberately outside the impute chain above.** Every other source is filled
+    # from `MEAN_` = avg(ESPN, FantasyPros) when it has no line, and TOMCAT must not
+    # be: it is the one source in the register that is not derived from the others
+    # (G0 measured its residual independence at +0.832 against FantasyPros' +0.988),
+    # and filling it from an average of two of them would count those two a third
+    # time -- the double-count plan 03 exists to have measured. So its cells are
+    # flagged imputed **where they are null**, which makes `compute_weighted_stats`
+    # drop the weight and renormalise rather than substitute a number TOMCAT never
+    # said. Same treatment `Scripts.season_projections._merge_usage` gives it.
+    usg_proj = clean_usage_weekly(season=season)
+    if not usg_proj.empty:
+        usg_proj = change_col_prefix(df=usg_proj, old_pfix="proj", new_pfix="USG")
+        get_match_details(df1=base, df2=usg_proj, keys=SOURCE_JOIN_KEYS,
+                          check_col2=next((c for c in usg_proj.columns
+                                           if c.startswith("USG_")), None),
+                          min_wk=curr_week, tbl_lab="TOMCAT Weekly Table")
+        base = base.merge(usg_proj, on=SOURCE_JOIN_KEYS, how='left')
+        usg_cols = [c for c in base.columns
+                    if c.startswith("USG_") and not c.endswith(IMPUTED_SUFFIX)]
+        flags = {c + IMPUTED_SUFFIX: base[c].isna() for c in usg_cols}
+        if flags:
+            base = pd.concat([base, pd.DataFrame(flags, index=base.index)], axis=1)
+
     ## 4a) Re-split each book's anytime-touchdown market by the ESPN/FantasyPros
     ## ratio. Runs here because this is the first point all four sources are on one
     ## frame, and before the blend because the blend must see the corrected columns.
@@ -1389,12 +1857,15 @@ def clean_lineups(df, lg, season=None):
 
     ## 6) Build Score Column
     ##
-    ## The prefix list is explicit rather than `proj_to_score`'s default, which
-    ## includes `USG`, `KIK` and `DST`. Those have no weekly stat columns -- there
-    ## is no weekly model (`docs/plans/19-weekly-usage-model.md` is not started) --
-    ## so scoring them wrote a `USG_Points` that was null for all 3,602 rows of
-    ## every 2025 store. A column shaped like a source that never has an opinion
-    ## reads as a source that agreed, which is this repo's oldest failure mode.
+    ## The prefix list is derived from what the frame actually carries rather than
+    ## assumed. It used to differ from `proj_to_score`'s default because that default
+    ## included the TOMCAT arms, which have no weekly stat columns -- there is no
+    ## weekly model (`docs/plans/19-weekly-usage-model.md` is not started) -- so
+    ## scoring them wrote a `USG_Points` that was null for all 3,602 rows of every
+    ## 2025 store. A column shaped like a source that never has an opinion reads as a
+    ## source that agreed, which is this repo's oldest failure mode. The two lists
+    ## agree again since 2026-09-07; `present_prefixes` stays because it is the check
+    ## that catches the next divergence rather than a workaround for that one.
     prefixes = present_prefixes(final, WEEKLY_PREFIXES)
     final = proj_to_score(proj_df=final, s_league=lg, col_pfix_list=prefixes)
 
@@ -1544,7 +2015,7 @@ def check_week(lu, week, own, curr_week=None):
 
 
 def get_league_projections(week, lu):
-    df = lu[(lu['week'] == week) & (lu['team_owner'] != 'Free Agent') & (~lu['slotPosition'].isin(['BE', 'IR']))][['week', 'team_owner', 'team_name',
+    df = lu[(lu['week'] == week) & (lu['team_owner'] != FREE_AGENT_OWNER) & (~lu['slotPosition'].isin(['BE', 'IR']))][['week', 'team_owner', 'team_name',
              'points', 'projPoints', 'FP_Points', 'BOL_Points', 'PINNY_Points', 'TRUE_Points']]
     
     df['TRUE_Points'] = df['TRUE_Points'].fillna(df['projPoints'])
@@ -1589,6 +2060,6 @@ def get_rankings(pos, week, lu, primary_owner=None, visualize=False, check_fa=Fa
 
     if visualize == False:
         if check_fa == True:
-            return df[df['team_owner'].isin([primary_owner, 'Free Agent'])]
+            return df[df['team_owner'].isin([primary_owner, FREE_AGENT_OWNER])]
         else:
             return df

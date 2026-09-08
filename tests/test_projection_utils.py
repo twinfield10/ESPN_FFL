@@ -268,6 +268,173 @@ def test_coverage_report_counts_real_cells():
     assert espn["real"] == 4 and espn["real_pct"] == 100.0
 
 
+def test_a_points_column_is_not_counted_as_coverage():
+    """A derived output is not a line, and counting it invented coverage.
+
+    ``<SRC>_Points`` is computed *from* a stat line, so it has no ``MEAN_``
+    counterpart to be imputed from and therefore no provenance flag -- which
+    dropped it into ``coverage_report``'s ``notna()`` branch at 100%. Measured on
+    the 2026 weekly stores on 2026-09-08, the sidebar reported **Pinnacle 4.1% and
+    BetOnline 4.1% for two sources with no weekly line at all**, and 4.1% is
+    exactly 2/49 columns: ``_Points`` and ``_PosRank``. Every genuine stat column
+    was 0.0%.
+    """
+    df = pd.DataFrame({
+        "PINNY_rushingYards": [1.0, 2.0],
+        "PINNY_rushingYards_is_imputed": [True, True],
+        "PINNY_Points": [10.0, 20.0],
+        "PINNY_PosRank": [1, 2],
+    })
+    rep = pu.coverage_report(df, sources=("PINNY",))
+    assert set(rep["stat"]) == {"rushingYards"}
+    assert rep["real_pct"].mean() == 0.0
+
+
+def test_present_prefixes_and_coverage_agree_on_what_is_derived():
+    """The two used to name ``Points`` and ``PosRank`` in separate literals."""
+    assert pu.DERIVED_SOURCE_COLUMNS == ("Points", "PosRank")
+    df = pd.DataFrame({"FP_Points": [1.0], "FP_PosRank": [1]})
+    assert pu.present_prefixes(df, candidates=("FP",)) == []
+    assert pu.coverage_report(df, sources=("FP",)).empty
+
+
+# --- the coverage population ---------------------------------------------
+
+def _population_frame():
+    """Two rostered players, twenty-five free-agent receivers, three defenders."""
+    rows = [{"week": 1, "team_owner": "Tommy", "primaryPosition": "WR",
+             "ESPN_Points": 5.0, "player_name": "Rostered WR"},
+            {"week": 1, "team_owner": "Tommy", "primaryPosition": "LB",
+             "ESPN_Points": 4.0, "player_name": "Rostered LB"}]
+    rows += [{"week": 1, "team_owner": pu.FREE_AGENT_OWNER, "primaryPosition": "WR",
+              "ESPN_Points": float(i), "player_name": f"FA WR {i}"}
+             for i in range(25)]
+    rows += [{"week": 1, "team_owner": pu.FREE_AGENT_OWNER, "primaryPosition": "LB",
+              "ESPN_Points": float(i), "player_name": f"FA LB {i}"}
+             for i in range(3)]
+    return pd.DataFrame(rows)
+
+
+def test_coverage_population_keeps_every_rostered_player():
+    out = pu.coverage_population(_population_frame())
+    rostered = out[out["team_owner"] != pu.FREE_AGENT_OWNER]
+    assert rostered["player_name"].tolist() == ["Rostered WR"]
+
+
+def test_coverage_population_keeps_the_best_free_agents_per_position():
+    """Twenty, ranked by ESPN's projection -- not the first twenty in the frame."""
+    out = pu.coverage_population(_population_frame())
+    pool = out[out["team_owner"] == pu.FREE_AGENT_OWNER]
+    assert len(pool) == 20
+    assert pool["ESPN_Points"].min() == 5.0  # the top 20 of 0..24
+
+
+def test_coverage_population_drops_idp_positions():
+    """One league of ten rosters individual defenders, and no source but ESPN
+    publishes a line for them, so grading FantasyPros against them measured it on
+    players it does not cover."""
+    out = pu.coverage_population(_population_frame())
+    assert not out["primaryPosition"].isin(pu.IDP_POSITIONS).any()
+    assert "Rostered LB" not in out["player_name"].tolist()
+
+
+def test_coverage_population_ranks_free_agents_within_each_week():
+    """``lineups.parquet`` gains a week every Tuesday, and a global top-20 would
+    apply week 1's twenty to every week after it."""
+    frame = pd.DataFrame([
+        {"week": w, "team_owner": pu.FREE_AGENT_OWNER, "primaryPosition": "WR",
+         "ESPN_Points": float(i), "player_name": f"w{w} wr{i}"}
+        for w in (1, 2) for i in range(25)
+    ])
+    out = pu.coverage_population(frame)
+    assert out.groupby("week").size().to_dict() == {1: 20, 2: 20}
+
+
+def test_coverage_population_is_a_no_op_without_an_owner_column():
+    """The property that makes this safe on the season path.
+
+    ``coverage_report`` is also called by ``print_coverage_report`` inside
+    ``build_season_projections``, where the question genuinely is about the whole
+    market -- 940 of a 1,036-row board are free agents.
+    """
+    frame = pd.DataFrame({"primaryPosition": ["WR"] * 3, "ESPN_Points": [1.0, 2.0, 3.0]})
+    assert len(pu.coverage_population(frame)) == 3
+
+
+def test_coverage_population_never_raises_on_a_thin_frame():
+    """A coverage annotation must not be able to take a store write down."""
+    assert len(pu.coverage_population(pd.DataFrame())) == 0
+    only_pool = pd.DataFrame({"team_owner": [pu.FREE_AGENT_OWNER] * 3,
+                              "primaryPosition": ["WR"] * 3})
+    assert len(pu.coverage_population(only_pool, free_agents_per_position=2)) == 2
+
+
+# --- what counts as a real line ------------------------------------------
+
+def test_source_contributed_ignores_a_structural_zero():
+    """A kicker's ``FP_passingYards`` is 0.0 and unflagged: nobody imputed it and
+    nobody asserted it either. Counting those made FantasyPros real for Cameron
+    Dicker on the strength of twelve zeros."""
+    df = pd.DataFrame({"FP_passingYards": [0.0, 30.0]})
+    assert pu.source_contributed(df, "FP", ["passingYards"]).tolist() == [False, True]
+
+
+def test_source_contributed_ignores_an_imputed_cell():
+    df = pd.DataFrame({"FP_rushingYards": [60.0, 60.0],
+                       "FP_rushingYards_is_imputed": [False, True]})
+    assert pu.source_contributed(df, "FP", ["rushingYards"]).tolist() == [True, False]
+
+
+def test_source_contributed_falls_back_to_points_without_a_stat_column():
+    """``tests/test_lineup.py``'s ``one_real_source`` and ``two_real_sources``
+    fixtures carry no stat columns at all, and the Sheets renderer passes frames
+    of the same shape."""
+    df = pd.DataFrame({"FP_Points": [12.0, None]})
+    assert pu.source_contributed(df, "FP", ["rushingYards"]).tolist() == [True, False]
+    assert pu.source_contributed(
+        df, "FP", ["rushingYards"], points_fallback=False).tolist() == [False, False]
+
+
+def test_player_coverage_counts_players_rather_than_cells():
+    """The two answer different questions, and the label claimed the first.
+
+    Measured on the 2026 stores: FantasyPros read 12.4% of cells and had a real
+    line for 21.8% of the players in the league, because the cell average divides
+    by 45-odd stats most sources never publish.
+    """
+    df = pd.DataFrame({
+        "TRUE_rushingYards": [1.0, 1.0, 1.0, 1.0],
+        "TRUE_receivingYards": [1.0, 1.0, 1.0, 1.0],
+        "FP_rushingYards": [60.0, 0.0, 0.0, 0.0],
+        "FP_rushingYards_is_imputed": [False, False, False, False],
+        "FP_receivingYards": [0.0, 0.0, 0.0, 0.0],
+        "FP_receivingYards_is_imputed": [False, False, False, False],
+    })
+    cells = pu.coverage_report(df, sources=("FP",))["real_pct"].mean()
+    players = pu.player_coverage(df, sources=("FP",)).iloc[0]
+    # Every flag is False, so every cell is "not imputed" and the cell metric reads
+    # a clean 100% -- for a source that said something about exactly one of the four
+    # players. That gap is the whole reason this function exists.
+    assert cells == pytest.approx(100.0)
+    assert players["real_pct"] == pytest.approx(25.0)   # 1 of 4 players
+
+
+def test_player_coverage_excludes_the_derived_columns():
+    """Leaving them in is what made a first draft report 100% for every source."""
+    df = pd.DataFrame({
+        "TRUE_rushingYards": [1.0], "TRUE_Points": [10.0], "TRUE_PosRank": [1],
+        "PINNY_rushingYards": [50.0], "PINNY_rushingYards_is_imputed": [True],
+        "PINNY_Points": [10.0], "PINNY_PosRank": [1],
+    })
+    assert pu.player_coverage(df, sources=("PINNY",)).iloc[0]["real_pct"] == 0.0
+
+
+def test_player_coverage_is_empty_rather_than_raising():
+    assert pu.player_coverage(pd.DataFrame()).empty
+    assert list(pu.player_coverage(pd.DataFrame()).columns) == [
+        "source", "players", "real", "real_pct"]
+
+
 # --- season scoping ------------------------------------------------------
 
 def test_projection_files_are_season_scoped():
@@ -372,6 +539,148 @@ def test_weekly_sources_present_reports_each_file():
     assert present == {"fantasypros": False, "pinnacle": False, "betonline": False}
     assert set(pu.weekly_sources_present(2025)) == {
         "fantasypros", "pinnacle", "betonline"}
+
+
+# --- a weekly source has to be usable, not merely present ----------------
+
+def _weekly_file(tmp_path, name, weeks, age_hours=0.0):
+    """Write a weekly-shaped parquet and age it."""
+    import os
+    import time
+
+    path = tmp_path / name
+    pd.DataFrame({"week": list(weeks),
+                  "player_name": [f"p{w}" for w in weeks]}).to_parquet(path)
+    when = time.time() - age_hours * 3600
+    os.utime(path, (when, when))
+    return path
+
+
+def test_a_stale_weekly_file_is_not_reported_as_present(tmp_path, monkeypatch):
+    """It used to mean `Path.exists()`, and that reported a dead source as live.
+
+    On 2026-09-08 this returned ``fantasypros: True`` off a file holding 60 rows for
+    week 1 written 2026-08-03 -- the anonymous ten-per-position teaser, 25 days
+    stale, scraped three weeks before the account that lifts the fence existed.
+    """
+    fresh = _weekly_file(tmp_path, "fresh.parquet", [1], age_hours=1.0)
+    stale = _weekly_file(tmp_path, "stale.parquet", [1], age_hours=25 * 24)
+    monkeypatch.setattr(pu, "WEEKLY_SOURCE_FILES",
+                        {"fresh": lambda s: fresh, "stale": lambda s: stale})
+    assert pu.weekly_sources_present(2026, week=1) == {"fresh": True, "stale": False}
+
+
+def test_a_weekly_file_with_no_rows_for_this_week_is_not_present(tmp_path,
+                                                                 monkeypatch):
+    """A week-1 file says nothing about week 5, and the blend would impute it away
+    anyway -- but the app would have shown a FantasyPros column of ESPN means."""
+    path = _weekly_file(tmp_path, "wk1.parquet", [1], age_hours=1.0)
+    monkeypatch.setattr(pu, "WEEKLY_SOURCE_FILES", {"fp": lambda s: path})
+    assert pu.weekly_sources_present(2026, week=1) == {"fp": True}
+    assert pu.weekly_sources_present(2026, week=5) == {"fp": False}
+
+
+def test_no_week_means_any_week(tmp_path, monkeypatch):
+    """Preserves the old meaning for a caller that does not know the week --
+    ``Scripts.refresh`` passes None on a run with no live league."""
+    path = _weekly_file(tmp_path, "wk1.parquet", [1], age_hours=1.0)
+    monkeypatch.setattr(pu, "WEEKLY_SOURCE_FILES", {"fp": lambda s: path})
+    assert pu.weekly_sources_present(2026) == {"fp": True}
+
+
+def test_an_absent_weekly_file_is_absent_rather_than_an_error(tmp_path, monkeypatch):
+    monkeypatch.setattr(pu, "WEEKLY_SOURCE_FILES",
+                        {"fp": lambda s: tmp_path / "nope.parquet"})
+    assert pu.weekly_sources_present(2026, week=1) == {"fp": False}
+
+
+def test_the_source_presence_keys_are_the_props_feeds_only():
+    """TOMCAT is deliberately not here.
+
+    This dict drives the app's "no weekly props this season for X" caption, and
+    TOMCAT is not a feed that went quiet -- it is a head nobody has built. Listing
+    it would put a model into a sentence about sportsbooks and make the key set
+    unstable for every consumer.
+    """
+    assert set(pu.WEEKLY_SOURCE_FILES) == {"fantasypros", "pinnacle", "betonline"}
+
+
+# --- the weekly TOMCAT seam ----------------------------------------------
+#
+# Follows `tests/test_usage_fifth_source.py`, this repo's template for adding a
+# source: registration, abstention, and what must stay out. Built 2026-09-08 as a
+# seam only -- no weekly head writes a file yet (docs/plans/19).
+
+def test_the_weekly_prefix_list_carries_usg():
+    """So shipping a weekly arm is a data change, not a change to this module."""
+    assert "USG" in pu.WEEKLY_PREFIXES
+
+
+def test_usg_is_dropped_before_scoring_while_it_has_no_stat_columns():
+    """The reason listing the prefix is safe.
+
+    Plan 34 added `present_prefixes` after `USG_Points` was written null for all
+    3,602 rows of every 2025 weekly store: a column shaped like a source that never
+    has an opinion reads as a source that agreed.
+    """
+    frame = pd.DataFrame({"ESPN_rushingYards": [10.0], "USG_Points": [5.0]})
+    assert pu.present_prefixes(frame, candidates=pu.WEEKLY_PREFIXES) == ["ESPN"]
+
+
+def test_usg_stays_out_of_the_weights_because_that_dict_is_shared():
+    """A weekly entry would re-admit TOMCAT to the *draft board* as a side effect.
+
+    It was withdrawn from the season blend on 2026-09-07 on a level error -- its
+    projected league runs the ball 384 times a team against a realised 450-465. See
+    docs/plans/43-tomcat-out-of-season-blend.md.
+    """
+    assert "USG" not in pu.WEIGHTS["default"], (
+        "TOMCAT is back in the blend; docs/plans/43 and the frozen G2 archive both "
+        "need re-reading before that ships")
+
+
+def test_a_missing_weekly_usage_file_abstains_rather_than_raising():
+    """The `clean_pinny` / `clean_bol` contract, which plan 19 step 5 asks it to
+    follow -- including the absent-source path."""
+    with pytest.warns(pu.MissingProjectionSourceWarning):
+        frame = pu.clean_usage_weekly(season=UNSCRAPED_SEASON)
+    assert frame.empty
+    assert list(frame.columns) == pu.SOURCE_JOIN_KEYS
+
+
+def test_clean_usage_weekly_requires_a_season_or_a_path():
+    with pytest.raises(ValueError, match="season"):
+        pu.clean_usage_weekly()
+
+
+def test_a_weekly_usage_line_is_read_from_an_explicit_path(tmp_path):
+    """The path the loader takes once a head exists, exercised now so it is not
+    first exercised on the day one ships."""
+    path = tmp_path / "Usage_WeeklyProjections.parquet"
+    pd.DataFrame({"week": [1], "player_name": ["A"],
+                  "proj_rushingYards": [80.0]}).to_parquet(path)
+    out = pu.clean_usage_weekly(usage_path=path)
+    assert out["proj_rushingYards"].tolist() == [80.0]
+
+
+def test_an_unmatched_usage_row_abstains_rather_than_projecting_zero():
+    """TOMCAT is flagged where it is null, never filled from `MEAN_`.
+
+    Filling the one source that is not derived from the others -- G0 measured its
+    residual independence at +0.832 against FantasyPros' +0.988 -- from an average
+    of two of them would count those two a third time, which is the double-count
+    plan 03 exists to have measured.
+    """
+    frame = pd.DataFrame({
+        "ESPN_rushingYards": [100.0],
+        "FP_rushingYards": [120.0],
+        "USG_rushingYards": [float("nan")],
+        "USG_rushingYards_is_imputed": [True],
+    })
+    out = pu.compute_weighted_stats(
+        frame, ["rushingYards"],
+        {"default": {"ESPN": 0.25, "FP": 0.25, "USG": 0.25}})
+    assert out["TRUE_rushingYards"].iloc[0] == pytest.approx(110.0)   # not 73.3
 
 
 # --- the touchdown allocation --------------------------------------------

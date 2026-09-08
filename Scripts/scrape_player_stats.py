@@ -18,6 +18,21 @@ SLOT_DST = "16"
 #: slot scores -- including individual defensive players.
 SLOT_BASE = "base"
 
+#: The synthetic ``team_owner`` this module stamps on every unrostered player.
+#:
+#: ``build_fa_market`` returns the free-agent pool as extra rows carrying this
+#: string rather than as a separate frame, and ``Scripts.equivalence`` concatenates
+#: it straight onto the lineups -- which is why ``lineups.parquet`` holds the pool,
+#: why the app's Free Agents tab is a filter rather than a second ingest, and why
+#: every owner picker and coverage denominator has to know the name.
+#:
+#: Defined here, at the point the value is produced, because the import graph
+#: already runs this way: ``Scripts.projection_utils`` imports its constants from
+#: this module. It had been re-declared independently in four places --
+#: ``app/session.py``, ``app/draft_view.py``, ``Scripts/outcomes/weekly.py`` and as
+#: three bare literals below -- with ``Scripts.season_projections`` adding two more.
+FREE_AGENT_OWNER = "Free Agent"
+
 #: Volume stats carried through the pipeline even where no league scores them.
 #:
 #: **Everything else in this pipeline is selected by the scoring table**, and for
@@ -646,9 +661,9 @@ def extract_fa_stats(
 
         player_data = {
             "week": league.current_week,
-            "team_owner": 'Free Agent',
-            "team_name": 'Free Agent',
-            "team_division": 'Free Agent',
+            "team_owner": FREE_AGENT_OWNER,
+            "team_name": FREE_AGENT_OWNER,
+            "team_division": FREE_AGENT_OWNER,
             "player_name": player.name,
             "player_id": player.playerId,
             "points": player.__dict__['points'],

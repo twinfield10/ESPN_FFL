@@ -262,8 +262,12 @@ def prepare(selection) -> BoardContext:
 
     keepers = dv.keeper_count(meta)
 
+    # `dv.with_model_evidence` used to wrap this load, deriving `usg_evidence_label`
+    # for the Board tab's `Model Evidence` column. Both are gone with TOMCAT's
+    # withdrawal from the season blend on 2026-09-07 -- the label existed to explain a
+    # blank TOMCAT cell, and there is no TOMCAT cell to explain.
     board = dv.at_budget(
-        dv.with_model_evidence(store.load_board(selection.season, selection.league_key)),
+        store.load_board(selection.season, selection.league_key),
         budget,
         meta=meta,
     )
@@ -455,9 +459,6 @@ def render_board(ctx: BoardContext) -> None:
         if "pos_rank_delta" in shown.columns:
             sort_options["We're Highest Above ESPN"] = ("pos_rank_delta", True)
             sort_options["ESPN Highest Above Us"] = ("pos_rank_delta", False)
-        if "USG_PosRankDelta" in shown.columns:
-            sort_options["Model Highest Above Us"] = ("USG_PosRankDelta", True)
-            sort_options["Model Lowest Below Us"] = ("USG_PosRankDelta", False)
         # Only in a keeper league, where the column exists at all. "Which keepers
         # are underpriced" is the question the price is looked up to answer, and
         # sorting is the whole way to ask it of 187 rows.
@@ -566,39 +567,26 @@ def render_board(ctx: BoardContext) -> None:
       season.
     """)
 
-        if "usg_evidence_label" in board.columns:
-            label = board["usg_evidence_label"]
-            not_modelled = int(label.eq(dv.EVIDENCE_NOT_MODELLED).sum())
-            withdrawals = [dv.EVIDENCE_WITHDRAWN_AVAILABILITY,
-                           dv.EVIDENCE_WITHDRAWN_INJURY,
-                           dv.EVIDENCE_WITHDRAWN_ROLE]
-            withdrawn = int(label.is_in(withdrawals).sum())
-            backups = int(label.eq(dv.EVIDENCE_WITHDRAWN_ROLE).sum())
-            flagged = int(label.is_in([dv.EVIDENCE_CLEAR, dv.EVIDENCE_NOT_MODELLED,
-                                       *withdrawals]).not_().sum())
-            st.markdown(f"""
-    - **`Points | USG` is on the same footing as the columns beside it**, and has been
-      since 2026-08-07: the model's line is put on a full healthy slate before it is
-      blended, so all of them describe a 17-game season. `Exp G` shows the availability
-      view separately rather than being baked in. **`Position Ranks | Δ USG` is still the
-      cleaner comparison**, because the model shrinks toward positional baselines while
-      ESPN extrapolates — so it reads a few percent low at the top of the board, which is
-      disagreement about players and not about units. It is the same residual that keeps
-      the model out of the floor/ceiling spread, where it still sits below all four other
-      sources for 47% of draftable players.
-    - **The model says nothing about {not_modelled:,} of {board.height:,} players, and
-      withdrew on {withdrawn:,} more — {backups:,} of those as backups.** It has never
-      modelled K or D/ST; it declines a player whose expected games are too low to price
-      or whose injury report withdraws them outright; and the board build withdraws it
-      where the depth chart says backup *and* ESPN has priced him out, because a starter's
-      slate is the wrong basis for a man who will not play. An empty `USG` is one of those
-      four, and `Model Evidence` says which — a blank there would read as agreement.
-    - **{flagged:,} players carry a thin-evidence flag,** and the flags were chosen by
-      measurement rather than intuition: a prior season under 8 games raises rank error
-      42%, a team change 32%, bottom-quartile prior volume 23%. Two plausible candidates
-      were *rejected* by the same measurement — one prior season is no worse than two,
-      and a rookie orders **14% better** than the pool, so flagging rookies would have
-      marked the model's strongest arm as its weakest.
+        st.markdown("""
+    - **TOMCAT is no longer one of the voices in `Us`.** It was withdrawn from the
+      season-long blend on 2026-09-07 and its columns — `Points | TOM`,
+      `Position Ranks | Δ TOM`, `Exp G`, `Role %` and `Model Evidence` — are off this
+      table with it. The model was not measured worthless: it beats the naive draft
+      heuristic out of sample at every position, and it is the most independent source
+      ever registered here. It was withdrawn on a **level** error. Its projected league
+      runs the ball 384 times per team against a realised 450–465, so every runner
+      carried roughly a 10% haircut that had nothing to do with the player, and nothing
+      in the pipeline corrected it — the team accounting identities are all
+      passing↔receiving and there is no rushing pair.
+    - **What that costs, stated rather than smoothed over.** Kickers and team defences
+      lose their only second opinion and fall back to ESPN plus whatever FantasyPros
+      has. `receivingTargets` drops from three real voters to two, on the most
+      forecastable quantity on the board. The availability lens on the Sheet tab is off,
+      because the estimate behind it came from the same model.
+    - **The model still runs and its stat lines are still in the store**, unweighted and
+      unpriced, so `python -m Scripts.lab.sources` keeps measuring it against the field
+      and the decision is one line to reverse. `docs/plans/43-tomcat-out-of-season-blend.md`
+      is the write-up, and a weekly arm remains open on its own evidence.
     """)
 
 
@@ -1459,8 +1447,9 @@ def render_calibration(ctx: BoardContext) -> None:
     - **A big gap is not evidence either way on its own.** It says the sources disagree,
       not who is right. Nothing here is scored against outcomes — that needs finished
       seasons projected in advance and then graded, which the store does not hold.
-    - **Neither column knows about injuries.** Both project a healthy 17 games. The
-      usage model is the only source that prices availability, and its own season number
-      lives in `Points | USG` on the Board tab, deliberately kept out of this comparison
-      because it measures a different quantity.
+    - **Neither column knows about injuries.** Both project a healthy 17 games, and
+      since TOMCAT left the blend on 2026-09-07 no source on this board prices
+      availability at all. A known absence is still docked — ESPN and FantasyPros price
+      it themselves — but there is no longer a per-player estimate of the games a
+      healthy man will miss anyway.
     """)

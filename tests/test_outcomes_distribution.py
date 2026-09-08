@@ -289,6 +289,12 @@ def test_a_probability_formatted_as_a_percent_is_rescaled_first():
     No error, no blank cell -- just a column of zeroes that reads as "this player never
     busts" when it means the opposite. ``usg_role_confidence`` shipped that way with plan
     33 phase 2 and showed ``Role %`` as 0% for all 671 players who had one.
+
+    That column left the board with TOMCAT on 2026-09-07 and its rescale went with it,
+    so the case that motivated this function is no longer one of the columns it covers.
+    The invariant at the bottom -- **every percent-formatted spec must read a rescaled
+    column** -- is the part that has to hold, and it is checked against whatever
+    ``dv.COLUMNS`` holds today rather than against a list written here.
     """
     import sys
     from pathlib import Path
@@ -301,7 +307,9 @@ def test_a_probability_formatted_as_a_percent_is_rescaled_first():
     got = dv.with_percent_columns(board)
     assert got["p_top12_pct"].to_list() == pytest.approx([90.0, 5.0])
     assert got["p_bust_pct"].to_list() == pytest.approx([10.0, 62.0])
-    assert got["usg_role_confidence_pct"][0] == pytest.approx(58.8)
+    # Present in the store and deliberately not rescaled: nothing renders it since the
+    # `Role %` column was removed, and deriving a `_pct` no spec reads is dead work.
+    assert "usg_role_confidence_pct" not in got.columns
 
     # The stored units are untouched -- the rescale is a derived column, following
     # `inj_reinjury_pct`, because changing units in the render layer is how a reader

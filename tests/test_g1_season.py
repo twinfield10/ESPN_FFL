@@ -111,38 +111,69 @@ def test_an_unknown_basis_raises_rather_than_defaulting():
 def test_shipped_weight_is_derived_from_production_not_restated():
     """``SHIPPED_WEIGHT`` must equal TOMCAT's real ratio to one external source.
 
-    The bug this pins: ``WEIGHTS['default']`` gives TOMCAT 0.25 -- but so does every
-    external source, so the *ratio* is 1.0. This module hard-coded 0.25 as "what
+    The bug this pins: ``WEIGHTS['default']`` gave TOMCAT 0.25 -- but so did every
+    external source, so the *ratio* was 1.0. This module hard-coded 0.25 as "what
     ships", put the ``<- ships`` marker on the wrong row, and swept a range that never
     reached production. The curve then looked like it fell monotonically to its own
     right-hand edge, which read as "TOMCAT is under-weighted" and was acted on twice.
+
+    Derivation is the invariant, not the value. It read 1.0 while TOMCAT carried an
+    equal vote and reads **0.0** since it was withdrawn on 2026-09-07 -- and it reads
+    that without anyone editing this module, which is the whole point of deriving it.
     """
     from Scripts.projection_utils import WEIGHTS as PROD
 
     default = PROD["default"]
-    assert g1.SHIPPED_WEIGHT == pytest.approx(default["USG"] / default["ESPN"])
-    assert g1.SHIPPED_WEIGHT == pytest.approx(1.0)
+    assert g1.SHIPPED_WEIGHT == pytest.approx(
+        default.get("USG", 0.0) / default["ESPN"])
+    assert g1.SHIPPED_WEIGHT == pytest.approx(0.0)
 
 
-def test_the_swept_range_brackets_production_on_both_sides():
-    """An optimum at the edge of the sweep is not an optimum, it is a missing column."""
-    assert min(g1.WEIGHTS) < g1.SHIPPED_WEIGHT < max(g1.WEIGHTS)
+def test_the_swept_range_includes_production():
+    """Production's own weight must be one of the swept points, or the report cannot
+    mark it -- which was the original bug: a sweep of 0.05-0.5 that never reached the
+    0.25 it claimed to mark.
+
+    It used to also assert production sat *strictly inside* the range, because an
+    optimum at the edge of a sweep is a missing column rather than an optimum. That
+    stopped being true on 2026-09-07: TOMCAT was withdrawn, production is 0.0, and 0.0
+    is the left edge. The weaker assertion is the honest one -- widening the range to
+    negative weights to satisfy the old form would invent a meaningless region so a
+    test could pass."""
     assert any(abs(w - g1.SHIPPED_WEIGHT) < 1e-9 for w in g1.WEIGHTS), \
-        "production's own weight must be one of the swept points, or the report " \
-        "cannot mark it"
+        "production's own weight must be one of the swept points"
+    assert g1.SHIPPED_WEIGHT < max(g1.WEIGHTS), \
+        "the sweep must reach above production, or it answers nothing"
 
 
-def test_tomcat_at_the_shipped_weight_is_a_co_equal_vote():
-    """At ``SHIPPED_WEIGHT`` TOMCAT counts exactly as much as one external source."""
+def test_tomcat_at_the_shipped_weight_does_not_vote():
+    """``SHIPPED_WEIGHT`` is 0.0 since the withdrawal, so the blend is the externals
+    alone and TOMCAT's line -- however extreme -- cannot move it."""
     row = {"FP_receivingYards": 100.0, "BOL_receivingYards": 100.0,
            "USG_receivingYards": 400.0}
     out = g1.blend(frame([row]), ["receivingYards"], g1.SHIPPED_WEIGHT)
+    assert out["BLEND_receivingYards"][0] == pytest.approx(100.0)
+
+
+def test_tomcat_at_an_equal_ratio_is_a_co_equal_vote():
+    """The sweep's arithmetic is unchanged by the withdrawal, and this is what a
+    re-admission at parity would do: at a ratio of 1.0 TOMCAT counts exactly as much
+    as one external source."""
+    row = {"FP_receivingYards": 100.0, "BOL_receivingYards": 100.0,
+           "USG_receivingYards": 400.0}
+    out = g1.blend(frame([row]), ["receivingYards"], 1.0)
     # three co-equal voters: (100 + 100 + 400) / 3
     assert out["BLEND_receivingYards"][0] == pytest.approx(200.0)
 
 
 def test_unequal_external_weights_refuse_to_collapse_to_one_ratio():
-    """The ratio is only meaningful under the equal-vote rule; say so rather than lie."""
+    """The ratio is only meaningful under the equal-vote rule; say so rather than lie.
+
+    This guard was briefly unreachable. `_shipped_weight` checked TOMCAT's own weight
+    first and returned 0.0 early, so once TOMCAT was withdrawn an unequal external
+    table -- the thing being refused here -- went through unreported. The validation
+    now runs before the TOMCAT lookup, which is why this test still has teeth with
+    production at 0.0."""
     import Scripts.projection_utils as pu
 
     original = pu.WEIGHTS["default"]

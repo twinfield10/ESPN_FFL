@@ -190,11 +190,75 @@ def test_built_at_is_timezone_aware(lineups):
 
 def test_meta_records_coverage_from_the_provenance_flags(lineups):
     """Plan 03's flags are what distinguish an absent source from an agreeing
-    one; the store has to carry that through or the app cannot show it."""
+    one; the store has to carry that through or the app cannot show it.
+
+    Doubles as the guard that the population filter is a no-op on a frame with no
+    ownership column: this fixture has no ``team_owner``, and all three rows have
+    to survive or the percentages below change.
+    """
     store.write_league_store(2026, "knights_ffl", lineups=lineups)
-    coverage = store.read_meta(2026, "knights_ffl")["coverage"]["overall"]
-    assert coverage["ESPN"] == pytest.approx(100.0)
-    assert coverage["PINNY"] == pytest.approx(0.0)
+    coverage = store.read_meta(2026, "knights_ffl")["coverage"]
+    assert coverage["overall"]["ESPN"] == pytest.approx(100.0)
+    assert coverage["overall"]["PINNY"] == pytest.approx(0.0)
+    assert coverage["population"]["rows"] == 3
+    assert coverage["population"]["rows_before"] == 3
+
+
+def test_meta_carries_player_coverage_beside_the_cell_coverage(lineups):
+    """The sidebar reads ``players``; ``overall`` is kept for a stale reader.
+
+    They answer different questions and the label claimed the first. Measured on
+    the 2026 stores, FantasyPros read 12.4% of cells and had a real line for 21.8%
+    of the players in the league.
+    """
+    store.write_league_store(2026, "knights_ffl", lineups=lineups)
+    coverage = store.read_meta(2026, "knights_ffl")["coverage"]
+    assert coverage["players"]["ESPN"] == pytest.approx(100.0)
+    assert coverage["players"]["PINNY"] == pytest.approx(0.0)
+
+
+# --- the coverage population ---------------------------------------------
+
+@pytest.fixture
+def lineups_with_owners():
+    """A ``clean_lineups`` frame with an ownership column and a free-agent pool.
+
+    Two rostered players, twenty-five free-agent receivers and one rostered
+    linebacker -- the three cases the denominator has to treat differently.
+    """
+    rows = [{"week": 1, "team_owner": "Tommy", "primaryPosition": "WR",
+             "player_name": "Rostered WR", "ESPN_rushingYards": 10.0,
+             "ESPN_Points": 9.0, "TRUE_Points": 9.0},
+            {"week": 1, "team_owner": "Tommy", "primaryPosition": "LB",
+             "player_name": "Rostered LB", "ESPN_rushingYards": 0.0,
+             "ESPN_Points": 4.0, "TRUE_Points": 4.0}]
+    rows += [{"week": 1, "team_owner": "Free Agent", "primaryPosition": "WR",
+              "player_name": f"FA WR {i}", "ESPN_rushingYards": float(i),
+              "ESPN_Points": float(i), "TRUE_Points": float(i)}
+             for i in range(25)]
+    return pd.DataFrame(rows)
+
+
+def test_the_coverage_denominator_is_rostered_plus_the_top_free_agents(
+        lineups_with_owners):
+    """The pool was 12-100% of ``lineups.parquet`` depending on the league, so a
+    source was being graded on the thirtieth-best available tight end."""
+    store.write_league_store(2026, "knights_ffl", lineups=lineups_with_owners)
+    population = store.read_meta(2026, "knights_ffl")["coverage"]["population"]
+    assert population["rows_before"] == 27
+    assert population["rows"] == 21          # 1 rostered WR + 20 of 25 free agents
+    assert population["rostered"] == 1
+    assert population["free_agents"] == 20
+    assert population["free_agents_per_position"] == 20
+
+
+def test_idp_rows_are_excluded_from_the_coverage_denominator(lineups_with_owners):
+    """Only one league of ten rosters individual defenders, and no source but ESPN
+    publishes a line for them."""
+    store.write_league_store(2026, "knights_ffl", lineups=lineups_with_owners)
+    population = store.read_meta(2026, "knights_ffl")["coverage"]["population"]
+    assert "LB" in population["excluded_positions"]
+    assert population["rostered"] == 1       # the linebacker is not counted
 
 
 def test_meta_extra_is_merged(lineups):

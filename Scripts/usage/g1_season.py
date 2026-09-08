@@ -99,18 +99,23 @@ SOURCES: Tuple[str, ...] = ("ESPN", "FP", "PINNY", "BOL")
 #: module sweeps. Production is :data:`SHIPPED_WEIGHT`.
 #:
 #: **This was 0.25 until 2026-09-01, and 0.25 is not what ships.**
-#: ``WEIGHTS['default']`` in :mod:`Scripts.projection_utils` gives TOMCAT **0.25, the
+#: ``WEIGHTS['default']`` in :mod:`Scripts.projection_utils` gave TOMCAT **0.25, the
 #: same as ESPN, FantasyPros, Pinnacle and BetOnline** -- so its ratio to any single
-#: external source is **1.0**, and on a row where all five are real it takes 1/5 of the
-#: blend exactly as ESPN does. Verified on the live 2026 board: where all five sources
-#: are real and unimputed, ``TRUE_`` is their equal five-way mean, up to the
-#: ``reconcile_team_totals`` pass that runs afterwards.
+#: external source was **1.0**, and on a row where all five were real it took 1/5 of
+#: the blend exactly as ESPN did.
+#:
+#: **Production is 0.0 since 2026-09-07**, when TOMCAT was withdrawn from the season
+#: blend. The sweep still runs from 0.0 to 3.0 and that range is still right: 0.0 is
+#: now the shipped point and it is the *left edge*, so the curve can only be read in
+#: one direction from it. That is a real limitation of this report today -- an interior
+#: optimum is what makes a sweep informative -- and it is the honest shape rather than
+#: one manufactured by re-centring the range. What the sweep now answers is "what would
+#: re-admitting TOMCAT cost or buy", which is the live question.
 #:
 #: The old value bracketed 0.05-0.5 and marked 0.25 as shipping, so the curve never
 #: reached production and appeared to fall monotonically to its own right-hand edge.
 #: That read as "TOMCAT is under-weighted, the optimum is 0.5+" and it was re-derived
-#: and acted on twice. The sweep now brackets 1.0 on both sides, where the minimum
-#: turns out to be interior and to sit on production. See :data:`SHIPPED_WEIGHT`.
+#: and acted on twice. See :data:`SHIPPED_WEIGHT`.
 WEIGHTS: Tuple[float, ...] = (0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0)
 
 def _shipped_weight() -> float:
@@ -133,20 +138,34 @@ def _shipped_weight() -> float:
     from Scripts.projection_utils import WEIGHTS as PROD
 
     default = PROD["default"]
-    usg = float(default.get("USG", 0.0))
     external = [float(default[s]) for s in SOURCES if default.get(s)]
-    if not external or not usg:
+    if not external:
         return 0.0
+
+    # Validated before the TOMCAT lookup, not after. It used to run second, which was
+    # harmless while TOMCAT carried a weight and became a silent hole on 2026-09-07
+    # when it was withdrawn: `usg` is 0.0, the function returned early, and an unequal
+    # external table -- the thing this check exists to refuse -- sailed through
+    # unreported. The equal-vote rule is a property of the production table and is
+    # worth asserting whether or not TOMCAT is in it.
     if max(external) - min(external) > 1e-9:
         raise ValueError(
             "external sources carry unequal weights "
             f"({dict(zip(SOURCES, external))}); TOMCAT's weight is not expressible "
             "as a single ratio, so this module's sweep no longer describes production")
-    return usg / external[0]
+
+    return float(default.get("USG", 0.0)) / external[0]
 
 
-#: TOMCAT's shipped weight on this module's scale -- **1.0**, not the 0.25 that was
-#: hard-coded here until 2026-09-01. See :data:`WEIGHTS`.
+#: TOMCAT's shipped weight on this module's scale -- **0.0 since 2026-09-07**, when it
+#: was withdrawn from the season blend. It read 1.0 while the model carried an equal
+#: vote, and 0.25 before that from a hard-coded value here until 2026-09-01.
+#:
+#: Derived rather than written down, which is what makes it correct today without
+#: anyone editing this line: :func:`_shipped_weight` reads
+#: :data:`Scripts.projection_utils.WEIGHTS`, finds no ``USG`` entry, and returns 0.0.
+#: A sweep over this scale now runs from the shipped point of *not blending it*, which
+#: is the honest baseline for asking what re-admitting it would cost.
 SHIPPED_WEIGHT: float = _shipped_weight()
 
 #: Fewest real weeks before a source is credited with a season-level opinion.

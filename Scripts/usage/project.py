@@ -201,10 +201,16 @@ THIN_EVIDENCE_REASONS = ("thin prior season", "changed teams", "low prior volume
 def attach_evidence(frame: pl.DataFrame) -> pl.DataFrame:
     """Name the conditions under which this projection orders players worse.
 
-    ``USG_PosRankDelta`` reads the same whether the model is standing on nine
-    seasons of stable usage or extrapolating from four games at a new team. This
-    says which, in words, so the disagreement can be weighed at the point of
-    decision rather than taken flat.
+    A projection reads the same whether the model is standing on nine seasons of
+    stable usage or extrapolating from four games at a new team. This says which, in
+    words, so it can be weighed at the point of decision rather than taken flat.
+
+    Written for ``USG_PosRankDelta``, which surfaced the model's disagreement with the
+    blend on the draft board; that column went with TOMCAT's withdrawal on 2026-09-07.
+    The flag is still worth attaching -- it travels with the artifact, ``Scripts.lab``
+    reads it, and it is exactly the axis the withdrawal turned on. On the 2026 board
+    thin-evidence rows read **0.821** of the field against 0.909 for the rest, and
+    movers in the top 100 ADP read **0.72** against settled players' 0.865.
 
     Only the three conditions in :data:`THIN_EVIDENCE_REASONS` are flagged, because
     only those measured. See that constant for the table.

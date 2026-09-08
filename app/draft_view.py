@@ -20,6 +20,7 @@ import pandas as pd
 import polars as pl
 
 from Scripts.draft.board import FLEX_SLOTS, NON_STARTING_SLOTS
+from Scripts.scrape_player_stats import FREE_AGENT_OWNER as _FREE_AGENT_OWNER
 
 
 class DraftViewWarning(UserWarning):
@@ -83,49 +84,28 @@ CHART_INK: Dict[str, Dict[str, str]] = {
 #: -- is squeezed into the left edge.
 SCARCITY_DEPTH = 1.6
 
-#: What ``model_evidence`` says when the model priced a player and flagged nothing.
-#: A visible mark rather than an empty cell, because a blank in this column would be
-#: indistinguishable from the model having no opinion at all -- which is the whole
-#: distinction the column exists to draw.
-EVIDENCE_CLEAR = "—"
-
-#: What it says when the model produced no projection. Two different reasons, kept
-#: apart on purpose: ``availability`` is the model declining a player it could see
-#: (its expected-games estimate was too low to price), ``injury`` is the report
-#: withdrawing one it had already priced. Both read as an empty ``USG``, and telling
-#: them apart is the difference between "no data" and "actively withheld".
-EVIDENCE_WITHDRAWN_AVAILABILITY = "withdrawn (availability)"
-EVIDENCE_WITHDRAWN_INJURY = "withdrawn (injury)"
-
-#: And a third: the depth chart says he is a backup and ESPN has priced him out, so
-#: the board build withdrew a line that was only high because the model puts everyone
-#: on a starter's slate. Distinct from the injury withdrawal because the remedy is
-#: different -- an injured starter comes back, a backup needs someone ahead of him to
-#: get hurt.
-EVIDENCE_WITHDRAWN_ROLE = "withdrawn (backup)"
-
-#: The marker ``Scripts.season_projections.ROLE_WITHDRAWN_EVIDENCE`` writes. Duplicated
-#: rather than imported: this module is loaded by a process that only reads parquet,
-#: and importing the board builder would drag in the ESPN and scoring stack with it.
-#: ``test_draft_view`` pins the two equal.
-EVIDENCE_ROLE_MARKER = "withdrawn: backup"
-
-#: And when the model does not cover the position at all -- K and D/ST, which it has
-#: never modelled, plus anyone it had no usage history for.
-EVIDENCE_NOT_MODELLED = "not modelled"
+#: The Model Evidence column and its ``EVIDENCE_*`` vocabulary lived here until
+#: 2026-09-07. Both are gone with TOMCAT's withdrawal from the season blend: the column
+#: existed to say *why the model is quiet* about a player, and a board carrying no
+#: TOMCAT column has nothing to explain.
+#:
+#: :data:`AVAILABILITY_MARKERS` below is the half that survived, and the two were
+#: deliberately different facts. That one answered "why is one source of five quiet";
+#: this one answers "why is there no projection at all", which happens when the
+#: availability gates pull every source but ESPN and ESPN's own zero is the last vote
+#: standing. The second question did not depend on TOMCAT and is still live.
 
 #: The three markers ``Scripts.season_projections`` writes into ``avail_evidence``, and
 #: what each renders as.
 #:
-#: Duplicated rather than imported for the same reason as
-#: :data:`EVIDENCE_ROLE_MARKER` -- this module is loaded by a process that only reads
-#: parquet -- and pinned equal by ``test_draft_view``.
+#: Duplicated rather than imported -- this module is loaded by a process that only
+#: reads parquet, and importing the board builder would drag the ESPN and scoring stack
+#: in behind it -- and pinned equal by ``test_draft_view``.
 #:
-#: This is a **different fact** from the Model Evidence column beside it. That one says
-#: why ``USG`` is thin or absent; this one says why *every source except ESPN* was
-#: withdrawn and the projection is therefore zero rather than merely modelless. Before
-#: it existed, a season-ender simply appeared at the bottom of the board with no
-#: number and no reason, which reads identically to a player nobody has heard of.
+#: This says why *every source except ESPN* was withdrawn and the projection is
+#: therefore zero rather than merely absent. Before it existed, a season-ender simply
+#: appeared at the bottom of the board with no number and no reason, which reads
+#: identically to a player nobody has heard of.
 AVAILABILITY_MARKERS = {
     "withdrawn: out for season": "out for season",
     "withdrawn: ESPN prices 0 and he is out": "out, ESPN prices 0",
@@ -430,34 +410,6 @@ COLUMNS: List[Column] = [
                   "covers 434 offensive players, so where it is real it takes a sixth "
                   "rather than a fifth off the others. Every rank, tier and VOR on "
                   "this table is built from this column."),
-    Column("USG_Points", "Points", "TOM", "number", fmt="%.1f",
-           source_of="TOMCAT",
-           how="**TOMCAT** \u2014 Touches, Opportunity, Market, Context, Availability, Tiers \u2014 "
-               "is our own model, and the only source here built from observed usage "
-               "rather than from somebody else's projection. **One source, three "
-               "backends, every position.** The usage arm covers QB/RB/WR/TE from "
-               "observed usage; the defence arm projects a D/ST from the **betting "
-               "market** rather than from last season, because implied points allowed "
-               "beats prior season on seven of eight components and the ladders are "
-               "integrated over a weekly distribution rather than scored at the season "
-               "mean; the kicking arm projects a team's extra points and field goals by "
-               "distance band, because a kicker's own accuracy does not persist "
-               "(year-over-year r = 0.009) and the volume belongs to the offence. All "
-               "three are quoted over a full healthy 17 games, so this column means the "
-               "same thing as the ones beside it: the availability estimate is divided "
-               "back out rather than baked in.",
-           caveat="Runs a few percent below `ESPN` at the top of the board because the "
-                  "model shrinks toward positional baselines while ESPN extrapolates. "
-                  "That is disagreement about players, not a scale difference \u2014 but "
-                  "`Position Ranks | \u0394 TOM` is still the cleaner read, since a rank "
-                  "cannot be moved by it at all. **The kicking arm is the one to read "
-                  "most sceptically**: it is blended from 2026-09-02 and its "
-                  "field-goal channel has still not passed its own gate, so a kicker's "
-                  "number here is a deliberate second opinion rather than a proven "
-                  "one. The defence arm cleared its gate against prior-season points by "
-                  "34\u201346% in all nine leagues, but the gate against **ESPN** cannot be "
-                  "run until 2027. The column is named `USG_` underneath: renaming it "
-                  "would orphan the frozen G2 archive."),
     Column("points_delta", "Points", "Δ", "number", fmt="%+.1f", emphasis=True,
            shade="delta",
            source_of="Board build",
@@ -504,13 +456,6 @@ COLUMNS: List[Column] = [
                "than we do.",
            caveat="More useful than the overall Δ beside it, because a positional "
                   "rank is what you are actually choosing between on the clock."),
-    Column("USG_PosRankDelta", "Position Ranks", "Δ TOM", "number", fmt="%+.0f",
-           emphasis=True, shade="delta", source_of="Usage model",
-           how="`Us − USG` within position — our rank minus the usage model's. "
-               "Positive means the model likes him more than ESPN and FantasyPros do.",
-           caveat="Not an outside opinion: the model is one of the three voices "
-                  "already inside `Us`, shown separately so you can see it pull. "
-                  "Being a rank, it survives the level mismatch that denies `USG` a Δ."),
     Column("ath_pos_rank", "Position Ranks", "JAKE", "number", fmt="%.0f",
            positions=("QB", "RB", "WR", "TE"), source_of="The Athletic",
            how="Jake Ciely's hand ranking of the position, read from the workbook's "
@@ -624,31 +569,6 @@ COLUMNS: List[Column] = [
            caveat="Blank means no estimate published, not no injury — ESPN dates only "
                   "about one in seven of the players it lists. `IR` alone does not "
                   "mean out for the year; this column is what answers that."),
-    Column("usg_role_confidence_pct", "Notes", "Role %", "number", fmt="%.0f%%",
-           source_of="Usage model",
-           how="How often the pre-season depth chart turns out to be right for a "
-               "player in this one's situation — measured by rebuilding the chart "
-               "each season from who actually got the ball in the first three games "
-               "(plan 33). A listed starter really is one 59% of the time if he is "
-               "settled, 45% if he changed teams and 36% if he is a rookie.",
-           caveat="**This does not scale the projection and is not a grade on the "
-                  "player.** It is how much of the projection rests on a depth-chart "
-                  "entry that may not hold. A low number beside a high projection is "
-                  "the combination worth a second look: the model is confident about "
-                  "a role nobody should be confident about. **Compare within a depth "
-                  "rank, not across one** — being right that a man is third string is "
-                  "easier than picking the starter, so a rookie listed third scores "
-                  "above a starter who changed teams without being better known. "
-                  "Blank where the calibration has not been fitted, or for a position "
-                  "group it has never seen."),
-    # --- what the season could be, not just its mean (plan 28) ----------
-    #
-    # A separate group from Points, because these answer a different question. The
-    # Points block is a level -- how much. This is a *range*, and the board's own
-    # floor/ceiling is not one: `attach_source_spread` measures how far the forecasters
-    # disagree, which is not how uncertain the forecast is. Measured, the two are 17.5x
-    # apart, and the board's floor-to-ceiling contains 4.6% of realised outcomes against
-    # the ~80% those words imply.
     Column("pts_p10", "Range", "p10", "number", fmt="%.0f",
            source_of="Outcome simulation",
            how="A bad but not disastrous season: he beats this in 9 years out of 10. "
@@ -697,24 +617,6 @@ COLUMNS: List[Column] = [
                   "over season totals. And a quarterback's floor carries a marginal "
                   "measured at 58.9% coverage against a nominal 80%: read `p10` at "
                   "quarterback as indicative, not as a tenth."),
-    Column("usg_expected_games", "Notes", "Exp G", "number", fmt="%.1f",
-           source_of="Usage model",
-           how="Games out of 17 the model expects him to play — its own estimate, "
-               "fitted from prior availability, snap share and age.",
-           caveat="**`USG` is not scaled by this**, and deliberately so: the column to "
-                  "its left is a healthy-slate line, on ESPN's footing. This is the "
-                  "availability view, kept separate so you can apply it yourself. It "
-                  "carries role as well as health, so a low number on a backup means "
-                  "*buried*, not *fragile*. Only present for players the model "
-                  "covers."),
-    Column("usg_evidence_label", "Notes", "Model Evidence", "text",
-           source_of="Derived here",
-           how="Why the model's number is thin, or which of the four ways it "
-               "produced none — it does not cover the position, it declined to price "
-               "him, the injury report withdrew a price it had made, or he is a "
-               "backup ESPN has priced out.",
-           caveat="Exists because an empty `USG` meant three different things and all "
-                  "three rendered as the same blank cell, which reads as agreement."),
     Column("avail_evidence_label", "Notes", "Withdrawn", "text",
            source_of="Derived here",
            how="Why every source but ESPN was withdrawn, leaving a projection of "
@@ -1824,20 +1726,25 @@ def with_availability_points(board: pl.DataFrame,
     **positional-rank priors** -- QB1 loses 1.80 games because he is QB1. We can do the
     same thing off a per-player estimate, which is what ``usg_expected_games`` is.
 
-    **Neither ``TRUE_Points`` nor ``USG_Points`` is availability-adjusted**, so this does
-    not double-count. ``Scripts.usage.project.to_full_slate`` divides each player's
-    expected games back out of the usage line specifically so the availability term can
-    be "applied deliberately and to the *whole* blend rather than to one quarter of it" --
-    its own words. This is that application. (``docs/DRAFT_READINESS.md`` claimed the
-    opposite until 2026-08-28; the claim was wrong and is corrected there.)
+    **``TRUE_Points`` is not availability-adjusted**, so this does not double-count.
+    ``Scripts.usage.project.to_full_slate`` divided each player's expected games back
+    out of the usage line specifically so the availability term could be "applied
+    deliberately and to the *whole* blend rather than to one quarter of it" -- its own
+    words. This was that application. (``docs/DRAFT_READINESS.md`` claimed the opposite
+    until 2026-08-28; the claim was wrong and is corrected there.)
 
-    **It is a parallel column and the board does not sort on it by default**, because the
-    availability head is the weakest arm of the model that produces it: plan 18 measures
-    prior-season games against next season at r = +0.343. On the 2026 Knights board the
-    discount is real money -- Puka Nacua 339.4 to 274.8, Jahmyr Gibbs 342.9 to 296.8 --
-    and it reorders the top of the board. That is worth *looking* at and worth being able
-    to switch to; it is not worth silently repricing four leagues on ten days before a
-    draft.
+    **Not wired to anything as of 2026-09-07.** ``app.views.sheet_tab`` stopped calling
+    this when TOMCAT was withdrawn from the season blend: ``usg_expected_games`` is the
+    output of the weakest arm of that model -- plan 18 measures prior-season games
+    against next season at r = +0.343 -- and a lens repricing every player off it would
+    have been the one place TOMCAT still moved a draft-night number.
+
+    It is kept because the *argument* is sound and outlives the source. A per-player
+    availability discount beats the DraftSheet's positional-rank priors whatever
+    supplies the estimate, and the discount is real money: on the 2026 Knights board it
+    took Puka Nacua 339.4 to 274.8 and Jahmyr Gibbs 342.9 to 296.8, reordering the top
+    of the board. Point ``points_column`` at a better estimate and the lens works
+    unchanged.
 
     A player with no estimate takes a factor of 1.0 and is marked in ``avail_evidence``.
     Sinking the un-estimated seventh of the pool to the bottom of a sort would be a
@@ -2309,7 +2216,10 @@ SOURCE_ADDED = "Added in Season"
 
 #: ``team_owner`` in a lineups frame is this for a player nobody rostered that
 #: week. It is not a manager and must not become a bar.
-FREE_AGENT_OWNER = "Free Agent"
+#:
+#: Imported rather than re-declared: the string is stamped on by
+#: ``Scripts.scrape_player_stats.build_fa_market`` and had four independent copies.
+FREE_AGENT_OWNER = _FREE_AGENT_OWNER
 
 
 def _franchise_key(column: str) -> pl.Expr:
@@ -2681,65 +2591,6 @@ def tendency_frame(tendencies: pl.DataFrame) -> pl.DataFrame:
                               for source, label in present])
 
 
-def with_model_evidence(board: pl.DataFrame) -> pl.DataFrame:
-    """Add ``usg_evidence_label``: why the model's number is thin, or missing.
-
-    The board carries the model's self-assessment across four columns, and an empty
-    ``USG`` cell can mean four different things that matter differently at a draft:
-    the model does not cover the position, the model declined to price a player it
-    could see, the injury report withdrew a price it had already made, or the board
-    build withdrew one because the depth chart says he is a backup ESPN has priced
-    out. Collapsing those into one blank throws away the distinction; this resolves
-    them into one readable string instead.
-
-    Order matters and is not arbitrary. A withdrawal is checked before the evidence
-    text because a player can carry both -- the model flagged its evidence *and* then
-    produced nothing -- and "there is no number here" is the more useful fact than
-    why the number that does not exist would have been shaky. Within the withdrawals,
-    role is checked before injury, because a role withdrawal nulls the same column and
-    would otherwise report a healthy backup as hurt.
-
-    ``usg_evidence`` arrives as an empty string when the model ran and flagged
-    nothing, and as null when the model never ran. Those are different facts and both
-    would render as an empty cell, which is why neither is passed through as-is.
-
-    Args:
-        board: A stored draft board. Boards written before the usage model landed
-            carry none of the ``usg_*`` columns.
-
-    Returns:
-        pl.DataFrame: The board with ``usg_evidence_label`` added, or returned
-        unchanged if it carries no ``usg_arm`` to reason about — in which case
-        :func:`display_frame` drops the column along with the rest of the model
-        block, exactly as it does for any other artifact that predates a feature.
-    """
-    if "usg_arm" not in board.columns:
-        return board
-
-    evidence = (pl.col("usg_evidence") if "usg_evidence" in board.columns
-                else pl.lit(None, dtype=pl.String))
-    points = (pl.col("USG_Points") if "USG_Points" in board.columns
-              else pl.lit(None, dtype=pl.Float64))
-
-    return board.with_columns(
-        pl.when(pl.col("usg_arm").is_null())
-        .then(pl.lit(EVIDENCE_NOT_MODELLED))
-        .when(pl.col("usg_arm") == "abstain")
-        .then(pl.lit(EVIDENCE_WITHDRAWN_AVAILABILITY))
-        # Before the injury branch: a role withdrawal also nulls `USG_Points`, so
-        # without this it would render as "withdrawn (injury)" and tell a drafter
-        # the player is hurt when he is merely third on the depth chart.
-        .when(points.is_null() & (evidence == EVIDENCE_ROLE_MARKER))
-        .then(pl.lit(EVIDENCE_WITHDRAWN_ROLE))
-        .when(points.is_null())
-        .then(pl.lit(EVIDENCE_WITHDRAWN_INJURY))
-        .when(evidence.fill_null("") != "")
-        .then(evidence)
-        .otherwise(pl.lit(EVIDENCE_CLEAR))
-        .alias("usg_evidence_label")
-    )
-
-
 def with_availability_evidence(board: pl.DataFrame) -> pl.DataFrame:
     """Add ``avail_evidence_label``: why the projection was withdrawn to zero.
 
@@ -2855,9 +2706,10 @@ def with_percent_columns(board: pl.DataFrame) -> pl.DataFrame:
     stored artifact keeps the units arithmetic wants, and quietly changing a column's
     units in the render layer is how a reader ends up unsure which one he is looking at.
 
-    ``usg_role_confidence`` is in here too. It shipped with plan 33 phase 2 against a
-    ``%`` format and a 0-1 source, so every board built since has shown ``Role %`` as 0%
-    for all 671 players who have one. Display only -- no projection moves.
+    ``usg_role_confidence`` was in here too, fixing a ``Role %`` column that shipped
+    with plan 33 phase 2 against a ``%`` format and a 0-1 source and rendered as 0% for
+    all 671 players who had one. That column left the board with TOMCAT on 2026-09-07,
+    so the rescale went with it rather than deriving a ``_pct`` nothing reads.
 
     Args:
         board: The stored board.
@@ -2866,7 +2718,7 @@ def with_percent_columns(board: pl.DataFrame) -> pl.DataFrame:
         pl.DataFrame: ``board`` with a ``<column>_pct`` per probability it carries.
     """
     scaled = [(pl.col(column).cast(pl.Float64) * 100.0).alias(f"{column}_pct")
-              for column in ("p_top12", "p_bust", "usg_role_confidence")
+              for column in ("p_top12", "p_bust")
               if column in board.columns]
     return board.with_columns(scaled) if scaled else board
 

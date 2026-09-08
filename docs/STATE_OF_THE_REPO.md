@@ -97,7 +97,20 @@ ESPN gives no structured return date. Probed live: `injuryStatus`, `injured`,
 players. The prose often carries a timeline in words, but parsing it would be a
 fragile answer to a question ESPN's own projection already encodes.
 
-**`USG` blends on an if-healthy basis.** The model predicts an expected value
+**TOMCAT was withdrawn from the season-long blend on 2026-09-07, and everything in this
+section about its weight describes the three weeks it had one.** It was not measured
+worthless -- it beats the naive draft heuristic out of sample at every position and is
+the most independent source ever registered here. It was withdrawn on a **level** error:
+its projected league runs the ball **384 times per team against a realised 450-465**, so
+every runner carried a ~10% haircut unrelated to the player, and nothing corrected it
+because `Scripts/usage/coherence.py` holds three accounting identities and all three are
+passing<->receiving -- there is no rushing pair. On the draftable pool it read **0.836 of
+ESPN at ADP 1-50**, discounting exactly the picks the board exists to get right. The
+model still runs, its `USG_` stat lines are still written to the board unweighted and
+unpriced, and the weekly path is untouched. Full argument and costs:
+[plan 43](plans/43-tomcat-out-of-season-blend.md).
+
+**`USG` blended on an if-healthy basis.** The model predicts an expected value
 (per-game production x ~13.6 expected games); ESPN and FantasyPros project a healthy
 17-game season. Blending them mixed two quantities, and unevenly -- the usage model
 covers QB/RB/WR/TE and not K or D/ST, so skill positions came out at 0.887-0.900 of
@@ -109,20 +122,26 @@ the availability estimate travels beside it as `usg_expected_games`.
 
 **The blend is one equal vote per source that has an opinion.** Five sources carry the
 same nominal weight — ESPN, FantasyPros, BetOnline, **Pinnacle** (which rejoined on
-2026-08-24) and **TOMCAT**, our own model — plus TOMCAT's position-scoped arms, `DST` at
-0.25 on team defences and `KIK` held at 0.0. Because the nominal weights are equal,
-renormalisation makes the rule literal: four real sources weight 0.25 each, three weight
-0.333, two weight 0.5.
+2026-08-24) and **The Athletic** (2026-09-01). TOMCAT was a sixth from 2026-08-17 until
+2026-09-07. Because the nominal weights are equal, renormalisation makes the rule
+literal: four real sources weight 0.25 each, three weight 0.333, two weight 0.5.
+
+**A source at 0.0 is dormant; a source absent from `WEIGHTS` has been withdrawn.** That
+distinction is load-bearing and new: `USG` has no entry, deliberately, so that a reader
+counting entries counts the sources that vote and nobody flips a 0.0 back to 0.25 without
+re-reading why it went.
 
 **TOMCAT** is **T**ouches · **O**pportunity · **M**arket · **C**ontext · **A**vailability
 · **T**iers, named 2026-08-24. Its columns keep the `USG_` prefix because renaming them
-would orphan the frozen G2 archive — see `Scripts/usage/__init__.py`. `projection_utils.WEIGHTS` is
-`{'ESPN': 0.25, 'FP': 0.25, 'PINNY': 0.0, 'BOL': 0.25, 'USG': 0.25, 'KIK': 0.0, 'DST': 0.25}`.
-That table deliberately sums to 1.25 rather than 1.0: `KIK` and `DST` carry a column on
-one position each, so `compute_weighted_stats` drops them everywhere else and
-renormalises — see `POSITION_SCOPED_SOURCES`. On a D/ST row it renormalises to a 50/50
-with ESPN. `KIK` is registered and **stays at 0.0**, because its field-goal channel
-failed G-K2 at +1.2% against a 5% bar. This paragraph
+would orphan the frozen G2 archive — see `Scripts/usage/__init__.py`.
+`projection_utils.WEIGHTS` is now
+`{'ESPN': 0.25, 'FP': 0.25, 'PINNY': 0.25, 'BOL': 0.25, 'ATH': 0.25}`. The separate
+`KIK` and `DST` entries were folded into `USG` on 2026-09-02 — one source, one vote,
+three backends over disjoint stat sets — and all three left together on 2026-09-07.
+**Kickers and team defences therefore have no second opinion at all**, which is a real
+cost of the withdrawal rather than a tidy-up: the kicking arm had been switched on over
+an unpassed G-K2 gate precisely because the alternative was a starting slot in nine
+leagues at 100% ESPN. This paragraph
 said "an equal three-way split of ESPN, FantasyPros and the usage model, with Pinnacle
 **and BetOnline** at zero" until 2026-08-18, and was wrong: BetOnline carries a full
 quarter, and the *Known issues* table below has always said so ("BOL contributes 10–40%
@@ -152,26 +171,34 @@ zero. That is contained rather than harmless: `sources_real` is 0 and
 `projection_missing` is True for 501 of those rows, so the board can tell them apart, but
 `TRUE_receivingYards` is `0.0` and not null for all 668.
 
-Recorded as an owner decision rather than inherited. G2 is still unanswered and still unanswerable on history;
-what changed is the evidence around it, with the model now beating the naive draft
-heuristic on every metric at every position in 26 of 28 out-of-sample season-position
-cells. Note the decision drops the better-covered market source: **BetOnline's season
+Recorded as an owner decision rather than inherited. G2 is still unanswered and still
+unanswerable on history — and note that **the withdrawal did not answer it either**: it
+was decided on team carry totals, not on scoring the two blends against outcomes, and
+`Data/G2/2026/` can still do that after the season. Note the earlier decision drops the
+better-covered market source: **BetOnline's season
 endpoint works and resolves 273 players with 13 stat columns including IDP tackles and
 sacks, against FantasyPros' 60.** Only the *weekly* BetOnline endpoint is blocked, on a
 different host that never fed this path.
 
-**It was previously the blend's fifth source at weight 0.0.** `python -m
-Scripts.usage.project` writes it, `Scripts/season_projections.py` loads it, and
-`USG_Points` / `USG_PosRank` / `USG_PosRankDelta` / `usg_expected_games` / `usg_arm`
-are on all nine boards. It contributes nothing to `TRUE_Points` and that was verified
-rather than assumed: rebuilding a league with and without the weight entry gives all
-45 `TRUE_` columns bit-identical over 1,026 rows.
+**It contributes nothing to `TRUE_Points` again, and that has been verified twice by
+the same method.** It shipped dark at weight 0.0 in August, went to an equal vote on
+2026-08-17, and was withdrawn on 2026-09-07. `python -m Scripts.usage.project` still
+writes it, `Scripts/season_projections.py` still loads it, and `USG_<stat>` /
+`usg_expected_games` / `usg_arm` are on all nine boards — but `USG_Points`,
+`USG_PosRank` and `USG_PosRankDelta` are not, because it is no longer priced.
+
+Rebuilding a league with and without it gives all 45 `TRUE_` columns bit-identical over
+1,026 rows when the weight is absent — and the same rebuild run the other way is what
+measured the withdrawal's cost: skill positions at 0.975–0.990 of their with-TOMCAT
+level, D/ST at **0.879**.
 
 The comparison that would justify a real weight — the blend with and without `USG_`,
 scored against realised results — cannot be run on any past season, because no
 historical pre-season blend survives. The 2026 board is the first chance, and that
-means after the season is played. What shipping at 0.0 buys is that answering it is
-then one number rather than a build.
+means after the season is played. `Data/G2/2026/` holds both arms, frozen 2026-08-09,
+and `Scripts.lab.g2.VARIANTS` is now pinned literally rather than read from `WEIGHTS`:
+a live read would make the two arms identical and a re-archive would destroy the one
+artifact here that cannot be rebuilt.
 
 It is also, unexpectedly, the **best-covered source in the pre-season blend**: 23.1%
 real cells against ESPN's 13.1%, FantasyPros' 0.8%, Pinnacle's 0.1% and BetOnline's
@@ -185,9 +212,13 @@ needs the sources to be answering the same question. `USG_Points` is an expected
 value where the other four project a healthy season, so it sat below all of them for
 51.7% of the players it covered and widened the median interval from 8.5% to 24.0%.
 Disagreement between forecasters and uncertainty within one forecast are different
-quantities; the spread holds the first, and the model's dissent is carried by
-`USG_PosRankDelta`, which being a rank cannot be contaminated by the level mismatch.
-→ [plan 18](plans/18-season-usage-model.md)
+quantities; the spread holds the first, and the model's dissent was carried by
+`USG_PosRankDelta`, which being a rank could not be contaminated by the level mismatch.
+That column is gone with the withdrawal — there is no vote left to dissent from — but
+the membership rule it illustrates is not: **a source belongs in the spread when it
+answers the same question as its neighbours, which is a stricter test than being
+informative.** → [plan 18](plans/18-season-usage-model.md),
+[plan 43](plans/43-tomcat-out-of-season-blend.md)
 
 One problem from the rollover is still open: **BetOnline's weekly props API blocks
 the scraper**, removing one of four projection sources. Details below — it needs a
@@ -565,15 +596,16 @@ and nothing read from `config.yaml`.
       It took coverage 80.4% → 73.2%, and was lifted once the depth chart entered
       the veteran arm and quarterback ordering went positive (+0.0132 against the
       naive baseline). `season.ABSTAIN_POSITIONS` is `()`; coverage is **83.7%**.
-- [x] ~~Render the new `USG_` columns on the board page.~~ Done 2026-08-14. Four
-      columns after the market block on every table: `USG`, `Δrk`, `Exp G` and a
-      **Model evidence** column that resolves what an empty `USG` means, because it
-      meant three different things — the model does not cover the position (K, D/ST),
-      it declined a player whose expected games were too low, or the injury report
-      withdrew a price it had already made. All three rendered as the same blank
-      before, which read as agreement. Sorting by the model's dissent is offered in
-      both directions. Verified headless across all nine leagues.
-      → [plan 09](plans/09-frontend-draft-views.md)
+- [x] ~~Render the new `USG_` columns on the board page.~~ Done 2026-08-14 and
+      **reversed 2026-09-07.** Four columns shipped after the market block on every
+      table — `USG`, `Δrk`, `Exp G` and a **Model evidence** column resolving the four
+      different things an empty `USG` could mean — plus `Role %` later. All of them came
+      off with TOMCAT's withdrawal from the season blend, along with The Sheet's `Avail`
+      toggle, which discounted every projection by the same model's availability head.
+      The evidence column's argument outlived it in half: `AVAILABILITY_MARKERS` still
+      answers *why is there no projection at all*, which never depended on TOMCAT.
+      → [plan 09](plans/09-frontend-draft-views.md),
+      [plan 43](plans/43-tomcat-out-of-season-blend.md)
 
 The ordered list of everything outstanding lives in
 **[`plans/README.md` §What is left](plans/README.md#what-is-left)**.

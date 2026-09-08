@@ -45,9 +45,19 @@ def weights(usg):
 
 # --- registration --------------------------------------------------------
 
-def test_usg_is_registered_in_the_blend_weights():
+def test_usg_is_absent_from_the_blend_weights():
+    """The inverse of what this asserted until 2026-09-07, and deliberately absent
+    rather than 0.0.
+
+    A source at 0.0 reads as "registered, currently switched off" and invites the
+    one-line flip that `test_turning_the_weight_on_is_one_number` used to celebrate.
+    TOMCAT is not switched off pending a re-tune: it was withdrawn because its
+    projected league runs 384 carries a team against a realised 450-465, and putting
+    it back is a decision that has to survive a re-measurement rather than an edit.
+    Absence is the honest encoding of that. See docs/plans/43-tomcat-out-of-season-blend.md.
+    """
     for stat, entry in pu.WEIGHTS.items():
-        assert "USG" in entry, f"{stat} has no USG entry"
+        assert "USG" not in entry, f"{stat} still carries a USG weight"
 
 
 def test_the_blend_is_an_equal_split_across_the_sources_that_speak():
@@ -70,9 +80,12 @@ def test_the_blend_is_an_equal_split_across_the_sources_that_speak():
     tuple below rather than left out: a source registered at an unequal weight and
     absent from this list breaks the rule silently, which is the whole failure this
     assertion is here to catch.
+
+    **Back to five on 2026-09-07**, when TOMCAT was withdrawn. The rule is unchanged
+    and so is this test's job; only the membership moved.
     """
     entry = pu.WEIGHTS["default"]
-    universal = ("ESPN", "FP", "PINNY", "BOL", "ATH", "USG")
+    universal = ("ESPN", "FP", "PINNY", "BOL", "ATH")
     weights = {entry[k] for k in universal}
     assert len(weights) == 1, f"universal sources must weight equally: {entry}"
     assert entry["ESPN"] > 0
@@ -83,39 +96,50 @@ def test_widening_the_blend_to_betonline_is_additive():
     usage basis: it can only bite where BetOnline actually has a line.
 
     ``compute_weighted_stats`` renormalises over the sources that are *real*, so a
-    player BetOnline has no line for gets ESPN/FP/USG at 0.25 each, which renormalises
-    to exactly the 1/3 each the three-way split gave him."""
-    three_way = {"default": {"ESPN": 1 / 3, "FP": 1 / 3, "PINNY": 0.0,
-                             "BOL": 0.0, "USG": 1 / 3}}
+    player BetOnline has no line for gets the remaining sources at 0.25 each, which
+    renormalises to exactly the share the narrower split gave him.
+
+    Held against a **two**-way ESPN/FP baseline since 2026-09-07. It was a three-way
+    ESPN/FP/USG baseline while TOMCAT voted; the additive property being tested is
+    about BetOnline and is indifferent to which sources make up the rest."""
+    narrow = {"default": {"ESPN": 0.5, "FP": 0.5, "PINNY": 0.0, "BOL": 0.0}}
     frame = pd.DataFrame({
         "ESPN_x": [100.0, 100.0], "FP_x": [110.0, 110.0],
         "PINNY_x": [90.0, 90.0], "BOL_x": [200.0, 200.0],
-        "USG_x": [120.0, 120.0],
+        "ATH_x": [110.0, 110.0],
         "FP_x_is_imputed": [False, False],
         "PINNY_x_is_imputed": [True, True],
-        "USG_x_is_imputed": [False, False],
+        "ATH_x_is_imputed": [True, True],
         # Only the second player has a real BetOnline line.
         "BOL_x_is_imputed": [True, False],
     })
-    before = pu.compute_weighted_stats(frame.copy(), ["x"], three_way)["TRUE_x"]
+    before = pu.compute_weighted_stats(frame.copy(), ["x"], narrow)["TRUE_x"]
     after = pu.compute_weighted_stats(frame.copy(), ["x"], pu.WEIGHTS)["TRUE_x"]
 
     assert after[0] == pytest.approx(before[0])       # no BOL line, untouched
     assert after[1] != pytest.approx(before[1])       # real BOL line, counted
 
 
-def test_every_source_still_has_an_entry():
+def test_every_voting_source_still_has_an_entry():
     """A source dropped from the dict is invisible; a source at 0.0 is a decision.
-    BetOnline in particular resolves 273 players against FantasyPros' 60, so its zero
-    should stay legible rather than vanish."""
-    for source in ("ESPN", "FP", "PINNY", "BOL", "ATH", "USG"):
+    BetOnline in particular resolves 273 players against FantasyPros' 60, so a zero
+    there should stay legible rather than vanish.
+
+    TOMCAT is the exception the rule now has to accommodate, and it is not a
+    counter-example: it was not switched off pending a re-tune, it was withdrawn, and
+    `test_usg_is_absent_from_the_blend_weights` holds that separately. The distinction
+    to keep is **zero means dormant, absent means withdrawn**."""
+    for source in ("ESPN", "FP", "PINNY", "BOL", "ATH"):
         assert source in pu.WEIGHTS["default"], source
 
 
-def test_usg_is_scored_like_every_other_source():
+def test_usg_is_no_longer_priced():
+    """No weight means no points column. Pricing a withdrawn source would publish a
+    `USG_Points` nothing consumes and every coverage count built on `notna()` reads."""
     import inspect
     default = inspect.signature(pu.proj_to_score).parameters["col_pfix_list"].default
-    assert "USG" in default
+    assert "USG" not in default
+    assert {"ESPN", "FP", "MEAN", "PINNY", "BOL", "ATH", "TRUE"} == set(default)
 
 
 def test_usg_stays_out_of_the_floor_ceiling_spread():
@@ -139,13 +163,15 @@ def test_usg_stays_out_of_the_floor_ceiling_spread():
     assert set(sp.OPINION_PREFIXES) == {"ESPN", "FP", "PINNY", "BOL", "ATH"}
 
 
-def test_the_models_dissent_is_carried_scale_free():
-    """Removing USG from the spread must not lose its opinion -- the rank delta is
-    the vehicle, and being a rank it cannot be contaminated by the level mismatch."""
+def test_the_model_no_longer_ranks_itself_against_the_blend():
+    """`USG_PosRank`/`USG_PosRankDelta` carried the model's dissent scale-free while it
+    voted and the level mismatch denied it a points delta. With the source withdrawn
+    there is no `USG_Points` to rank and no vote to dissent from, so both are gone --
+    a rank delta against a source with no weight is a column the board cannot act on."""
     import inspect
     body = inspect.getsource(sp.build_season_projections)
-    assert "USG_PosRank" in body
-    assert "USG_PosRankDelta" in body
+    assert 'final["USG_PosRank"]' not in body
+    assert 'final["USG_PosRankDelta"]' not in body
 
 
 # --- the zero weight -----------------------------------------------------
@@ -337,9 +363,20 @@ def test_coverage_and_disagreement_use_different_source_lists():
     Measured on the 2026 board when this was wrong: 523 players counted as projected
     against the correct 699.
     """
-    assert "USG" in sp.PROJECTION_PREFIXES
+    import inspect
+    assert "USG" not in sp.PROJECTION_PREFIXES
     assert "USG" not in sp.OPINION_PREFIXES
-    assert set(sp.OPINION_PREFIXES) < set(sp.PROJECTION_PREFIXES)
+    # Equal in content since TOMCAT's withdrawal, and kept as two constants on
+    # purpose -- merging them would delete the guard rather than the duplication, and
+    # the next source that speaks for players the others skip would reintroduce the
+    # bug silently. Identity is not the check: equal tuples of interned strings are
+    # frequently the same object, so `is not` passes or fails on an implementation
+    # detail. Two separately named module attributes is the property that matters.
+    assert set(sp.OPINION_PREFIXES) == set(sp.PROJECTION_PREFIXES)
+    import re
+    source = inspect.getsource(sp)
+    assert re.search(r"^OPINION_PREFIXES\s*=", source, re.M)
+    assert re.search(r"^PROJECTION_PREFIXES\s*=", source, re.M)
 
 
 def test_the_blend_receives_an_if_healthy_line():

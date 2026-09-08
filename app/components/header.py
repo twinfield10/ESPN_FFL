@@ -327,6 +327,15 @@ def _render_freshness(meta: dict, season: int, display_name: str) -> None:
         _run_refresh(display_name, season)
 
 
+#: Sources in reading order. Anything the store reports that is not named here is
+#: appended, so a source registering weekly appears without editing this file.
+COVERAGE_ORDER = ("ESPN", "FP", "PINNY", "BOL", "ATH", "USG")
+
+#: How a source prefix is labelled on the sidebar.
+COVERAGE_LABELS = {"FP": "FantasyPros", "PINNY": "Pinnacle", "BOL": "BetOnline",
+                   "ATH": "The Athletic", "USG": "TOMCAT"}
+
+
 def _render_coverage(meta: dict) -> None:
     """Per-source projection coverage, so a dead source cannot hide.
 
@@ -334,20 +343,50 @@ def _render_coverage(meta: dict) -> None:
     makes an absent book look like agreement rather than absence. These numbers
     are what distinguish the two.
 
+    **Reads ``players`` in preference to ``overall``, and the difference is the
+    whole point of this panel.** ``overall`` averages a source's real-cell share
+    over every stat column it carries -- including the thirty-odd a source
+    structurally never publishes -- so it answered a question about cells while the
+    label claimed a question about players. Two consequences, both measured on the
+    2026 stores on 2026-09-08: FantasyPros read **12.4%** when it had a real line for
+    **21.8%** of the players in the league, and **Pinnacle and BetOnline both read
+    4.1% for sources with no weekly line whatsoever** -- 4.1% being exactly the two
+    derived columns (``_Points``, ``_PosRank``) that have no provenance flag and so
+    counted as always real. A store built before that fix has no ``players`` key and
+    falls back to the old number rather than showing nothing.
+
     Args:
         meta: The store's ``meta.json``.
     """
-    overall = (meta.get("coverage") or {}).get("overall") or {}
-    if not overall:
+    coverage = meta.get("coverage") or {}
+    players = coverage.get("players") or {}
+    shown = players or coverage.get("overall") or {}
+    if not shown:
         return
 
     st.divider()
-    st.caption("Projection Sources (% Real, Not Imputed)")
-    for source in ("ESPN", "FP", "PINNY", "BOL"):
-        if source not in overall:
-            continue
-        pct = overall[source]
-        st.progress(min(max(pct / 100.0, 0.0), 1.0), text=f"{source} {pct:.0f}%")
+    st.caption("Projection Sources (% of Players With a Real Line)" if players
+               else "Projection Sources (% Real, Not Imputed)")
+
+    ordered = [s for s in COVERAGE_ORDER if s in shown]
+    ordered += [s for s in sorted(shown) if s not in COVERAGE_ORDER]
+    for source in ordered:
+        pct = shown[source]
+        st.progress(min(max(pct / 100.0, 0.0), 1.0),
+                    text=f"{COVERAGE_LABELS.get(source, source)} {pct:.0f}%")
+
+    population = coverage.get("population") or {}
+    if players and population.get("rows"):
+        rostered = population.get("rostered")
+        per_position = population.get("free_agents_per_position")
+        detail = f"{population['rows']} players"
+        if rostered is not None and per_position:
+            detail = (f"{population['rows']} players — {rostered} rostered plus the "
+                      f"top {per_position} free agents at each position")
+        st.caption(
+            f"Measured over {detail}. Individual defensive players are excluded: no "
+            f"source but ESPN publishes a line for them."
+        )
 
     absent = [name for name, present
               in (meta.get("weekly_sources_present") or {}).items() if not present]

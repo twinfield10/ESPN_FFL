@@ -190,18 +190,62 @@ For 2026: last draft Tue 09-08 20:30, first game Wed 09-09. See
 
 ## Weekly run
 
+**Most of this is now nightly.** As of 2026-09-08 `run_daily_refresh.sh` runs the
+schedule, both FantasyPros pulls, the weekly Pinnacle props, the injury report, the
+boards **and** `--what lineups`. What is left by hand each week is the part that needs
+a human decision and the two things the nightly deliberately does not do.
+
 ```bash
-Rscript R/GetNFL.R                     # refresh schedule (scores drive current week)
-python -m Scripts.scrape_FP            # FantasyPros -- needs the session cookie, see below
-python -m Scripts.scrape_pinnacle      # Pinnacle (launches Chrome via Selenium)
-python -m Scripts.scrape_BOL           # BetOnline  -- SEE WARNING
-python -m Scripts.scrape_espn_injuries # today's injury report + a dated snapshot
 python -m Scripts.injury.review        # who needs a hand-written severity  <-- read this
 #   ... edit config/injuries/<season>.yaml if it named anyone ...
-python -m Scripts.refresh --all --what lineups,team_stats   # build the store, once
+python -m Scripts.refresh --all --what lineups,team_stats   # team_stats is the weekly bit
 python -m Scripts.sync --push          # publish it to S3 -- the app reads from there
 python populateGoogleSheet.py          # render the store to Sheets
 ```
+
+The injury edit must come **before** `refresh`, or nothing changes until next week.
+
+<details>
+<summary>What the nightly took over, and when</summary>
+
+```bash
+Rscript R/GetNFL.R                       # nightly since 2026-09-08 -- see below
+python -m Scripts.scrape_FP --what season   # nightly since 2026-08-24
+python -m Scripts.scrape_FP --what weekly   # nightly since 2026-09-08
+python -m Scripts.scrape_pinnacle        # nightly since 2026-09-08, non-fatal
+python -m Scripts.scrape_espn_injuries   # nightly
+python -m Scripts.refresh --all --what board    # nightly
+python -m Scripts.refresh --all --what lineups  # nightly since 2026-09-08
+python -m Scripts.scrape_BOL             # never -- permanently 403, see the warning
+```
+
+**`R/GetNFL.R` was the urgent one, and it is step 0 of the nightly rather than a
+convenience.** It had never been in it, and on 2026-09-08 the schedule was frozen at
+08-14 with **zero** scores. `current_week()` is "the first week with an unplayed game",
+so it returned **1 forever** -- and `Scripts/scrape_FP.py` binds `WEEK` at import, so
+a weekly scrape would have re-fetched week 1 every night for the rest of the season.
+Worse, `SEASON_STARTED` is derived from the same column, so it stayed 0 and kept the two
+book stages **fatal**: the first night a book retired its season-long market, the
+nightly would have failed and stopped rebuilding the boards at all.
+
+**`--what lineups` was the other gap.** `lineups.parquet` is what the entire in-season
+app reads, and nothing built it on a schedule -- the boards were four hours old at 06:01
+and the lineups were from whenever someone last typed the command. It runs *after* the
+board stage, so a failure in the longest path in the repo costs the S3 push rather than
+the boards.
+
+**FantasyPros weekly fetches the current week alone and merges.** Each week freezes at
+first capture, so re-running is safe and never rewrites what the blend voted with. Use
+`--weeks 1-3` to backfill and `--no-merge` to deliberately replace a bad capture -- which
+is what the authenticated re-scrape of week 1 had to do, because the file on disk was
+the 60-row anonymous teaser from 2026-08-03.
+
+**Pinnacle weekly is non-fatal on purpose.** `scrape_pinnacle` exits 1 on an empty
+result, which is right for a human and wrong for cron: a book's weekly board is
+genuinely empty some of the time. `python -m Scripts.refresh_status` now names every
+weekly file, advisory for the two books so the exit code is not red every night.
+
+</details>
 
 `--what lineups,team_stats` rather than the bare default: `team_stats` carries the
 fixture list, and the Matchup tab cannot say who you are playing without it. It is
@@ -230,9 +274,14 @@ Both stages are fatal **only before the season opens**. Once games are played, b
 retire their season-long markets outright, so an empty pull becomes expected and the
 nightly logs a `NOTE:` and carries on rather than stopping the boards rebuilding.
 
-The *weekly* Pinnacle and BetOnline scrapers above are deliberately still manual. Both
-are broken -- see the warning below -- and a `|| fail` on either would take the nightly
-down every night.
+**The weekly Pinnacle scraper is nightly since 2026-09-08 and BetOnline's never will
+be.** This said both were "deliberately still manual" because both were broken. That
+was right about BetOnline and stopped being right about Pinnacle: plan 36 step 3 parked
+on Pinnacle having posted **zero** weekly player props across all sixteen week-1 games,
+and re-probed it returns **165 props over 165 players and all 16 games in 35 seconds**.
+It is in the nightly as a non-fatal stage. BetOnline's weekly host still answers 403
+`invalid_security_headers` and wants a signed request, which is an anti-bot control and
+is not circumvented.
 
 ### Sportsbook game lines
 

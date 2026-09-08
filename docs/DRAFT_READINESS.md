@@ -80,14 +80,18 @@ need nothing. That is the pre-draft scan
 
 **Jayden Higgins was on injured reserve for the season and the board had him at 36.3
 points, WR126 against ESPN's WR198.** Not a modelling disagreement — a hole in the
-equal-vote blend. ESPN priced him 0.0, FantasyPros and Pinnacle dropped him, TOMCAT was
-withdrawn by the injury adjustment, and **BetOnline was still posting 575.5 receiving
+equal-vote blend. ESPN priced him 0.0, FantasyPros and Pinnacle dropped him, TOMCAT (then
+still a voting source) was withdrawn by the injury adjustment, and **BetOnline was still
+posting 575.5 receiving
 yards** in a file the nightly had rewritten that morning. Four sources abstained
 correctly and the fifth became the whole projection.
 
 The rationale for scaling only `USG_` — "ESPN and FantasyPros price a known absence
 themselves" — is sound for a projection site and **does not hold for a sportsbook**,
-which posts a pre-season number and leaves it up.
+which posts a pre-season number and leaves it up. The gates below outlive TOMCAT's
+withdrawal from the blend on 2026-09-07: they were never about the model, and with one
+fewer voter the fifth-source-becomes-everything failure they close is *more* likely
+rather than less.
 
 Three gates now withdraw every non-ESPN source: out for the season, or ESPN prices him
 zero and he is out, or ESPN prices him zero and one source is left. Measured across all
@@ -129,6 +133,18 @@ and two decisions.
 ## Two open decisions
 
 ### 1. `DST_` is on at 0.25. `KIK_` stays at 0.0 — done 2026-08-24
+
+> **Overtaken 2026-09-07.** Both arms write `USG_` and both went with TOMCAT when it was
+> withdrawn from the season blend, so neither has a weight to argue about. The section is
+> kept because the *argument* is still the one to make if a rushing identity brings the
+> model back — and because one of its numbers did not survive contact. G-DST4 passed here
+> on a cross-position shift of "exactly 0.0000" for QB/RB/WR/TE at `DST=0.25`; the
+> with/without rebuild in [plan 43](plans/43-tomcat-out-of-season-blend.md), run against
+> the whole model at an equal vote, puts **D/ST at 0.879 of the field against 0.975–0.990
+> for the skill positions** and its ordering at a Spearman of 0.168. The two are not
+> measuring the same thing — this one moved the defence weight alone, that one removed a
+> whole source — but the defence arm is the piece with the least support either way, and
+> re-admitting it needs its own answer rather than this one.
 
 **This entry replaces the opposite recommendation, which was wrong.** It said to leave
 both at 0.0 because `KIK_Points` sits at 0.689 of ESPN's level and `DST_Points` at
@@ -308,16 +324,15 @@ Ordered by when it has to happen, not by size.
       budget on the Board page — The Sheet reads it rather than owning a second input.
 - [ ] Cross players off on The Sheet as they go. Nothing is written to the store, so a
       reload loses it — which is the trade for the page never touching ESPN.
-- [ ] Read `Δrk` rather than `USG` points — the two are on different *levels* (the
-      model shrinks toward positional baselines where ESPN extrapolates), so the rank
-      comparison is the one that survives. **Not because one is injury-adjusted:**
-      `to_full_slate` divides each player's expected games back out, so `USG_Points`
-      and `TRUE_Points` are both if-healthy 17-game lines. An earlier version of this
-      line said the opposite. Availability travels separately as
-      `usg_expected_games`; The Sheet's `Avail` toggle is where it gets applied, to
-      the whole blend rather than to one quarter of it.
-- [ ] D/ST is blended now, so `TRUE_Points` already carries the model — read it as the
-      number. For kickers, `KIK_Points` is still an opinion beside the total, not in it.
+- [ ] **There is no TOMCAT column to read.** It was withdrawn from the season blend on
+      2026-09-07 — its projected league runs 384 carries a team against a realised
+      450–465, so every runner carried a ~10% haircut unrelated to the player. `Points |
+      TOM`, `Δ TOM`, `Exp G`, `Role %` and `Model Evidence` are all off the board, and
+      The Sheet's `Avail` toggle is disabled with them. `TRUE_Points` is the number.
+      See [plan 43](plans/43-tomcat-out-of-season-blend.md).
+- [ ] **Kickers and D/ST are ESPN-only again**, near enough. TOMCAT's defence and
+      kicking arms went with the rest of it, so those two starting slots have no second
+      opinion — read them as ESPN's number and spend your attention elsewhere.
 
 ---
 

@@ -100,26 +100,55 @@ def points_columns(frame: pl.DataFrame, meta: dict) -> List[str]:
     return [c for c in columns if c in frame.columns]
 
 
-def _imputed_share(frame: pl.DataFrame, prefix: str) -> Optional[pl.Expr]:
-    """Share of ``prefix``'s stat columns that were imputed, per row.
+def _contributed(frame: pl.DataFrame, prefix: str) -> Optional[pl.Expr]:
+    """Did ``prefix`` supply at least one real cell for this player?
+
+    The polars twin of :func:`Scripts.projection_utils.source_contributed`, and it
+    has to be a twin rather than a call: that module is pandas and this one is
+    polars. ``tests/test_lineup.py`` pins the two against each other on one frame so
+    the store's coverage panel and this column cannot drift on what "real" means.
 
     There is no ``<prefix>_Points_is_imputed`` flag -- imputation is tracked per stat
-    -- so a source's realness for one player has to be read off its stat flags. A
-    source imputed on most of its stats did not have an opinion about that player.
+    -- so a source's realness for one player is read off its stat flags. Two clauses:
+    a **zero does not count** (these frames are dense with structural zeros; a
+    kicker's ``FP_passingYards`` is 0.0 and unflagged because nobody imputed it and
+    nobody asserted it either), and an **imputed cell does not count**.
+
+    **This replaced a mean-of-flags share cut at 0.5, which never fired.** Measured
+    on Knights 2026 week 1: FantasyPros carries 47 flag columns and fills at most
+    **15** of them for any player -- the other 32 are kicker bands, D/ST bands,
+    two-point conversions and targets it structurally never publishes -- so the
+    minimum imputed share over 334 rows is **0.681** and **no row** cleared the cut.
+    ``sources_real`` was therefore uniformly 1 and ``source_spread`` null for every
+    player, all season, which is why the Roster tab's "Single-Source Starters"
+    counted every starter.
 
     Args:
         frame: A lineups frame.
         prefix: Source prefix.
 
     Returns:
-        pl.Expr | None: Mean of the flags, or None when the source has none (which
-        is the case for ESPN, and for a store built before the flags existed).
+        pl.Expr | None: True where the source contributed, or None when it has no
+        stat column at all -- which is the case for a points-only frame, and is what
+        the caller falls back to ``<prefix>_Points`` being non-null for.
     """
-    flags = [c for c in frame.columns
-             if c.startswith(f"{prefix}_") and c.endswith("_is_imputed")]
-    if not flags:
+    suffix = "_is_imputed"
+    start = f"{prefix}_"
+    stats = [c for c in frame.columns
+             if c.startswith(start) and not c.endswith(suffix)
+             and c[len(start):] not in ("Points", "PosRank")
+             and frame.schema[c].is_numeric()]
+    if not stats:
         return None
-    return pl.mean_horizontal([pl.col(c).cast(pl.Float64) for c in flags])
+
+    terms = []
+    for column in stats:
+        real = pl.col(column).is_not_null() & (pl.col(column) != 0)
+        flag = column + suffix
+        if flag in frame.columns:
+            real = real & pl.col(flag).fill_null(True).not_()
+        terms.append(real)
+    return pl.any_horizontal(terms)
 
 
 def with_source_spread(frame: pl.DataFrame, meta: dict) -> pl.DataFrame:
@@ -128,9 +157,9 @@ def with_source_spread(frame: pl.DataFrame, meta: dict) -> pl.DataFrame:
     A wide spread is a risk signal the single blended number hides, and it is
     honest only when measured over sources that are genuinely present -- which is
     why realness is checked twice: at league level through
-    :func:`real_sources`, and per player through :func:`_imputed_share`. On Knights
-    week 1, FantasyPros is imputed for 178 of 235 rostered players, so most rows are
-    a single opinion and correctly report no spread at all.
+    :func:`real_sources`, and per player through :func:`_contributed`. On Knights
+    2026 week 1 that leaves 256 rows on a single opinion, 48 with two and 10 with
+    none, so most rows correctly report no spread at all.
 
     Args:
         frame: A lineups frame.
@@ -146,13 +175,14 @@ def with_source_spread(frame: pl.DataFrame, meta: dict) -> pl.DataFrame:
             pl.lit(0).alias("sources_real"),
             pl.lit(None, dtype=pl.Float64).alias("source_spread"))
 
-    # A source counts for a player when it is present at league level and not mostly
-    # imputed for him. Half is the cut: a source imputed on more stats than it
-    # projected is not describing that player.
+    # A source counts for a player when it is present at league level and really
+    # supplied at least one of his stat cells. A source with no stat column on the
+    # frame at all falls back to having a points total, which is the only thing left
+    # to read -- see `_contributed`.
     values, counts = [], []
     for prefix in prefixes:
-        share = _imputed_share(frame, prefix)
-        real = pl.lit(True) if share is None else (share < 0.5)
+        contributed = _contributed(frame, prefix)
+        real = pl.lit(True) if contributed is None else contributed
         real = real & pl.col(f"{prefix}_Points").is_not_null()
         values.append(pl.when(real).then(pl.col(f"{prefix}_Points"))
                         .otherwise(None).alias(f"__real_{prefix}"))

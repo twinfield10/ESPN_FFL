@@ -194,7 +194,8 @@ def _versions() -> Dict[str, Optional[str]]:
     return versions
 
 
-def coverage_summary(lineups: pd.DataFrame) -> Dict[str, Any]:
+def coverage_summary(lineups: pd.DataFrame, *,
+                     scope_population: bool = True) -> Dict[str, Any]:
     """Per-source projection coverage, for ``meta.json``.
 
     Reuses :func:`Scripts.projection_utils.coverage_report`, written for plan 03,
@@ -202,20 +203,66 @@ def coverage_summary(lineups: pd.DataFrame) -> Dict[str, Any]:
     that a degraded source shows in the app rather than being absorbed by
     imputation -- pre-season, Pinnacle and BetOnline are 0% real.
 
+    Reports two numbers, because the panel that reads this asks a question about
+    *players* and the original answers one about cells:
+
+    * ``overall`` -- the mean over each source's stat columns, unchanged, so a
+      reader written against the old shape still works.
+    * ``players`` -- :func:`Scripts.projection_utils.player_coverage`: the share of
+      the population that source really has a line for. This is what the sidebar
+      renders. Measured on the 2026 stores, FantasyPros reads 12.4% of cells and
+      **21.8% of the players the owner can start** -- the cell average divides by
+      45-odd stats, most of which FantasyPros never publishes, so it answers a
+      question nobody asked.
+
+    ``scope_population`` narrows *both* to
+    :func:`Scripts.projection_utils.coverage_population` -- every rostered player
+    plus the best twenty free agents per position, IDP excluded. Before it, the
+    denominator was every row of ``lineups.parquet``, of which the free-agent pool
+    is 12-100% depending on the league, so a source was being graded on the
+    thirtieth-best available tight end.
+
     Args:
         lineups: A ``clean_lineups`` frame, carrying ``*_is_imputed`` flags.
+        scope_population: Narrow to the startable population. Off gives the
+            historical whole-frame denominator.
 
     Returns:
-        dict: ``{"overall": {source: pct}, "key_stats": {stat: {source: pct}}}``.
-        Empty dicts when the frame carries no coverage information.
+        dict: ``{"overall": {...}, "players": {...}, "key_stats": {...},
+        "population": {...}}``. ``overall`` and ``key_stats`` are empty dicts when
+        the frame carries no coverage information, as before.
     """
     # Deferred: projection_utils pulls in the ESPN and scoring stack, and the app
     # imports this module purely to read parquet.
-    from Scripts.projection_utils import coverage_report
+    from Scripts.projection_utils import (
+        COVERAGE_FREE_AGENTS_PER_POSITION,
+        FREE_AGENT_OWNER,
+        IDP_POSITIONS,
+        coverage_population,
+        coverage_report,
+        player_coverage,
+    )
 
-    report = coverage_report(lineups)
+    scoped = coverage_population(lineups) if scope_population else lineups
+
+    population: Dict[str, Any] = {"rows": int(len(scoped)),
+                                  "rows_before": int(len(lineups))}
+    if scope_population:
+        population["free_agents_per_position"] = COVERAGE_FREE_AGENTS_PER_POSITION
+        population["excluded_positions"] = list(IDP_POSITIONS)
+        if "team_owner" in scoped.columns:
+            is_fa = scoped["team_owner"] == FREE_AGENT_OWNER
+            population["rostered"] = int((~is_fa).sum())
+            population["free_agents"] = int(is_fa.sum())
+
+    players = player_coverage(scoped)
+    players_pct = ({row.source: float(row.real_pct)
+                    for row in players.itertuples()} if not players.empty else {})
+
+    report = coverage_report(scoped)
     if report.empty:
-        return {"overall": {}, "key_stats": {}}
+        return {"overall": {}, "key_stats": {}, "players": players_pct,
+                "population": population}
 
     overall = report.groupby("source")["real_pct"].mean().round(1).to_dict()
     by_stat = report.set_index(["stat", "source"])["real_pct"]
@@ -227,7 +274,9 @@ def coverage_summary(lineups: pd.DataFrame) -> Dict[str, Any]:
                 for source, pct in by_stat.loc[stat].items()
             }
     return {"overall": {k: round(float(v), 1) for k, v in overall.items()},
-            "key_stats": key_stats}
+            "key_stats": key_stats,
+            "players": players_pct,
+            "population": population}
 
 
 #: ADP bands the ESPN calibration is broken out over.

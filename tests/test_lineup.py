@@ -472,19 +472,95 @@ def test_a_source_imputed_for_this_player_does_not_count_as_real():
     """League-level presence is not per-player presence.
 
     FantasyPros publishes weekly numbers for the players it covers and the blend
-    imputes the rest -- 178 of 235 rostered players on Knights week 1.
+    imputes the rest. The flag has to travel with the stat it describes: this
+    fixture used to carry ``FP_rushingYards_is_imputed`` and no
+    ``FP_rushingYards``, which is not a shape any real frame has, and it is why
+    the old mean-of-flags rule looked like it worked here.
     """
     frame = pl.DataFrame([
         {**player("Covered", "RB", 10.0), "ESPN_Points": 8.0, "FP_Points": 12.0,
-         "FP_rushingYards_is_imputed": False},
+         "FP_rushingYards": 60.0, "FP_rushingYards_is_imputed": False},
         {**player("Not", "RB", 10.0), "ESPN_Points": 8.0, "FP_Points": 8.0,
-         "FP_rushingYards_is_imputed": True},
+         "FP_rushingYards": 45.0, "FP_rushingYards_is_imputed": True},
     ])
     out = lu.with_source_spread(
         frame, {"weekly_sources_present": {"fantasypros": True, "pinnacle": False,
                                            "betonline": False}})
     assert out["sources_real"].to_list() == [2, 1]
     assert out["source_spread"][1] is None
+
+
+def test_a_structural_zero_is_not_a_real_line():
+    """A source that projected nothing is not a source that projected zero.
+
+    These frames are dense with structural zeros: a kicker's ``FP_passingYards``
+    is 0.0 and carries no imputation flag, because nobody imputed it and nobody
+    asserted it either. Counting those made FantasyPros a real source for Cameron
+    Dicker on the strength of twelve zeros, and his floor and ceiling came back
+    exactly equal to ESPN's total -- a spread of zero, reported as agreement.
+    """
+    frame = pl.DataFrame([{**player("Dicker", "K", 8.0), "ESPN_Points": 8.0,
+                           "FP_Points": 8.0, "FP_passingYards": 0.0,
+                           "FP_rushingYards": 0.0}])
+    out = lu.with_source_spread(
+        frame, {"weekly_sources_present": {"fantasypros": True, "pinnacle": False,
+                                           "betonline": False}})
+    assert out["sources_real"][0] == 1
+    assert out["source_spread"][0] is None
+
+
+def test_a_source_with_more_flags_than_it_ever_fills_still_counts_as_real():
+    """The regression test for a cut that never fired.
+
+    ``with_source_spread`` used to count a source real when the *mean* of its
+    imputation flags was below 0.5. Measured on Knights 2026 week 1, FantasyPros
+    carries **47** flag columns and fills at most **15** of them for any player --
+    the other 32 are kicker bands, D/ST bands, two-point conversions and targets it
+    structurally never publishes -- so the minimum imputed share over 334 rows was
+    **0.681** and no row cleared the cut. ``sources_real`` was uniformly 1 and
+    ``source_spread`` null for every player, all season, which is why the Roster
+    tab's "Single-Source Starters" counted every starter.
+
+    Two real cells out of twelve is a real line. This fixture is that shape.
+    """
+    row = {**player("A", "WR", 10.0), "ESPN_Points": 8.0, "FP_Points": 12.0}
+    for i in range(12):
+        row[f"FP_stat{i}"] = 10.0
+        row[f"FP_stat{i}_is_imputed"] = i >= 2
+    out = lu.with_source_spread(
+        pl.DataFrame([row]),
+        {"weekly_sources_present": {"fantasypros": True, "pinnacle": False,
+                                    "betonline": False}})
+    assert out["sources_real"][0] == 2
+    assert out["source_spread"][0] == pytest.approx(2.0)
+
+
+def test_the_store_and_the_app_agree_on_which_sources_are_real():
+    """One rule, two implementations, pinned against each other.
+
+    ``Scripts.projection_utils.source_contributed`` is pandas and
+    ``app.lineup._contributed`` is polars, so they cannot be the same call. This
+    test is what buys that duplication: the sidebar's coverage percentage and this
+    frame's ``sources_real`` have to mean the same thing, and the failure mode if
+    they drift is the one this repo keeps hitting -- two numbers describing the
+    same data and disagreeing, with nothing to say which is right.
+    """
+    from Scripts.projection_utils import source_contributed
+
+    rows = [
+        {"FP_rushingYards": 60.0, "FP_rushingYards_is_imputed": False,
+         "FP_receivingYards": 0.0, "FP_receivingYards_is_imputed": False},
+        {"FP_rushingYards": 45.0, "FP_rushingYards_is_imputed": True,
+         "FP_receivingYards": 0.0, "FP_receivingYards_is_imputed": False},
+        {"FP_rushingYards": 0.0, "FP_rushingYards_is_imputed": False,
+         "FP_receivingYards": 30.0, "FP_receivingYards_is_imputed": False},
+    ]
+    frame = pl.DataFrame(rows)
+    polars_answer = frame.select(lu._contributed(frame, "FP").alias("x"))["x"].to_list()
+    pandas_answer = source_contributed(
+        frame.to_pandas(), "FP", ["rushingYards", "receivingYards"]).tolist()
+
+    assert polars_answer == pandas_answer == [True, False, True]
 
 
 # --- status --------------------------------------------------------------
