@@ -28,15 +28,17 @@ import session
 import store
 from views import weekly
 
-#: How many free agents per position to consider for add/drop, and how many drop
-#: candidates to weigh each against.
+#: How many drop candidates each addition is weighed against.
 #:
-#: Every pair costs two optimal-lineup solves, so the pairing is quadratic. Six by
-#: four is 24 pairs per position and lands in milliseconds; the honest reason for a
-#: cap is that a seventh-best waiver receiver is not a decision anybody is weighing.
-#: The cap is stated on the page rather than left implicit -- a silent top-N reads as
-#: "we checked everything".
-ADD_DROP_CANDIDATES = 6
+#: Every pair costs two optimal-lineup solves. The candidates are no longer a top-N
+#: of the pool -- they are the best available player for each *starting slot*, which
+#: :func:`lineup.best_available_per_slot` bounds at the number of slots the league
+#: has, so the pairing is at most eight by four and lands in milliseconds.
+#:
+#: **The old top-N was position-blind and that was not a cap, it was a blind spot.**
+#: The positions are not on the same scale, so "the top six available by projection"
+#: was six quarterbacks on Winfield week 1, in a league that starts one. The best
+#: available running back, tight end and kicker were never scored at all.
 ADD_DROP_DROPS = 4
 
 selection = session.current()
@@ -118,9 +120,27 @@ if default_owner:
     roster = rostered.filter(pl.col("team_owner") == owner).to_dicts()
     slots = lu.slot_counts(rostered, selection.meta)
     drops = lu.weakest_starter_candidates(roster, slots, "TRUE_Points")[:ADD_DROP_DROPS]
-    candidates = (filtered.sort("TRUE_Points", descending=True)
-                  .head(ADD_DROP_CANDIDATES).to_dicts())
 
+    # Off `pool`, not `filtered`. A flag that disappears when you narrow the table
+    # below to quarterbacks is not a flag, and the same goes for the pairing: the
+    # controls scope the *pool table*, not what the app is willing to tell you.
+    every = pool.to_dicts()
+    candidates = lu.best_available_per_slot(every, slots, "TRUE_Points")
+
+    st.markdown("**Better Than What You Have**")
+    weekly.render_upgrades(
+        lu.upgrades(every, roster, slots, "TRUE_Points"), owner=owner)
+    st.caption(
+        "Compared **slot by slot, not position by position** — which is what puts a "
+        "free-agent quarterback up against a receiver in a superflex `OP`, a back up "
+        "against a receiver in the flex, and five defensive positions up against "
+        "each other in `DP`. Eligibility is ESPN's own `eligiblePositions`. Measured "
+        "against the lineup ESPN currently has set, so if the Roster tab says to "
+        "bench that player anyway, fix that first — it may cost you no waiver claim "
+        "at all."
+    )
+
+    st.markdown("**What The Move Is Worth**")
     moves = []
     for candidate in candidates:
         best = None
@@ -140,8 +160,9 @@ if default_owner:
             })
 
     picker[1].caption(
-        f"Weighing the top {len(candidates)} available against the "
-        f"{len(drops)} most droppable on {owner}'s roster."
+        f"Weighing the best available player at each of {len(slots)} starting slots "
+        f"— {len(candidates)} distinct players — against the {len(drops)} most "
+        f"droppable on {owner}'s roster."
     )
 
     if moves:
@@ -162,30 +183,40 @@ if default_owner:
             },
         )
         st.caption(
+            "`Lineup Gain` is the difference between two **optimal lineups**, not "
+            "between two players — which is why it can be zero for someone the flags "
+            "above call an upgrade: a player who beats your worst starter is worth "
+            "nothing extra if the optimiser was going to bench that man anyway. "
             "**This week only.** A move that gains nothing this week can still be "
             "right for the rest of the season; rest-of-season value needs the weekly "
             "model that plan 19 has not built, so it is not claimed here."
         )
     else:
         st.info(
-            f"None of the top {len(candidates)} available players would improve "
-            f"{owner}'s best lineup this week. That is the common answer, and it is "
-            f"the one worth trusting — a waiver claim that does not change your "
-            f"Sunday is a roster spot spent on nothing."
+            f"None of the {len(candidates)} best-available players would improve the "
+            f"best lineup {owner} could field this week. A waiver claim that does "
+            f"not change your Sunday is a roster spot spent on nothing — though the "
+            f"flags above still apply to the lineup as it is actually set."
         )
 
 # --- the pool -------------------------------------------------------------
 st.divider()
 st.subheader(f"Available · {filtered.height} of {pool.height}")
 
+# No `player_active_status` column, unlike the Roster tab. It is ESPN's answer to
+# "is he in an active lineup slot", so every unrostered player reads `inactive` --
+# 146 of 146 here -- and a column of that reads as an injury report for the entire
+# waiver wire. See `lineup.POOL_STATUS`.
 columns = weekly.display_columns(
     filtered, selection.meta,
-    lead=("player_name", "player_position", "pro_team", "player_active_status"))
+    lead=("player_name", "player_position", "pro_team"))
 weekly.render_table(filtered.sort("TRUE_Points", descending=True), selection.meta,
                     columns=columns, height=560)
 st.caption(
     "Everyone ESPN lists as unrostered in this league, projected in its own scoring. "
-    "Ownership percentage is on the draft board but not in the weekly artifact, so "
-    "this cannot yet be narrowed to players who are genuinely gettable rather than "
-    "merely unrostered."
+    "**A player with no game this week projects 0.0 on ESPN** — that is how a bye "
+    "shows up here, because ESPN's availability field says `inactive` for every "
+    "unrostered player and so says nothing at all. Ownership percentage is on the "
+    "draft board but not in the weekly artifact, so this cannot yet be narrowed to "
+    "players who are genuinely gettable rather than merely unrostered."
 )

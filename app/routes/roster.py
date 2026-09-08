@@ -22,6 +22,7 @@ import polars as pl
 import streamlit as st
 
 import lineup as lu
+import lineup_table as ltab
 import session
 import store
 from Scripts.draft.board import NON_STARTING_SLOTS
@@ -134,29 +135,80 @@ if note:
 
 st.divider()
 
-# Derived from a frame that carries `slot`. `team` carries `slotPosition`, and
-# deriving from it dropped the Slot column from both tables below — which is the
-# column the slot ordering exists to make readable.
-columns = weekly.display_columns(
-    team.with_columns(pl.col("slotPosition").alias("slot")), selection.meta)
+# The Matchup tab's columns, minus the mirroring and the advantage pair that only a
+# fixture has. `blend_first` is the one deliberate difference: this is a decision
+# table, so the number the lineup is chosen on sits beside the player's name rather
+# than four columns downstream of it.
+info_columns = ltab.info_columns(team.columns)
+points_columns = ltab.points_columns(team.columns, selection.meta, blend_first=True)
 
 st.subheader("The Best Lineup Available")
-best = pl.DataFrame(optimal) if optimal else team.head(0)
-weekly.render_table(lu.sort_by_slot(best), selection.meta, columns=columns)
-st.caption(
-    "In ESPN's slot order — QB, RB, WR, TE, FLEX, OP, DP, D/ST, K — and by "
-    "projection within a slot. Slot is where the optimiser puts each player, not "
-    "where ESPN has him. Eligibility comes from ESPN's own `eligiblePositions`, "
-    "which is what makes superflex (`OP`) and this league's defensive slots work "
-    "without a lookup table."
-)
 
-st.subheader("Everyone On The Roster")
-weekly.render_table(
-    lu.sort_by_slot(team, slot_column="slotPosition"), selection.meta,
-    columns=[c if c != "slot" else "slotPosition" for c in columns])
+# One table, and the changes are marked in it rather than shown in a second one.
+#
+# The optimal lineup on its own could only ever mark the players coming *in* -- the
+# ones going out are, by definition, not in it. So each outgoing player is drawn
+# directly beneath the man who displaces him, which is what makes a swap legible as
+# one decision instead of two rows to hunt for. He keeps `slotPosition`, the slot
+# ESPN actually has him in, rather than borrowing the incoming player's: the two are
+# usually the same and stating the wrong one when they are not would be a lie in
+# service of a tidier column.
+added, dropped = lu.changed_ids(current, optimal)
+displaced = {change.start_row.get("player_id"): change.sit_row
+             for change in changes
+             if change.start_row is not None and change.sit_row is not None}
+
+table_rows, marks = [], {}
+for row in lu.sort_by_slot(pl.DataFrame(optimal)).to_dicts() if optimal else []:
+    player_id = row.get("player_id")
+    table_rows.append(row)
+    if player_id in added:
+        marks[player_id] = "in"
+    leaving = displaced.get(player_id)
+    if leaving is not None:
+        table_rows.append({**leaving, "slot": leaving.get("slotPosition")})
+        marks[leaving.get("player_id")] = "out"
+
+# A starter the optimiser drops without putting anyone in his place -- someone ruled
+# out with no cover, which is the case you most want flagged. `swaps` pairs each
+# arrival with a departure and has nothing to pair him with, so he would otherwise
+# be the one change the table did not show.
+for row in sorted((r for r in current if r.get("player_id") in dropped
+                   and r.get("player_id") not in marks),
+                  key=lambda r: -(r.get("TRUE_Points") or 0)):
+    table_rows.append({**row, "slot": row.get("slotPosition")})
+    marks[row.get("player_id")] = "out"
+
+# The bench, under the total rather than over it: these are the rows the total
+# deliberately excludes, and putting them above it would make the number look wrong.
+# Anyone already drawn above -- a player coming in, or one being dropped -- is not
+# repeated here, so every player on the roster appears exactly once.
+#
+# `slot` is set from `slotPosition` for the same reason the red rows carry it: the
+# table reads one slot column, and these rows come off the raw frame rather than out
+# of the optimiser, so without it their slot cell renders blank -- BE and IR are the
+# only thing distinguishing a bench row at a glance.
+shown = {row.get("player_id") for row in table_rows}
+bench = [{**row, "slot": row.get("slotPosition")} for row in
+         lu.sort_by_slot(team, slot_column="slotPosition").to_dicts()
+         if row.get("player_id") not in shown]
+
+weekly.render_lineup(table_rows, info_columns, points_columns, label=owner,
+                     total_rows=optimal, marks=marks, below=bench)
+
+changed = sum(1 for mark in marks.values() if mark == "in")
+marking = (
+    f"**Green `IN`** is a player to start who is currently benched; **red `OUT`** "
+    f"is one currently starting who this lineup drops, drawn under the man taking "
+    f"his place. {changed} change{'s' if changed != 1 else ''}. "
+) if marks else "Nothing is marked: this lineup is already the best one available. "
 st.caption(
-    "As ESPN has it set, in ESPN's own slot order, with the bench and IR last. "
-    "`Slot` here is the real one, not the optimiser's — and it is the *slot*, not "
-    "the position, so a receiver in the flex sits under FLEX."
+    f"The lineup is above `TOTAL`, in ESPN's slot order — QB, RB, WR, TE, FLEX, OP, "
+    f"DP, D/ST, K — and by projection within a slot; the {len(bench)} rows below it "
+    f"are the bench, which is why they are below it. {marking}"
+    f"`TOTAL` counts only the {len(optimal)} rows in the lineup — the **Best "
+    f"Available** metric above. Slot is where the optimiser puts each player; on a "
+    f"red or a bench row it is where ESPN has him now. Eligibility comes from ESPN's "
+    f"own `eligiblePositions`, which is what makes superflex (`OP`) and this "
+    f"league's defensive slots work without a lookup table."
 )

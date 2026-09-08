@@ -26,6 +26,7 @@ import polars as pl
 import streamlit as st
 
 import lineup as lu
+import lineup_table as ltab
 import matchup_sim as sim
 import session
 import store
@@ -219,27 +220,40 @@ with right:
 
 # --- the two lineups ------------------------------------------------------
 st.divider()
-st.subheader("Both Lineups, As Set")
+st.subheader("The Matchup, Slot By Slot")
 st.caption(
-    "Both sides in ESPN's slot order — QB, RB, WR, TE, FLEX, OP, DP, D/ST, K — so "
-    "the two columns line up row for row and a matchup can be read across."
+    f"One table, mirrored: **{owner}** reads outward from the left, **{opponent}** "
+    f"outward from the right, and the two meet at the slot they are both filling. "
+    f"Rows are in ESPN's slot order — QB, RB, WR, TE, FLEX, OP, DP, D/ST, K — and "
+    f"paired best against best within a slot. **ADV** is that side's points at that "
+    f"slot minus the other side's, so the column sums to the projected margin, and "
+    f"**Δ** is our blend against ESPN's own number."
 )
 
 missing = weekly.missing_sources_note(selection.meta)
 if missing:
     st.caption(missing)
 
-# Derived from a frame that carries `slot`. The starters do; `rostered` carries
-# `slotPosition` instead, and deriving from it silently dropped the Slot column —
-# which is the column the whole ordering is there to make readable.
-columns = weekly.display_columns(
-    lu.with_source_spread(rostered, selection.meta)
-      .with_columns(pl.col("slotPosition").alias("slot")),
-    selection.meta)
-pair = st.columns(2)
-for column, name in zip(pair, (owner, opponent)):
-    with column:
-        st.markdown(f"**{name}** · {sides[name].projected:.1f}")
-        starters = lineups_by_owner[name][1]
-        frame = pl.DataFrame(starters) if starters else rostered.head(0)
-        weekly.render_table(lu.sort_by_slot(frame), selection.meta, columns=columns)
+# Columns come off the whole week's frame rather than off either lineup, so both
+# halves are the same shape even when one side has a player no source priced.
+#
+# No `Sources`/`Spread` here, unlike the Roster tab. They answer "how well
+# corroborated is this projection", which is a question about your own roster; across
+# a fixture it says nothing about whether your receiver beats theirs, and the two
+# columns a side were four of the 25 that made the table need a scrollbar.
+shape = lu.with_source_spread(rostered, selection.meta)
+info_columns = ltab.info_columns(shape.columns)
+points_columns = ltab.points_columns(shape.columns, selection.meta,
+                                     corroboration=False)
+
+weekly.render_matchup(
+    ltab.pair_by_slot(lineups_by_owner[owner][1], lineups_by_owner[opponent][1],
+                      slots),
+    info_columns, points_columns, home_label=owner, away_label=opponent)
+st.caption(
+    f"`TOTAL` adds the points columns down each side — {owner} "
+    f"{sides[owner].projected:.1f}, {opponent} {sides[opponent].projected:.1f} — "
+    f"and the two `ADV` cells carry the same margin from each side's point of view. "
+    f"How well corroborated each projection is lives on the Roster tab: it is a "
+    f"question about your own bench, and it does not help you read a fixture."
+)
