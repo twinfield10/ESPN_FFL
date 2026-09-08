@@ -100,10 +100,14 @@ PROJECTION_SOURCES = (
 #:
 #: The fourth element is ``advisory``: reported, never stale-making. Pinnacle has
 #: posted **zero** weekly player props across all sixteen week-1 games (plan 36 step
-#: 3) and BetOnline's weekly host answers **403 invalid_security_headers** and wants a
-#: signed request (plan 02, closed). Both will be missing for the whole season, and a
-#: check that is red every night is one nobody reads -- which is the failure this
-#: module's own docstring exists to avoid.
+#: 3), so it will be missing for the whole season, and a check that is red every night
+#: is one nobody reads -- which is the failure this module's own docstring exists to
+#: avoid.
+#:
+#: BetOnline was advisory for the same reason and no longer is. Its weekly host does
+#: answer 403 to a plain HTTP client, but as of 2026-09-08 the scrape drives the props
+#: widget in a headless browser and the source is live again, so a missing file is once
+#: more a real fault worth going red over. See ``Scripts/bol_widget.py``.
 #:
 #: Added 2026-09-08. Nothing had ever watched a weekly file, and the FantasyPros one
 #: was 25 days stale with 60 rows in it while everything here reported healthy -- the
@@ -119,7 +123,7 @@ WEEKLY_PROJECTION_SOURCES = (
      "python -m Scripts.scrape_pinnacle", True),
     ("BOL weekly",
      lambda s: season_dir("BetOnline", s, "BetOnline_AllProps.parquet", create=False),
-     "blocked: 403 invalid_security_headers, see docs/plans/02", True),
+     "python -m Scripts.scrape_BOL --week <week>", False),
 )
 
 #: Hours past which the data is considered stale.

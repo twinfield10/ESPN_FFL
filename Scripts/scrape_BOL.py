@@ -1,12 +1,18 @@
-import os
 import time
 from datetime import datetime
 import numpy as np
-import requests
 import polars as pl
 from pathlib import Path
 
 from Scripts import market as mk
+from Scripts.bol_widget import (
+    STATS as WIDGET_STATS,
+    BetOnlineWidgetError,
+    DSTWidget,
+    make_fetcher,
+)
+from Scripts.books.props import props_to_odds_rows
+from Scripts.books.store import write_snapshot
 from Scripts.nfl_utils import current_season, current_week, load_schedule
 from Scripts.paths import landing_dir, season_dir
 
@@ -35,162 +41,42 @@ def slim_schedule() -> pl.DataFrame:
         ])
     )
 
-# BetOnline game IDs are consecutive integers, and this is the id of the first
-# game of the week. It used to be a bare literal that had to be hand-edited
-# before every weekly run (259322 -> 259338 -> ... -> 259563 across the 2025
-# season) -- the single highest-friction step in the weekly ritual, and
-# documented nowhere. Set BOL_FIRST_GAME_ID to pin it; otherwise it is
-# discovered by probing outward from the last known value.
-BOL_ID_ENV = "BOL_FIRST_GAME_ID"
-LAST_KNOWN_ID = 259563  # first game of 2025 week 17
-
-
 class BetOnlineAccessError(RuntimeError):
-    """Raised when the BetOnline markets API refuses the request."""
+    """Raised when BetOnline's markets can not be reached.
 
-
-def probe_game(game_id: int, timeout: int = 15):
-    """Fetch the team list for a single BetOnline game id.
-
-    Args:
-        game_id: BetOnline game id to probe.
-        timeout: Request timeout in seconds.
-
-    Returns:
-        set[str] | None: Team abbreviations in that game, or ``None`` if the id
-        holds no market data.
-
-    Raises:
-        BetOnlineAccessError: If the API rejects the request outright.
+    Kept as its own type, and still raised, because the failure this module has
+    actually suffered is a silent one: an empty scrape that looks like "the book
+    posted nothing this week" when in fact the transport is broken.
     """
-    url = (
-        "https://bv2-us.digitalsportstech.com/api/dfm/marketsBySs"
-        f"?sb=betonline&gameId={game_id}&statistic=Touchdowns"
-    )
-    r = requests.get(url, timeout=timeout)
-    if r.status_code == 403:
-        raise BetOnlineAccessError(
-            "BetOnline's markets API (bv2-us.digitalsportstech.com) returned "
-            "403 invalid_security_headers. It now requires a signed request "
-            "header that this scraper does not send, so weekly BetOnline props "
-            "cannot be collected. The season-long props used by the draft board "
-            "(api-offering.betonline.ag) are a different host and still work. "
-            "See docs/STATE_OF_THE_REPO.md."
-        )
-    if r.status_code != 200 or not r.content:
-        return None
-    data = r.json()
-    if not data:
-        return None
-    return {p["team"] for p in data[0].get("players", [])}
 
-
-def discover_first_game_id(sched: pl.DataFrame, week_num: int,
-                           start_hint: int = LAST_KNOWN_ID,
-                           span: int = 400) -> int:
-    """Find the BetOnline game id of the first game in ``week_num``.
-
-    Probes ids outward from ``start_hint`` until it finds one whose teams match
-    a game scheduled in the target week, then walks backwards to the first
-    consecutive id still inside that week.
-
-    Args:
-        sched: Slim schedule with ``week``, ``Away`` and ``Home`` columns.
-        week_num: NFL week to locate.
-        start_hint: Id to search outward from.
-        span: Maximum distance to search in each direction.
-
-    Returns:
-        int: Game id of the week's first game.
-
-    Raises:
-        BetOnlineAccessError: If the API is unreachable or no match is found.
-    """
-    wk = sched.filter(pl.col("week") == week_num)
-    wanted = set(wk["Away"].to_list()) | set(wk["Home"].to_list())
-    if not wanted:
-        raise BetOnlineAccessError(f"No week {week_num} games in the schedule.")
-
-    anchor = None
-    for offset in range(span):
-        for gid in {start_hint + offset, start_hint - offset}:
-            teams = probe_game(gid)
-            if teams and teams & wanted:
-                anchor = gid
-                break
-        if anchor is not None:
-            break
-
-    if anchor is None:
-        raise BetOnlineAccessError(
-            f"Could not locate a week {week_num} game within {span} ids of "
-            f"{start_hint}. Set {BOL_ID_ENV} to the correct first game id."
-        )
-
-    first = anchor
-    while first > 1:
-        teams = probe_game(first - 1)
-        if not (teams and teams & wanted):
-            break
-        first -= 1
-    return first
-
-
-def resolve_first_game_id(sched: pl.DataFrame, week_num: int) -> int:
-    """Return the week's first BetOnline game id, from env or by discovery."""
-    override = os.environ.get(BOL_ID_ENV)
-    if override:
-        print(f"Using {BOL_ID_ENV}={override}")
-        return int(override)
-    gid = discover_first_game_id(sched, week_num)
-    print(f"Discovered BetOnline first game id for week {week_num}: {gid}")
-    return gid
 
 # Statistic Mapping
-stats = {
-    'anytimeTouchdown': 'Touchdowns',
-    'passingYards': 'Passing%2520Yards',
-    'passingCompletions': 'Pass%2520Completions',
-    'passingTouchdowns': 'Passing%2520TDs',
-    'passingAttempts': 'Pass%2520Attempts',
-    'passingInterceptions': 'Pass%2520Interceptions',
-    'rushingYards': 'Rushing%2520Yards',
-    'rushingAttempts': 'Carries',
-    'receivingYards': 'Receiving%2520Yards',
-    'receivingReceptions': 'Receptions',
-    'defensiveTotalTackles': 'Tackles',
-    'defensiveSacks': 'Sacks',
-    'defensiveInterceptions': 'Interceptions'
-}
+#
+# Derived from the widget's own market table rather than restated here, so the
+# scraper and the transport cannot drift apart. ``defensiveInterceptions`` used
+# to be in this map and is gone: DST posts no such market. See Scripts/bol_widget.py.
+stats = {spec.espn_stat: spec.statistic for spec in WIDGET_STATS}
 
 ## Functions
 
 # Create BOL Keys
-def get_week_ids(sched: pl.DataFrame, week_num: pl.Int32, id_start: int) -> dict:
+def get_week_ids(cache: dict, week_num: int) -> dict:
+    """Return ``{week: [BOL game ids]}`` from a harvested widget cache.
 
-    # Get Game Count
-    current_week = (
-        sched.group_by('week').agg([
-            pl.col('officialDate').min().alias('week_start'),
-            pl.col('officialDate').max().alias('week_end'),
-            pl.col('NFL_game_id').n_unique().alias('game_count')
-        ]).filter(pl.col('week') == week_num)
-    )
+    This used to guess. BetOnline game ids are consecutive integers, there was no
+    listing endpoint reachable from a plain client, and so the scraper probed
+    outward from a hand-maintained ``LAST_KNOWN_ID`` constant that had to be reset
+    every season. The widget's own game list makes all of that unnecessary: the
+    ids are simply the ones it fetched markets for.
+    """
+    return {week_num: sorted({game_id for _, game_id, _ in cache})}
 
-    # Build ID List
-    game_count = current_week.select(pl.col('game_count')).item()
-    game_ids = {
-        week_num: list(range(id_start, id_start + game_count))
-    }
 
-    return game_ids
-def build_BOL_dim(ids:list, sched_df: pl.DataFrame):
+def build_BOL_dim(ids:list, sched_df: pl.DataFrame, fetch):
     raw = pl.DataFrame()
     for i in ids:
-        url = f'https://bv2-us.digitalsportstech.com/api/dfm/marketsBySs?sb=betonline&gameId={str(i)}&statistic=Touchdowns'
-        response = requests.get(url)
-        if response.status_code == 200:
-            data = response.json()
+        data = fetch('marketsBySs', i, 'Touchdowns')
+        if data:
             players_data = data[0]['players']
 
             # Build DF
@@ -203,7 +89,7 @@ def build_BOL_dim(ids:list, sched_df: pl.DataFrame):
                     })
             raw = raw.vstack(pl.DataFrame(rows))
         else:
-            print(f"Failed to retrieve data for Game ID {i}. Status code: {response.status_code}")
+            print(f"No BetOnline Touchdowns markets for game id {i}")
 
         dim = raw.unique()
 
@@ -226,16 +112,15 @@ def build_BOL_dim(ids:list, sched_df: pl.DataFrame):
     return dim
 
 # GET BOL json
-def get_BOL_data(ids: list, link_stat: str, espn_stat: str, week: int) -> pl.DataFrame:
+def get_BOL_data(ids: list, link_stat: str, espn_stat: str, week: int,
+                 fetch) -> pl.DataFrame:
     # Initialize Polars DF
     raw = pl.DataFrame()
+    missing = []
     for i in ids:
         # Build URL + Game Label
-        url = f'https://bv2-us.digitalsportstech.com/api/dfm/marketsBySs?sb=betonline&gameId={str(i)}&statistic={link_stat}'
-
-        response = requests.get(url)
-        if response.status_code == 200:
-            data = response.json()
+        data = fetch('marketsBySs', i, link_stat)
+        if data:
 
             # Check Data Loaded
             try:
@@ -266,7 +151,10 @@ def get_BOL_data(ids: list, link_stat: str, espn_stat: str, week: int) -> pl.Dat
             except:
                 print(f"Data Retreived with Error for BOL Game ID: {i} | Stat: {link_stat}")
         else:
-            print(f"Failed to retrieve {link_stat} data for BOL Game ID: {i}. Status code: {response.status_code}")
+            missing.append(i)
+
+    if missing:
+        print(f"  {link_stat}: no market in {len(missing)}/{len(ids)} games")
 
     team_map = {
         'LVR': 'LV',
@@ -287,16 +175,15 @@ def get_BOL_data(ids: list, link_stat: str, espn_stat: str, week: int) -> pl.Dat
         return raw
     else:
         return None
-def get_BOL_data_OU(ids: list, link_stat: str, espn_stat: str, week: int) -> pl.DataFrame:
+def get_BOL_data_OU(ids: list, link_stat: str, espn_stat: str, week: int,
+                    fetch) -> pl.DataFrame:
     # Initialize Polars DF
     raw = pl.DataFrame()
+    missing = []
     for i in ids:
         # Build URL + Game Label
-        url = f'https://bv2-us.digitalsportstech.com/api/dfm/marketsByOu?sb=betonline&gameId={str(i)}&statistic={link_stat}'
-
-        response = requests.get(url)
-        if response.status_code == 200:
-            data = response.json()
+        data = fetch('marketsByOu', i, link_stat)
+        if data:
 
             # Check Data Loaded
             try:
@@ -332,7 +219,10 @@ def get_BOL_data_OU(ids: list, link_stat: str, espn_stat: str, week: int) -> pl.
             except:
                 print(f"Data Retreived with Error for BOL Game ID: {i} | Stat: {link_stat}")
         else:
-            print(f"Failed to retrieve {link_stat} data for BOL Game ID: {i}. Status code: {response.status_code}")
+            missing.append(i)
+
+    if missing:
+        print(f"  {link_stat}: no market in {len(missing)}/{len(ids)} games")
 
     team_map = {
         'LVR': 'LV',
@@ -677,6 +567,32 @@ FULL_DF_SCHEMA = {
 }
 
 
+def _store_line_history(raw: pl.DataFrame, season: int, sched: pl.DataFrame) -> None:
+    """Append these prices to the odds store, where their movement accumulates.
+
+    The second half of a dual write. The blend reads the flat file written above;
+    this lands the same prices as standard odds rows next to the game lines, and
+    ``write_snapshot`` keeps only what moved -- so prop line history costs a
+    conversion rather than a mechanism. See
+    ``docs/plans/45-props-in-the-odds-store.md``.
+
+    Never fatal. The projection copy is already on disk by the time this runs, and
+    history is not worth losing a scrape over. It reports rather than raising,
+    because the failure that matters here is a silent one.
+    """
+    try:
+        rows = props_to_odds_rows(raw, season, sched)
+        if rows.is_empty():
+            print("  odds store: nothing mapped to a scheduled game, skipped")
+            return
+        counts = write_snapshot(rows, season, "BetOnline")
+        print(f"  odds store: {counts['appended']} appended, "
+              f"{counts['unchanged']} unchanged")
+    except Exception as exc:
+        print(f"  odds store: line history not written "
+              f"({type(exc).__name__}: {exc})")
+
+
 def scrape_week(season: int = None, week: int = None, write: bool = True) -> pl.DataFrame:
     """Pull one week of BetOnline player props and reconcile them into the season file.
 
@@ -695,29 +611,46 @@ def scrape_week(season: int = None, week: int = None, write: bool = True) -> pl.
         nothing.
 
     Raises:
-        BetOnlineAccessError: If the offering API refuses the id probe.
+        BetOnlineAccessError: If the widget yielded no markets at all.
     """
     season = current_season() if season is None else season
     sched = slim_schedule()
     week = current_week() if week is None else week
     print(f"Now Loading NFL Week {week}:")
 
-    BOL_IDs = get_week_ids(
-        sched=sched, week_num=week, id_start=resolve_first_game_id(sched, week)
-    )
+    # One browser session for the whole week. Every /api/dfm/* route is signed by
+    # the widget's own client -- see Scripts/bol_widget.py for why nothing simpler
+    # works -- so the markets are harvested up front and then read out of a cache.
+    try:
+        with DSTWidget() as widget:
+            cache = widget.harvest()
+    except BetOnlineWidgetError as exc:
+        raise BetOnlineAccessError(str(exc)) from exc
+    if not cache:
+        raise BetOnlineAccessError(
+            "The BetOnline props widget returned no markets at all. That is a "
+            "transport failure, not an empty board -- see Scripts/bol_widget.py."
+        )
+    fetch = make_fetcher(cache)
+
+    BOL_IDs = get_week_ids(cache=cache, week_num=week)
+    print(f"  {len(BOL_IDs[week])} games, {len(cache)} market responses")
     current_sched = sched.filter(pl.col('week') == week)
 
     full_df = pl.DataFrame(schema=FULL_DF_SCHEMA)
 
     for espn, bol in stats.items():
-        df = get_BOL_data(ids=BOL_IDs[week], link_stat=bol, espn_stat=espn, week=week)
+        df = get_BOL_data(ids=BOL_IDs[week], link_stat=bol, espn_stat=espn,
+                          week=week, fetch=fetch)
         if df is not None:
             full_df = full_df.vstack(df)
 
+    # Touchdowns and Sacks are ladder-only markets: the widget lists no two-way
+    # tile for them, so asking would only add empty round-trips.
     for espn, bol in stats.items():
         if bol not in ['Sacks', 'Interceptions', 'Touchdowns']:
             df = get_BOL_data_OU(ids=BOL_IDs[week], link_stat=bol, espn_stat=espn,
-                                 week=week)
+                                 week=week, fetch=fetch)
             if df is not None:
                 full_df = full_df.vstack(df)
 
@@ -735,6 +668,7 @@ def scrape_week(season: int = None, week: int = None, write: bool = True) -> pl.
 
     full_df.write_parquet(landing_dir("BetOnline", season, "BetOnline_AllProps_Raw.parquet"))
     archive_raw(full_df, season, week)
+    _store_line_history(full_df, season, sched)
 
     BOL_STATS = clean_bol(current_sched=current_sched, season=season)
     BOL_STATS.write_parquet(landing_dir("BetOnline", season, "BetOnline_AllProps_Clean.parquet"))

@@ -514,11 +514,17 @@ would upload half a gigabyte to arrive at identical objects.
 ### What used to be manual
 
 `scrape_BOL.py` needed its `id_var` game-ID seed hand-edited before nearly every
-run. That is now auto-discovered. To pin it:
+run. That is gone for good, and there is nothing to pin: the props widget lists the
+week's games itself (`gamesBy{Ou,Ss}?league=nfl`), so the ids are whatever it returns.
+No per-season constant, no override.
 
 ```bash
-BOL_FIRST_GAME_ID=259563 python -m Scripts.scrape_BOL
+python -m Scripts.scrape_BOL --week 3          # ids discovered, not seeded
 ```
+
+It does need a browser once per machine — `playwright install chromium` — because
+BetOnline's props are signed per request and only the widget can sign them. See
+`Scripts/bol_widget.py`.
 
 ### Committing
 
