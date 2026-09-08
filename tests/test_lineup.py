@@ -369,6 +369,61 @@ def test_swap_gains_sum_to_the_total(slots):
     assert all(c.gain > 0 for c in changes)
 
 
+def test_changed_ids_is_the_symmetric_difference():
+    """A player who merely moves slot made no decision."""
+    rows = [
+        player("WR1", "WR", 15.0, slot="RB/WR/TE"),
+        player("WR2", "WR", 14.0, slot="WR"),
+        player("RB1", "RB", 12.0, slot="RB"),
+    ]
+    current, _ = lu.current_lineup(rows, "TRUE_Points")
+    optimal, _ = lu.optimal_lineup(
+        rows, {"WR": 1, "RB": 1, "RB/WR/TE": 1}, "TRUE_Points")
+    assert lu.changed_ids(current, optimal) == (set(), set())
+
+
+def test_changed_ids_names_the_arrival_and_the_departure():
+    rows = [player("QB1", "QB", 20.0), player("QB2", "QB", 10.0, slot="QB")]
+    current, _ = lu.current_lineup(rows, "TRUE_Points")
+    optimal, _ = lu.optimal_lineup(rows, {"QB": 1}, "TRUE_Points")
+    added, dropped = lu.changed_ids(current, optimal)
+    by_id = {r["player_id"]: r["player_name"] for r in rows}
+    assert {by_id[i] for i in added} == {"QB1"}
+    assert {by_id[i] for i in dropped} == {"QB2"}
+
+
+def test_a_swap_carries_the_rows_it_paired():
+    """The Roster tab draws the outgoing player under the man taking his place, so
+    the pairing has to survive the call rather than being re-derived by name."""
+    rows = [player("QB1", "QB", 20.0), player("QB2", "QB", 10.0, slot="QB")]
+    current, _ = lu.current_lineup(rows, "TRUE_Points")
+    optimal, _ = lu.optimal_lineup(rows, {"QB": 1}, "TRUE_Points")
+    change, = lu.swaps(current, optimal, "TRUE_Points")
+    assert change.start_row["player_name"] == "QB1"
+    assert change.sit_row["player_name"] == "QB2"
+    assert change.start_row["player_id"] != change.sit_row["player_id"]
+
+
+def test_a_dropped_starter_with_no_replacement_is_still_a_change():
+    """The case ``swaps`` cannot report and the Roster table has to catch anyway.
+
+    A kicker on bye with nobody to cover him: the optimiser leaves the slot empty,
+    so there is no arrival to pair the departure with and ``swaps`` has nothing to
+    say. He is the change you most want flagged -- five of the 114 real 2026
+    team-weeks are exactly this -- so ``changed_ids`` reports him even though no
+    swap mentions him.
+    """
+    rows = [player("K1", "K", 9.0, slot="K", status="bye")]
+    current, _ = lu.current_lineup(rows, "TRUE_Points")
+    optimal, _ = lu.optimal_lineup(rows, {"K": 1}, "TRUE_Points")
+    added, dropped = lu.changed_ids(current, optimal)
+
+    assert optimal == []
+    assert lu.swaps(current, optimal, "TRUE_Points") == []
+    assert added == set()
+    assert dropped == {rows[0]["player_id"]}
+
+
 def test_a_swap_prefers_a_position_compatible_partner():
     """Any pairing gives the same total, so the readable one is chosen.
 
@@ -383,6 +438,187 @@ def test_a_swap_prefers_a_position_compatible_partner():
     optimal, _ = lu.optimal_lineup(rows, {"QB": 1, "RB/WR/TE": 1}, "TRUE_Points")
     changes = {c.start: c.sit for c in lu.swaps(current, optimal, "TRUE_Points")}
     assert changes == {"QB1": "QB2", "WR1": "WR2"}
+
+
+# --- who the pool can beat -----------------------------------------------
+
+#: What ESPN says about every player nobody has rostered.
+POOL = {"team_owner": "Free Agent", "player_active_status": lu.POOL_STATUS}
+
+
+def free_agent(name, position, points, **kwargs):
+    """A pool row, carrying the status ESPN really gives the whole pool."""
+    return {**player(name, position, points, **kwargs), **POOL,
+            "ESPN_Points": points}
+
+
+def test_the_pool_status_is_not_an_availability_signal():
+    """ESPN answers "is he in an active lineup slot", and an unrostered player is in
+    nobody's -- so the entire pool reads `inactive` in all ten leagues."""
+    assert lu.POOL_STATUS != "active"
+    assert lu.pool_playable(free_agent("Somebody", "WR", 12.0))
+
+
+def test_a_pool_player_with_no_game_is_not_playable():
+    """ESPN projects exactly zero for a player whose team is not playing. Verified
+    against all 81 rostered players it marks as on bye across the ten 2026 leagues."""
+    assert not lu.pool_playable(free_agent("Bye Guy", "WR", 0.0))
+
+
+def test_the_blend_cannot_stand_in_for_espn_on_availability():
+    """`TRUE_Points` imputes an absent book from the ESPN/FantasyPros mean, so 24 of
+    those 81 bye players carry a non-zero blend of up to 2.12."""
+    leaked = dict(free_agent("Bye Guy", "WR", 0.0), TRUE_Points=2.12)
+    assert not lu.pool_playable(leaked)
+
+
+def test_a_pool_row_becomes_startable_for_the_optimiser():
+    """The bug this closes: `optimal_lineup` drops a non-active player, so appending
+    a raw pool row made `add_drop_gain` return exactly 0.0 for every candidate ever
+    passed to it -- on all 114 team-weeks across all ten leagues."""
+    candidate = free_agent("Better QB", "QB", 30.0)
+    roster = [player("Worse QB", "QB", 5.0, slot="QB")]
+
+    assert lu.optimal_lineup(roster + [candidate], {"QB": 1}, "TRUE_Points")[1] == 5.0
+    assert lu.optimal_lineup(
+        roster + [lu.as_rostered(candidate)], {"QB": 1}, "TRUE_Points")[1] == 30.0
+    assert lu.add_drop_gain(roster, {"QB": 1}, "TRUE_Points", candidate,
+                            roster[0]["player_id"]) == pytest.approx(25.0)
+
+
+def test_players_compete_over_a_shared_slot_not_a_shared_position():
+    """A back and a receiver never share a position and compete for the flex."""
+    back = player("RB1", "RB", 12.0)
+    receiver = player("WR1", "WR", 12.0)
+    slots = {"RB": 2, "WR": 2, "RB/WR/TE": 1}
+    assert lu.competing_slots(back, slots) & lu.competing_slots(receiver, slots) \
+        == {"RB/WR/TE"}
+
+
+def test_superflex_puts_a_quarterback_against_a_receiver():
+    """`OP` is what makes the two superflex leagues here work."""
+    passer = player("QB1", "QB", 20.0)
+    receiver = player("WR1", "WR", 12.0)
+    shared = (lu.competing_slots(passer, SUPERFLEX_SLOTS)
+              & lu.competing_slots(receiver, SUPERFLEX_SLOTS))
+    assert shared == {"OP"}
+
+
+def test_a_player_this_league_cannot_start_competes_nowhere():
+    defender = player("LB1", "LB", 9.0)
+    assert lu.competing_slots(defender, FLEX_SLOTS) == set()
+
+
+def test_beating_a_starter_is_critical():
+    roster = [player("Weak QB", "QB", 10.0, slot="QB")]
+    pool = [free_agent("Strong QB", "QB", 20.0)]
+    upgrade, = lu.upgrades(pool, roster, {"QB": 1}, "TRUE_Points")
+    assert upgrade.severity == lu.UPGRADE_CRITICAL
+    assert upgrade.slot == "QB"
+    assert upgrade.best["player_name"] == "Strong QB"
+    assert upgrade.over["player_name"] == "Weak QB"
+    assert upgrade.margin == pytest.approx(10.0)
+
+
+def test_beating_only_the_bench_is_depth():
+    """Nothing about Sunday changes, so it must not read as urgent."""
+    roster = [player("Strong QB", "QB", 25.0, slot="QB"),
+              player("Weak QB", "QB", 5.0, slot="BE")]
+    pool = [free_agent("Middling QB", "QB", 15.0)]
+    upgrade, = lu.upgrades(pool, roster, {"QB": 1}, "TRUE_Points")
+    assert upgrade.severity == lu.UPGRADE_DEPTH
+    assert upgrade.over["player_name"] == "Weak QB"
+
+
+def test_the_two_severities_are_mutually_exclusive():
+    """Beating a starter suppresses the depth row for the same slot: the user asked
+    for two flags, not the same fact twice."""
+    roster = [player("Weak QB", "QB", 10.0, slot="QB"),
+              player("Weaker QB", "QB", 2.0, slot="BE")]
+    pool = [free_agent("Strong QB", "QB", 20.0)]
+    upgrade, = lu.upgrades(pool, roster, {"QB": 1}, "TRUE_Points")
+    assert upgrade.severity == lu.UPGRADE_CRITICAL
+    assert upgrade.beaten == 1  # the starter; the bench row is not a second alert
+
+
+def test_an_edge_inside_the_sources_own_disagreement_is_not_reported():
+    """The sources disagree by a median of 0.43 points, so a quarter-point edge is
+    noise wearing a decision's clothes. Two real `+0.0` alerts came from this."""
+    roster = [player("Yours", "QB", 12.0, slot="QB")]
+    pool = [free_agent("Theirs", "QB", 12.25)]
+    assert lu.upgrades(pool, roster, {"QB": 1}, "TRUE_Points") == []
+    assert lu.upgrades(pool, roster, {"QB": 1}, "TRUE_Points", min_margin=0.1)
+
+
+def test_a_free_agent_with_no_game_is_never_an_upgrade():
+    roster = [player("Yours", "QB", 10.0, slot="QB")]
+    pool = [free_agent("On Bye", "QB", 0.0)]
+    pool[0]["TRUE_Points"] = 25.0          # the blend leaked; ESPN did not
+    assert lu.upgrades(pool, roster, {"QB": 1}, "TRUE_Points") == []
+
+
+def test_one_candidate_is_not_reported_at_every_slot_he_fits():
+    """A superflex quarterback out-projects every receiver, back and end eligible for
+    `OP`. Keyed by the rostered player that was twelve rows about one add."""
+    roster = [player("WR1", "WR", 8.0, slot="WR"),
+              player("RB1", "RB", 7.0, slot="RB"),
+              player("QB1", "QB", 15.0, slot="QB")]
+    pool = [free_agent("Star QB", "QB", 22.0)]
+    found = lu.upgrades(pool, roster, SUPERFLEX_SLOTS, "TRUE_Points")
+    assert len(found) == 1
+    assert found[0].slot == "OP"           # where the gap is widest
+
+
+def test_the_weakest_man_beaten_is_the_one_named():
+    """He is the one you would actually replace, so the margin is the whole gap."""
+    roster = [player("Good", "WR", 14.0, slot="WR"),
+              player("Bad", "WR", 4.0, slot="WR")]
+    pool = [free_agent("Best", "WR", 18.0)]
+    upgrade, = lu.upgrades(pool, roster, {"WR": 2}, "TRUE_Points")
+    assert upgrade.over["player_name"] == "Bad"
+    assert upgrade.margin == pytest.approx(14.0)
+    assert upgrade.beaten == 2
+
+
+def test_a_clean_roster_gets_no_flags():
+    roster = [player("Elite", "QB", 30.0, slot="QB")]
+    pool = [free_agent("Nobody", "QB", 4.0)]
+    assert lu.upgrades(pool, roster, {"QB": 1}, "TRUE_Points") == []
+
+
+def test_criticals_come_before_depth_and_sort_by_margin():
+    roster = [player("QB1", "QB", 10.0, slot="QB"),
+              player("TE1", "TE", 9.0, slot="TE"),
+              player("WR1", "WR", 2.0, slot="BE")]
+    pool = [free_agent("QB2", "QB", 14.0), free_agent("TE2", "TE", 18.0),
+            free_agent("WR2", "WR", 12.0)]
+    found = lu.upgrades(pool, roster, {"QB": 1, "TE": 1, "WR": 1}, "TRUE_Points")
+    assert [u.severity for u in found] == [lu.UPGRADE_CRITICAL, lu.UPGRADE_CRITICAL,
+                                           lu.UPGRADE_DEPTH]
+    assert [u.best["player_name"] for u in found] == ["TE2", "QB2", "WR2"]
+
+
+def test_the_candidate_set_covers_every_slot_not_the_biggest_numbers():
+    """The blind spot this closes: the positions are not on the same scale, so a
+    top-N of the pool was six quarterbacks in a one-quarterback league."""
+    pool = [free_agent(f"QB{i}", "QB", 20.0 - i) for i in range(6)]
+    pool += [free_agent("The Kicker", "K", 9.0), free_agent("The Back", "RB", 13.0)]
+    picked = lu.best_available_per_slot(
+        pool, {"QB": 1, "RB": 2, "K": 1}, "TRUE_Points")
+    assert {row["player_name"] for row in picked} == {"QB0", "The Back", "The Kicker"}
+
+
+def test_one_player_winning_two_slots_is_listed_once():
+    """The best available back is usually the best available flex too."""
+    pool = [free_agent("The Back", "RB", 13.0)]
+    picked = lu.best_available_per_slot(pool, FLEX_SLOTS, "TRUE_Points")
+    assert len(picked) == 1
+
+
+def test_a_candidate_with_no_game_is_never_offered():
+    pool = [free_agent("On Bye", "QB", 0.0), free_agent("Playing", "QB", 8.0)]
+    picked = lu.best_available_per_slot(pool, {"QB": 1}, "TRUE_Points")
+    assert [row["player_name"] for row in picked] == ["Playing"]
 
 
 # --- add / drop ----------------------------------------------------------

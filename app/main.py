@@ -48,11 +48,26 @@ from components import header                     # noqa: E402
 #: Plan 08's remaining pages -- Player Explorer, Projection Accuracy, Playoff Odds,
 #: Standings, History -- are not a fifth tab. They are sub-tabs of whichever of
 #: these four they answer a question for. See ``docs/plans/40-frontend-restructure.md``.
+#:
+#: **The directory is ``routes/`` and must not be renamed to ``pages/``.** Streamlit
+#: still carries its first multi-page mechanism, and the whole trigger for it is a
+#: directory called ``pages`` beside the entrypoint: ``PagesManager`` sets a
+#: process-wide ``uses_pages_directory`` flag from ``main_script_parent / "pages"``
+#: existing, before any application code runs, and while it is set the script runner
+#: executes **the requested page file alone** through its own private navigation --
+#: this file, and therefore :func:`session.render_context`, never runs at all.
+#:
+#: Only the *public* ``st.navigation`` below clears that flag, so the app recovered
+#: as soon as anything landed on the default page and looked fine thereafter. Open
+#: ``/roster`` as the first request to a freshly started server and it did not:
+#: every page raised ``session.current() before session.render_context()`` under a
+#: legacy sidebar nav. Renaming the directory is the only fix available, the flag
+#: being decided before there is anywhere to intervene.
 PAGES = [
-    st.Page("pages/draft.py", title="Draft", icon="📋", default=True),
-    st.Page("pages/roster.py", title="Roster", icon="📊"),
-    st.Page("pages/free_agents.py", title="Free Agents", icon="🔎"),
-    st.Page("pages/matchup.py", title="Matchup", icon="⚔️"),
+    st.Page("routes/draft.py", title="Draft", icon="📋", default=True),
+    st.Page("routes/roster.py", title="Roster", icon="📊"),
+    st.Page("routes/free_agents.py", title="Free Agents", icon="🔎"),
+    st.Page("routes/matchup.py", title="Matchup", icon="⚔️"),
 ]
 
 # Order matters. The context row is drawn before the page body so it reads as a

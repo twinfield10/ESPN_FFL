@@ -121,7 +121,7 @@ app/                         # local Streamlit app; reads the store, never ESPN
   auth.py                    # who is looking, and which leagues they may open
   draft_view.py              # the draft board's derivations, testable without Streamlit
   components/header.py       # league/season/week picker, freshness, refresh
-  pages/                     # one file per view
+  routes/                    # one file per tab, registered with st.Page
 R/
   GetNFL.R                   # schedule + season stats via nflfastR
   GetPlayerIDs.R             # the cross-provider player id table
@@ -326,6 +326,41 @@ Weenieless week 1, fixing the lineup is +19.6 projected points and **+21.8pp** o
 probability, 53% to 75%. On Knights the same tab reports +1.6 points and +1.4pp. Same
 week, two very different reasons to care. See
 [plan 42](docs/plans/42-weekly-matchup-odds.md).
+
+Under the headline the whole fixture is **one mirrored table**. Both sides carry the
+same columns — every source's number, our blend, and `Δ` against ESPN's own
+projection — and the away half draws them in reverse, so the two lineups read outward
+from a shared `SLOT` column in the middle. Between them sit the two `ADV` columns:
+that side's points at that slot minus the other's, filled continuously from red to
+green, summing to the projected margin. Rows are a **max** over both sides and the
+league's own slot definition, so a slot one manager left empty leaves a gap rather
+than shifting his RB2 opposite the opponent's flex.
+
+Both tables are hand-emitted HTML rather than `st.dataframe`, because Streamlit's grid
+merges no cells and stacks no third header row — and because sorting a matchup table
+by one column would leave a quarterback opposite a kicker.
+
+**Roster is the same table without the mirroring, and it is a decision table rather
+than a comparison**, so it differs in three deliberate ways. `TRUE` and `Δ` come
+*first*, beside the player's name, because the blend is the number the lineup is
+chosen on. The changes are marked in the lineup rather than listed beside it: **green
+`IN`** for a player to start who is currently benched, **red `OUT`** for one currently
+starting who the best lineup drops, drawn directly under the man taking his place so a
+swap reads as one decision. And the bench sits **below** the `TOTAL` row, because the
+total is the boundary — everything above it counts, everything under it does not.
+
+A starter dropped with *nobody* to replace him — a kicker on bye with no cover, which
+is five of the 114 real 2026 team-weeks — is marked too. There is no arrival to pair
+him with, so `swaps` has nothing to say about him, and he is the change you most want
+flagged; `lineup.changed_ids` reports him anyway. Every mark is **printed as well as
+coloured**, the same rule the draft board's `Δ` columns follow.
+
+The Roster table also carries `Sources` and `Spread` — how many sources really had an
+opinion, and how far apart they were. The matchup table does not: that answers a
+question about your own bench, and across a fixture it says nothing about whether your
+receiver beats theirs. Its `TOTAL` row **does not sum the two of them**: `Sources` is
+averaged, since ten starters on one source each is not a well-corroborated lineup, and
+`Spread` is composed as `√Σspread²`, which is what independent disagreements add up to.
 
 Matchup needs the `team_stats` artifact for the fixture list, which is opt-in:
 

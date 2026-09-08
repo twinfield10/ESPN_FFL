@@ -55,11 +55,21 @@ class Swap(NamedTuple):
         sit: Player to move out. None when the slot is simply empty, which is a
             different mistake and reads differently.
         gain: Points the change is projected to add. Always positive.
+        start_row: The incoming player's whole row, for a caller that has to show
+            more of him than his name -- the Roster tab marks him in the lineup
+            table and needs his projections.
+        sit_row: The outgoing player's row, or None where ``sit`` is None. This is
+            **the pairing**, and it is the reason the rows are carried at all: which
+            outgoing player a given incoming one displaces is decided here, and a
+            caller that re-derived it by name could not honour the
+            position-compatibility preference below.
     """
     slot: str
     start: str
     sit: Optional[str]
     gain: float
+    start_row: Optional[dict] = None
+    sit_row: Optional[dict] = None
 
 
 def real_sources(meta: dict) -> List[str]:
@@ -426,6 +436,38 @@ def current_lineup(rows: Iterable[dict], points_column: str
     return starters, total
 
 
+def changed_ids(current: Sequence[dict], optimal: Sequence[dict]
+                ) -> Tuple[set, set]:
+    """Who the optimiser adds and who it drops, as ``player_id`` sets.
+
+    **The symmetric difference, computed on who is in each lineup rather than on
+    which slot they sit in.** A slot-by-slot comparison double-counts a player who
+    merely *moves*: on one real Knights roster, Pickens shifting from ``RB/WR/TE`` to
+    ``WR`` and Williams shifting the other way is a permutation worth nothing, and
+    pairing by slot read it as two separate swaps gaining 26 points on a lineup worth
+    1.5 more. Anyone in both lineups made no decision, whatever slot he occupies.
+
+    Extracted from :func:`swaps` so the Roster tab's table and its start/sit list
+    cannot disagree about which rows are a change -- one highlights them and the
+    other names them, and a row painted green that the list does not mention is a
+    table nobody would trust again.
+
+    Args:
+        current: From :func:`current_lineup`.
+        optimal: From :func:`optimal_lineup`.
+
+    Returns:
+        tuple: ``(coming_in, going_out)``. Both empty when the lineup is already
+        optimal, which is the answer you want most weeks.
+    """
+    starting = {r.get("player_id") for r in current}
+    optimal_ids = {r.get("player_id") for r in optimal}
+    return (
+        {r.get("player_id") for r in optimal if r.get("player_id") not in starting},
+        {r.get("player_id") for r in current if r.get("player_id") not in optimal_ids},
+    )
+
+
 def swaps(current: Sequence[dict], optimal: Sequence[dict],
           points_column: str) -> List[Swap]:
     """The changes that turn the set lineup into the optimal one.
@@ -438,9 +480,7 @@ def swaps(current: Sequence[dict], optimal: Sequence[dict],
     lineup was worth 1.5 more in total. A start/sit list whose numbers do not add up
     to the total is worse than no list.
 
-    So the decision set is the symmetric difference: players the optimiser starts who
-    are currently benched, against players currently starting who it would bench.
-    Anyone in both lineups made no decision, whatever slot they occupy.
+    So the decision set is the symmetric difference -- see :func:`changed_ids`.
     **Σ gain therefore equals the lineup's total gain exactly**, which is what
     :func:`swaps` can be checked against.
 
@@ -456,12 +496,10 @@ def swaps(current: Sequence[dict], optimal: Sequence[dict],
     def points(row: Optional[dict]) -> float:
         return float((row or {}).get(points_column) or 0.0)
 
-    starting = {r.get("player_id") for r in current}
-    optimal_ids = {r.get("player_id") for r in optimal}
-
-    coming_in = sorted((r for r in optimal if r.get("player_id") not in starting),
+    added, dropped = changed_ids(current, optimal)
+    coming_in = sorted((r for r in optimal if r.get("player_id") in added),
                        key=points, reverse=True)
-    going_out = sorted((r for r in current if r.get("player_id") not in optimal_ids),
+    going_out = sorted((r for r in current if r.get("player_id") in dropped),
                        key=points, reverse=True)
 
     # Every pairing of these two sets gives the same total, so the pairing is chosen
@@ -486,8 +524,279 @@ def swaps(current: Sequence[dict], optimal: Sequence[dict],
             start=incoming.get("player_name") or "?",
             sit=(outgoing or {}).get("player_name"),
             gain=points(incoming) - points(outgoing),
+            start_row=incoming,
+            sit_row=outgoing,
         ))
     return sorted(out, key=lambda s: s.gain, reverse=True)
+
+
+#: What ``player_active_status`` says about a player nobody has rostered.
+#:
+#: **It is not an injury report.** ESPN is answering "is this player in an active
+#: lineup slot", and an unrostered player is in nobody's, so the *entire* free-agent
+#: pool reads ``inactive`` -- 146 of 146 on Winfield week 1, and every pool in all
+#: ten leagues.
+#:
+#: Reading it as availability is what silently broke :func:`add_drop_gain`.
+#: :func:`optimal_lineup` drops a non-active player before it scores him, so every
+#: candidate inserted into the after-lineup vanished, every gain came out at exactly
+#: 0.0, and the Free Agents tab reported "none of these would improve your lineup" on
+#: **all 114** team-weeks across all ten leagues -- a confident negative that was
+#: really a filter. See :func:`pool_playable` and :func:`as_rostered`.
+POOL_STATUS = "inactive"
+
+
+def pool_playable(row: dict, points_column: str = f"{BLEND}_Points") -> bool:
+    """Whether an unrostered player has a game to play this week.
+
+    ``player_active_status`` cannot answer it -- see :data:`POOL_STATUS` -- so ESPN's
+    own projection does. Measured across all ten 2026 leagues, ``ESPN_Points == 0``
+    is exactly "no game": it holds for **all 81** rostered players ESPN marks as on
+    bye, and for 3 of the 1,581 it marks active, who are players it projects nothing
+    for and who could not be an upgrade over anybody.
+
+    **The blend cannot stand in for it.** ``TRUE_Points`` imputes an absent source
+    from the ESPN/FantasyPros mean, so 24 of those 81 bye players carry a non-zero
+    ``TRUE_Points`` of up to 2.12 -- enough to leak a player with no game into a
+    comparison, if not enough to win one.
+
+    Args:
+        row: A free-agent row.
+        points_column: Fallback signal, for a frame with no ESPN column at all.
+
+    Returns:
+        bool: True when he can be started this week.
+    """
+    signal = "ESPN_Points" if "ESPN_Points" in row else points_column
+    return float(row.get(signal) or 0.0) > 0
+
+
+def as_rostered(row: dict) -> dict:
+    """A pool row as it would look on a roster, for the optimiser to score.
+
+    The status is **replaced rather than trusted**, because on a pool row it is not a
+    statement about the player -- see :data:`POOL_STATUS`. Whether he can actually
+    play is settled before this, by :func:`pool_playable`, on a signal that means
+    what it says.
+
+    Args:
+        row: A free-agent row.
+
+    Returns:
+        dict: A copy ESPN would call active.
+    """
+    return {**row, "player_active_status": "active"}
+
+
+#: A starter is out-projected by somebody who is sitting on the waiver wire.
+#:
+#: The urgent one: it does not say your roster could be better in the abstract, it
+#: says the lineup you are about to play is worse than one you could field today.
+UPGRADE_CRITICAL = "critical"
+
+#: A bench player is out-projected, and no starter is.
+#:
+#: The same comparison one rung down. Worth knowing and not worth interrupting for --
+#: nothing about Sunday changes.
+UPGRADE_DEPTH = "depth"
+
+
+#: How much better an available player must project before it is worth saying.
+#:
+#: Measured from the blend's own uncertainty rather than picked: across all ten 2026
+#: leagues, the standard deviation *between the sources* is a median of **0.43**
+#: points and a mean of 0.48. An edge of a quarter of a point is smaller than the
+#: disagreement among the numbers it was computed from, so reporting it as an upgrade
+#: dresses noise up as a decision. Two real rows were doing exactly that -- a
+#: ``+0.0`` critical alert on Winfield and another on GOP.
+UPGRADE_MIN_MARGIN = 0.5
+
+
+class Upgrade(NamedTuple):
+    """One starting slot the available pool can improve.
+
+    **Keyed by the slot, which is the only key that does not flood.** Keyed by the
+    free agent, one thin roster spot produces an alert per candidate: seven available
+    quarterbacks out-project the only one on Winfield's roster, so seven identical
+    rows. Keyed by the rostered player, one good candidate produces an alert per
+    victim: in the two superflex leagues a free-agent quarterback out-projects every
+    receiver, back and end who is eligible for ``OP``, which was twelve rows about
+    one player. There are never more slots than the league has slots.
+
+    Attributes:
+        slot: The starting slot the candidate would fill.
+        severity: :data:`UPGRADE_CRITICAL` when a **starter** at this slot is
+            out-projected, :data:`UPGRADE_DEPTH` when only a bench player is. One or
+            the other, never both -- critical wins and the depth row is suppressed.
+        best: The highest-projecting available player eligible for the slot.
+        over: The weakest of your players at this slot that he out-projects -- the
+            one you would actually replace. Carries his own ``slotPosition``, which
+            is not always ``slot``: in a superflex league a receiver is eligible for
+            ``OP`` while starting at ``WR``.
+        margin: ``best`` minus ``over``. At least :data:`UPGRADE_MIN_MARGIN`.
+        beaten: How many of your players at this slot he out-projects. One is a
+            decision; five means a position you have not addressed.
+        better: How many available players out-project ``over``. Large numbers are
+            the story -- 57 available defenders beat one GOP linebacker.
+    """
+
+    slot: str
+    severity: str
+    best: dict
+    over: dict
+    margin: float
+    beaten: int
+    better: int
+
+
+def competing_slots(row: dict, slots: Dict[str, int]) -> set:
+    """Which of this league's starting slots a player may actually fill.
+
+    The join between two players is **a shared slot, not a shared position**, and
+    that is what makes the comparison right in the leagues that are not
+    one-position-per-slot. A running back and a receiver never share a position and
+    compete directly for ``RB/WR/TE``; a quarterback and a running back compete for
+    ``OP`` in the two superflex leagues here; five different defensive positions
+    compete for ``DP`` in GOP. Comparing on ``player_position`` would miss every one
+    of those, and a hand-written map of which positions fill which slot is a second
+    copy of something ESPN already tells us.
+
+    Args:
+        row: A lineups row.
+        slots: From :func:`slot_counts` -- the *starting* slots, so the bench and IR
+            are already out.
+
+    Returns:
+        set: Slot names, empty for a player this league cannot start anywhere.
+    """
+    return set(_eligible(row)) & set(slots)
+
+
+def upgrades(pool: Sequence[dict], roster: Sequence[dict], slots: Dict[str, int],
+             points_column: str, *,
+             min_margin: float = UPGRADE_MIN_MARGIN) -> List[Upgrade]:
+    """Starting slots the available pool can improve, most urgent first.
+
+    **Compared against the lineup as ESPN has it set**, not against the optimal one,
+    because that is the lineup that will actually play. The two can disagree: a
+    starter the Roster tab already wants benched shows up here as out-projected even
+    though fixing the lineup would settle it without a waiver claim, which is why the
+    page says to fix the lineup first.
+
+    **The comparison is on a shared slot, never on a shared position** -- see
+    :func:`competing_slots`. That is what puts a free-agent quarterback up against a
+    receiver in a superflex league's ``OP``, a back up against a receiver in the
+    flex, and five defensive positions up against each other in ``DP``.
+
+    Args:
+        pool: The free-agent rows. Pass the **whole** pool rather than a filtered
+            view: a flag that disappears when you filter the table to quarterbacks is
+            not a flag.
+        roster: One team's rows, starters and bench together.
+        slots: From :func:`slot_counts`.
+        points_column: Which projection to compare on.
+        min_margin: See :data:`UPGRADE_MIN_MARGIN`.
+
+    Returns:
+        list: At most one :class:`Upgrade` per available player -- and so never more
+        than the league has slots -- criticals first and by margin within a
+        severity. Empty is the common answer and the one worth trusting.
+    """
+    def points(row: dict) -> float:
+        return float(row.get(points_column) or 0.0)
+
+    available = [row for row in pool
+                 if row.get(points_column) is not None
+                 and pool_playable(row, points_column)
+                 and competing_slots(row, slots)]
+    if not available:
+        return []
+
+    found: List[Upgrade] = []
+    for slot in sorted(slots, key=slot_rank):
+        candidates = [row for row in available if slot in competing_slots(row, slots)]
+        mine = [row for row in roster if slot in competing_slots(row, slots)]
+        if not candidates or not mine:
+            continue
+        best = max(candidates, key=points)
+
+        starting = [r for r in mine
+                    if r.get("slotPosition") not in NON_STARTING_SLOTS]
+        benched = [r for r in mine if r.get("slotPosition") in NON_STARTING_SLOTS]
+        for severity, group in ((UPGRADE_CRITICAL, starting),
+                                (UPGRADE_DEPTH, benched)):
+            beaten = [r for r in group if points(best) - points(r) >= min_margin]
+            if not beaten:
+                continue
+            # The weakest man beaten, because he is the one you would replace -- and
+            # the margin is therefore the whole size of the gap rather than its
+            # narrowest edge.
+            over = min(beaten, key=points)
+            found.append(Upgrade(
+                slot=slot, severity=severity, best=best, over=over,
+                margin=points(best) - points(over),
+                beaten=len(beaten),
+                better=sum(1 for c in candidates
+                           if points(c) - points(over) >= min_margin),
+            ))
+            break  # critical wins; the two tiers are mutually exclusive
+
+    # One row per candidate, at the slot where he does the most good. Without this a
+    # superflex league reports the same free-agent quarterback at ``OP`` and again at
+    # ``QB``, and every league reports the same receiver at ``WR`` and again at the
+    # flex -- two rows about one add, and the second one teaches you nothing. Which
+    # slot he ends up filling is `add_drop_gain`'s problem, not the flag's.
+    #
+    # Ordered before deduplicating, so a candidate who is critical somewhere keeps
+    # his critical row even when a depth slot shows a wider gap.
+    ordered = sorted(found,
+                     key=lambda u: (u.severity != UPGRADE_CRITICAL, -u.margin))
+    seen, kept = set(), []
+    for upgrade in ordered:
+        if upgrade.best.get("player_id") in seen:
+            continue
+        seen.add(upgrade.best.get("player_id"))
+        kept.append(upgrade)
+    return kept
+
+
+def best_available_per_slot(pool: Sequence[dict], slots: Dict[str, int],
+                            points_column: str) -> List[dict]:
+    """The best available player for each starting slot, deduplicated.
+
+    **The candidate set the add/drop pairing should have been using all along.**
+    Taking the top N of the pool by raw projection is position-blind, and the
+    positions are not on the same scale: on Winfield week 1 the top six available
+    players are six quarterbacks, in a league that starts one. The best available
+    running back, tight end and kicker were never scored at all.
+
+    One player can win several slots -- the best available back is usually the best
+    available flex too -- so the result is deduplicated by ``player_id`` and is
+    therefore no longer than the slot list.
+
+    Args:
+        pool: The free-agent rows.
+        slots: From :func:`slot_counts`.
+        points_column: Which projection to rank on.
+
+    Returns:
+        list: Rows, highest projection first.
+    """
+    def points(row: dict) -> float:
+        return float(row.get(points_column) or 0.0)
+
+    playable = [row for row in pool
+                if row.get(points_column) is not None
+                and pool_playable(row, points_column)]
+
+    picked: Dict[object, dict] = {}
+    for slot in slots:
+        eligible = [row for row in playable if slot in _eligible(row)]
+        if not eligible:
+            continue
+        best = max(eligible, key=points)
+        picked.setdefault(best.get("player_id"), best)
+    return sorted(picked.values(), key=points, reverse=True)
 
 
 def add_drop_gain(roster: Sequence[dict], slots: Dict[str, int], points_column: str,
@@ -513,7 +822,10 @@ def add_drop_gain(roster: Sequence[dict], slots: Dict[str, int], points_column: 
     """
     _, before = optimal_lineup(roster, slots, points_column)
     after_rows = [r for r in roster if r.get("player_id") != drop_id]
-    after_rows.append(candidate)
+    # `as_rostered`, not `candidate`: the optimiser drops a non-active player, and
+    # every pool row is marked inactive. Appending him raw made this function return
+    # 0.0 for every candidate ever passed to it.
+    after_rows.append(as_rostered(candidate))
     _, after = optimal_lineup(after_rows, slots, points_column)
     return after - before
 

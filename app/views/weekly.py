@@ -7,29 +7,31 @@ source the store marked absent must not appear as a column, because the blend fi
 it in from the ESPN/FantasyPros mean and an absent book therefore arrives looking
 like unanimous agreement rather than like silence.
 
-Logic belongs in :mod:`lineup`, which is Streamlit-free and tested. This is layout.
+**Two renderers, because the tabs ask two different questions.** Roster and Matchup
+draw a *lineup*: fixed rows in slot order, spanner headers, a total, and -- on a
+matchup -- the same columns mirrored so the two sides meet in the middle. That is
+:mod:`lineup_table`, emitted as HTML because Streamlit's grid merges no cells and
+stacks no third header row. Free Agents draws a *pool*: hundreds of rows you sort and
+search, which is exactly what the grid is for, so it keeps ``st.dataframe`` below.
+
+Logic belongs in :mod:`lineup` and :mod:`lineup_table`, both Streamlit-free and
+tested. This is layout.
 """
 
 import _bootstrap  # noqa: F401  -- must precede the Scripts imports
 
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Mapping, Optional, Sequence
 
 import polars as pl
 import streamlit as st
 
 import lineup as lu
+import lineup_table as ltab
 
-#: Source prefix to how it is labelled on screen, and what to say about it.
-SOURCE_HELP: Dict[str, str] = {
-    "ESPN": "ESPN's own weekly projection. Present for every player, and the base "
-            "every other source is imputed from when it has no opinion.",
-    "FP": "FantasyPros' weekly consensus. Real for the players it publishes and "
-          "imputed for the rest — check Sources against it.",
-    "PINNY": "Pinnacle's weekly player props, converted to points.",
-    "BOL": "BetOnline's weekly player props, converted to points.",
-    "TRUE": "The blend, in this league's own scoring. One equal vote per source "
-            "that has an opinion about this player.",
-}
+#: Source prefix to what it is. Owned by :mod:`lineup_table`, which both renderers
+#: read, so the grid below and the HTML tables cannot disagree about what a column
+#: means.
+SOURCE_HELP: Dict[str, str] = ltab.SOURCE_HELP
 
 #: How a points column is labelled.
 SOURCE_LABELS: Dict[str, str] = {
@@ -184,3 +186,134 @@ def render_swaps(changes, points_label: str = "Us") -> None:
         f"Players on bye or ruled out are excluded. The gains sum to the difference "
         f"between the two lineups exactly."
     )
+
+
+def render_lineup(rows: Sequence[dict], info: Sequence[ltab.Col],
+                  points: Sequence[ltab.Col], *, label: str,
+                  slot_column: str = "slot",
+                  total_rows: Optional[Sequence[dict]] = None,
+                  marks: Optional[Mapping[object, str]] = None,
+                  below: Optional[Sequence[dict]] = None) -> None:
+    """Draw one lineup under spanner headers, with a total row.
+
+    Args:
+        rows: Already ordered -- see :func:`lineup.sort_by_slot`.
+        info: From :func:`lineup_table.info_columns`.
+        points: From :func:`lineup_table.points_columns`.
+        label: The team, shown across the total row's identity columns.
+        slot_column: ``"slot"`` for the optimiser's assignment, ``"slotPosition"``
+            for the lineup as ESPN has it set.
+        total_rows: The rows the total is over, when that is not all of them.
+        marks: ``player_id`` to ``"in"`` or ``"out"``, from
+            :func:`lineup.changed_ids`.
+        below: Rows to draw after the total row -- the bench.
+    """
+    st.html(ltab.side_html(rows, info, points, label=label,
+                           slot_column=slot_column, total_rows=total_rows,
+                           marks=marks, below=below))
+
+
+def render_matchup(rows: Sequence[ltab.SlotRow], info: Sequence[ltab.Col],
+                   points: Sequence[ltab.Col], *, home_label: str,
+                   away_label: str) -> None:
+    """Draw both lineups as one mirrored table.
+
+    Args:
+        rows: From :func:`lineup_table.pair_by_slot`.
+        info: From :func:`lineup_table.info_columns`.
+        points: From :func:`lineup_table.points_columns`.
+        home_label: The left side.
+        away_label: The right side.
+    """
+    st.html(ltab.matchup_html(rows, info, points, home_label=home_label,
+                              away_label=away_label))
+
+
+#: How each upgrade severity announces itself: the callout, and the icon.
+#:
+#: Critical is an ``st.error`` because it is the one sentence on this page that means
+#: *the lineup you are about to play is worse than one you could field today*. Depth
+#: is a warning: it is the same comparison one rung down, and nothing about Sunday
+#: changes.
+UPGRADE_CALLOUTS = {
+    lu.UPGRADE_CRITICAL: ("🚨", "starting"),
+    lu.UPGRADE_DEPTH: ("↕️", "carrying on the bench"),
+}
+
+#: The upgrade tables' columns, sharing the Add/Drop panel's vocabulary.
+UPGRADE_CONFIG: Dict[str, object] = {
+    "Slot": st.column_config.TextColumn(
+        pinned=True,
+        help="The starting slot the available player would fill — the slot, not his "
+             "position, so a receiver who would fill your flex reads FLEX. This is "
+             "where he does the most good; he may be eligible for others."),
+    "Add": st.column_config.TextColumn(pinned=True),
+    "Pos": st.column_config.TextColumn(),
+    "Add Proj": st.column_config.NumberColumn(
+        format="%.1f", help="His projection on our blend, in this league's scoring."),
+    "Instead Of": st.column_config.TextColumn(
+        help="The weakest of your players eligible for that slot who he out-projects "
+             "— the one you would actually replace."),
+    "Now": st.column_config.TextColumn(
+        help="Where ESPN has your player at the moment. Not always the same slot: in "
+             "a superflex league a receiver is eligible for `OP` while starting at "
+             "`WR`."),
+    "Their Proj": st.column_config.NumberColumn(format="%.1f"),
+    "Margin": st.column_config.NumberColumn(
+        format="%+.1f",
+        help="How much better the available player projects. Never below 0.5, "
+             "because the sources that make up the blend disagree with each other by "
+             "a median of 0.43 points and an edge smaller than that is noise."),
+    "Yours Beaten": st.column_config.NumberColumn(
+        format="%.0f",
+        help="How many of your players eligible for this slot he out-projects. One "
+             "is a decision; five is a position you have not addressed."),
+    "Better Available": st.column_config.NumberColumn(
+        format="%.0f",
+        help="How many available players out-project the man in `Instead Of`. A "
+             "large number is the story: it means the position is thin on your "
+             "roster and deep on the wire."),
+}
+
+
+def _upgrade_frame(upgrades: Sequence[lu.Upgrade]) -> pl.DataFrame:
+    """One row per upgrade, in the Add/Drop panel's vocabulary."""
+    return pl.DataFrame([{
+        "Slot": upgrade.slot,
+        "Add": upgrade.best.get("player_name"),
+        "Pos": upgrade.best.get("player_position"),
+        "Add Proj": upgrade.best.get("TRUE_Points"),
+        "Instead Of": upgrade.over.get("player_name"),
+        "Now": upgrade.over.get("slotPosition"),
+        "Their Proj": upgrade.over.get("TRUE_Points"),
+        "Margin": upgrade.margin,
+        "Yours Beaten": upgrade.beaten,
+        "Better Available": upgrade.better,
+    } for upgrade in upgrades])
+
+
+def render_upgrades(upgrades: Sequence[lu.Upgrade], *, owner: str) -> None:
+    """Draw the two waiver flags, or say the roster is clean.
+
+    Args:
+        upgrades: From :func:`lineup.upgrades`, over the **unfiltered** pool.
+        owner: Whose roster is being flagged.
+    """
+    if not upgrades:
+        st.success(
+            f"Nobody available out-projects anyone on {owner}'s roster at a slot "
+            f"they could both fill. That is the common answer and the one worth "
+            f"trusting.", icon="✅")
+        return
+
+    for severity in (lu.UPGRADE_CRITICAL, lu.UPGRADE_DEPTH):
+        found = [u for u in upgrades if u.severity == severity]
+        if not found:
+            continue
+        icon, where = UPGRADE_CALLOUTS[severity]
+        headline = (f"**{len(found)} slot{'s' if len(found) > 1 else ''}** where an "
+                    f"available player out-projects someone {owner} is {where}.")
+        (st.error if severity == lu.UPGRADE_CRITICAL else st.warning)(
+            headline, icon=icon)
+        st.dataframe(_upgrade_frame(found), width="stretch", hide_index=True,
+                     placeholder="", lazy=False, column_config=UPGRADE_CONFIG)
