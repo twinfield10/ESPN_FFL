@@ -118,18 +118,24 @@ def test_refresh_resolves_a_config_key_as_well_as_a_display_name(fake_ingest):
 # --- failure isolation ---------------------------------------------------
 
 def test_one_league_failing_does_not_stop_the_others(fake_ingest):
-    """Expired cookies on a leaguemate's league must not cost you your own store."""
-    order = ["Knights_FFL", EXPLODING, "Weenieless_Wanderers"]
+    """Expired cookies on a leaguemate's league must not cost you your own store.
+
+    The healthy pair has to be leagues ``config.yaml`` really holds, because
+    ``refresh`` resolves every name through it before ingesting -- so this broke, with
+    ``ValueError: Unknown league``, the moment ``Weenieless_Wanderers`` was
+    disconnected on 2026-09-09. Winfield_Football took its place.
+    """
+    order = ["Knights_FFL", EXPLODING, "Winfield_Football"]
     results, _ = refresh.refresh(leagues=order, season=2026)
 
     assert results["Knights_FFL"] == "ok"
-    assert results["Weenieless_Wanderers"] == "ok"
+    assert results["Winfield_Football"] == "ok"
     assert "RuntimeError" in results[EXPLODING]
 
     # All three were attempted -- the failure did not abort the loop -- and the
     # two healthy leagues have stores.
     assert [n for n, _ in fake_ingest] == order
-    assert store.list_leagues(2026) == ["knights_ffl", "weenieless_wanderers"]
+    assert store.list_leagues(2026) == ["knights_ffl", "winfield_football"]
 
 
 def test_a_failed_league_leaves_its_previous_store_alone(fake_ingest):

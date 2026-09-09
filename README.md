@@ -1,6 +1,6 @@
 # ESPN Fantasy Football Analytics
 
-Pulls league data from the ESPN Fantasy API for ten leagues, blends six
+Pulls league data from the ESPN Fantasy API for nine leagues, blends six
 independent projection sources into each league's **own** scoring settings, and
 publishes weekly lineup and free-agent boards to a local app and to Google
 Sheets.
@@ -344,8 +344,8 @@ fail, the tab shows the margin and says the probability did not calibrate; a
 confident-looking 63% that is really a coin flip is worse than no number.
 
 The payoff is reading a lineup change in probability rather than in points. On
-Weenieless week 1, fixing the lineup is +19.6 projected points and **+21.8pp** of win
-probability, 53% to 75%. On Knights the same tab reports +1.6 points and +1.4pp. Same
+Weenieless week 1 — measured before that league was disconnected — fixing the lineup is
++19.6 projected points and **+21.8pp** of win probability, 53% to 75%. On Knights the same tab reports +1.6 points and +1.4pp. Same
 week, two very different reasons to care. See
 [plan 42](docs/plans/42-weekly-matchup-odds.md).
 
@@ -392,11 +392,15 @@ python -m Scripts.refresh --all --what lineups,team_stats
 
 ### Who the app is for
 
-The picker offers **your** leagues, not all ten. `config.yaml` holds ten across
+The picker offers **your** leagues, not all nine. `config.yaml` holds nine across
 five owners and the app scopes them through `app/auth.py`, which defaults to
 Winfield_Football. Adding a league takes **two** edits, not one — `config.yaml` *and*
 `DEFAULT_VIEWER.leagues` in that module; `jeffs_league` was configured, refreshed and
-published on 2026-09-01 and stayed invisible until the tuple changed. There is **no login yet** — that module is the seam one lands in,
+published on 2026-09-01 and stayed invisible until the tuple changed. **Removing one is
+the same two edits**, and deliberately not a third: `weenieless_wanderers` came out on
+2026-09-09 with its parquet left in S3, and because `store.list_leagues` reads store
+prefixes rather than the config, that data is still reachable — but only under
+`ESPN_FFL_ALL_LEAGUES=1`. There is **no login yet** — that module is the seam one lands in,
 so identity arrives in one function rather than in every page. It is not a security
 boundary; see [plan 26](docs/plans/26-user-accounts.md) for what the real thing
 needs.
@@ -444,7 +448,7 @@ with the name.
 
 Each source is reduced to a **stat line**, never to points. The stat lines are blended,
 and only then scored through each league's own rules. That ordering is what lets one
-pipeline serve ten leagues with different scoring.
+pipeline serve nine leagues with different scoring.
 
 The weighting rule is **one equal vote per source that has an opinion**. Every source
 carries the same nominal weight, a source with no real line for a player is flagged and
@@ -516,9 +520,15 @@ Sheet is their only access. See
 
 ## Leagues
 
-Ten leagues across five owners, ranging from 6 to 16 teams, including one IDP
-league (GOP Degenerates) and two superflex (Weenieless Wanderers, Jeffs_League).
+Nine leagues across five owners, ranging from 6 to 16 teams, including one IDP
+league (GOP Degenerates) and one superflex (Jeffs_League).
 Configured in `config.yaml`; see `display_name` for the key used throughout the
-pipeline, which must match the Google Sheet name exactly. Eight are published to
-Google Sheets and five are the app viewer's own — the four counts differ on purpose,
+pipeline, which must match the Google Sheet name exactly. Seven are published to
+Google Sheets and four are the app viewer's own — the three counts differ on purpose,
 and `populateGoogleSheet.py` and `app/auth.py` are where the other two live.
+
+A tenth, `Weenieless_Wanderers`, was **disconnected on 2026-09-09**: out of
+`config.yaml`, out of `DEFAULT_VIEWER.leagues`, and off both Google Sheet cohorts, with
+its 2025 and 2026 parquet deliberately left in S3. The pipeline no longer fetches it and
+the app no longer offers it; its existing Sheet tabs stop being refreshed but are not
+deleted. `ESPN_FFL_ALL_LEAGUES=1` is the only way back to the kept data.
