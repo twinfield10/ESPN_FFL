@@ -249,10 +249,13 @@ weekly file, advisory for the two books so the exit code is not red every night.
 
 `--what lineups,team_stats` rather than the bare default: `team_stats` carries the
 fixture list, and the Matchup tab cannot say who you are playing without it. It is
-opt-in because it re-derives a league's entire history (~20-60s per league), so it is a
-weekly cost rather than a daily one — nothing about this week changes 2019. A league in
-its first season gets none, because the cross-season score normalisation needs one
-prior season as a baseline.
+opt-in because it re-derives a league's entire history (~20-60s per league, and 1.5s
+for a league in its first season), so it is a weekly cost rather than a daily one —
+nothing about this week changes 2019. **A league in its first season builds it like any
+other.** It used to be skipped, because the cross-season score normalisation had nothing
+to divide by; that was fixed at the source on 2026-09-07 but the skip in
+`Scripts/refresh.py` was left behind until 2026-09-09, so `Jeffs_League` silently had no
+fixture list, no standings and no win probability for a month.
 
 Run from the repo root. Scrapers use `-m` because modules import as
 `Scripts.<name>`.

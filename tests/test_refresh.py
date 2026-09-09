@@ -66,6 +66,45 @@ def test_default_what_excludes_team_stats():
     assert "team_stats" in refresh.WHAT_CHOICES
 
 
+def test_a_first_season_league_still_builds_team_stats(monkeypatch, fake_ingest):
+    """The regression this exists for, and it was silent for a month.
+
+    ``refresh`` used to skip ``team_stats`` whenever ``season <= cfg["start"]``,
+    added 2026-08-06 against a real failure: ``scrape_team_stats`` normalised each
+    season's scores against the median of ``end_year - 1``, and a league with one
+    season in the frame had nothing to divide by. That was fixed at the source on
+    2026-09-07 -- ``_multiplier`` resolves an absent or non-positive baseline to 1.0 --
+    but the skip was not removed with it.
+
+    The cost landed on ``jeffs_league``, configured ``start: 2026, end: 2026``: no
+    fixture list, so no Matchup tab, no Home standings and no win probability, in a
+    league whose data ESPN was serving the whole time. Nothing failed loudly, because
+    a skip is not an error.
+
+    Asserted through a stubbed ``scrape_team_stats`` rather than live, so this pins
+    *that refresh calls it at all* -- which is the thing that broke. Whether the call
+    then succeeds is ``scrape_team_stats``' own contract and is covered live.
+    """
+    called = []
+
+    def fake_scrape(*, league_id, start_year, end_year, swid, espn_s2):
+        called.append((league_id, start_year, end_year))
+        return pd.DataFrame({"year": [2026.0], "week": [1.0],
+                             "team_owner": ["Tommy Winfield"],
+                             "team_score": [0.0], "opp_score": [0.0]})
+
+    import Scripts.scrape_team_stats as sts
+    monkeypatch.setattr(sts, "scrape_team_stats", fake_scrape)
+
+    refresh.refresh_league("Jeffs_League", 2026, what=["team_stats"])
+
+    assert called, "team_stats was skipped for a league in its first season"
+    _, start_year, end_year = called[0]
+    assert (start_year, end_year) == (2026, 2026), (
+        "a first-season league asks ESPN for exactly its one season")
+    assert store.artifact_path(2026, "jeffs_league", "team_stats").is_file()
+
+
 # --- argument validation -------------------------------------------------
 
 def test_unknown_what_is_rejected_before_any_work():
