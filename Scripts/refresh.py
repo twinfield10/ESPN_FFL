@@ -19,7 +19,9 @@ harness snapshots -- so the store cannot drift from what that harness verifies.
 
 ``team_stats`` is opt-in because it re-derives a league's entire history: for
 Winfield_Football that is 2016-2026, eleven seasons of box scores. Nothing about
-the current week changes 2019, so it does not belong in a weekly refresh.
+the current week changes 2019, so it does not belong in a weekly refresh. It scales
+with that history rather than being flatly expensive, though -- a league in its first
+season is 1.5s, not the ~40s an eleven-season one costs.
 """
 
 import argparse
@@ -199,24 +201,29 @@ def refresh_league(
     if "team_stats" in what:
         from Scripts.scrape_team_stats import scrape_team_stats
 
+        # **A league in its first season builds like any other, and used to be
+        # skipped here.** The skip landed 2026-08-06 with the store itself, against a
+        # real failure: `scrape_team_stats` normalised every season's scores against
+        # the median of `end_year - 1`, and with one season in the frame there was
+        # nothing to divide by. It was fixed at the source on 2026-09-07 -- see
+        # `_multiplier` there, which resolves an absent, NaN or non-positive baseline
+        # to 1.0 and names this exact case -- but the skip was not removed with it, so
+        # `jeffs_league` (2026-only) silently had no `team_stats` for a month. That
+        # cost the Matchup tab its fixture and Home its standings and win probability,
+        # in a league where the data was there the whole time.
+        #
+        # Standings never needed the adjustment at all: `home.records` reads raw
+        # `team_score`/`opp_score`, so the normalisation is not on that path.
         start_year = int(cfg["start"])
-        if season <= start_year:
-            # scrape_team_stats normalises every season's scores against the
-            # median of `end_year - 1`; with a single season in the frame that
-            # lookup has nothing to divide by.
-            _log(f"  team_stats  skipped: {season} is this league's first season "
-                 f"({start_year}), and the adjusted-score baseline needs at least "
-                 f"one prior season.")
-        else:
-            start = time.time()
-            team_stats = scrape_team_stats(
-                league_id=cfg["ID"], start_year=start_year, end_year=season,
-                swid=cfg["SWID"], espn_s2=cfg["ESPN_S2"],
-            )
-            timings["team_stats"] = time.time() - start
-            _log(f"  team_stats  {team_stats.shape[0]:>6} rows x "
-                 f"{team_stats.shape[1]:>3} cols   {timings['team_stats']:.2f}s "
-                 f"({start_year}-{season})")
+        start = time.time()
+        team_stats = scrape_team_stats(
+            league_id=cfg["ID"], start_year=start_year, end_year=season,
+            swid=cfg["SWID"], espn_s2=cfg["ESPN_S2"],
+        )
+        timings["team_stats"] = time.time() - start
+        _log(f"  team_stats  {team_stats.shape[0]:>6} rows x "
+             f"{team_stats.shape[1]:>3} cols   {timings['team_stats']:.2f}s "
+             f"({start_year}-{season})")
 
     if all(artifact is None for artifact in
            (lineups, team_stats, board, draft, tendencies, results)):

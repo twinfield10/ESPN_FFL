@@ -484,7 +484,8 @@ def summarise(league_key: str, display_name: str, week: int, meta: dict,
 
     if team_stats is None:
         notes.append("No `team_stats`, so no fixture, no win probability and no "
-                     "table. It is opt-in — about 40 seconds of ESPN round-trips.")
+                     "table. It is opt-in, and costs a league's whole history — "
+                     "~40s for eleven seasons, 1.5s for one.")
     else:
         season = int(meta.get("season") or 0)
         year = (team_stats.filter(pl.col("year") == season)

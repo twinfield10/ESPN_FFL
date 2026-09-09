@@ -41,7 +41,8 @@ for artifact, absent_note in (
                 "put a matchup on."),
     ("team_stats", "No `team_stats` in this store, so nothing knows who plays whom. "
                    "It is opt-in because it re-derives the league's whole history — "
-                   "about 40 seconds of ESPN round-trips per league."),
+                   "eleven seasons and ~40s for Winfield, 1.5s for a league in its "
+                   "first."),
 ):
     state = store.artifact_state(selection.season, selection.league_key, artifact)
     if state == "present":
@@ -72,8 +73,9 @@ for artifact, absent_note in (
         )
         if artifact == "team_stats":
             st.caption(
-                "A league in its first season gets none: the score normalisation "
-                "needs one prior season as a baseline."
+                "A league in its first season builds this like any other. It used to "
+                "be skipped -- the score normalisation had nothing to divide by -- "
+                "which is why `jeffs_league` had none until 2026-09-09."
             )
     st.stop()
 

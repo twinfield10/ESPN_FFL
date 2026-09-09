@@ -253,7 +253,8 @@ def _render_standings(cards: Sequence[home.LeagueSummary]) -> None:
         st.info(
             "No league here has a `team_stats` artifact, which is what carries the "
             "results a table is built from. It is opt-in because it re-derives a "
-            "league's whole history — about 40 seconds of ESPN round-trips each.")
+            "league's whole history — ~40s for an eleven-season league, 1.5s for a "
+            "first-season one.")
         st.code("python -m Scripts.refresh --all --what lineups,team_stats",
                 language="bash")
         return
