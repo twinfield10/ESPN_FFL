@@ -1,13 +1,13 @@
-# 40 — One league picker, four tabs
+# 40 — One league picker, five tabs
 
 **Status:** IN PROGRESS
 
-**Priority:** High · **Effort:** Large · **Where it stands:** **Shell and all four
-tabs built 2026-09-07**, the afternoon Knights drafted. Draft carries six sub-tabs
-including the post-draft Rundown; Roster, Free Agents and Matchup are new. Every tab
-renders for all ten leagues. What is owed is listed under
-[What is left](#what-is-left) — mostly plan 08's remaining views, which now have a
-place to go rather than a page each.
+**Priority:** High · **Effort:** Large · **Where it stands:** **Shell and four tabs
+built 2026-09-07**, the afternoon Knights drafted; **Home added and the chrome
+reworked 2026-09-09**. Draft carries six sub-tabs including the post-draft Rundown;
+Home is the landing page and carries standings. Every tab renders for all ten leagues.
+What is owed is listed under [What is left](#what-is-left) — mostly plan 08's remaining
+views, which now have a place to go rather than a page each.
 **Depends on:** [07 (foundation)](07-frontend-foundation.md) ·
 [08 (weekly views)](08-frontend-weekly-views.md) ·
 [09 (draft views)](09-frontend-draft-views.md) ·
@@ -37,19 +37,38 @@ discarded when you navigate to a page that has not yet rendered that widget.*
 ## The shape
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│ 🏈 Fantasy Football                                          │
-│   Draft │ Roster │ Free Agents │ Matchup   ← st.navigation(position="top")
-├──────────────────────────────────────────────────────────────┤
-│ League [Knights FFL ▾]  Week [1 ▾]  ✅ Built 14 min ago      │  ← session.render_context()
-├──────────────────────────────────────────────────────────────┤
-│ (tab body)                                                   │
-└──────────────────────────────────────────────────────────────┘
-   sidebar: freshness · Refresh This League · source coverage · unbuilt leagues
+┌───────────────────┬──────────────────────────────────────────┐
+│ Fantasy Football  │  Home │ Roster │ Matchup │ Free Agents │ Draft
+│ Signed in as …    ├──────────────────────────────────────────┤
+│                   │                                          │
+│ League [Knights ▾]│  (tab body)                              │
+│ Week   [1       ▾]│                                          │
+│                   │                                          │
+│ Store built 5.7 h │                                          │
+│  ago, refreshed   │                                          │
+│  nightly at 6am   │                                          │
+│ [Refresh League]  │                                          │
+│ source coverage   │                                          │
+│ unbuilt leagues   │                                          │
+└───────────────────┴──────────────────────────────────────────┘
+      ↑ header.render_identity() → session.render_context() → header.render_sidebar_health()
+        all three called from main.py, in that order, before st.navigation
 ```
 
-Four tabs, in the order you reach for them across a season: you draft, then you set a
-lineup, then you work the wire, then you find out whether you won.
+Five tabs. **Home leads and is the default**, because the question you actually arrive
+with is "which of my five teams needs me before kickoff". The other four then run in
+the order you work a single week: set the lineup, read the fixture, work the wire — and
+Draft last, because for all but one weekend of the year it is history. **No icons**: the
+label already says what the tab is, and a row of five emoji reads as five different
+kinds of thing rather than five peers.
+
+**The selectors moved into the sidebar** on 2026-09-09, under the identity block. The
+original shape put them in the body, above the tab body, on the argument that a control
+governing every tab should sit above the thing it governs. In practice it made the
+page's own title the second thing on it, and it cost Home — whose cards are sixteen
+columns wide — a row it needed. What was load-bearing was never *where they land*, it
+was **what draws them**: `main.py` still calls `session.render_context()`, so the
+invariant below is untouched.
 
 **Drawing the selectors in the entrypoint removes that bug class rather than defending
 against it.** Streamlit executes the entrypoint on every rerun — that is what makes it
@@ -97,7 +116,62 @@ slot is `DP: 1` while its Aug-14 lineups hold players in `CB`, `DE`, `DT`, `LB` 
 widest any one team filled, unioned with the metadata as a floor — so the optimiser is
 always solving the league that is actually being played.
 
-## The four tabs
+## The five tabs
+
+### Home — which of five teams needs you
+
+The landing page, and the only tab that is not about the selected league. Roster, Free
+Agents and Matchup each answer deeply about *one* league; finding the league with a
+ruled-out starter in it meant opening all five in turn. Home is that sweep, done once.
+
+One card per league, **ordered worst first**, so the page reads in the order you should
+act on it. Each card carries the record and rank, the fixture with both projections and
+the win probability, and up to two callouts:
+
+| Callout | Severity | When |
+| --- | --- | --- |
+| *n starters cannot play* | critical | someone ruled out or on bye is in the set lineup |
+| *+n points from n lineup changes* | warning | `lineup.swaps` has something, and everyone can play |
+| *n starting slots beaten by the wire* | critical | `lineup.UPGRADE_CRITICAL` |
+| *n bench slots beaten by the wire* | warning | `lineup.UPGRADE_DEPTH` only |
+
+A start/sit worth points is a decision; a ruled-out starter is an error. Keeping them
+apart is what stops five cards shouting every week — most weeks produce the first and
+almost none produce the second.
+
+Every card carries all three tab links in the same place, and the one an action points
+at is painted **primary**. Pressing it sets the League and Week selectors *and* opens
+the tab, so you arrive where the card was talking about. Only a critical action earns
+the primary paint: three highlighted buttons is a page with no emphasis on it.
+
+**Nothing here is re-derived.** `home.summarise` calls `lineup.swaps`,
+`lineup.upgrades`, `matchup_sim.side` and `matchup_sim.outcome` — the same functions
+the deep tabs call. A landing page that disagreed with the page it sends you to would
+be worse than no landing page. `app/home.py` holds the decisions and is Streamlit-free
+and tested (`tests/test_home.py`, 31 cases); `views/home_tab.py` is layout and owns the
+store reads, so a summary can be cached on the same `store.version` fingerprint the
+artifact readers use.
+
+**Standings, and the trap in them.** One table per league, as tabs, in the viewer's own
+league order — the cards above reorder by urgency, but a tab bar is a *control*, and
+this app has paid twice for a control that moved under the pointer.
+
+The record counts **weeks that were actually played**, recomputed rather than read off
+`season_wins`/`season_losses`/`season_ties`. ESPN reports an unplayed fixture as a 0-0
+result, `scrape_team_stats` faithfully records it as a **tie**, and the cumulative
+column faithfully accumulates it — so on 2026-09-09, with no game played, every team in
+all ten leagues read **0-0-1**. `box_score_available` is `true` on those rows and is no
+help. The test is that *nobody* scored: a real fantasy team cannot score nothing in a
+game that happened, because ESPN will not accept an empty lineup.
+
+Ranked on win percentage, then points for, then this week's **projection** — which
+breaks a tie in the first two, and before week 1 is the only thing separating anybody.
+That is the difference between landing on a real table in September and landing on six
+rows of zeroes in alphabetical order. `This Week` (scored) and `Projected` sit side by
+side because a week in progress is described honestly by neither alone.
+
+A league with no `team_stats` — Jeff's, in 2026 — keeps its card and loses the fixture,
+the probability and the table, with a caption saying which and why.
 
 ### Draft — six sub-tabs over one board read
 
@@ -287,9 +361,12 @@ Smaller things, named so they are not rediscovered:
   nothing — every other sub-tab is prefixed `value_*`, `league_*`, `cal_*`, `sheet_*` —
   so they were deliberately left alone on draft day rather than given keys that would
   change filter-persistence semantics on the surface being drafted from.
-- **A multi-league view has no seam.** `Selection` is singular by construction. A
-  second `session` helper returning a list is the place; each store read is ~11ms, so N
-  leagues is cheap.
+- ~~**A multi-league view has no seam.**~~ **Done 2026-09-09** — it did not need a
+  second `Selection`. `views.home_tab` reads the viewer's leagues from
+  `auth.visible_leagues` and calls `home.summarise` per league, cached on
+  `store.version` so the sidebar's refresh button invalidates the landing page along
+  with every deep tab. Five leagues cost ~1.7s cold and nothing warm. `Selection`
+  stays singular, and Home is the one tab that does not read its `league_key`.
 - **Adding a league still takes two edits.** `config.yaml` *and*
   `auth.DEFAULT_VIEWER.leagues`. `auth.py` documents this and it remains true —
   `jeffs_league` was configured, refreshed and published on 2026-09-01 and stayed
@@ -298,7 +375,10 @@ Smaller things, named so they are not rediscovered:
   it: Winfield_Football silently loses a week to multi-week matchup periods, with a
   hardcoded hack at `scrape_player_stats.py:568`.
 - **`Store Overview` was deleted.** Its content is diagnostics and now lives in the
-  sidebar, which is where diagnostics belong. It did not deserve one of four tabs.
+  sidebar, which is where diagnostics belong. It did not deserve a tab.
+- **Standings landed on Home rather than becoming a tab of its own**, which is where
+  plan 08 had it. A table per league under the cards is the same information in the
+  place you were already looking, and it shares the per-league read the cards need.
 
 ## Verification
 
@@ -309,7 +389,7 @@ streamlit run app/main.py
 
 Done at build time, and worth repeating after any change to the shell:
 
-- **All four tabs render for all ten leagues** — 40 combinations through
+- **All five tabs render for all ten leagues** — 50 combinations through
   `AppTest`, zero exceptions. Includes GOP (16-team IDP, $250 keeper auction),
   Weenieless (superflex), Winfield (6-team), and Jeff's (2026-only, so no draft
   history and no `team_stats`).
@@ -325,3 +405,12 @@ Done at build time, and worth repeating after any change to the shell:
   pre-game where every `points` is zero.
 - `ESPN_FFL_STORE_SOURCE=local streamlit run app/main.py` still works, and nothing in
   the render path imports an ESPN client.
+- **A Home card's button lands on the right league.** Clicking GOP's *Free Agents*
+  moved both the page and the League selector in one rerun, checked through `AppTest`.
+  The two-step is required: `st.switch_page` **cannot** be called from an `on_click`
+  callback, because callbacks run before the script body and therefore before
+  `st.navigation` has declared the pages — it fails with `Could not find page:
+  routes/free_agents.py`, the legacy-`pages/` error, which is a misleading way to learn
+  it. So the callback writes `session_state` and the page body switches.
+- **The stale badge fires at the right hour.** 0.5h, 4.1h and 23h read as a plain
+  caption; 26h and 72h read as an error.

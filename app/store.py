@@ -156,6 +156,29 @@ def _artifact(season: int, league_key: str, what: str) -> pl.DataFrame:
 
 # --- public contract -----------------------------------------------------
 
+def version(season: int, league_key: str) -> str:
+    """A string that changes whenever this league-season's store changes.
+
+    Public because the artifact readers are not the only thing that needs to be
+    invalidated by a refresh. A caller caching something *derived* from several
+    artifacts -- :func:`views.home_tab.summary`, which reduces three of them to one
+    card -- has to be keyed on the same fingerprint the readers are, or the sidebar's
+    "Refresh This League" button would repaint every deep tab and leave the landing
+    page showing the store from before it, for as long as :data:`CACHE_TTL`. Stale
+    numbers rendered as live is the one failure this app is built to prevent.
+
+    Args:
+        season: Season year.
+        league_key: ``config.yaml`` league key.
+
+    Returns:
+        str: The cache-key component. Backend-prefixed, so switching
+        ``ESPN_FFL_STORE_SOURCE`` also misses.
+    """
+    return _version(season, league_key, _resolve(season, league_key))
+
+
+
 def load_lineups(season: int, league_key: str) -> pl.DataFrame:
     """The blended lineup frame for one league-season.
 

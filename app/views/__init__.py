@@ -1,4 +1,4 @@
-"""Renderers for the sub-tabs of the four top-level tabs.
+"""Renderers for the sub-tabs, and the bodies, of the five top-level tabs.
 
 A module here draws part of a tab. It may import Streamlit -- that is the difference
 between this package and :mod:`draft_view` / :mod:`sheet_view`, which hold the

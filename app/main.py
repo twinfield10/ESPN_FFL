@@ -16,8 +16,11 @@ rather than on the pages: a widget Streamlit has not yet rendered on the current
 has its state discarded, which twice showed the wrong league. See
 :func:`components.header.sticky_selectbox`.
 
-Four tabs, in the order you use them across a season: you draft, then you set a
-lineup, then you work the wire, then you find out whether you won.
+Five tabs. **Home leads and is the default**, because the question you actually
+arrive with is "which of my five teams needs me before kickoff", and answering it used
+to mean opening every league in turn. The other four then run in the order you work a
+single week: set the lineup, read the fixture, work the wire -- and Draft last, because
+for all but one weekend of the year it is history.
 
 Every title, header and column label in this app is **Title Case** -- one house
 style, applied to labels rather than to prose. Captions and explanatory paragraphs
@@ -41,13 +44,18 @@ st.set_page_config(
 import session                                    # noqa: E402
 from components import header                     # noqa: E402
 
-#: The four tabs. Rendered in the top header rather than the sidebar so the sidebar
-#: is free for store health, and so the tab bar sits above the one context row that
-#: governs all four.
+#: The five tabs, rendered across the top. The sidebar carries the selectors and
+#: store health; the tab bar carries navigation, and nothing else.
+#:
+#: **No icons.** They were one per tab and they were decoration: the label already
+#: says what the tab is, and a row of five emoji reads as five different kinds of
+#: thing rather than five peers. Icons still earn their place inside a page, where
+#: they mark a severity -- see :data:`views.weekly.UPGRADE_CALLOUTS`.
 #:
 #: Plan 08's remaining pages -- Player Explorer, Projection Accuracy, Playoff Odds,
-#: Standings, History -- are not a fifth tab. They are sub-tabs of whichever of
-#: these four they answer a question for. See ``docs/plans/40-frontend-restructure.md``.
+#: History -- are not new tabs. They are sub-tabs of whichever of these they answer a
+#: question for; Standings landed on Home. See
+#: ``docs/plans/40-frontend-restructure.md``.
 #:
 #: **The directory is ``routes/`` and must not be renamed to ``pages/``.** Streamlit
 #: still carries its first multi-page mechanism, and the whole trigger for it is a
@@ -64,16 +72,18 @@ from components import header                     # noqa: E402
 #: legacy sidebar nav. Renaming the directory is the only fix available, the flag
 #: being decided before there is anywhere to intervene.
 PAGES = [
-    st.Page("routes/draft.py", title="Draft", icon="📋", default=True),
-    st.Page("routes/roster.py", title="Roster", icon="📊"),
-    st.Page("routes/free_agents.py", title="Free Agents", icon="🔎"),
-    st.Page("routes/matchup.py", title="Matchup", icon="⚔️"),
+    st.Page("routes/home.py", title="Home", default=True),
+    st.Page("routes/roster.py", title="Roster"),
+    st.Page("routes/matchup.py", title="Matchup"),
+    st.Page("routes/free_agents.py", title="Free Agents"),
+    st.Page("routes/draft.py", title="Draft"),
 ]
 
-# Order matters. The context row is drawn before the page body so it reads as a
-# header for it; the sidebar is drawn after, because it needs the resolved league.
+# Order matters, and all three of these draw into the sidebar: the identity block is
+# the heading the selectors sit under, and store health is drawn last because it is
+# the only one that needs the resolved league.
+header.render_identity()
 selection = session.render_context()
 header.render_sidebar_health(selection)
-st.divider()
 
 st.navigation(PAGES, position="top").run()

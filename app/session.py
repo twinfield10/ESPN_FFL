@@ -1,23 +1,29 @@
 """The one selection every tab reads: which league, which week, whose team.
 
-This is the module the four tabs share. ``main.py`` calls :func:`render_context`
+This is the module every tab shares. ``main.py`` calls :func:`render_context`
 once as the app's router frame; every page then calls :func:`current`, which draws
 nothing and hands back what the frame already resolved.
 
-**Why the selectors live here rather than in the sidebar.** They used to be three
-sidebar widgets drawn by ``components.header.render_sidebar()``, which every page
-called for itself. That worked, but it put the control that governs every tab off to
-one side of the thing it governs, and it re-drew the same three widgets on every
-page. Worse, it was structurally exposed to a Streamlit behaviour that had already
-cost two silent wrong-league renders: *widget state is discarded when you navigate to
-a page that has not yet rendered that widget*. See
+**Why the selectors are drawn from here rather than from the pages.** They used to be
+three sidebar widgets drawn by ``components.header.render_sidebar()``, which every
+page called for itself. That was structurally exposed to a Streamlit behaviour which
+had already cost two silent wrong-league renders: *widget state is discarded when you
+navigate to a page that has not yet rendered that widget*. See
 :func:`components.header.sticky_selectbox` for the full account.
 
-Drawing them in the entrypoint removes the condition rather than defending against
+Drawing them from the entrypoint removes the condition rather than defending against
 it. Streamlit executes the entrypoint on **every** rerun -- that is what makes it a
 router -- so there is no longer any page that has not rendered the league selector.
 The unconditional-write pattern is kept anyway, because it costs one line and the
 test that pins it is still worth having.
+
+**Which is a fact about *what draws them*, not about where they land.** They sit in
+the sidebar, under the identity block, stacked one above the other: they are the two
+controls that govern all five tabs, and the sidebar is the app's control surface --
+store health and the refresh button are already there. A row of selectors in the body
+made the page's own title the second thing on it, and cost Home, whose cards are
+sixteen columns wide, a row it needed. The invariant is preserved because
+``main.py`` still calls this function, before ``st.navigation``.
 
 **One season, and it is not a choice.** See :func:`current_season`.
 """
@@ -54,13 +60,13 @@ SELECTION_KEY = "_selection"
 #: this import either way. Every caller of ``session.FREE_AGENT_OWNER`` is unchanged,
 #: and there is now one copy of the string instead of two that could drift.
 
-#: ``st.session_state`` keys the two body-row widgets own.
+#: ``st.session_state`` keys the two sidebar selectors own.
 LEAGUE_KEY = "league_key"
 WEEK_KEY = "week"
 
 
 class Selection(NamedTuple):
-    """What the context row resolved to. Passed to every renderer.
+    """What the selectors resolved to. Passed to every renderer.
 
     Attributes:
         season: Season year. Always :func:`current_season` -- there is no picker.
@@ -168,10 +174,11 @@ def available_weeks(season: int, league_key: str, meta: dict) -> List[int]:
 
 
 def render_context() -> Selection:
-    """Draw the global context row and return what it resolved to.
+    """Draw the two global selectors into the sidebar and return what they resolved to.
 
-    Called **once**, from ``main.py``, before ``st.navigation(...).run()``. Pages
-    call :func:`current` instead.
+    Called **once**, from ``main.py``, before ``st.navigation(...).run()`` and after
+    :func:`components.header.render_identity`, which is the heading they sit under.
+    Pages call :func:`current` instead.
 
     Returns:
         Selection: League, week and metadata every tab reads.
@@ -190,28 +197,23 @@ def render_context() -> Selection:
     if not mine:
         header.no_visible_league_message(viewer, season, configured)
 
-    row = st.columns([3, 1, 2], vertical_alignment="bottom")
-
-    with row[0]:
+    with st.sidebar:
         league_key = header.sticky_selectbox(
             "League", LEAGUE_KEY, mine,
             default=auth.default_league(viewer, mine),
             format_func=lambda k: configured.get(k, k),
         )
 
-    meta = store.load_meta(season, league_key)
-    display_name = meta.get("display_name") or configured.get(league_key, league_key)
-    weeks = available_weeks(season, league_key, meta)
-    current_week = int(meta.get("current_week") or weeks[-1])
+        meta = store.load_meta(season, league_key)
+        display_name = (meta.get("display_name")
+                        or configured.get(league_key, league_key))
+        weeks = available_weeks(season, league_key, meta)
+        current_week = int(meta.get("current_week") or weeks[-1])
 
-    with row[1]:
         week = header.sticky_selectbox(
             "Week", WEEK_KEY, weeks,
             default=current_week if current_week in weeks else weeks[-1],
         )
-
-    with row[2]:
-        _render_freshness_chip(meta, season)
 
     selection = Selection(
         season=season, league_key=league_key, display_name=display_name,
@@ -219,24 +221,6 @@ def render_context() -> Selection:
     )
     st.session_state[SELECTION_KEY] = selection
     return selection
-
-
-def _render_freshness_chip(meta: dict, season: int) -> None:
-    """A one-line build-time badge, beside the selectors.
-
-    The sidebar carries the full freshness panel and the refresh button. This is the
-    glance version, in the body, because the failure mode the whole app is built to
-    avoid is reading an hour-old number as though it were live -- and the body row is
-    where your eyes already are.
-
-    Args:
-        meta: The store's ``meta.json``.
-        season: Season year, which picks the staleness threshold.
-    """
-    age = store.store_age_minutes(meta)
-    stale = store.is_stale(meta, header.stale_after_minutes(season))
-    when = "build time unknown" if age is None else header.format_age(age)
-    st.caption(f"{'⚠️' if stale else '✅'} Built {when}")
 
 
 def current() -> Selection:

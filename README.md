@@ -205,16 +205,38 @@ differently across your ten. Josh Allen is VOR rank 9 in the 10-team superflex a
 21 in 14-team Knights_FFL, because a superflex `OP` slot pushes QB replacement from
 QB14 to QB20.
 
-### Four tabs
+### Five tabs
 
-One **League** picker sits above everything, with the week beside it, and four tabs in
-the order you reach for them across a season: **Draft**, **Roster**, **Free Agents**,
-**Matchup**. The selectors live in the entrypoint rather than the sidebar, which is what
-makes them govern every tab — and what removes a Streamlit behaviour that had twice
-rendered the wrong league silently. The season is **pinned, not selected**: every tab
-answers a question about the season in progress, and a control nobody moves is one that
-eventually gets moved by accident. See
+**Home**, **Roster**, **Matchup**, **Free Agents**, **Draft** — Home first because it
+is the question you actually arrive with, then a single week in the order you work it,
+then Draft, which for all but one weekend of the year is history. The **League** and
+**Week** selectors sit in the sidebar, under the identity block, and govern the other
+four; they are *drawn from the entrypoint* rather than from the pages, which is what
+removes a Streamlit behaviour that had twice rendered the wrong league silently. The
+season is **pinned, not selected**: every tab answers a question about the season in
+progress, and a control nobody moves is one that eventually gets moved by accident. See
 [plan 40](docs/plans/40-frontend-restructure.md).
+
+**Home** is the landing page, and the only tab that is not about the selected league.
+It draws one card per league you are in — record and rank, who you play, the win
+probability, and the decisions each team needs — ordered worst first, so the page reads
+in the order you should act. A card's highlighted button opens the tab that can act on
+it *and* points the League selector at that league, which is the whole ergonomic gain:
+finding the league with a ruled-out starter in it used to mean opening all five. Every
+number on a card is computed by the same function the deep tab computes it with, so a
+card cannot disagree with the page it sends you to. Underneath, one standings table per
+league carries the record over **weeks that were actually played** — ESPN reports an
+unplayed fixture as a 0-0 tie, and believing it had every team reading 0-0-1 before the
+season started — beside what this week has scored and what it projects. Ranking is win
+percentage, then points for, then the projection, which breaks a tie in the first two
+and before week 1 is the only thing separating anybody.
+
+The sidebar's freshness line says **whether the nightly build ran**, not whether you
+should refresh. It is a plain caption inside 25 hours and an error past it, because the
+store is rebuilt once a night: the old one-hour threshold painted a red badge over a
+6am build for the rest of the day, every day, with nothing wrong — and an alarm that
+fires daily is one nobody reads. The refresh button is directly beneath it for the
+case the short threshold was really about.
 
 **Draft** holds six sub-tabs over one board read — the two you drive a draft from first:
 
