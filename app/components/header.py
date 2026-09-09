@@ -1,21 +1,25 @@
-"""The sidebar: how fresh the store is, what it covers, and how to rebuild it.
+"""The sidebar: who is looking, what they are looking at, and whether it is current.
 
-**The league, season and week selectors are no longer here.** They moved to
-:mod:`session`, which draws them in the app's body as one context row above every
-tab -- see that module for why. What is left is the half of the old sidebar that was
-never a selection: build time, the stale badge, per-source coverage, the refresh
-button and this viewer's unbuilt leagues.
+Drawn in three calls from ``main.py``, in this order: :func:`render_identity` is the
+heading, :func:`session.render_context` draws the League and Week selectors under it,
+and :func:`render_sidebar_health` closes with build time, coverage and the refresh
+button. The selectors live in :mod:`session` rather than here because *what draws
+them* is load-bearing -- see that module -- but they land in this sidebar, between the
+two halves this file owns.
 
-Freshness is deliberately loud. The failure mode this app exists to avoid is
-rendering an hour-old number as though it were live, so the build time, the
-per-source coverage and a stale badge are all on screen rather than buried on a
-settings page.
+**Freshness says "did the build run", not "should you refresh".** It used to say
+both, and the louder half was wrong: a one-hour threshold painted a red badge over a
+board built at 6am for the remaining twenty-three hours of the day, on data that only
+changes once a night. A warning that fires every day is not a warning, and the button
+to act on it is six inches below the badge anyway. So the threshold is now a single
+:data:`STALE_AFTER_MIN`, a shade over a day, and crossing it means a **nightly run was
+missed** -- an error to go and look into, not a chore. Inside the window the age is a
+plain caption, because "built 4.1 hours ago" is a fact and not an alarm.
 
 Two helpers stay here because they are the sidebar's own vocabulary and are reused
-by the context row: :func:`sticky_selectbox`, which is the only dropdown primitive
-in the app and carries the account of two bugs that each rendered the wrong league,
-and :func:`stale_after_minutes`, which knows that pre-season and game-day are
-different questions.
+by :mod:`session`: :func:`sticky_selectbox`, which is the only dropdown primitive in
+the app and carries the account of two bugs that each rendered the wrong league, and
+:func:`stale_after_minutes`.
 
 Which leagues a viewer may open is decided in :mod:`auth`, not here.
 """
@@ -33,53 +37,47 @@ import auth
 import store
 from Scripts.config_utils import build_lg_vars
 from Scripts.paths import REPO_ROOT
-from Scripts.usage.features import SEASON_START
 
-#: Age past which the badge turns red **in season**, in minutes.
-#:
-#: An hour, and it is short on purpose. In season this badge is not asking "is the
-#: data recent", it is asking "did you refresh before locking a lineup" -- injury
-#: news an hour before kickoff is the entire reason the app renders a build time at
-#: all. A badge that goes red an hour after your last refresh is doing its job.
-STALE_AFTER_MIN_IN_SEASON = 60
-
-#: Age past which the badge turns red **before week 1**, in minutes.
+#: Age past which the badge turns red, in minutes. One number, all season.
 #:
 #: 25 hours, matching ``run_daily_refresh.sh``'s 6am cron and
-#: :data:`Scripts.refresh_status.DEFAULT_MAX_AGE_HOURS`. Pre-season there is nothing
-#: to do between nightly runs: the depth chart moves once a day, no games are being
-#: played, and no lineup is being locked. Holding the in-season hour here would paint
-#: the badge red 23 hours out of 24 for a month, and a badge that is always red is
-#: one nobody reads -- which costs you the one week in September when it means
-#: something.
+#: :data:`Scripts.refresh_status.DEFAULT_MAX_AGE_HOURS` -- which a test pins, because
+#: the badge and the command line must not disagree about what stale means. The extra
+#: hour over 24 is slack for a slow run, not tolerance for a skipped one.
 #:
-#: The extra hour over 24 is slack for a slow run, not tolerance for a skipped one.
-STALE_AFTER_MIN_PRE_SEASON = 25 * 60
+#: **This replaced a one-hour in-season threshold, and the replacement is the point.**
+#: The old number was calibrated for a different question -- "did you refresh before
+#: locking this lineup", where injury news minutes before kickoff is what matters --
+#: and it answered it by painting the badge red all day, every day, on a store that is
+#: rebuilt once a night. Nothing was wrong when it was red, so nothing was learned
+#: from it being red, which is exactly how an alarm stops working. Crossing a day
+#: means something else entirely: the cron did not run, or it failed. That is worth
+#: interrupting for, and it is rare enough to be believed.
+#:
+#: The refresh button remains, immediately below, for the case the old threshold was
+#: really about. Wanting fresher data is a thing you do, not a thing you are warned
+#: about.
+STALE_AFTER_MIN = 25 * 60
 
 
 def stale_after_minutes(season: int, today: Optional[date] = None) -> int:
-    """The staleness threshold appropriate to where the season is.
+    """The staleness threshold. :data:`STALE_AFTER_MIN`, whatever the season.
 
-    Two cadences, so two numbers. See :data:`STALE_AFTER_MIN_IN_SEASON` and
-    :data:`STALE_AFTER_MIN_PRE_SEASON` for why one constant cannot serve both.
-
-    The boundary is :data:`Scripts.usage.features.SEASON_START`, reused rather than
-    redeclared -- it is the same "when does the season start" the age feature already
-    measures against, and it is approximate there for the same reason it can be
-    approximate here. Nothing turns on being a few days out; what turns on it is not
-    holding a game-day threshold through August.
+    Kept as a function, with both arguments, though it now ignores them: it is the
+    one seam every caller already reads the threshold through -- the sidebar badge,
+    and previously the body chip -- and a per-season or per-date cadence is a change
+    this signature can absorb without touching them. It used to return two different
+    numbers; see :data:`STALE_AFTER_MIN` for why it returns one.
 
     Args:
-        season: Season year the store is for.
-        today: Overridable for tests. Defaults to the actual date.
+        season: Season year the store is for. Unused.
+        today: Unused. Retained for callers and tests that pass a fixed date.
 
     Returns:
         int: Minutes.
     """
-    today = date.today() if today is None else today
-    opener = date(season, *SEASON_START)
-    return (STALE_AFTER_MIN_PRE_SEASON if today < opener
-            else STALE_AFTER_MIN_IN_SEASON)
+    del season, today
+    return STALE_AFTER_MIN
 
 
 @st.cache_data(ttl=600, show_spinner=False)
@@ -269,11 +267,27 @@ def sticky_selectbox(label, state_key, options, default=None, format_func=str):
     return st.selectbox(label, options, key=state_key, format_func=format_func)
 
 
-def render_sidebar_health(selection) -> None:
-    """Draw the sidebar: who is looking, how fresh the store is, and how to rebuild.
+def render_identity() -> None:
+    """The sidebar's heading: what this app is, and who it is being drawn for.
 
-    Called once from ``main.py``, after :func:`session.render_context` has resolved
-    which league we are looking at. It draws no selectors -- see the module
+    Called **first** from ``main.py``, before :func:`session.render_context`, because
+    the League and Week selectors are drawn into the sidebar directly beneath it and
+    Streamlit places sidebar elements in call order. It resolves nothing and needs no
+    selection, which is exactly why it can go first -- and why the selectors can sit
+    under a heading that names the app rather than under nothing.
+    """
+    viewer = auth.current_viewer()
+    with st.sidebar:
+        st.markdown("### Fantasy Football")
+        st.caption(f"Signed in as **{viewer.display_name}**")
+
+
+def render_sidebar_health(selection) -> None:
+    """Draw the rest of the sidebar: how fresh the store is, and how to rebuild it.
+
+    Called last from ``main.py``, after :func:`session.render_context` has resolved
+    which league we are looking at -- which is the only reason it is not first. It
+    draws no selectors and no heading; see :func:`render_identity` and the module
     docstring.
 
     Args:
@@ -283,9 +297,6 @@ def render_sidebar_health(selection) -> None:
     """
     viewer = auth.current_viewer()
     with st.sidebar:
-        st.markdown("### Fantasy Football")
-        st.caption(f"Signed in as **{viewer.display_name}**")
-
         _render_freshness(selection.meta, selection.season, selection.display_name)
         _render_coverage(selection.meta)
 
@@ -295,31 +306,33 @@ def render_sidebar_health(selection) -> None:
 
 
 def _render_freshness(meta: dict, season: int, display_name: str) -> None:
-    """Build time, staleness badge and the refresh button.
+    """Build time, the stale badge and the refresh button.
+
+    **Two states, and only one of them is a badge.** Inside
+    :data:`STALE_AFTER_MIN` the age is a caption, because it is a fact -- the store is
+    rebuilt nightly and being some hours old is what "nightly" means, so dressing it
+    as a green success box asserted a check had passed that nobody had run. Past the
+    threshold it is an error, and it says what has actually gone wrong rather than how
+    old the file is: a store over a day old means the 6am cron did not run or did not
+    finish, which is a thing to go and fix.
 
     Args:
         meta: The store's ``meta.json``.
-        season: Season year.
+        season: Season year. Passed through to :func:`stale_after_minutes`.
         display_name: League display name, passed to the refresh CLI.
     """
     st.divider()
     age = store.store_age_minutes(meta)
-    threshold = stale_after_minutes(season)
-    stale = store.is_stale(meta, threshold)
-    when = "Build Time Unknown" if age is None else f"Built {format_age(age)}"
-    label = f"{when} · Week {meta.get('current_week', '?')}"
+    when = "build time unknown" if age is None else f"built {format_age(age)}"
 
-    if stale:
-        st.error(label, icon="⚠️")
+    if store.is_stale(meta, stale_after_minutes(season)):
+        st.error(
+            f"This store is {when} — over a day, so a nightly refresh was missed.",
+            icon="⚠️")
+        st.caption("`python -m Scripts.refresh_status` says whether the 6am run "
+                   "happened and which step failed.")
     else:
-        st.success(label, icon="✅")
-
-    # Which clock is running, so a green badge at 14 hours old is not read as a bug.
-    # Pre-season the nightly cron is the cadence and this is really reporting on it,
-    # so it names the check that gives the fuller answer.
-    if threshold >= STALE_AFTER_MIN_PRE_SEASON:
-        st.caption("Pre-season: refreshed nightly at 6am. "
-                   "`python -m Scripts.refresh_status` says whether it ran.")
+        st.caption(f"Store {when}, and refreshed nightly at 6am.")
 
     if st.button("Refresh This League", width="stretch",
                  help="Runs Scripts.refresh in a subprocess. Seconds of ESPN "
