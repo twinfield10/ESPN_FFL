@@ -539,10 +539,11 @@ def summarise(league_key: str, display_name: str, week: int, meta: dict,
 def by_urgency(summaries: Sequence[LeagueSummary]) -> List[LeagueSummary]:
     """Cards in the order they should be read: worst first.
 
-    Stable, so within a severity the leagues keep the order the viewer's own
-    :attr:`auth.Viewer.leagues` put them in -- which is roughly how often each is
-    opened. A landing page that reshuffled every card every week would cost more in
-    hunting than the ordering saves.
+    Stable, so within a severity the leagues keep the order they arrived in -- which
+    is :func:`auth.visible_leagues`', which is deliberately the *store's* rather than
+    the viewer's: sorted, and stable across seasons. That is the property being
+    relied on here. A landing page that reshuffled the quiet cards every week would
+    cost more in hunting than the ordering saves.
 
     Args:
         summaries: One per league.

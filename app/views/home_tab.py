@@ -72,14 +72,16 @@ STANDINGS_CONFIG: Dict[str, object] = {
         help="Over weeks that have actually been played. An unplayed fixture is "
              "recorded by ESPN as a 0-0 tie, and is not counted here."),
     "Win%": st.column_config.NumberColumn(
-        format="%.3f", help="A tie counts as half a win."),
-    "PF": st.column_config.NumberColumn(format="%.1f", help="Points for."),
-    "PA": st.column_config.NumberColumn(format="%.1f", help="Points against."),
+        format="%.3f", width="small", help="A tie counts as half a win."),
+    "PF": st.column_config.NumberColumn(format="%.1f", width="small",
+                                        help="Points for."),
+    "PA": st.column_config.NumberColumn(format="%.1f", width="small",
+                                        help="Points against."),
     "This Week": st.column_config.NumberColumn(
-        format="%.1f",
+        format="%.1f", width="small",
         help="Actually scored this week. Empty until the week is played."),
     "Projected": st.column_config.NumberColumn(
-        format="%.1f",
+        format="%.1f", width="small",
         help="Our blend's total for the lineup ESPN currently has set — the same "
              "basis the Matchup tab quotes, not the best lineup available."),
 }
@@ -232,14 +234,15 @@ def _ordinal(number: int) -> str:
 def _render_standings(cards: Sequence[home.LeagueSummary]) -> None:
     """One table per league, as tabs.
 
-    **Tabs stay in the viewer's own league order while the cards above reorder by
-    urgency.** A tab bar is a control, and the app has already paid twice for a
-    control that moved under the pointer -- see
-    :func:`components.header.sticky_selectbox`. The cards are a readout, so sorting
-    them is free.
+    **Tabs stay in store order while the cards above reorder by urgency.** A tab bar
+    is a control, and the app has already paid twice for a control that moved under
+    the pointer -- see :func:`components.header.sticky_selectbox`. Store order is
+    :func:`auth.visible_leagues`', which is sorted and stable across seasons rather
+    than the viewer's own; either would do, and what matters is that it does not move.
+    The cards are a readout, so sorting those is free.
 
     Args:
-        cards: In the viewer's configured order, not the card order.
+        cards: In store order, not urgency order.
     """
     st.divider()
     st.subheader("Standings")
@@ -257,7 +260,15 @@ def _render_standings(cards: Sequence[home.LeagueSummary]) -> None:
 
     for tab, card in zip(st.tabs([card.display_name for card in tabled]), tabled):
         with tab:
-            st.dataframe(card.standings, width="stretch", hide_index=True,
+            # `width="content"` rather than the `"stretch"` every other table in
+            # the app uses, and the difference is visible: eight narrow columns
+            # stretched across 1430px came out mostly whitespace, with `Projected`
+            # -- the column you actually read in September -- pushed to the far
+            # edge away from the name it belongs to. Narrowing the columns alone did
+            # nothing, because a stretched table redistributes the slack. Found by
+            # screenshot; `AppTest` reports the frame a page rendered, never the
+            # width it rendered into.
+            st.dataframe(card.standings, width="content", hide_index=True,
                          placeholder="", lazy=False,
                          column_config=STANDINGS_CONFIG)
             st.caption(

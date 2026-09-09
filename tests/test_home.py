@@ -336,9 +336,10 @@ def test_a_leagues_worst_action_decides_its_place():
 
 
 def test_the_order_is_stable_within_a_severity():
-    """So the cards keep the viewer's own league order -- roughly how often each is
-    opened -- rather than reshuffling weekly. A readout you have to hunt through
-    costs more than the sorting saves."""
+    """So the quiet cards keep the order they arrived in -- store order, which
+    ``auth.visible_leagues`` keeps sorted and stable across seasons -- rather than
+    reshuffling weekly. A readout you have to hunt through costs more than the
+    sorting saves."""
     same = [summary(name, [home.Action(home.ACTION_CRITICAL, "🚨", "x",
                                        home.ROUTE_ROSTER, "Roster")])
             for name in ("first", "second", "third")]
