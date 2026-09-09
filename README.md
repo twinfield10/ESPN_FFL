@@ -414,6 +414,12 @@ per-source projection coverage so a dead source is visible rather than absorbed
 by imputation. Its refresh button shells out to the same CLI; a league that fails
 keeps its previous store, so the badge shows an older time rather than nothing.
 
+**ESPN reads 100% there by construction** — it is the frame every row came from,
+and the other sources are read against it. It used to read 92–99.5% depending on
+the league, because ESPN publishes `0.0` for an inactive or bye player and the
+"real line" rule counted that as absence. Its zero is an assertion; a book's zero
+on a stat it never posts is not, so only the root source counts one.
+
 Pre-season the weekly Pinnacle and BetOnline props do not exist yet. The blend
 falls back to the ESPN/FantasyPros mean for those columns, flags them imputed,
 and renormalises them out of `TRUE_*` — so the numbers stay honest and the app
@@ -510,6 +516,15 @@ and how old it is. That last part exists because it did not before: both books o
 sat **thirteen days stale** on a live draft board while this reported everything
 healthy — truthfully, in its own terms, since the nightly it watched was fine and
 simply never ran them. A source is only as visible as something that names it.
+
+`python -m Scripts.name_audit` answers the neighbouring question: a source that is
+fresh, present, and joined to *nobody*. Every source is matched to ESPN by name, and
+a name that fails to match does not fail loudly — the player abstains, the blend
+renormalises, and the number still looks complete. The audit classifies each miss so
+the handful that are spelling differences separate from the hundreds that are simply
+players outside the league. It exits non-zero when anything needs a fix, reads only
+the built stores, and needs no ESPN connection. Run it after a source's first scrape
+of the season and whenever a book's file changes shape.
 
 **Why both outputs exist.** The app is a service — fast, rich, and alive only
 while your laptop is. The Sheet is a published artifact: readable from a phone,

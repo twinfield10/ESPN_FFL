@@ -215,6 +215,13 @@ def coverage_summary(lineups: pd.DataFrame, *,
       45-odd stats, most of which FantasyPros never publishes, so it answers a
       question nobody asked.
 
+    **ESPN is 100% in both, and only agreed on that from 2026-09-09.** ``overall``
+    had always said so; ``players`` read 92-99.5% depending on the league, because
+    ESPN publishes ``0.0`` for an inactive or bye player and the non-zero rule
+    counted that as absence. ``player_coverage``'s ``root`` argument is where that
+    now differs -- see its own note for why a published zero and a structural zero
+    are not the same fact.
+
     ``scope_population`` narrows *both* to
     :func:`Scripts.projection_utils.coverage_population` -- every rostered player
     plus the best twenty free agents per position, IDP excluded. Before it, the

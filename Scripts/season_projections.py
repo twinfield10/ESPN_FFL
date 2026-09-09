@@ -129,12 +129,18 @@ BOL_SHORT_MAP = {
 
 #: Known cross-source misspellings and nicknames, keyed by normalised name.
 #:
-#: The last four came from The Athletic's workbook, which resolved 428 of its 434
+#: The middle block came from The Athletic's workbook, which resolved 428 of its 434
 #: players against the crosswalk on first import. Two are the source's typos and two
 #: are the name the player is actually called -- and a nickname is the more dangerous
-#: kind, because it looks correct in both files. Without these four the players
+#: kind, because it looks correct in both files. Without those four the players
 #: silently abstain rather than failing loudly, which is what `_report_join_misses`
 #: exists to surface.
+#:
+#: **These are canonicalisations, not corrections, and the direction does not
+#: matter as long as both sides converge.** ESPN's own names run through
+#: `normalise_name` too, so `CAMERON WARD -> CAM WARD` and its inverse are equally
+#: correct; what would break is mapping one variant to a *third* spelling neither
+#: side uses. The map audit in `Scripts.name_audit` checks exactly that.
 NAME_ALIASES = {
     "DALTON KINCIAD": "DALTON KINCAID",
     "PATRICK MAHOMES II": "PATRICK MAHOMES",
@@ -159,6 +165,51 @@ NAME_ALIASES = {
     # cost a 165-point back his real Athletic line for two days, and the cheap time
     # to fix it is when nobody is drafting off it.
     "LAQUAN TREADWELL": "LAQUON TREADWELL",
+    # Surfaced by `python -m Scripts.name_audit` on 2026-09-09, its first run.
+    # Measured against the nine 2026 boards, so the ESPN points are that morning's.
+    #
+    # The first is the expensive one and it had been live since the season file
+    # first landed: Pinnacle spells the Titans quarterback `Cameron Ward` and ESPN
+    # spells him `Cam Ward`, so **a 302-point starter took his Pinnacle season line
+    # from the ESPN/FantasyPros mean** on every board. `clean_bol` had carried this
+    # rename for the weekly path since 2026-08 and nothing propagated it here --
+    # which is the argument for one audit over both grains rather than a map per
+    # loader.
+    "CAMERON WARD": "CAM WARD",
+    # BetOnline's season file, which is uppercase and hand-typed and shows it. All
+    # five are nicknames or single-character slips; the points are what ESPN
+    # projects for the player the line was thrown away for.
+    "STEFIN DIGGS": "STEFON DIGGS",              # 175 pts
+    "KAMREN CURL": "KAM CURL",                   # 155, IDP only
+    "PATRICK SURTAIN": "PAT SURTAIN",            # 109, IDP only
+    "GREGORY ROUSSEAU": "GREG ROUSSEAU",         # 105, IDP only
+    "REUBEN BAIN": "RUEBEN BAIN",                #  85, IDP only, vowels transposed
+    # `DAL` is the team abbreviation standing where the first name should be, so
+    # this is a scraper artifact rather than a spelling: `R/GetSeasonProps.R` lost
+    # `Dak` and kept `DAL`. Aliased because it costs two lines and recovers a
+    # 395-point quarterback's passing props today; the scrape is the real fix, and
+    # it is the same defect behind the three first-name-only rows the audit reports
+    # as `review:ambiguous` and this map deliberately does **not** paper over --
+    # a key of `CHRISTIAN` would match whoever the scrape truncated next.
+    "DAL PRESCOTT": "DAK PRESCOTT",
+    # The second spelling BetOnline uses for a name already aliased above. Kept
+    # separate rather than folded in: `CHIG` is what The Athletic writes.
+    "CHIQ OKONKWO": "CHIGOZIEM OKONKWO",
+    # Held only by the two weekly rename maps until now, so the season path missed
+    # him. Same class of gap as `CAMERON WARD`.
+    "ZONOVAN KNIGHT": "BAM KNIGHT",
+    # FantasyPros' weekly file, which carries `Mitch Tinsley` *and* `Mitchell
+    # Tinsley` as separate rows. Both normalise here, which is also why the weekly
+    # join cannot simply be switched to `name_key` without de-duplicating first.
+    "MITCH TINSLEY": "MITCHELL TINSLEY",
+    "MATT HIBNER": "MATTHEW HIBNER",
+    # The usage model's own roster. It joins on `player_id` and only falls back to
+    # the name for players the crosswalk does not carry, so these are cheap
+    # insurance rather than live misses.
+    "JOSH PALMER": "JOSHUA PALMER",
+    "SCOTT MILLER": "SCOTTY MILLER",
+    "IRVIN CHARLES": "IRV CHARLES",
+    "ANDREW OGLETREE": "DREW OGLETREE",
 }
 
 _SUFFIXES = re.compile(r"\b(JR|SR|II|III|IV|V)\b")
@@ -258,6 +309,31 @@ def _recover_player(raw_player, stat_text: str):
     return (head or raw_player), tail
 
 
+def _drop_team_tail(player):
+    """Strip a trailing team abbreviation from a player name.
+
+    ``AJ BARNER SEA`` was reaching the blend with the tail attached, so it never
+    joined and a 116-point tight end's receiving-yards line was discarded.
+    :func:`_recover_player` has always stripped this, but it only runs on the
+    branch where ``stat_short`` is *unrecognised* -- and ``YDS_REC`` is recognised,
+    so the mapped-short rows skipped it entirely. Applied to both branches now.
+
+    Args:
+        player: The ``player`` value, possibly with a team abbreviation appended.
+
+    Returns:
+        The name with the tail removed, or the input unchanged when there is none
+        or when removing it would leave a single token -- ``DAL PRESCOTT`` must not
+        become ``DAL``.
+    """
+    if not isinstance(player, str):
+        return player
+    stripped = _TEAM_TAIL.sub("", player.strip().rstrip("-").strip())
+    if stripped == player:
+        return player
+    return stripped if len(stripped.split()) >= 2 else player
+
+
 def normalise_bol_props(df: pd.DataFrame) -> pd.DataFrame:
     """Map BetOnline's long prop file onto ESPN stat names.
 
@@ -268,6 +344,14 @@ def normalise_bol_props(df: pd.DataFrame) -> pd.DataFrame:
         pd.DataFrame: ``name_key``, ``player_name``, ``stat``, ``line``,
         ``stat_text`` -- one row per prop, with ``stat`` null where the wording is
         still unrecognised.
+
+    Note:
+        Rows whose ``player`` is a bare first name -- ``CHRISTIAN``, ``AKHEEM``,
+        ``KELDRIC`` on the 2026 file -- survive with that name and never join. They
+        are an upstream defect in ``R/GetSeasonProps.R`` rather than a spelling, and
+        an alias keyed on a first name would attach a real line to whoever the
+        scrape truncated next, so nothing here guesses at them.
+        ``Scripts.name_audit`` reports them each run as ``review:ambiguous``.
     """
     rows = []
     for r in df.itertuples():
@@ -277,6 +361,7 @@ def normalise_bol_props(df: pd.DataFrame) -> pd.DataFrame:
 
         if short in BOL_SHORT_MAP:
             stat = BOL_SHORT_MAP[short]
+            player = _drop_team_tail(player)
         else:
             player, stat_text = _recover_player(player, stat_text)
             stat = BOL_STAT_MAP.get(_normalise_stat_text(stat_text))

@@ -116,13 +116,22 @@ def _contributed(frame: pl.DataFrame, prefix: str) -> Optional[pl.Expr]:
     The polars twin of :func:`Scripts.projection_utils.source_contributed`, and it
     has to be a twin rather than a call: that module is pandas and this one is
     polars. ``tests/test_lineup.py`` pins the two against each other on one frame so
-    the store's coverage panel and this column cannot drift on what "real" means.
+    they cannot drift on what "real" means.
 
     There is no ``<prefix>_Points_is_imputed`` flag -- imputation is tracked per stat
     -- so a source's realness for one player is read off its stat flags. Two clauses:
     a **zero does not count** (these frames are dense with structural zeros; a
     kicker's ``FP_passingYards`` is 0.0 and unflagged because nobody imputed it and
     nobody asserted it either), and an **imputed cell does not count**.
+
+    **The sidebar's coverage panel deliberately answers differently for ESPN, and
+    that is not this function drifting.** ``player_coverage`` passes
+    ``zero_is_real=True`` for the root source, because ESPN publishes ``0.0`` for an
+    inactive or bye player and the panel's question is *does this source speak for
+    this player*. The question here is *how far apart are the opinions*, and "ESPN
+    says none" against no other line is not a spread. Same cell, two different
+    facts; the pinning test compares this against ``source_contributed``'s default,
+    which is still clause-for-clause identical.
 
     **This replaced a mean-of-flags share cut at 0.5, which never fired.** Measured
     on Knights 2026 week 1: FantasyPros carries 47 flag columns and fills at most

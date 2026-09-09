@@ -395,6 +395,44 @@ def test_source_contributed_falls_back_to_points_without_a_stat_column():
         df, "FP", ["rushingYards"], points_fallback=False).tolist() == [False, False]
 
 
+def test_source_contributed_can_count_a_published_zero():
+    """The root source's ``0.0`` is an assertion, not an absence.
+
+    ESPN publishes zero for an inactive or bye player, so the same cell that means
+    "FantasyPros never spoke" means "ESPN says none" here. Only ESPN's row asks for
+    this; every other caller keeps the Cameron Dicker rule above.
+    """
+    df = pd.DataFrame({"ESPN_passingYards": [0.0, 30.0]})
+    assert pu.source_contributed(
+        df, "ESPN", ["passingYards"], zero_is_real=True).tolist() == [True, True]
+    assert pu.source_contributed(
+        df, "ESPN", ["passingYards"]).tolist() == [False, True]
+
+
+def test_player_coverage_reads_the_root_source_at_full_coverage():
+    """ESPN is the frame's own author and cannot be missing a player.
+
+    Measured on the ten 2026 stores on 2026-09-09 the sidebar showed **ESPN
+    92-99.5%**, 96.5% on GOP Degenerates, whose 11 uncounted players were four on a
+    bye and seven inactive -- every one of them a row where ESPN published 0.0.
+    `coverage_report` had always answered 100% for ESPN, so the panel's two views
+    disagreed about the one source that cannot go dark.
+    """
+    df = pd.DataFrame({
+        "TRUE_rushingYards": [40.0, 0.0],
+        "ESPN_rushingYards": [40.0, 0.0],        # row 1: on a bye, ESPN says none
+        "FP_rushingYards": [38.0, 0.0],
+        "FP_rushingYards_is_imputed": [False, True],
+    })
+    covered = pu.player_coverage(df, sources=("ESPN", "FP")).set_index("source")
+    assert covered.loc["ESPN", "real_pct"] == 100.0
+    # FantasyPros is unaffected: its zero is imputed and stays absence.
+    assert covered.loc["FP", "real_pct"] == 50.0
+    # And the old behaviour is still reachable, so the choice is explicit.
+    assert pu.player_coverage(df, sources=("ESPN",), root=None
+                              ).loc[0, "real_pct"] == 50.0
+
+
 def test_player_coverage_counts_players_rather_than_cells():
     """The two answer different questions, and the label claimed the first.
 
