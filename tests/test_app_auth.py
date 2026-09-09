@@ -1,9 +1,17 @@
 """The viewer boundary: which leagues the app is allowed to offer.
 
 There is no login yet, so what is covered here is the *scoping* -- the part a login
-will hand its answer to. The point of the module is that ten configured leagues
-narrow to one viewer's five in exactly one place, so these tests are the ones that
+will hand its answer to. The point of the module is that the leagues the store holds
+narrow to one viewer's four in exactly one place, so these tests are the ones that
 would fail if a page went back to reading ``store.list_leagues`` directly.
+
+**The store list and ``config.yaml`` are not the same list, and since 2026-09-09 they
+disagree by one.** ``weenieless_wanderers`` was disconnected -- removed from the config
+and from :data:`auth.DEFAULT_VIEWER` -- but its parquet was deliberately kept, and
+:func:`store.list_leagues` reads store prefixes rather than the config. So it is still
+in :data:`ALL_LEAGUES` below, which is the honest fixture, and
+``test_a_disconnected_league_is_not_offered_even_though_its_data_remains`` is what
+makes sure that data cannot come back through the picker.
 """
 
 import sys
@@ -17,7 +25,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 import auth  # noqa: E402
 
-#: Every league in config.yaml, in the order the store lists them (sorted).
+#: Every league **the store holds**, in the order it lists them (sorted).
+#:
+#: One more than ``config.yaml`` has: ``weenieless_wanderers`` was disconnected on
+#: 2026-09-09 and its data left in place. See the module docstring.
 ALL_LEAGUES = [
     "big_red_fantasy_football", "fields_league", "gop_degenerates",
     "jeffs_league", "john_atl_league", "john_pc_league", "knights_ffl",
@@ -36,16 +47,46 @@ def _no_escape_hatch(monkeypatch):
 def test_the_default_viewer_sees_only_the_leagues_he_plays_in():
     visible = auth.visible_leagues(auth.DEFAULT_VIEWER, ALL_LEAGUES)
     assert visible == ["gop_degenerates", "jeffs_league", "knights_ffl",
-                       "weenieless_wanderers", "winfield_football"]
+                       "winfield_football"]
 
 
 def test_the_other_owners_leagues_are_not_offered():
-    """Five of the ten belong to other owners. The pipeline still builds them and
-    the Sheet still publishes them -- they are just not this viewer's."""
+    """Five of the nine configured leagues belong to other owners. The pipeline still
+    builds them and the Sheet still publishes them -- they are just not this
+    viewer's."""
     visible = auth.visible_leagues(auth.DEFAULT_VIEWER, ALL_LEAGUES)
     for key in ("big_red_fantasy_football", "fields_league", "john_atl_league",
                 "john_pc_league", "twelve_dudes_one_cup"):
         assert key not in visible
+
+
+def test_a_disconnected_league_is_not_offered_even_though_its_data_remains():
+    """The end state of removing a league without deleting its parquet.
+
+    ``weenieless_wanderers`` is out of ``config.yaml`` and out of the viewer's tuple,
+    so the pipeline does not fetch it and the app does not offer it -- but its store
+    prefix still exists, and :func:`store.list_leagues` reads prefixes rather than the
+    config, so it is still in ``ALL_LEAGUES``. This tuple is the only thing standing
+    between kept data and a picker entry, which is why it is worth a test of its own
+    rather than being folded into the other-owners case above: it is not somebody
+    else's league, it is a league nobody is meant to open.
+    """
+    assert "weenieless_wanderers" in ALL_LEAGUES, "fixture should keep the store's view"
+    assert "weenieless_wanderers" not in auth.DEFAULT_VIEWER.leagues
+    assert "weenieless_wanderers" not in auth.visible_leagues(
+        auth.DEFAULT_VIEWER, ALL_LEAGUES)
+
+
+def test_the_escape_hatch_still_reaches_a_disconnected_league():
+    """Deliberately, and it is the only route left to one.
+
+    Kept data you cannot look at is data you cannot check, and the reason the parquet
+    was left in place was to keep 2025 and 2026 readable. So the unrestricted viewer
+    must still see it -- otherwise "keep the data" and "delete the data" would be the
+    same outcome from the app's point of view.
+    """
+    everyone = auth.DEFAULT_VIEWER._replace(leagues=())
+    assert "weenieless_wanderers" in auth.visible_leagues(everyone, ALL_LEAGUES)
 
 
 def test_the_stores_order_is_kept_not_the_viewers():
@@ -54,8 +95,7 @@ def test_the_stores_order_is_kept_not_the_viewers():
     leagues get built."""
     reversed_store = list(reversed(ALL_LEAGUES))
     assert auth.visible_leagues(auth.DEFAULT_VIEWER, reversed_store) == [
-        "winfield_football", "weenieless_wanderers", "knights_ffl",
-        "jeffs_league", "gop_degenerates"]
+        "winfield_football", "knights_ffl", "jeffs_league", "gop_degenerates"]
 
 
 def test_an_empty_league_list_means_unrestricted():

@@ -638,9 +638,9 @@ def write_to_google(df_dict, league_name, primary_owner):
                 # indistinguishable from a league simply having no kicker.
                 print(f"Skipped {sheet_name}: {type(e).__name__}: {e}")
 
-all = ['GOP_Degenerates', 'Knights_FFL', 'Weenieless_Wanderers', 'John_PC_League', 'John_ATL_League', "12 Dudes one Cup", 'Big Red Fantasy Football', 'Washed_Up_Fijians'] #, 'Winfield_Football'
+all = ['GOP_Degenerates', 'Knights_FFL', 'John_PC_League', 'John_ATL_League', "12 Dudes one Cup", 'Big Red Fantasy Football', 'Washed_Up_Fijians'] #, 'Winfield_Football'
 john = ['John_PC_League', 'John_ATL_League']
-tommy = ['Winfield_Football', 'Knights_FFL', 'GOP_Degenerates', 'Weenieless_Wanderers']
+tommy = ['Winfield_Football', 'Knights_FFL', 'GOP_Degenerates']
 will = ["12 Dudes one Cup"]
 cooleen = ['Big Red Fantasy Football']
 fields = ['Washed_Up_Fijians']
@@ -688,7 +688,7 @@ def run(leagues=None, season=None):
     skipped with the command that would build it.
 
     A league that fails is reported and skipped rather than aborting the run --
-    publishing eight leagues should not be lost to one bad Sheet.
+    publishing seven leagues should not be lost to one bad Sheet.
 
     Args:
         leagues: Display names or config keys. Defaults to the ``all`` cohort.
@@ -746,9 +746,9 @@ def _publish(df_dict, league_name, primary_own):
     print(f"========= Successful Save For {league_name} ========")
 
     # Google Sheets rate-limits aggressively on consecutive writes. This plus the
-    # 5s per sheet is ~9 min of sleeping across all nine leagues -- the dominant
-    # cost of a Sheets run now that ingest is a store read. See
-    # docs/plans/14-thin-google-sheets.md.
+    # 5s per sheet is ~8 min of sleeping across the seven leagues in `all` -- the
+    # dominant cost of a Sheets run now that ingest is a store read. Ten sheets a
+    # league, so 20s + 10x5s = 70s each. See docs/plans/14-thin-google-sheets.md.
     sleep_secs = 20
     print(f"Now Sleeping For {sleep_secs} Seconds")
     time.sleep(sleep_secs)

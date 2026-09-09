@@ -191,7 +191,7 @@ def render_context() -> Selection:
     if not built:
         header.no_store_message(store.list_seasons())
 
-    # The one place the app narrows ten configured leagues to this viewer's.
+    # The one place the app narrows nine configured leagues to this viewer's.
     # Everything downstream reads Selection.league_key, so nothing else has to know.
     mine = auth.visible_leagues(viewer, built)
     if not mine:

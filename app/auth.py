@@ -50,7 +50,7 @@ class Viewer(NamedTuple):
 
 
 #: The only account that exists until login lands: the repo's owner, scoped to the
-#: five leagues he plays in. The other five in ``config.yaml`` are other owners'
+#: four leagues he plays in. The other five in ``config.yaml`` are other owners'
 #: -- the pipeline still builds and publishes them, and the Google Sheet is how
 #: those owners read them (see plan 14), but they are not this viewer's leagues and
 #: showing them in his picker is how the wrong board gets opened on draft night.
@@ -64,11 +64,20 @@ class Viewer(NamedTuple):
 #: else -- which is the module's whole design and also its one sharp edge. If a
 #: league is missing from the app but present in ``store.list_leagues``, this is
 #: why.
+#:
+#: **Removing a league is the same edit twice, and the store is not the third.**
+#: ``weenieless_wanderers`` came out of ``config.yaml`` and out of here on
+#: 2026-09-09. Dropping it from the config stops the *pipeline* fetching it;
+#: dropping it from this tuple stops the *app* offering it. Its parquet was
+#: deliberately left in S3, and because :func:`store.list_leagues` reads store
+#: prefixes rather than the config, that data is still listed there -- so it
+#: reappears under :data:`ALL_LEAGUES_ENV` and nowhere else. That is the intended
+#: end state, not an oversight.
 DEFAULT_VIEWER = Viewer(
     user_id="tommy",
     display_name="Tommy Winfield",
     leagues=("winfield_football", "knights_ffl", "gop_degenerates",
-             "weenieless_wanderers", "jeffs_league"),
+             "jeffs_league"),
     default_league="winfield_football",
 )
 
@@ -81,10 +90,13 @@ SESSION_KEY = "viewer"
 #: Set this to see every configured league regardless of who the viewer is.
 #:
 #: Not a backdoor -- see the module docstring on why this is not a security
-#: boundary. It exists because five of the nine leagues belong to other owners who
-#: read their numbers off the Google Sheet, and when one of those Sheets looks
-#: wrong the app is where you go to find out why. Scoping the picker must not cost
-#: the ability to answer that question.
+#: boundary. It exists because five of the nine configured leagues belong to other
+#: owners who read their numbers off the Google Sheet, and when one of those Sheets
+#: looks wrong the app is where you go to find out why. Scoping the picker must not
+#: cost the ability to answer that question.
+#:
+#: It is also the only way to reach a league whose config block has been removed but
+#: whose store data was kept -- ``weenieless_wanderers`` since 2026-09-09.
 ALL_LEAGUES_ENV = "ESPN_FFL_ALL_LEAGUES"
 
 #: The unrestricted viewer :data:`ALL_LEAGUES_ENV` resolves to. Empty ``leagues``

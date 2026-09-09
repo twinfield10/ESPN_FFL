@@ -235,6 +235,12 @@ teams rolled over, roster settings populated, drafts empty as expected.
 |---|---|
 | 6, 10, 12, 12, 12, 12, 12, 14, 16 | `OP` superflex (Weenieless Wanderers), `DP` IDP (GOP Degenerates), no D/ST (12 Dudes one Cup) |
 
+**The configured set has changed twice since this was assessed**, so the nine above are
+not today's nine: `jeffs_league` was added on 2026-09-01 (a second superflex), and
+`weenieless_wanderers` was disconnected on 2026-09-09 with its stored data kept. The
+row is left as it was verified rather than restated — the README's *Leagues* section is
+the current list.
+
 Fixed this cycle:
 
 - **Deduplicated the projection pipeline.** 12 functions existed as two copies —
