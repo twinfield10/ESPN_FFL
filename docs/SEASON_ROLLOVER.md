@@ -118,12 +118,43 @@ from Scripts.nfl_utils import current_season, current_week
 print('season', current_season(), '| week', current_week())"
 ```
 
-### 5. Re-check the player rename maps
+### 5. Audit the source names
 
-Rookies and name changes (suffixes especially: Jr./Sr./II/III) break the
-name-based joins each year. The hardcoded maps in `Scripts/projection_utils.py`
-and `Scripts/scrape_pinnacle.py` need curating. `get_match_details()` prints
-unmatched players during a run — use it to find what needs adding.
+```bash
+python -m Scripts.name_audit                 # exits non-zero if anything needs a fix
+python -m Scripts.name_audit --all           # plus every name ESPN simply does not have
+python -m Scripts.name_audit --maps          # regression guard: no hand rename maps
+```
+
+Rookies and name changes — suffixes especially, Jr./Sr./II/III — break the
+name-based joins every year, and they break them *silently*: the player abstains,
+the blend renormalises over whoever did match, and the board still looks complete.
+
+**Most of this is now structural rather than curated.** `align_to_espn_names`
+rewrites each weekly source's names to ESPN's spellings using the ESPN frame
+itself, so a suffix ESPN adds mid-season costs nothing. What is left for a human is
+the residue the normaliser cannot bridge — a nickname (`Cam` for `Cameron`), a typo,
+a scrape that mangled the name — and that is what the audit reports. It prints two
+groups and they carry different instructions:
+
+- **to fix** — each rests on a mechanical rule, so the target can go straight into
+  `NAME_ALIASES` in `Scripts/season_projections.py`.
+- **to review** — a named candidate that must be read first. A shared surname is not
+  evidence: an earlier cut of the tool asserted these and got eight of nine wrong.
+  Once decided, a rejection goes in `CONFIRMED_DISTINCT` in `Scripts/name_audit.py`
+  with the date and the reason, so the bucket empties instead of nagging forever.
+
+Anything else — `unrostered`, `absent` — is a source with a wider slate than the
+league, which is not a defect. Those are counted, not listed, unless you pass
+`--all`.
+
+Run it after each source's first scrape of the season, and again whenever a book's
+file changes shape. On its first run (2026-09-09) it found 24 live misses, the
+largest being a 302-point starting quarterback taking Pinnacle's season line from
+the ESPN/FantasyPros mean on every board.
+
+`get_match_details()` still prints unmatched players during a run; the audit is the
+standalone version that classifies them and can be run without rebuilding anything.
 
 ### 6. Refresh the player id crosswalk
 

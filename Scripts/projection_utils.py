@@ -728,7 +728,7 @@ def coverage_report(df, sources=('ESPN', 'FP', 'PINNY', 'BOL', 'ATH'),
 
 
 def source_contributed(df, prefix, stats, *, points_fallback=True,
-                       missing_flag_is_imputed=True):
+                       missing_flag_is_imputed=True, zero_is_real=False):
     """Per row: did ``prefix`` supply at least one real cell to a scored stat?
 
     Extracted from :func:`Scripts.season_projections.attach_source_spread` so the
@@ -758,6 +758,20 @@ def source_contributed(df, prefix, stats, *, points_fallback=True,
             keeps this usable on the points-only frames the tests and the Sheets
             renderer pass around -- ``tests/test_lineup.py``'s ``one_real_source``
             and ``two_real_sources`` fixtures carry no stat columns whatever.
+        zero_is_real: Whether a published **0.0** counts as a line. False -- the
+            default and what every existing caller wants -- is the Cameron Dicker
+            rule above. True is for the root source only, and the distinction is
+            not fussiness either:
+
+            ESPN publishes ``0.0`` for a player who is inactive or on a bye, and
+            that is an assertion, not an absence. Counting it as absence made the
+            sidebar read **ESPN 92-99.5%** across the ten 2026 stores when ESPN is
+            the frame every row came from -- 11 of GOP Degenerates' 311 scoped
+            players, every one of them ``player_active_status`` ``bye`` or
+            ``inactive``. :func:`coverage_report` had always answered 100% for
+            ESPN, so the two coverage views disagreed about the one source that
+            cannot be missing. A structural zero and a published zero are different
+            facts, and only the root source can tell you which it has.
         missing_flag_is_imputed: What a **NaN** provenance flag means. True -- a row
             that never joined counts as imputed -- matches
             :func:`compute_weighted_stats` and :func:`coverage_report`.
@@ -779,7 +793,8 @@ def source_contributed(df, prefix, stats, *, points_fallback=True,
             continue
         seen_stat_column = True
         values = pd.to_numeric(df[stat_col], errors="coerce")
-        has_value = values.notna() & (values != 0)
+        has_value = values.notna() if zero_is_real else (values.notna()
+                                                         & (values != 0))
         flag_col = stat_col + IMPUTED_SUFFIX
         if flag_col in df.columns:
             imputed = df[flag_col].fillna(missing_flag_is_imputed).astype(bool)
@@ -794,7 +809,8 @@ def source_contributed(df, prefix, stats, *, points_fallback=True,
     return contributed
 
 
-def player_coverage(df, sources=('ESPN', 'FP', 'PINNY', 'BOL', 'ATH'), stats=None):
+def player_coverage(df, sources=('ESPN', 'FP', 'PINNY', 'BOL', 'ATH'), stats=None,
+                    root='ESPN'):
     """Per source: the share of *players* it really has a line for.
 
     The companion to :func:`coverage_report`, which asks the same question of cells
@@ -818,11 +834,26 @@ def player_coverage(df, sources=('ESPN', 'FP', 'PINNY', 'BOL', 'ATH'), stats=Non
             :data:`DERIVED_SOURCE_COLUMNS` are removed either way: leaving them in
             is what made a first draft of this function report 100% for all four
             sources, for exactly the reason those two names exist.
+        root: The source every other one is imputed *from*, measured with
+            ``zero_is_real=True``. **It is the frame's own author, so it cannot be
+            missing a player, and reporting that it was is the panel lying about
+            the one row a reader uses as the baseline.** ESPN publishes ``0.0`` for
+            an inactive or bye player, the non-zero rule read that as absence, and
+            the sidebar showed ESPN at 92-99.5% across the ten 2026 stores on
+            2026-09-09 -- 96.5% on GOP Degenerates, whose 11 uncounted players were
+            four on a bye and seven inactive. Pass ``None`` to measure every source
+            the same way.
 
     Returns:
         pd.DataFrame: Columns ``source``, ``players``, ``real``, ``real_pct``, sorted
         worst-covered first. Empty with those columns when there is nothing to
         measure, matching :func:`coverage_report` rather than raising.
+
+    Note:
+        The root's number is a constant 100% by construction, which is the honest
+        answer rather than an uninformative one: it is what the other sources are
+        read against, and a panel built so that "a dead source cannot hide" needs a
+        baseline that cannot move for reasons unrelated to a source dying.
     """
     columns = ["source", "players", "real", "real_pct"]
     if df is None or not len(df):
@@ -848,7 +879,8 @@ def player_coverage(df, sources=('ESPN', 'FP', 'PINNY', 'BOL', 'ATH'), stats=Non
         prefix = f"{source}_"
         if not any(c.startswith(prefix) for c in df.columns):
             continue
-        real = int(source_contributed(df, source, stats).sum())
+        real = int(source_contributed(df, source, stats,
+                                      zero_is_real=(source == root)).sum())
         rows.append({"source": source, "players": total, "real": real,
                      "real_pct": round(100.0 * real / total, 1) if total else 0.0})
 
@@ -919,6 +951,103 @@ def create_mean_cols(df, target_prefix, source_prefix, mean_prefix='MEAN_'):
     return df
 
 
+def align_to_espn_names(source, espn_names, label, keys=SOURCE_JOIN_KEYS):
+    """Rewrite a weekly source's ``player_name`` to ESPN's spelling of that player.
+
+    **The weekly path joins on the raw name string, and this is what makes that
+    safe.** ``clean_lineups`` merges every source ``on=['week', 'player_name']``,
+    so ``James Cook`` against ESPN's ``James Cook III`` is not a near miss, it is a
+    miss: the player abstains, ``impute_columns`` fills his line from the ESPN/FP
+    mean, and the board shows a book agreeing with ESPN about a player it never
+    priced. The season path has never had this problem because it keys on
+    :func:`Scripts.season_projections.normalise_name`.
+
+    The fix that had accreted instead was a hand-maintained
+    ``name_changes`` dict inside ``clean_pinny`` and ``clean_bol``, one per source,
+    each mapping that source's spellings to ESPN's. Audited on 2026-09-09 by
+    ``python -m Scripts.name_audit --maps``, **20 of the 22 entries were pure
+    suffix or punctuation differences that ``normalise_name`` already collapses**,
+    the remaining two are now in :data:`Scripts.season_projections.NAME_ALIASES`,
+    and **two were pointing at spellings ESPN had stopped using** -- so they
+    created the miss they were written to fix. ``Deebo Samuel`` (9.1 projected
+    points that week) and ``Oronde Gadsden`` (4.8) were both being renamed *away*
+    from ESPN's current name. FantasyPros had no map at all and lost Gadsden too.
+
+    One rule over three sources instead, derived from the ESPN frame at build time,
+    so a suffix ESPN adds mid-season cannot leave a map stale.
+
+    Args:
+        source: A weekly source frame carrying ``player_name``. Returned unchanged
+            when it is empty or has no such column -- an absent source is not an
+            error here, see :func:`absent_weekly_source`.
+        espn_names: The ESPN spellings to align onto. Any iterable of names; the
+            league's own lineup frame in practice.
+        label: Source name, for the messages.
+        keys: The columns the caller will merge on. Duplicates across these are
+            dropped after aligning, because that is what alignment can create --
+            FantasyPros' weekly file carries ``Mitch Tinsley`` *and* ``Mitchell
+            Tinsley`` as separate rows, and left alone they would each match the
+            one ESPN row and double it.
+
+    Returns:
+        pd.DataFrame: A copy with ``player_name`` rewritten where a match was found.
+
+    Note:
+        **An ambiguous key is left alone rather than guessed.** Stripping suffixes
+        collapses five pairs of genuinely different 2026 players onto one key --
+        ``Byron Murphy II`` the tackle and ``Byron Murphy Jr.`` the cornerback,
+        ``Michael Carter`` and ``Michael Carter II``, and three more. Picking either
+        would attach a real line to the wrong player, which is worse than the
+        abstention this function exists to remove.
+    """
+    from Scripts.season_projections import normalise_name
+
+    if source is None or "player_name" not in getattr(source, "columns", []):
+        return source
+    if not len(source):
+        return source
+
+    candidates = {}
+    for name in espn_names:
+        key = normalise_name(name)
+        if key:
+            candidates.setdefault(key, set()).add(name)
+    lookup = {k: next(iter(v)) for k, v in candidates.items() if len(v) == 1}
+    ambiguous = {k for k, v in candidates.items() if len(v) > 1}
+
+    out = source.copy()
+    espn_set = set(lookup.values())
+
+    def _align(name):
+        if not isinstance(name, str) or name in espn_set:
+            return name
+        return lookup.get(normalise_name(name), name)
+
+    before = out["player_name"]
+    out["player_name"] = before.map(_align)
+    renamed = int((out["player_name"] != before).sum())
+
+    hit_ambiguous = sorted({n for n in before
+                            if isinstance(n, str) and n not in espn_set
+                            and normalise_name(n) in ambiguous})
+
+    merge_keys = [c for c in keys if c in out.columns]
+    dropped = 0
+    if merge_keys:
+        rows = len(out)
+        out = out.drop_duplicates(subset=merge_keys, keep="first")
+        dropped = rows - len(out)
+
+    if renamed or dropped or hit_ambiguous:
+        detail = [f"{label}: aligned {renamed} name(s) to ESPN spellings"]
+        if dropped:
+            detail.append(f"dropped {dropped} row(s) that collided after aligning")
+        if hit_ambiguous:
+            detail.append("left ambiguous: " + ", ".join(hit_ambiguous[:4]))
+        print("  " + "; ".join(detail) + ".")
+    return out.reset_index(drop=True)
+
+
 def clean_pinny(pinny_path=None, season=None):
     """Load the Pinnacle season props file.
 
@@ -954,28 +1083,18 @@ def clean_pinny(pinny_path=None, season=None):
     else:
         raise ValueError("clean_pinny requires either pinny_path or season")
 
-    name_changes={
-        # Pinny -> ESPN #
-        "Tre Harris": "Tre' Harris",
-        "Marvin Mims": "Marvin Mims Jr.",
-        "Travis Etienne": "Travis Etienne Jr.",
-        "Aaron Jones": "Aaron Jones Sr.",
-        "Kyle Pitts": "Kyle Pitts Sr.",
-        "Calvin Austin": "Calvin Austin III",
-        "Ollie Gordon":"Ollie Gordon II",
-        "Marvin Harrison": "Marvin Harrison Jr.",
-        "Kyle Pitts": "Kyle Pitts Sr.",
-        "Marvin Mims": "Marvin Mims Jr.",
-        "Travis Etienne": "Travis Etienne Jr.",
-        "Aaron Jones": "Aaron Jones Sr.",
-        "Zonovan Knight": "Bam Knight"
-    }
-
     # Load
     raw=pd.read_parquet(pinny_path)
 
-    # Clean Names
-    raw.replace({"player_name": name_changes}, inplace=True)
+    # A nine-entry `name_changes` dict used to sit here, mapping Pinnacle's
+    # spellings to ESPN's. `align_to_espn_names` replaces it and every other copy:
+    # eight of the nine were suffix differences `normalise_name` already collapses,
+    # four of those were duplicate keys in the same literal, the ninth
+    # (`Zonovan Knight` -> `Bam Knight`) is now in `NAME_ALIASES`, and five of the
+    # nine keys no longer appeared in the source file at all. What the map did not
+    # carry was `James Cook`, `Luther Burden`, `Kenneth Gainwell` and
+    # `Brian Thomas` -- four players Pinnacle priced in week 1 and this loader
+    # dropped. See `python -m Scripts.name_audit --maps`.
 
     # A commented-out copy of the pivot, no-vig, touchdown-split and scoring chain
     # used to sit here, carrying a *third* instance of the juice coefficient at 0.5
@@ -1025,22 +1144,15 @@ def clean_bol(bol_path=None, season=None, tackle_dim=None):
         raise ValueError("clean_bol requires either bol_path or season")
     raw = pd.read_parquet(bol_path).drop(columns=['team'])
 
-    name_changes={
-        # BOL -> ESPN #
-        "Tre Harris": "Tre' Harris",
-        "Kyle Pitts": "Kyle Pitts Sr.",
-        "Deebo Samuel Sr.":"Deebo Samuel",
-        "Cameron Ward":"Cam Ward",
-        "Marquise Brown":"Hollywood Brown",
-        "Ray-Ray McCloud": "Ray-Ray McCloud III",
-        "Chris Godwin": "Chris Godwin Jr.",
-        "Anthony Richardson": "Anthony Richardson Sr.",
-        "Oronde Gadsden": "Oronde Gadsden II",
-        "James Cook": "James Cook III",
-        "Zonovan Knight": "Bam Knight",
-        "Calvin Austin": "Calvin Austin III",
-        "Ollie Gordon": "Ollie Gordon II"
-    }
+    # A thirteen-entry `name_changes` dict used to sit here. `align_to_espn_names`
+    # replaces it, and two of its entries were live defects rather than dead
+    # weight: `Deebo Samuel Sr. -> Deebo Samuel` and
+    # `Oronde Gadsden -> Oronde Gadsden II` both renamed BetOnline's name *away*
+    # from what ESPN now calls the player, so the loader was manufacturing the miss
+    # it was written to prevent. `Cameron Ward` and `Zonovan Knight` -- the only two
+    # entries doing real work -- are now in `NAME_ALIASES`, where the season path
+    # gets them too; it had been missing Cam Ward's Pinnacle line all along.
+    # See `python -m Scripts.name_audit --maps`.
 
     if 'proj_defensiveTotalTackles' in raw.columns:
         tkls = get_tackle_dim() if tackle_dim is None else tackle_dim
@@ -1050,8 +1162,6 @@ def clean_bol(bol_path=None, season=None, tackle_dim=None):
 
     # Join Tackle DataFrame
     raw = raw.drop(columns=['position', 'pos'])
-
-    raw.replace({"player_name": name_changes}, inplace=True)
 
     return raw
 
@@ -1660,6 +1770,11 @@ def clean_lineups(df, lg, season=None):
     """
     season = lg.year if season is None else season
 
+    # ESPN's spellings, and the only naming authority on this path: every source
+    # below is aligned onto these before it is merged, because the merges key on
+    # the raw `player_name` string. See `align_to_espn_names`.
+    espn_universe = df['player_name'].dropna().unique()
+
     # Get Base of Projections (player_name, week, team, etc.)
     base_cols = ['league_id','year','week', 'team_owner', 'team_name', 'team_division', 'player_name', 'player_id', 'slotPosition', 'primaryPosition', 'eligiblePositions', 'pro_team', 'current_team_id' ,'player_position' ,'player_active_status', 'points', 'projPoints']
     scores_df = get_scoring_table(lg)
@@ -1712,6 +1827,7 @@ def clean_lineups(df, lg, season=None):
                                "python -m Scripts.scrape_FP --what weekly")
         fp_proj = pd.read_parquet(fp_path).drop(
             columns=['STD_FantasyPoints', 'TimeStamp'], errors='ignore')
+    fp_proj = align_to_espn_names(fp_proj, espn_universe, "FantasyPros")
     fp_proj = change_col_prefix(df=fp_proj, old_pfix="proj", new_pfix="FP")
 
     ## c) Combine ESPN and FP
@@ -1761,6 +1877,7 @@ def clean_lineups(df, lg, season=None):
     # 2) Combine Pinnacle Data With ESPN and Impute
     ## a) Clean Pinnacle Data
     pinny_proj = clean_pinny(season=season)
+    pinny_proj = align_to_espn_names(pinny_proj, espn_universe, "Pinnacle")
     pinny_proj = change_col_prefix(df=pinny_proj, old_pfix="proj", new_pfix="PINNY")
 
     ## b) Impute Missing Data From ESPN
@@ -1777,6 +1894,7 @@ def clean_lineups(df, lg, season=None):
 
     # 3) Combine BetOnline Data With ESPN and Impute
     bol_proj = clean_bol(season=season)
+    bol_proj = align_to_espn_names(bol_proj, espn_universe, "BetOnline")
     bol_proj = change_col_prefix(df=bol_proj, old_pfix="proj", new_pfix="BOL")
 
     ## b) Impute Missing Data From ESPN
