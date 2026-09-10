@@ -54,7 +54,20 @@ log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >>"${LOG}"; }
 # usually fine, but a slow ESPN turns "usually" into two processes writing the same
 # parquet -- and `_write_parquet_atomic` makes each write atomic without making two
 # of them ordered, so the loser's stale frame would win.
+#
+# **And the lock has to expire.** The trap below clears it on any ordinary exit, but
+# not on SIGKILL, a panic, or the laptop lid closing mid-run -- and a job that fires
+# 144 times a day cannot have a failure mode where one bad run stops it forever
+# *silently*. That is this repo's oldest shape of bug: something stops answering and
+# the output looks entirely normal. So a lock older than the window is taken, loudly.
 LOCK="/tmp/espn_ffl_live.lock"
+LOCK_STALE_MINUTES=30
+
+if [ -d "${LOCK}" ] && [ -n "$(find "${LOCK}" -maxdepth 0 -mmin "+${LOCK_STALE_MINUTES}" 2>/dev/null)" ]; then
+  log "WARNING: lock ${LOCK} is older than ${LOCK_STALE_MINUTES}m -- a previous run died without releasing it. Taking it."
+  rmdir "${LOCK}" 2>/dev/null || true
+fi
+
 if ! mkdir "${LOCK}" 2>/dev/null; then
   log "another live refresh is still running (${LOCK}); skipped"
   exit 0
