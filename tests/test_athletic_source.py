@@ -11,6 +11,12 @@ The same workbook also carries Jake Ciely's hand ranking, which is *not* a sourc
 projects nothing, casts no vote, and exists to be read beside the board. The section
 at the foot of this file is about keeping it that way -- the load-bearing test being
 that adding it leaves ``TRUE_Points`` untouched.
+
+**The weekly grain, added 2026-09-09**, is a *second* workbook rather than a second
+tab of the first: one sheet of four side-by-side position blocks, nine stats instead
+of twelve, and its own abbreviations. Its section is in the middle of this file. The
+tests that matter there are the ones about geometry -- the blocks have different
+widths, so a parser that trusted column positions would hand tight ends carries.
 """
 
 import numpy as np
@@ -188,6 +194,429 @@ def test_a_real_line_gets_its_equal_vote():
     weights = {"default": {"ESPN": 0.25, "FP": 0.25, "ATH": 0.25}}
     out = pu.compute_weighted_stats(frame, ["rushingYards"], weights)
     assert out["TRUE_rushingYards"][0] == pytest.approx(200.0)
+
+
+# --- the weekly grain ----------------------------------------------------
+#
+# A second workbook with its own geometry, and the registration is separate from the
+# season one above: `WEIGHTS` was already shared, so adding `ATH` to `WEEKLY_PREFIXES`
+# is what actually turned the fifth weekly vote on. See docs/plans/47-athletic-weekly.md.
+
+
+def _weekly_sheet_rows(blocks=None, week=1, season=2026):
+    """A synthetic weekly sheet with the real geometry.
+
+    The geometry *is* the thing under test, so this fixture reproduces it rather than
+    simplifying it: a sparse banner row, a header row, blank spacer columns between
+    blocks, and **blocks of different widths** -- the receiver block carries no
+    ``Rush Att`` and the tight-end block no rushing columns at all, exactly as the
+    shipped file does.
+
+    Args:
+        blocks: ``[(position, [headers], [[values], ...]), ...]``. Defaults to the
+            four-block shape of the 2026 week-1 download.
+        week: Week for the sheet name.
+        season: Season for the sheet name.
+
+    Returns:
+        tuple: ``(sheet_name, rows)`` ready to hand to a fake workbook.
+    """
+    if blocks is None:
+        blocks = [
+            ("QB", ["Name", "Team", "Opp", "Pass YD", "Pass TD", "INT",
+                    "Rush Att", "Rush YD", "Rush TD", "FPS"],
+             [["Joe Burrow", "CIN", "vs TB", 267.2, 2.3, 0.8, 2.5, 7.7, 0.1, 19.3]]),
+            ("RB", ["Name", "Team", "Opp", "Rush Att", "Rush YD", "Rush TD",
+                    "REC", "REC YD", "REC TD", "FPS"],
+             [["Jahmyr Gibbs", "DET", "vs NO", 17.3, 90.7, 0.9, 4.6, 30.7, 0.2, 21.4],
+              ["Bijan Robinson", "ATL", "@ PIT", 19.1, 91.7, 0.6, 4.3, 32.8, 0.2, 19.4]]),
+            ("WR", ["Name", "Team", "Opp", "Rush YD", "Rush TD",
+                    "REC", "REC YD", "REC TD", "FPS"],
+             [["Ja'Marr Chase", "CIN", "vs TB", 1, 0, 6.6, 85.7, 0.7, 16.4],
+              ["Puka Nacua", "LAR", "vs SF", 2.9, 0, 7.3, 96.1, 0.5, 16.8],
+              ["Malik Benson", "LV", "vs MIA", 0, 0, 0.4, 4.4, 0, 0.8]]),
+            ("TE", ["Name", "Team", "Opp", "REC", "REC YD", "REC TD", "FPS"],
+             [["Colston Loveland", "CHI", "@ CAR", 5.1, 62.8, 0.5, 11.6]]),
+        ]
+
+    width = sum(len(headers) + 1 for _, headers, _ in blocks) - 1
+    depth = max(len(players) for _, _, players in blocks)
+    banner = [None] * width
+    header = [None] * width
+    body = [[None] * width for _ in range(depth)]
+
+    at = 0
+    for position, headers, players in blocks:
+        banner[at] = position
+        for offset, head in enumerate(headers):
+            header[at + offset] = head
+        for row, values in enumerate(players):
+            for offset, value in enumerate(values):
+                body[row][at + offset] = value
+        at += len(headers) + 1                     # the blank spacer column
+
+    name = f"NFL_{season}_Week_{week}_Half_PPR_Weekly"
+    return name, [tuple(banner), tuple(header), *(tuple(r) for r in body)]
+
+
+class _FakeSheet:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def iter_rows(self, values_only=True):
+        return iter(self._rows)
+
+
+class _FakeBook:
+    """Stands in for an ``openpyxl`` workbook, so no .xlsx has to be written."""
+
+    def __init__(self, sheets):
+        self._sheets = sheets
+
+    @property
+    def sheetnames(self):
+        return list(self._sheets)
+
+    def __getitem__(self, name):
+        return _FakeSheet(self._sheets[name])
+
+    def close(self):
+        pass
+
+
+@pytest.fixture
+def fake_weekly(monkeypatch, tmp_path):
+    """Patch ``openpyxl.load_workbook`` to serve a synthetic weekly sheet."""
+    import openpyxl
+
+    def install(sheets, filename="Week_1_Proj_0909.xlsx"):
+        path = tmp_path / filename
+        path.write_bytes(b"not really xlsx")
+        monkeypatch.setattr(openpyxl, "load_workbook",
+                            lambda *a, **k: _FakeBook(sheets))
+        return path
+
+    return install
+
+
+def test_the_weekly_source_is_registered_as_the_fifth_weekly_vote():
+    """One line of data, because `WEIGHTS` is shared between the grains."""
+    assert "ATH" in pu.WEEKLY_PREFIXES
+    assert "theathletic" in pu.WEEKLY_SOURCE_FILES
+    assert pu.WEIGHTS["default"]["ATH"] == 0.25
+    # `proj_to_score` already listed ATH for the season path, so nothing there moved.
+    import inspect
+    default = inspect.signature(pu.proj_to_score).parameters["col_pfix_list"].default
+    assert "ATH" in default
+
+
+def test_the_weekly_source_is_shown_rather_than_silently_blended():
+    """A source with an equal vote and no column reads as agreement -- this repo's
+    oldest failure mode. `real_sources` is what the weekly table's column list and
+    the absent-source caption both come from."""
+    from app import lineup as lu
+    from app import lineup_table as ltab
+
+    assert ("ATH", "theathletic") in lu.WEEKLY_SOURCES
+    assert "ATH" in ltab.SOURCE_HELP and "ATH" in ltab.POINTS_LABELS
+    absent = {"weekly_sources_present": {"theathletic": False}}
+    assert "ATH" not in lu.real_sources(absent)
+    assert "ATH" in lu.real_sources({"weekly_sources_present": {"theathletic": True}})
+
+
+def test_the_weekly_source_is_named_in_the_freshness_manifest():
+    """A hand download is the one that goes missing, so it must be watched."""
+    entry = next(e for e in rs.WEEKLY_PROJECTION_SOURCES if e[0] == "ATH weekly")
+    assert "load_athletic" in entry[2] and "--what weekly" in entry[2]
+    assert entry[3] is False, "an equal vote going missing is a real fault"
+
+
+def test_the_blocks_are_read_by_header_not_by_position(fake_weekly):
+    """The load-bearing parse test. The blocks have different widths -- 10 columns for
+    the backs, 9 for the receivers, 7 for the tight ends -- so a parser that trusted
+    positions would read a receiver's ``REC`` into a tight end's ``Rush Att``."""
+    name, rows = _weekly_sheet_rows()
+    path = fake_weekly({name: rows})
+    frame, season, week, flavor = la.read_weekly_workbook(path)
+
+    assert (season, week, flavor) == (2026, 1, "Half_PPR")
+    assert len(frame) == 7
+    assert dict(frame["position"].value_counts()) == {"WR": 3, "RB": 2, "QB": 1, "TE": 1}
+
+    burrow = frame[frame["player_name"] == "Joe Burrow"].iloc[0]
+    assert burrow["proj_passingYards"] == 267.2
+    assert burrow["proj_rushingAttempts"] == 2.5
+    gibbs = frame[frame["player_name"] == "Jahmyr Gibbs"].iloc[0]
+    assert gibbs["proj_receivingReceptions"] == 4.6
+    assert gibbs["proj_rushingAttempts"] == 17.3
+
+
+def test_a_receiver_gets_no_carries_and_a_tight_end_no_rushing_at_all(fake_weekly):
+    """Not the position mask -- the *workbook* has no such column for them. Reading
+    one anyway is what a positional parser does."""
+    name, rows = _weekly_sheet_rows()
+    path = fake_weekly({name: rows})
+    frame, _, _, _ = la.read_weekly_workbook(path)
+
+    wr = frame[frame["position"] == "WR"]
+    assert wr["proj_rushingAttempts"].isna().all(), "the WR block has no Rush Att"
+    assert wr["proj_rushingYards"].notna().all(), "but it does have Rush YD"
+
+    te = frame[frame["position"] == "TE"]
+    for stat in ("proj_rushingAttempts", "proj_rushingYards", "proj_rushingTouchdowns"):
+        assert te[stat].isna().all(), f"the TE block has no {stat}"
+    assert te["proj_receivingReceptions"].notna().all()
+
+
+def test_the_position_mask_still_fires_if_the_workbook_drifts(fake_weekly):
+    """The mask is near-trivially satisfied by the current geometry, which is exactly
+    why it must be tested against geometry that would defeat it: a tight-end block
+    that gains a rush column."""
+    name, rows = _weekly_sheet_rows(blocks=[
+        ("TE", ["Name", "Team", "Opp", "Rush Att", "Rush YD", "REC", "REC YD"],
+         [["Rogue Tight End", "CHI", "@ CAR", 9.0, 44.0, 5.1, 62.8]]),
+    ])
+    path = fake_weekly({name: rows})
+    frame, _, _, _ = la.read_weekly_workbook(path)
+
+    row = frame.iloc[0]
+    assert pd.isna(row["proj_rushingAttempts"]) and pd.isna(row["proj_rushingYards"])
+    assert row["proj_receivingReceptions"] == 5.1
+    assert set(row["masked_stats"].split(",")) == {"rushingAttempts", "rushingYards"}
+
+
+def test_the_workbook_s_own_points_are_never_read(fake_weekly):
+    """``FPS`` is half-PPR and derived from the nine columns beside it. Points are
+    what a league's rules do to a stat line -- the rule this module opens with."""
+    name, rows = _weekly_sheet_rows()
+    path = fake_weekly({name: rows})
+    frame, _, _, _ = la.read_weekly_workbook(path)
+
+    assert "FPS" not in la.WEEKLY_STAT_COLUMNS
+    assert not [c for c in frame.columns
+                if "FPS" in c or c.endswith("_Points") or c == "Points"]
+
+
+def test_the_weekly_stats_are_the_nine_the_workbook_publishes():
+    """Three fewer than the season book, and the omissions are load-bearing: with no
+    ``receivingTargets`` column the weekly ``MEAN_receivingTargets`` stays ESPN
+    alone, which is the gap the season registration was made to close."""
+    assert set(la.WEEKLY_STAT_COLUMNS.values()) == {
+        "passingYards", "passingTouchdowns", "passingInterceptions",
+        "rushingAttempts", "rushingYards", "rushingTouchdowns",
+        "receivingReceptions", "receivingYards", "receivingTouchdowns",
+    }
+    missing = set(la.STAT_COLUMNS.values()) - set(la.WEEKLY_STAT_COLUMNS.values())
+    assert missing == {"passingAttempts", "passingCompletions", "receivingTargets"}
+
+
+def test_the_weekly_teams_are_normalised_to_espn(fake_weekly):
+    """The two workbooks disagree with each other: the weekly sheet says ``JAC`` and
+    ``WAS`` where the season book's team tabs say ``JAX`` and ``WSH``. Left alone the
+    bye-week check reports Jacksonville absent from a week it played."""
+    name, rows = _weekly_sheet_rows(blocks=[
+        ("TE", ["Name", "Team", "Opp", "REC", "REC YD", "REC TD"],
+         [["Brenton Strange", "JAC", "vs CAR", 3.4, 40.0, 0.3],
+          ["Zach Ertz", "WAS", "@ GB", 3.0, 30.0, 0.2],
+          ["George Kittle", "SF", "vs LAR", 4.0, 50.0, 0.3]]),
+    ])
+    path = fake_weekly({name: rows})
+    frame, _, _, _ = la.read_weekly_workbook(path)
+    assert set(frame["pro_team"]) == {"JAX", "WSH", "SF"}
+
+
+def test_the_sheet_name_is_the_authority_on_the_week(fake_weekly):
+    """A hand download does not fail by failing to parse, it fails by being last
+    week's copy. The filename is a human's label; the sheet name is the publisher's."""
+    name, rows = _weekly_sheet_rows(week=4)
+    path = fake_weekly({name: rows}, filename="Week_1_Proj_0909.xlsx")
+    frame, _, week, _ = la.read_weekly_workbook(path)
+    assert week == 4 and set(frame["week"]) == {4}
+
+
+def _mk(root, name):
+    """A writable output path under ``root``, parents created.
+
+    Stands in for both ``season_dir`` and ``landing_dir`` so a build writes into
+    ``tmp_path`` instead of ``Data/Projections``.
+    """
+    out = root / "out"
+    out.mkdir(parents=True, exist_ok=True)
+    return out / name
+
+
+def test_a_week_that_disagrees_with_the_sheet_raises_unless_forced(fake_weekly,
+                                                                  monkeypatch,
+                                                                  tmp_path, capsys):
+    name, rows = _weekly_sheet_rows(week=1)
+    path = fake_weekly({name: rows})
+    monkeypatch.setattr(la, "season_dir", lambda *a, **k: _mk(tmp_path, a[-1]))
+    monkeypatch.setattr(la, "landing_dir", lambda *a, **k: _mk(tmp_path, a[-1]))
+
+    with pytest.raises(ValueError, match="week 1"):
+        la.build_weekly(path, week=2)
+
+    written = la.build_weekly(path, week=2, force=True)
+    assert set(written["week"]) == {2}
+    assert "--force" in capsys.readouterr().out
+
+
+def test_a_sheet_that_is_not_a_weekly_slate_is_refused(fake_weekly):
+    """Named rather than guessed at: the season workbook has 35 tabs and none of them
+    is a slate, so handing it to the weekly importer must say so."""
+    _, rows = _weekly_sheet_rows()
+    path = fake_weekly({"ARI": rows, "Rankings": rows, "Settings": rows})
+    with pytest.raises(KeyError, match="exactly one sheet"):
+        la.read_weekly_workbook(path)
+
+
+def test_two_slates_in_one_workbook_are_refused(fake_weekly):
+    """Choosing which week to import is not a choice the parser should make."""
+    n1, r1 = _weekly_sheet_rows(week=1)
+    n2, r2 = _weekly_sheet_rows(week=2)
+    path = fake_weekly({n1: r1, n2: r2})
+    with pytest.raises(KeyError, match="found 2"):
+        la.read_weekly_workbook(path)
+
+
+def test_the_newest_download_wins_for_its_own_week_only(fake_weekly, monkeypatch,
+                                                        tmp_path):
+    """The owner's rule, and the departure from `scrape_FP`'s `keep="first"` freeze:
+    a re-download mid-week is the normal case for a hand-dropped file. What must not
+    happen is it touching another week."""
+    monkeypatch.setattr(la, "season_dir", lambda *a, **k: _mk(tmp_path, a[-1]))
+    monkeypatch.setattr(la, "landing_dir", lambda *a, **k: _mk(tmp_path, a[-1]))
+
+    n1, r1 = _weekly_sheet_rows(week=1)
+    la.build_weekly(fake_weekly({n1: r1}))
+    n2, r2 = _weekly_sheet_rows(week=2)
+    la.build_weekly(fake_weekly({n2: r2}, filename="Week_2_Proj_0916.xlsx"))
+
+    # Week 1 again, with a different number in it.
+    _, revised = _weekly_sheet_rows(week=1, blocks=[
+        ("QB", ["Name", "Team", "Opp", "Pass YD", "Pass TD", "INT",
+                "Rush Att", "Rush YD", "Rush TD", "FPS"],
+         [["Joe Burrow", "CIN", "vs TB", 999.0, 9.9, 0.0, 0.0, 0.0, 0.0, 99.9]]),
+    ])
+    out = la.build_weekly(fake_weekly({n1: revised},
+                                      filename="Week_1_Proj_0912.xlsx"))
+
+    assert sorted(out["week"].unique()) == [1, 2]
+    wk1 = out[out["week"] == 1]
+    assert len(wk1) == 1 and wk1.iloc[0]["proj_passingYards"] == 999.0
+    assert len(out[out["week"] == 2]) == 7, "week 2 must be untouched"
+
+
+def test_the_file_stays_cumulative(fake_weekly, monkeypatch, tmp_path):
+    """`clean_lineups` re-merges this file onto every week in the lineup frame, so a
+    current-week-only file would blank The Athletic for prior weeks and turn stored
+    history into a four-source board retroactively."""
+    monkeypatch.setattr(la, "season_dir", lambda *a, **k: _mk(tmp_path, a[-1]))
+    monkeypatch.setattr(la, "landing_dir", lambda *a, **k: _mk(tmp_path, a[-1]))
+
+    for week in (1, 2, 3):
+        name, rows = _weekly_sheet_rows(week=week)
+        out = la.build_weekly(fake_weekly({name: rows},
+                                          filename=f"Week_{week}_Proj.xlsx"))
+    assert sorted(out["week"].unique()) == [1, 2, 3]
+
+    # And --no-merge is the deliberate escape hatch, not the default.
+    name, rows = _weekly_sheet_rows(week=4)
+    out = la.build_weekly(fake_weekly({name: rows}, filename="Week_4_Proj.xlsx"),
+                          merge=False)
+    assert sorted(out["week"].unique()) == [4]
+
+
+def test_an_absent_weekly_file_degrades_rather_than_raising(tmp_path, monkeypatch):
+    """The pre-season and pre-first-download state, and the state every Tuesday
+    before the workbook is saved."""
+    monkeypatch.setattr(pu, "theathletic_weekly_parquet",
+                        lambda season: tmp_path / "nope.parquet")
+    with pytest.warns(pu.MissingProjectionSourceWarning, match="The Athletic"):
+        out = pu.clean_ath_weekly(season=2026)
+    assert out.empty
+    assert list(out.columns) == pu.SOURCE_JOIN_KEYS
+    assert out["week"].dtype == "int64", "week is a merge key on both sides"
+
+
+def test_a_hand_download_is_not_judged_by_the_nightly_staleness_window():
+    """It publishes weekly, so a workbook imported on Wednesday is *correctly* four
+    days old on Sunday. Under the 48-hour window it would warn every weekend, and a
+    warning that fires on the normal case is one nobody reads."""
+    assert pu.MANUAL_STALE_AFTER_HOURS > 7 * 24
+    assert pu.MANUAL_STALE_AFTER_HOURS > pu.STALE_AFTER_HOURS
+    import inspect
+    body = inspect.getsource(pu.clean_ath_weekly)
+    assert "MANUAL_STALE_AFTER_HOURS" in body
+
+
+def test_the_weekly_loader_keeps_lowercase_diagnostics_out_of_the_blend(tmp_path,
+                                                                       monkeypatch):
+    """``UPPER_`` is the blendable namespace: `compute_weighted_stats` and
+    `proj_to_score` scan every uppercase prefix and require it to be numeric. A
+    ``masked_stats`` string riding in as ``ATH_masked_stats`` would break both."""
+    path = tmp_path / "weekly.parquet"
+    pd.DataFrame({
+        "week": pd.Series([1], dtype="int64"),
+        "player_name": ["Joe Burrow"],
+        "pro_team": ["CIN"],
+        "position": ["QB"],
+        "masked_stats": ["receivingYards"],
+        "proj_passingYards": [267.2],
+    }).to_parquet(path)
+
+    out = pu.clean_ath_weekly(ath_path=path)
+    assert list(out.columns) == ["week", "player_name", "proj_passingYards"]
+    renamed = pu.change_col_prefix(out, old_pfix="proj", new_pfix="ATH")
+    assert [c for c in renamed.columns if c.startswith("ATH_")] == ["ATH_passingYards"]
+
+
+def test_every_weekly_source_including_this_one_is_aligned_before_it_is_merged():
+    """Extends `tests/test_name_audit.py`'s guard to the fifth source.
+
+    The weekly merges key on the raw ``player_name`` string, so ``Kyle Pitts`` against
+    ESPN's ``Kyle Pitts Sr.`` is a miss rather than a near miss -- the player abstains
+    and the board shows a source agreeing with ESPN about someone it never projected.
+    """
+    import inspect
+    body = inspect.getsource(pu.clean_lineups)
+    aligned = body.index("align_to_espn_names(ath_proj")
+    merged = body.index("mean_df.merge(ath_proj")
+    assert aligned < merged, "ath_proj is merged before it is aligned"
+
+
+def test_the_weekly_grain_makes_the_owed_measurement_runnable():
+    """What plan 38 recorded as impossible. `Scripts.usage.evalset.SOURCES` scores
+    player-week rows out of `lineups.parquet`, so a season-only source could never
+    appear in it -- and reading a clean `Scripts.lab.accuracy` table would have looked
+    like The Athletic had been judged when it had not."""
+    from Scripts.usage import evalset as es
+    assert "ATH" in es.SOURCES
+    assert "ATH" in es.CARRIED
+
+
+# --- the real weekly file, when it is there ------------------------------
+
+def test_the_shipped_weekly_file_parses_to_offence_only():
+    """Skipped where absent -- it is a manual download. Where present, these are the
+    numbers the 2026 week-1 import printed."""
+    from Scripts.paths import season_dir
+
+    path = season_dir("TheAthletic", 2026, la.WEEKLY_FILENAME, create=False)
+    if not path.exists():
+        pytest.skip("no 2026 Athletic weekly workbook imported")
+
+    df = pd.read_parquet(path)
+    assert set(df["position"]) <= {"QB", "RB", "WR", "TE"}, "no kickers, no defences"
+    assert df.groupby("week")["player_name"].apply(lambda s: s.is_unique).all()
+    assert df["week"].dtype == "int64"
+
+    qb = df[df["position"] == "QB"]
+    assert qb["proj_receivingReceptions"].isna().all(), (
+        "a quarterback with receptions means the position mask regressed")
+    te = df[df["position"] == "TE"]
+    assert te["proj_rushingYards"].isna().all(), (
+        "the tight-end block publishes no rushing columns")
 
 
 # --- the real file, when it is there -------------------------------------

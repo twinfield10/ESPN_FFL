@@ -36,25 +36,40 @@ from Scripts.usage.nflverse import (
     teams_by_week,
 )
 
-#: The four weekly projection sources, in the order the pipeline builds them.
+#: The five weekly projection sources, in the order the pipeline builds them.
 #: ``MEAN`` and ``TRUE`` are derived from these and are not independent opinions,
 #: so they are not evaluated as *sources* -- nothing here treats them as a vote.
 #:
-#: **``ATH`` is deliberately absent, and its absence is not a decision that it does
-#: not matter.** The Athletic carries an equal sixth vote in
-#: :data:`Scripts.projection_utils.WEIGHTS` as of 2026-09-01, but it is a
-#: **season-long** source with no weekly line, so it has no ``ATH_`` column in
-#: ``lineups.parquet`` and nothing built on this tuple -- :mod:`Scripts.lab.accuracy`,
-#: :mod:`Scripts.usage.gates`, :mod:`Scripts.usage.g1_season` -- can score it.
+#: **``ATH`` joined on 2026-09-09, and that is the whole point of it being here.**
+#: This tuple scores **player-week** rows out of ``lineups.parquet``, so a season-only
+#: source can never appear in it -- which is exactly what
+#: ``docs/plans/38-the-athletic.md`` recorded as the reason the per-stat MAE that
+#: ``docs/plans/20-consensus-sources.md`` pre-registered was still owed:
 #:
-#: This is worth stating rather than leaving implicit, because a source that is in
-#: the blend and silently missing from the scoreboard is how a feed goes unmeasured:
-#: running `python -m Scripts.lab.accuracy` after the season and reading a clean
-#: table would otherwise look like The Athletic had been judged. It has not been.
-#: Its measurement has to come from the **season** artifact -- ``board.parquet``
-#: carries ``ATH_<stat>`` -- scored against realised season totals from
-#: :mod:`Scripts.usage.nflverse`. See docs/plans/38-the-athletic.md, *What is owed*.
-SOURCES: Tuple[str, ...] = ("ESPN", "FP", "PINNY", "BOL")
+#:     ``ATH`` is season-only and has no weekly line, so it has no column there --
+#:     running ``python -m Scripts.lab.accuracy`` in January and reading a clean table
+#:     would look like The Athletic had been judged when it had not.
+#:
+#: That was true when it was written. The Athletic began publishing weekly slates on
+#: 2026-09-09 (``docs/plans/47-athletic-weekly.md``), so it has an ``ATH_`` column
+#: here and the measurement is runnable on this harness rather than on the season one
+#: plan 38 still owes. Gate it at 100 projected points and report the ungated number
+#: beside it, per that plan -- an ungated mean over a board that is three-quarters
+#: undrafted players mostly measures who is better at projecting fourth-string tight
+#: ends.
+#:
+#: **What that also does, deliberately:** :mod:`Scripts.usage.gates` imports this
+#: tuple, so TOMCAT's agreement matrix and its gates are now measured against five
+#: weekly sources rather than four. That is the correct comparison -- The Athletic is
+#: a real independent weekly opinion now -- but it does move those numbers, so a gate
+#: result from before this date is not comparable to one after it.
+#: :data:`Scripts.usage.g1_season.SOURCES` is a **separate** four-source tuple and is
+#: untouched by this, so ``_shipped_weight()`` is unaffected. (It reads **0.0**, and
+#: has since TOMCAT was withdrawn from :data:`Scripts.projection_utils.WEIGHTS` on
+#: 2026-09-07 -- it divides TOMCAT's weight by an external's, and the numerator is now
+#: absent. ``docs/plans/38-the-athletic.md`` says it "still correctly reads 1.0",
+#: which was true the day that plan shipped and stopped being true six days later.)
+SOURCES: Tuple[str, ...] = ("ESPN", "FP", "PINNY", "BOL", "ATH")
 
 #: Derived columns carried through pooling so the blend can be *scored*, which is
 #: a different question from whether it is an opinion.

@@ -32,14 +32,18 @@ from Scripts.draft.board import NON_STARTING_SLOTS
 #: each one answers to.
 #:
 #: ``ESPN`` has no entry because it is never absent -- it is the artifact's own
-#: projection and the imputation base every other source falls back to. ``USG`` and
-#: ``ATH`` are not here at all: there is no weekly TOMCAT head (plan 19 is unstarted)
-#: and The Athletic publishes seasons, not weeks.
+#: projection and the imputation base every other source falls back to. ``USG`` is not
+#: here at all: there is no weekly TOMCAT head (plan 19 is unstarted).
+#:
+#: ``ATH`` **joined on 2026-09-09**, when The Athletic began publishing weekly slates.
+#: This comment used to say it "publishes seasons, not weeks", which was true when it
+#: was written and is the kind of fact that stops being true without anything breaking.
 WEEKLY_SOURCES: Tuple[Tuple[str, Optional[str]], ...] = (
     ("ESPN", None),
     ("FP", "fantasypros"),
     ("PINNY", "pinnacle"),
     ("BOL", "betonline"),
+    ("ATH", "theathletic"),
 )
 
 #: The blend. Named separately because it is not one of the votes.
@@ -87,8 +91,9 @@ def real_sources(meta: dict) -> List[str]:
         meta: The store's ``meta.json``.
 
     Returns:
-        list: Prefixes, e.g. ``["ESPN", "FP"]`` -- which is every league's answer in
-        2026, both books having no weekly props.
+        list: Prefixes, e.g. ``["ESPN", "FP", "ATH"]`` -- which is every league's
+        answer once a week's Athletic workbook is imported and while Pinnacle has no
+        weekly props.
     """
     present = meta.get("weekly_sources_present") or {}
     return [prefix for prefix, key in WEEKLY_SOURCES

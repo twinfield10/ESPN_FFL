@@ -40,6 +40,10 @@ SOURCE_HELP: Dict[str, str] = {
           "imputed for the rest — check Sources against it.",
     "PINNY": "Pinnacle's weekly player props, converted to points.",
     "BOL": "BetOnline's weekly player props, converted to points.",
+    "ATH": "The Athletic's weekly projection (Jake Ciely's workbook). Offence only "
+           "— it never has an opinion about a kicker or a defence, and it projects "
+           "who it thinks starts, so a player it omits is sometimes a judgement "
+           "rather than a gap.",
     "TRUE": "The blend, in this league's own scoring. One equal vote per source "
             "that has an opinion about this player.",
 }
@@ -47,7 +51,8 @@ SOURCE_HELP: Dict[str, str] = {
 #: How each per-source points column is headed. Short on purpose: twenty-five columns
 #: only fit on a laptop if the numeric ones are four characters wide.
 POINTS_LABELS: Dict[str, str] = {
-    "ESPN": "ESPN", "FP": "FP", "PINNY": "PINNY", "BOL": "BOL", "TRUE": "TRUE",
+    "ESPN": "ESPN", "FP": "FP", "PINNY": "PINNY", "BOL": "BOL", "ATH": "ATH",
+    "TRUE": "TRUE",
 }
 
 

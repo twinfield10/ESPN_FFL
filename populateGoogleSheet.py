@@ -77,7 +77,7 @@ def write_to_google(df_dict, league_name, primary_owner):
     )
 
     # Get Min and Max
-    points_cols = ['projPoints', 'FP_Points', 'BOL_Points', 'PINNY_Points', 'TRUE_Points']
+    points_cols = ['projPoints', 'FP_Points', 'BOL_Points', 'PINNY_Points', 'ATH_Points', 'TRUE_Points']
     scale_dict = {
         "MAX": {
             "TEAM": df_dict["League_Projections"][points_cols].max().max(),
@@ -140,6 +140,38 @@ def write_to_google(df_dict, league_name, primary_owner):
         # Formatting Functions
 
         # Clear Formatting
+        def points_span(data_df, predicate):
+            """The half-open column range covering a sheet's points columns.
+
+            Derived from the column *names* rather than written as a literal pair.
+            The three formatters below each carried a hardcoded ``F:J``-style range
+            that had to agree with a positional ``df.columns = [...]`` assignment
+            somewhere else in this file -- so inserting one source column silently
+            left the last one unformatted. Adding The Athletic on 2026-09-09 was that
+            insertion; deriving the range is what makes the sixth one free.
+
+            Args:
+                data_df: The frame as written, with its display column names.
+                predicate: ``name -> bool`` for the columns to format.
+
+            Returns:
+                tuple: ``(startColumnIndex, endColumnIndex)``, the second exclusive.
+
+            Raises:
+                ValueError: If the matched columns are not contiguous. A repeatCell
+                    range can only be a span, so a gap means the caller's predicate
+                    no longer describes one block -- better said than formatted over.
+            """
+            hits = [i for i, c in enumerate(data_df.columns) if predicate(str(c))]
+            if not hits:
+                return 0, 0
+            if hits != list(range(hits[0], hits[-1] + 1)):
+                raise ValueError(
+                    f"points columns are not contiguous: "
+                    f"{[data_df.columns[i] for i in hits]}")
+            return hits[0], hits[-1] + 1
+
+
         def clear_sheet_formatting(worksheet, data_df):
             """
             Clear all conditional formatting, text formatting, and borders from the worksheet.
@@ -245,15 +277,18 @@ def write_to_google(df_dict, league_name, primary_owner):
                 }
             })
 
-            # Format columns F:J to 2 decimal places
+            # Format the per-source points columns to 2 decimal places.
+            # DIFF_PTS is excluded on purpose -- `check_week` rounds it to 3.
+            pts_start, pts_end = points_span(
+                data_df, lambda c: c.endswith("_PTS") and c != "DIFF_PTS")
             requests.append({
                 "repeatCell": {
                     "range": {
                         "sheetId": worksheet.id,
                         "startRowIndex": 1,  # Row 2 (0-indexed)
                         "endRowIndex": num_rows,
-                        "startColumnIndex": 5,  # Column F (0-indexed)
-                        "endColumnIndex": 10  # Column J (0-indexed, exclusive)
+                        "startColumnIndex": pts_start,
+                        "endColumnIndex": pts_end
                     },
                     "cell": {
                         "userEnteredFormat": {
@@ -443,15 +478,20 @@ def write_to_google(df_dict, league_name, primary_owner):
                 }
             })
 
-            # 2) Format columns E:I to 2 decimal places
+            # 2) Format the per-source total columns to 2 decimal places.
+            # This sheet's headings are bare source names rather than `*_PTS`, and
+            # ACTUAL and DIFF sit either side of the block.
+            proj_start, proj_end = points_span(
+                data_df,
+                lambda c: c in ("ESPN", "FP", "BOL", "PINNY", "ATH", "TRUE"))
             requests.append({
                 "repeatCell": {
                     "range": {
                         "sheetId": worksheet.id,
                         "startRowIndex": 1,  # Row 2 (0-indexed)
                         "endRowIndex": num_rows,
-                        "startColumnIndex": 4,  # Column E (0-indexed)
-                        "endColumnIndex": 9  # Column I (0-indexed, exclusive)
+                        "startColumnIndex": proj_start,
+                        "endColumnIndex": proj_end
                     },
                     "cell": {
                         "userEnteredFormat": {
@@ -547,15 +587,16 @@ def write_to_google(df_dict, league_name, primary_owner):
                 }
             })
 
-            # 2) Format columns F:J to 2 decimal places
+            # 2) Format the per-source points columns to 2 decimal places.
+            fa_start, fa_end = points_span(data_df, lambda c: c.endswith("_PTS"))
             requests.append({
                 "repeatCell": {
                     "range": {
                         "sheetId": worksheet.id,
                         "startRowIndex": 1,  # Row 2 (0-indexed)
                         "endRowIndex": num_rows,
-                        "startColumnIndex": 5,  # Column F (0-indexed)
-                        "endColumnIndex": 10  # Column J (0-indexed, exclusive)
+                        "startColumnIndex": fa_start,
+                        "endColumnIndex": fa_end
                     },
                     "cell": {
                         "userEnteredFormat": {
@@ -611,12 +652,12 @@ def write_to_google(df_dict, league_name, primary_owner):
             worksheet.spreadsheet.batch_update({"requests": requests + [rule]})
 
         if sheet_name == "Lineup":
-            df.columns = ['WK', 'TEAM', 'PLAYER', 'SLOT', 'POS', 'ESPN_PTS', 'FP_PTS', 'PINNY_PTS', 'BOL_PTS', 'TRUE_PTS', 'DIFF_PTS', 'ESPN', 'FP', 'PINNY', 'BOL', 'TRUE']
+            df.columns = ['WK', 'TEAM', 'PLAYER', 'SLOT', 'POS', 'ESPN_PTS', 'FP_PTS', 'PINNY_PTS', 'BOL_PTS', 'ATH_PTS', 'TRUE_PTS', 'DIFF_PTS', 'ESPN', 'FP', 'PINNY', 'BOL', 'ATH', 'TRUE']
             set_with_dataframe(worksheet, df, include_index=False)
             format_lineup_rows(worksheet, df)
             time.sleep(5)
         elif sheet_name == "League_Projections":
-            df.columns = ['WK', 'OWNER', 'TEAM', 'ACTUAL', 'ESPN', 'FP', 'BOL', 'PINNY', 'TRUE', 'DIFF']
+            df.columns = ['WK', 'OWNER', 'TEAM', 'ACTUAL', 'ESPN', 'FP', 'BOL', 'PINNY', 'ATH', 'TRUE', 'DIFF']
             set_with_dataframe(worksheet, df, include_index=False)
             format_league_projections(worksheet, df)
             time.sleep(5)
@@ -624,7 +665,7 @@ def write_to_google(df_dict, league_name, primary_owner):
             position = sheet_name.split("FA_")[1]
             try:
                 fa_df = df[df["team_owner"].isin(["Free Agent", primary_owner])]
-                fa_df.columns = ['WK', 'POS', 'PLAYER', 'OWNER', 'TEAM', 'ESPN_PTS', 'FP_PTS', 'BOL_PTS', 'PINNY_PTS', 'TRUE_PTS', 'ESPN', 'FP', 'BOL', 'PINNY', 'TRUE']
+                fa_df.columns = ['WK', 'POS', 'PLAYER', 'OWNER', 'TEAM', 'ESPN_PTS', 'FP_PTS', 'BOL_PTS', 'PINNY_PTS', 'ATH_PTS', 'TRUE_PTS', 'ESPN', 'FP', 'BOL', 'PINNY', 'ATH', 'TRUE']
                 set_with_dataframe(worksheet, fa_df, include_index=False)
                 format_free_agents(worksheet, fa_df, position)
                 print(f"Written {sheet_name} to Google Sheets")

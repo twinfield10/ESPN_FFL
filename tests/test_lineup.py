@@ -670,18 +670,21 @@ def test_an_absent_source_is_dropped_rather_than_shown_as_agreement():
     """
     meta = {"weekly_sources_present": {"fantasypros": True, "pinnacle": False,
                                        "betonline": False}}
-    assert lu.real_sources(meta) == ["ESPN", "FP"]
+    # `theathletic` is not in the metadata at all, and `real_sources` reads a missing
+    # key as present -- see `test_no_metadata_assumes_present_rather_than_absent` for
+    # why that default is deliberate.
+    assert lu.real_sources(meta) == ["ESPN", "FP", "ATH"]
 
 
-def test_every_source_present_keeps_all_four():
+def test_every_source_present_keeps_all_of_them():
     meta = {"weekly_sources_present": {"fantasypros": True, "pinnacle": True,
-                                       "betonline": True}}
-    assert lu.real_sources(meta) == ["ESPN", "FP", "PINNY", "BOL"]
+                                       "betonline": True, "theathletic": True}}
+    assert lu.real_sources(meta) == ["ESPN", "FP", "PINNY", "BOL", "ATH"]
 
 
 def test_no_metadata_assumes_present_rather_than_absent():
     """Silence is not evidence of absence; the coverage panel is."""
-    assert lu.real_sources({}) == ["ESPN", "FP", "PINNY", "BOL"]
+    assert lu.real_sources({}) == ["ESPN", "FP", "PINNY", "BOL", "ATH"]
 
 
 def test_one_real_source_reports_no_spread():

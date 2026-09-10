@@ -124,6 +124,23 @@ WEEKLY_PROJECTION_SOURCES = (
     ("BOL weekly",
      lambda s: season_dir("BetOnline", s, "BetOnline_AllProps.parquet", create=False),
      "python -m Scripts.scrape_BOL --week <week>", False),
+    # Added 2026-09-09 with the weekly grain. Non-advisory: it carries an equal vote on
+    # every player it covers, so a forgotten download is a real fault, the same
+    # argument the season entry above makes.
+    #
+    # **The fifth element is why this entry exists rather than being advisory.** The
+    # other three are nightly and stale at 25 hours; this one is a hand-dropped weekly
+    # workbook and is *correctly* days old for most of the week. Under the run's
+    # default it would be red every day but Wednesday, and the honest alternative to a
+    # useless red is a longer clock rather than no clock at all. Eight days means a week
+    # was genuinely missed. Same number as
+    # `Scripts.projection_utils.MANUAL_STALE_AFTER_HOURS`, which governs the warning the
+    # blend itself raises.
+    ("ATH weekly",
+     lambda s: season_dir("TheAthletic", s,
+                          "TheAthletic_Projections_Week_All.parquet", create=False),
+     "python -m Scripts.load_athletic --what weekly --file <workbook.xlsx>",
+     False, 8 * 24.0),
 )
 
 #: Hours past which the data is considered stale.
@@ -249,8 +266,11 @@ def _report_sources(season: int, max_age_hours: float, sources=None) -> bool:
             default argument** -- a default binds at ``def`` time, and two tests
             monkeypatch the module global and then call this, so a bound default
             would have them silently passing against the real manifest. Entries are
-            ``(name, resolver, fix)``, or ``(name, resolver, fix, advisory)`` where
-            an advisory source is printed but never moves the return value.
+            ``(name, resolver, fix)``, then two optional elements:
+            ``advisory``, where an advisory source is printed but never moves the
+            return value, and ``max_age_hours``, which overrides the argument for a
+            source on its own clock -- a hand-dropped weekly workbook is correctly
+            days old and must not be judged against a nightly scrape's window.
 
     Returns:
         bool: True if any non-advisory source is missing or stale.
@@ -260,6 +280,7 @@ def _report_sources(season: int, max_age_hours: float, sources=None) -> bool:
     for entry in sources:
         name, resolve, fix = entry[0], entry[1], entry[2]
         advisory = entry[3] if len(entry) > 3 else False
+        limit = entry[4] if len(entry) > 4 else max_age_hours
         note = "" if not advisory else "  (advisory)"
         path = resolve(season)
         if not path.is_file():
@@ -268,7 +289,7 @@ def _report_sources(season: int, max_age_hours: float, sources=None) -> bool:
             stale = stale or not advisory
             continue
         age = (datetime.now(timezone.utc).timestamp() - path.stat().st_mtime) / 3600.0
-        if age > max_age_hours:
+        if age > limit:
             print(f"  {name:<13} STALE, written {_fmt(age)} — "
                   f"{fix.replace('<season>', str(season))}{note}")
             stale = stale or not advisory

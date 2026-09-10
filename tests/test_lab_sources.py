@@ -226,8 +226,18 @@ def test_tomcat_is_outside_the_imputation_chain():
 
 
 def test_availability_is_read_from_the_pipeline_not_asserted():
+    """And this test is the demonstration that it is read rather than asserted.
+
+    It pinned ``ATH`` as "draft only" until 2026-09-09, when The Athletic began
+    publishing weekly slates and joined ``WEEKLY_PREFIXES``. Nothing in this file
+    changed and the answer moved, which is the property being tested -- a card that
+    stated its own availability would still be saying "draft only" today.
+    """
     assert ls.availability("ESPN") == "draft + weekly"
-    assert ls.availability("ATH") == "draft only"
+    assert ls.availability("ATH") == "draft + weekly"
+    # No source is "draft only" any more, so that branch of `availability` is
+    # currently unreachable from `SOURCES` and nothing here can pin it. Said rather
+    # than papered over with a passing assertion about a source that is both grains.
     # Withdrawn is checked before the prefix lists: TOMCAT is in neither of them, and
     # "draft only" would be a wrong answer rather than a stale one.
     assert "withdrawn" in ls.availability("USG")

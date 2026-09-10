@@ -430,7 +430,10 @@ says so in the sidebar.
 ## How the projection blend works
 
 Five external sources — **ESPN**, **FantasyPros**, **The Athletic**, **BetOnline** and
-**Pinnacle**.
+**Pinnacle** — on **both** grains since 2026-09-09, when The Athletic began publishing a
+weekly slate and joined the weekly blend it had been absent from
+(`docs/plans/47-athletic-weekly.md`). Before that the draft board had five votes and the
+weekly board four.
 
 **TOMCAT**, our own model, was the sixth from 2026-08-17 until **2026-09-07, when it was
 withdrawn from the season-long blend.** It projects every position through three
@@ -445,7 +448,9 @@ argument, and what it costs, is `docs/plans/43-tomcat-out-of-season-blend.md`.
 
 The model still runs and its `USG_` stat lines are still written to the board,
 unweighted and unpriced, so it can keep being measured and the decision is one line to
-reverse. Nothing here touches the weekly path: TOMCAT has never had a weekly head.
+reverse. Nothing about that withdrawal touches the weekly path: TOMCAT has never had a
+weekly head, and the weekly blend's fifth vote is The Athletic's rather than the
+model's.
 
 **TOMCAT** is **T**ouches · **O**pportunity · **M**arket · **C**ontext ·
 **A**vailability · **T**iers — its six feature families. The columns it writes are

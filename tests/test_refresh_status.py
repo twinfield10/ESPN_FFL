@@ -8,6 +8,8 @@ indistinguishable from a system that never breaks, right up until it matters.
 No network, no filesystem beyond what the fixtures write.
 """
 
+import os
+import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -216,13 +218,43 @@ def test_an_overdue_odds_pull_is_stale(tmp_path, monkeypatch, capsys):
 
 
 def test_every_weekly_source_is_named_in_the_weekly_manifest():
-    named = {name for name, _, _, _ in rs.WEEKLY_PROJECTION_SOURCES}
-    assert named == {"FP weekly", "PINNY weekly", "BOL weekly"}
+    named = {entry[0] for entry in rs.WEEKLY_PROJECTION_SOURCES}
+    assert named == {"FP weekly", "PINNY weekly", "BOL weekly", "ATH weekly"}
+
+
+def test_a_source_on_its_own_clock_is_not_judged_by_the_nightly_window():
+    """The Athletic's weekly workbook is a hand download, correctly days old.
+
+    Under the run's 25-hour default it would report stale every day but the one it was
+    imported on, and a check that is red on the normal case is one nobody reads. The
+    fifth manifest element is the fix; this asserts the entry carries one rather than
+    quietly relying on the default.
+    """
+    entry = next(e for e in rs.WEEKLY_PROJECTION_SOURCES if e[0] == "ATH weekly")
+    assert len(entry) == 5, "ATH weekly must carry its own max_age_hours"
+    assert entry[3] is False, "an equal vote going missing is a real fault"
+    assert entry[4] > 7 * 24, "a weekly download must survive a whole week"
+
+
+def test_a_per_source_window_overrides_the_run_default(tmp_path, capsys):
+    """Both directions, since a limit that never binds is not a limit."""
+    old = tmp_path / "old.parquet"
+    old.write_text("x")
+    os.utime(old, (time.time() - 3 * 24 * 3600,) * 2)
+
+    generous = (("Manual", lambda s: old, "python -m x", False, 8 * 24.0),)
+    assert rs._report_sources(2026, 25.0, sources=generous) is False
+    assert "ok," in capsys.readouterr().out
+
+    strict = (("Nightly", lambda s: old, "python -m x", False),)
+    assert rs._report_sources(2026, 25.0, sources=strict) is True
+    assert "STALE" in capsys.readouterr().out
 
 
 def test_the_weekly_manifest_resolves_paths_without_creating_directories():
     """A status check must not have side effects on the data tree."""
-    for _, resolve, _, _ in rs.WEEKLY_PROJECTION_SOURCES:
+    for entry in rs.WEEKLY_PROJECTION_SOURCES:
+        resolve = entry[1]
         path = resolve(2099)
         assert not path.exists()
         assert not path.parent.exists(), "resolving a path must not create a directory"

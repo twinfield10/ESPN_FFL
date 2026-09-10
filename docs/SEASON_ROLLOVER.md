@@ -224,9 +224,14 @@ For 2026: last draft Tue 09-08 20:30, first game Wed 09-09. See
 **Most of this is now nightly.** As of 2026-09-08 `run_daily_refresh.sh` runs the
 schedule, both FantasyPros pulls, the weekly Pinnacle props, the injury report, the
 boards **and** `--what lineups`. What is left by hand each week is the part that needs
-a human decision and the two things the nightly deliberately does not do.
+a human decision and the things the nightly cannot do: a paid download nothing can
+fetch, and an injury severity nothing can judge.
 
 ```bash
+# Download this week's Athletic slate first -- it is a paid .xlsx with no API behind
+# it, so nothing can fetch it for you. The sheet name carries the week; --week only
+# confirms it.
+python -m Scripts.load_athletic --what weekly --file ~/Downloads/Week_<n>_Proj_<MMDD>.xlsx
 python -m Scripts.injury.review        # who needs a hand-written severity  <-- read this
 #   ... edit config/injuries/<season>.yaml if it named anyone ...
 python -m Scripts.refresh --all --what lineups,team_stats   # team_stats is the weekly bit
@@ -234,7 +239,16 @@ python -m Scripts.sync --push          # publish it to S3 -- the app reads from 
 python populateGoogleSheet.py          # render the store to Sheets
 ```
 
-The injury edit must come **before** `refresh`, or nothing changes until next week.
+Both hand steps must come **before** `refresh`, for the same reason: the injury edit
+and the Athletic import are both read while the lineups are built, so doing either
+afterwards changes nothing until next week's run.
+
+`python -m Scripts.refresh_status` is the check that the import landed — look for
+`ATH weekly`. It is on an **eight-day** clock rather than the nightly 25 hours,
+because a weekly workbook is correctly days old for most of the week; if it is red,
+a whole week was missed. Re-importing the same week is fine and expected — the newest
+download wins for the week it names and leaves every other week alone — and the write
+prints how many rows it replaced.
 
 <details>
 <summary>What the nightly took over, and when</summary>
@@ -248,6 +262,7 @@ python -m Scripts.scrape_espn_injuries   # nightly
 python -m Scripts.refresh --all --what board    # nightly
 python -m Scripts.refresh --all --what lineups  # nightly since 2026-09-08
 python -m Scripts.scrape_BOL             # never -- permanently 403, see the warning
+python -m Scripts.load_athletic --what weekly   # never -- a paid .xlsx, no API to call
 ```
 
 **`R/GetNFL.R` was the urgent one, and it is step 0 of the nightly rather than a
