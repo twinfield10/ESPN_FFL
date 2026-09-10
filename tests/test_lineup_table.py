@@ -123,7 +123,7 @@ def parsed(markup):
 
 def test_every_source_present_gives_the_full_points_block():
     labels = [c.label for c in lt.points_columns(COLUMNS, ALL_PRESENT)]
-    assert labels == ["ESPN", "FP", "PINNY", "BOL", "TRUE", "Δ", "Sources", "Spread"]
+    assert labels == ["ESPN", "FP", "PINNY", "BOL", "TRUE", "Δ", "Sources"]
 
 
 def test_an_absent_book_is_dropped_rather_than_shown_as_agreement():
@@ -136,7 +136,7 @@ def test_an_absent_book_is_dropped_rather_than_shown_as_agreement():
     meta = {"weekly_sources_present": {"fantasypros": True, "pinnacle": False,
                                        "betonline": False}}
     labels = [c.label for c in lt.points_columns(COLUMNS, meta)]
-    assert labels == ["ESPN", "FP", "TRUE", "Δ", "Sources", "Spread"]
+    assert labels == ["ESPN", "FP", "TRUE", "Δ", "Sources"]
 
 
 def test_a_frame_without_espn_gets_no_delta_column():
@@ -251,20 +251,23 @@ def test_sources_are_averaged_rather_than_summed():
     assert by_label["Sources"] == pytest.approx(1.0)
 
 
+#: `points_columns` no longer emits Spread -- it came out when the live columns
+#: pushed the table to fifteen -- but `totals` still composes it, because the column
+#: is on the frame and a caller may ask for it. Constructed explicitly here so the
+#: arithmetic stays covered without the renderer's opinion about what to show.
+SPREAD_COL = lt.Col("source_spread", "Spread", "spread", "")
+
+
 def test_spread_is_composed_as_independent_variances():
     """Summing standard deviations assumes every source is wrong the same way."""
     rows = [player("A", "QB", 20.0, spread=3.0), player("B", "RB", 10.0, spread=4.0)]
-    points = lt.points_columns(COLUMNS, ALL_PRESENT)
-    by_label = dict(zip([c.label for c in points], lt.totals(rows, points)))
-    assert by_label["Spread"] == pytest.approx(5.0)
+    assert lt.totals(rows, [SPREAD_COL])[0] == pytest.approx(5.0)
 
 
 def test_a_column_nobody_has_a_number_for_totals_to_nothing():
     rows = [dict(player("A", "K", 9.0), source_spread=None),
             dict(player("B", "K", 8.0), source_spread=None)]
-    points = lt.points_columns(COLUMNS, ALL_PRESENT)
-    by_label = dict(zip([c.label for c in points], lt.totals(rows, points)))
-    assert by_label["Spread"] is None
+    assert lt.totals(rows, [SPREAD_COL])[0] is None
 
 
 def test_a_missing_cell_does_not_drag_the_total_down():
@@ -323,8 +326,8 @@ def matchup():
 def test_every_row_of_the_matchup_is_as_wide_as_the_header():
     widths = parsed(matchup()).widths()
     assert len(set(widths)) == 1, widths
-    # Three identity columns and eight points columns a side, plus ADV | SLOT | ADV.
-    assert widths[0] == 3 + 8 + 3 + 8 + 3
+    # Three identity columns and seven points columns a side, plus ADV | SLOT | ADV.
+    assert widths[0] == 3 + 7 + 3 + 7 + 3
 
 
 def test_the_away_half_mirrors_the_home_half():
@@ -392,7 +395,7 @@ def roster(total_rows=None):
 def test_every_row_of_a_roster_table_is_as_wide_as_the_header():
     widths = parsed(roster()[1]).widths()
     assert len(set(widths)) == 1, widths
-    assert widths[0] == 1 + 3 + 8
+    assert widths[0] == 1 + 3 + 7
 
 
 def test_a_whole_roster_totals_only_the_rows_that_count():
@@ -427,7 +430,7 @@ def test_the_blend_can_lead_the_points_block():
     sources he is being compared against."""
     labels = [c.label for c in
               lt.points_columns(COLUMNS, ALL_PRESENT, blend_first=True)]
-    assert labels == ["TRUE", "Δ", "ESPN", "FP", "PINNY", "BOL", "Sources", "Spread"]
+    assert labels == ["TRUE", "Δ", "ESPN", "FP", "PINNY", "BOL", "Sources"]
 
 
 def test_the_delta_stays_with_the_blend_when_it_leads():
@@ -437,7 +440,7 @@ def test_the_delta_stays_with_the_blend_when_it_leads():
     assert labels.index("Δ") == labels.index("TRUE") + 1
 
 
-def test_the_corroboration_pair_can_be_dropped():
+def test_corroboration_can_be_dropped():
     """Off for the matchup: how well corroborated your receiver is says nothing
     about whether he beats theirs."""
     labels = [c.label for c in
@@ -446,8 +449,8 @@ def test_the_corroboration_pair_can_be_dropped():
     assert "Sources" not in labels and "Spread" not in labels
 
 
-def test_dropping_the_pair_narrows_the_matchup_by_four_columns():
-    """Two columns a side, and the table was one scrollbar wide before."""
+def test_dropping_corroboration_narrows_the_matchup_by_two_columns():
+    """One column a side now that Spread is gone from both tables."""
     home = [player("Home QB", "QB", 20.0, slot="QB")]
     away = [player("Away QB", "QB", 18.0, slot="QB")]
     rows = lt.pair_by_slot(home, away, {"QB": 1})
@@ -458,7 +461,7 @@ def test_dropping_the_pair_narrows_the_matchup_by_four_columns():
     narrow = parsed(lt.matchup_html(
         rows, info, lt.points_columns(COLUMNS, ALL_PRESENT, corroboration=False),
         home_label="H", away_label="A")).widths()[0]
-    assert wide == 25 and narrow == 21
+    assert wide == 23 and narrow == 21
 
 
 def test_the_two_orders_hold_the_same_columns():
@@ -639,3 +642,97 @@ def test_a_table_with_no_bench_is_unchanged():
     args = (lt.info_columns(COLUMNS), lt.points_columns(COLUMNS, ALL_PRESENT))
     assert (lt.side_html(lineup, *args, label="Owner", below=[])
             == lt.side_html(lineup, *args, label="Owner"))
+
+
+# --- what the eye lands on ----------------------------------------------
+#
+# The live column changed the arithmetic of this table: at nine numeric columns a
+# side, one bold column no longer told you where to look, and the number it bolded was
+# no longer the number the table exists for. So `LIVE` and `TRUE` are both bold -- they
+# are the two readings -- and `Δ` is italic, because it is a comment on the pair rather
+# than a third reading.
+
+LIVE_COLUMNS = COLUMNS + ("LIVE_Points", "points", "game_state")
+
+
+def live_points(**kwargs):
+    """The points block for a frame that carries the live columns."""
+    return lt.points_columns(LIVE_COLUMNS, ALL_PRESENT, **kwargs)
+
+
+def test_live_and_true_are_both_bold_and_share_one_class():
+    """Same class, because they are the same kind of number. Two different weights
+    would imply a ranking between them that does not exist -- one is now, the other
+    is the full game."""
+    assert lt.EMPHASIS["LIVE"] == lt.EMPHASIS["TRUE"] == "lt-em"
+    assert ".lt td.lt-em { font-weight: 700; }" in lt.CSS
+
+
+def test_the_delta_is_italic_not_bold():
+    assert lt.EMPHASIS["Δ"] == "lt-delta"
+    assert "font-style: italic" in lt.CSS
+    assert lt.EMPHASIS["Δ"] != lt.EMPHASIS["TRUE"]
+
+
+def test_no_per_source_column_is_emphasised():
+    """They are the context, not the reading. Emphasising a source would say the
+    table is about where the number came from."""
+    for label in ("ESPN", "FP", "PINNY", "BOL", "ATH", "ACT", "Sources"):
+        assert label not in lt.EMPHASIS
+
+
+def test_the_emphasis_reaches_the_cells():
+    rows = [player("A", "QB", 20.0, slot="QB")]
+    rows[0].update({"LIVE_Points": 22.0, "points": 0.0})
+    markup = lt.side_html(rows, lt.info_columns(LIVE_COLUMNS),
+                          live_points(blend_first=True), label="H",
+                          total_rows=rows)
+    # The class list, not an exact attribute: an edge cell carries `lt-edge` too, and
+    # LIVE leads the points block so it is always the one on the boundary.
+    live_cell = re.search(r'<td class="([^"]*)">22\.0</td>', markup)
+    assert live_cell and "lt-em" in live_cell.group(1).split()
+    blend_cell = re.search(r'<td class="([^"]*)">20\.0</td>', markup)
+    assert blend_cell and "lt-em" in blend_cell.group(1).split()
+    assert "lt-delta" in markup
+
+
+def test_the_emphasis_reaches_the_header_so_the_column_reads_as_one_unit():
+    markup = lt.side_html([player("A", "QB", 20.0, slot="QB")],
+                          lt.info_columns(LIVE_COLUMNS), live_points(),
+                          label="H", total_rows=[])
+    header = re.search(r'<tr class="lt-head">(.*?)</tr>', markup, re.S).group(1)
+    assert 'class="lt-em"' in header
+    assert 'lt-delta' in header
+
+
+def test_the_delta_stays_italic_on_the_total_row():
+    """Every cell there is already bold. The delta still has to read as a comment
+    rather than as one more total."""
+    rows = [player("A", "QB", 20.0, slot="QB"), player("B", "RB", 10.0, slot="RB")]
+    markup = lt.side_html(rows, lt.info_columns(COLUMNS),
+                          lt.points_columns(COLUMNS, ALL_PRESENT),
+                          label="H", total_rows=rows)
+    total = re.search(r'<tr class="lt-total[^"]*">(.*?)</tr>', markup, re.S).group(1)
+    assert "lt-delta" in total
+
+
+# --- two columns that came out ------------------------------------------
+
+def test_there_is_no_game_state_column():
+    """It was three characters of the identity block and it duplicated what `ACT`
+    already says by existing -- a player with an actual has played."""
+    labels = [c.label for c in lt.info_columns(LIVE_COLUMNS)]
+    assert "GM" not in labels
+    assert labels == ["Player", "Pos", "TM"]
+
+
+def test_spread_is_no_longer_rendered_anywhere():
+    for kwargs in ({}, {"blend_first": True}, {"corroboration": True},
+                   {"locked": True}):
+        assert "Spread" not in [c.label for c in live_points(**kwargs)]
+
+
+def test_sources_survived_because_it_changes_a_decision():
+    """A projection resting on one source is a different thing from one four sources
+    agree on. The standard deviation between them is a second-order reading."""
+    assert "Sources" in [c.label for c in live_points()]

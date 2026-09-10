@@ -48,7 +48,6 @@ BASE_LABELS: Dict[str, str] = {
     "player_position": "Pos",
     "primaryPosition": "Pos",
     "pro_team": "NFL",
-    live.STATE_COLUMN: "Game",
     "player_active_status": "Status",
     "points": "Actual",
     live.LIVE_POINTS: "Live",
@@ -62,8 +61,17 @@ BASE_LABELS: Dict[str, str] = {
 LIVE_HELP: Dict[str, str] = {
     "Live": ltab.LIVE_HELP,
     "Actual": ltab.ACTUAL_HELP,
-    "Game": ltab.STATE_HELP,
 }
+
+#: Labels rendered bold, and the one rendered italic.
+#:
+#: Same split as :data:`lineup_table.EMPHASIS`, and it has to be duplicated because
+#: this renderer is a Streamlit dataframe rather than hand-emitted HTML -- the grid is
+#: canvas-drawn, so no stylesheet reaches its cells and the emphasis has to travel as
+#: a pandas ``Styler``. Keep the two in step: a reader moving between the Roster table
+#: and this grid should not have to work out which number each one is built around.
+BOLD_LABELS = ("Live", "Us")
+ITALIC_LABELS = ("Δ",)
 
 
 def missing_sources_note(meta: dict) -> Optional[str]:
@@ -98,13 +106,15 @@ def missing_sources_note(meta: dict) -> Optional[str]:
 def display_columns(frame: pl.DataFrame, meta: dict, *,
                     lead: Sequence[str] = ("slot", "player_name", "player_position",
                                            "pro_team"),
-                    tail: Sequence[str] = ("points", "sources_real",
-                                           "source_spread")) -> List[str]:
+                    tail: Sequence[str] = ("points", "sources_real")) -> List[str]:
     """Columns to show, in reading order: identity, then sources, then status.
 
     The live block leads the numbers when the frame carries it, because it is the
-    number the table is read for. ``Actual`` is shown **once any game in the frame
-    has started**, which is a different rule from the one it replaces: that test was
+    number the table is read for. ``Spread`` is no longer in the default ``tail`` --
+    see :func:`lineup_table.points_columns`, which dropped it from the lineup tables
+    for the same reason: at this width the disagreement *between* sources was
+    competing with the number the grid exists for. ``Actual`` is shown **once any game
+    in the frame has started**, which is a different rule from the one it replaces: that test was
     ``frame["points"].sum() == 0``, which is a proxy for "nothing has been played"
     that stops being true the instant one player scores -- so the column appeared
     mid-week and, worse, would have stayed hidden through a week in which everybody
@@ -120,8 +130,6 @@ def display_columns(frame: pl.DataFrame, meta: dict, *,
         list: Column names present on ``frame``.
     """
     columns = [c for c in lead if c in frame.columns]
-    if live.STATE_COLUMN in frame.columns:
-        columns.append(live.STATE_COLUMN)
     if live.LIVE_POINTS in frame.columns:
         columns.append(live.LIVE_POINTS)
     columns += lu.points_columns(frame, meta)
@@ -160,14 +168,8 @@ def render_table(frame: pl.DataFrame, meta: dict, *, columns: Sequence[str],
     """
     labels = {**BASE_LABELS, **SOURCE_LABELS}
     present = [c for c in columns if c in frame.columns]
-    shown = frame.select(present)
-    if live.STATE_COLUMN in present:
-        # The stored values are the wire words -- `pre`, `in`, `post`, `bye`. Mapped
-        # here rather than in the artifact so the data keeps saying what ESPN said.
-        shown = shown.with_columns(
-            pl.col(live.STATE_COLUMN).replace_strict(
-                ltab.STATE_LABELS, default=None))
-    shown = shown.rename({c: labels[c] for c in present if c in labels})
+    shown = frame.select(present).rename(
+        {c: labels[c] for c in present if c in labels})
 
     config: Dict[str, object] = {
         # 100px rather than auto: auto sizes to the *header*, and "Slot" is four
@@ -185,7 +187,6 @@ def render_table(frame: pl.DataFrame, meta: dict, *, columns: Sequence[str],
             format="%.1f", help=LIVE_HELP["Live"]),
         "Actual": st.column_config.NumberColumn(
             format="%.1f", help=LIVE_HELP["Actual"]),
-        "Game": st.column_config.TextColumn(help=LIVE_HELP["Game"]),
         "Status": st.column_config.TextColumn(
             help="ESPN's own reading: `active`, `bye`, or `inactive`. A player who "
                  "is not active is excluded from the optimal lineup."),
@@ -194,6 +195,8 @@ def render_table(frame: pl.DataFrame, meta: dict, *, columns: Sequence[str],
             help="How many sources really had an opinion about this player, after "
                  "dropping the ones that were imputed from the mean. `1` means the "
                  "projection beside it is a single source's view."),
+        # Kept though `display_columns` no longer emits it: `tail` is a parameter,
+        # so a caller can still ask for the column and it should arrive configured.
         "Spread": st.column_config.NumberColumn(
             format="%.1f",
             help="Standard deviation across those real sources. Blank below two, "
@@ -205,9 +208,66 @@ def render_table(frame: pl.DataFrame, meta: dict, *, columns: Sequence[str],
         config[label] = st.column_config.NumberColumn(
             format="%.1f", help=SOURCE_HELP.get(prefix, ""))
 
-    st.dataframe(shown, width="stretch", hide_index=True, column_config=config,
-                 placeholder="", lazy=False,
+    st.dataframe(_emphasised(shown), width="stretch", hide_index=True,
+                 column_config=config, placeholder="", lazy=False,
                  **({"height": height} if height else {}))
+
+
+def _numeric_format(label: str) -> str:
+    """The pandas format for one column, matching its ``column_config``.
+
+    The two have to agree because a ``Styler`` sends its own *display values* to the
+    frontend alongside the styles. Left to pandas' default they would be raw reprs --
+    ``12.339999999999999`` beside a column claiming ``%.1f``.
+
+    Args:
+        label: The rendered column label.
+
+    Returns:
+        str: A ``str.format`` template.
+    """
+    if label in ITALIC_LABELS:
+        # A difference states its direction, the same rule `lineup_table.FORMATS`
+        # follows: `2.4` is ambiguous about which way it points.
+        return "{:+.1f}"
+    if label == "Sources":
+        return "{:.0f}"
+    return "{:.1f}"
+
+
+def _emphasised(shown: pl.DataFrame):
+    """The frame as a pandas ``Styler``, with the reading columns emphasised.
+
+    A Streamlit dataframe is drawn on a canvas, so no stylesheet reaches its cells and
+    ``column_config`` has no weight or slant option. A ``Styler`` is the one route
+    that works: Streamlit marshals its computed CSS declarations through to the
+    frontend verbatim.
+
+    Falls back to the plain frame if anything here fails. A table that renders
+    unemphasised is a cosmetic loss; one that raises takes the page with it, and this
+    is the last thing between the data and the screen.
+
+    Args:
+        shown: The renamed, ordered frame.
+
+    Returns:
+        A pandas ``Styler``, or ``shown`` unchanged on failure.
+    """
+    try:
+        pandas_frame = shown.to_pandas()
+        numeric = [c for c in pandas_frame.columns
+                   if pandas_frame[c].dtype.kind in "if"]
+        styler = pandas_frame.style.format(
+            {c: _numeric_format(str(c)) for c in numeric}, na_rep="")
+        bold = [c for c in pandas_frame.columns if c in BOLD_LABELS]
+        italic = [c for c in pandas_frame.columns if c in ITALIC_LABELS]
+        if bold:
+            styler = styler.set_properties(subset=bold, **{"font-weight": "700"})
+        if italic:
+            styler = styler.set_properties(subset=italic, **{"font-style": "italic"})
+        return styler
+    except Exception:                    # noqa: BLE001 - cosmetic, never fatal
+        return shown
 
 
 def render_swaps(changes, points_label: str = "Us") -> None:
