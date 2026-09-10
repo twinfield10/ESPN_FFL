@@ -64,9 +64,10 @@ def lineups():
             "player_name": name, "primaryPosition": pos, "slotPosition": slot,
             "points": 0.0, "projPoints": 10.0 + i, "FP_Points": 11.0 + i,
             "PINNY_Points": 12.0 + i, "BOL_Points": 13.0 + i,
+            "ATH_Points": 13.5 + i,
             "TRUE_Points": 14.0 + i, "PosRank": 1.0, "ESPN_PosRank": 1.0,
             "FP_PosRank": 1.0, "PINNY_PosRank": 1.0, "BOL_PosRank": 1.0,
-            "TRUE_PosRank": 1.0,
+            "ATH_PosRank": 1.0, "TRUE_PosRank": 1.0,
         })
     return pd.DataFrame(rows)
 

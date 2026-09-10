@@ -36,7 +36,7 @@ SOURCE_HELP: Dict[str, str] = ltab.SOURCE_HELP
 #: How a points column is labelled.
 SOURCE_LABELS: Dict[str, str] = {
     "ESPN_Points": "ESPN", "FP_Points": "FP", "PINNY_Points": "Pinnacle",
-    "BOL_Points": "BetOnline", "TRUE_Points": "Us",
+    "BOL_Points": "BetOnline", "ATH_Points": "The Athletic", "TRUE_Points": "Us",
 }
 
 #: Identity and status columns, in reading order.
@@ -61,6 +61,9 @@ def missing_sources_note(meta: dict) -> Optional[str]:
     column" and "Pinnacle agrees exactly with the mean" look identical on a table
     and mean opposite things.
 
+    Says "projections" rather than "props" since 2026-09-09: The Athletic is one of
+    these sources now and has never had a prop in its life.
+
     Args:
         meta: The store's ``meta.json``.
 
@@ -72,7 +75,8 @@ def missing_sources_note(meta: dict) -> Optional[str]:
     if not absent:
         return None
     return (
-        f"No weekly props this season for **{', '.join(absent)}**, so those columns "
+        f"No weekly projections this season for **{', '.join(absent)}**, so those "
+        f"columns "
         f"are not shown. They exist in the artifact, but they hold the ESPN/"
         f"FantasyPros mean — showing them would turn an absent source into a "
         f"unanimous one."

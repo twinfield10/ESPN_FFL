@@ -574,9 +574,10 @@ def test_get_match_details_tolerates_a_source_with_no_data(capsys):
 
 def test_weekly_sources_present_reports_each_file():
     present = pu.weekly_sources_present(UNSCRAPED_SEASON)
-    assert present == {"fantasypros": False, "pinnacle": False, "betonline": False}
+    assert present == {"fantasypros": False, "pinnacle": False, "betonline": False,
+                       "theathletic": False}
     assert set(pu.weekly_sources_present(2025)) == {
-        "fantasypros", "pinnacle", "betonline"}
+        "fantasypros", "pinnacle", "betonline", "theathletic"}
 
 
 # --- a weekly source has to be usable, not merely present ----------------
@@ -632,15 +633,21 @@ def test_an_absent_weekly_file_is_absent_rather_than_an_error(tmp_path, monkeypa
     assert pu.weekly_sources_present(2026, week=1) == {"fp": False}
 
 
-def test_the_source_presence_keys_are_the_props_feeds_only():
-    """TOMCAT is deliberately not here.
+def test_the_source_presence_keys_are_the_external_weekly_sources():
+    """TOMCAT is deliberately not here, and the reason is not "it is not a book".
 
-    This dict drives the app's "no weekly props this season for X" caption, and
-    TOMCAT is not a feed that went quiet -- it is a head nobody has built. Listing
-    it would put a model into a sentence about sportsbooks and make the key set
-    unstable for every consumer.
+    This test read `..._are_the_props_feeds_only` until 2026-09-09, and that framing
+    would have excluded The Athletic too -- a hand-dropped projection workbook is no
+    more a props feed than a usage model is. The rule it was reaching for is about
+    *authorship*: this dict drives the app's absent-source caption, which answers
+    "did something we depend on stop speaking", and TOMCAT is **ours**. It is not a
+    feed that went quiet, it is a head nobody has built, and reporting our own
+    unbuilt model beside sources that failed to arrive answers a different question.
     """
-    assert set(pu.WEEKLY_SOURCE_FILES) == {"fantasypros", "pinnacle", "betonline"}
+    assert set(pu.WEEKLY_SOURCE_FILES) == {"fantasypros", "pinnacle", "betonline",
+                                           "theathletic"}
+    assert "usage" not in pu.WEEKLY_SOURCE_FILES
+    assert "tomcat" not in pu.WEEKLY_SOURCE_FILES
 
 
 # --- the weekly TOMCAT seam ----------------------------------------------

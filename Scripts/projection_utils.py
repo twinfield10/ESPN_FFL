@@ -14,7 +14,8 @@ copies had been reading module-level globals (``curr_week``, ``LINEUPS``,
 
 The pipeline order is:
 
-    ESPN stats -> FantasyPros -> MEAN -> Pinnacle -> BetOnline -> TRUE -> points
+    ESPN stats -> FantasyPros -> MEAN -> Pinnacle -> BetOnline -> The Athletic
+        -> TRUE -> points
 
 where ``TRUE_*`` is the weighted blend and ``*_Points`` applies the league's own
 ESPN scoring settings via :func:`proj_to_score`.
@@ -62,6 +63,18 @@ def betonline_parquet(season: int):
                       create=False)
 
 
+def theathletic_weekly_parquet(season: int):
+    """Season's accumulated The Athletic weekly slates.
+
+    One cumulative file over every week imported, like FantasyPros' -- not one file
+    per week. Written by ``python -m Scripts.load_athletic --what weekly``, which is a
+    hand-run import rather than a nightly stage, because the workbook is a manual
+    download with no API behind it.
+    """
+    return season_dir("TheAthletic", season,
+                      "TheAthletic_Projections_Week_All.parquet", create=False)
+
+
 def usage_weekly_parquet(season: int):
     """Season's weekly TOMCAT projections file.
 
@@ -105,6 +118,20 @@ def _warn_missing(msg: str) -> None:
 #: an error: a stale source is still a real line, and dropping it would renormalise
 #: the remaining books upward, which is worse than using yesterday's number.
 STALE_AFTER_HOURS = 48.0
+
+
+#: How old a **hand-dropped** source's file may be before the blend says so.
+#:
+#: :data:`STALE_AFTER_HOURS` is calibrated for a nightly scrape, and applying it to a
+#: manual download makes the check useless rather than strict: The Athletic publishes a
+#: weekly slate once a week, so a workbook imported on Wednesday is *correctly* four
+#: days old by Sunday and would warn every single weekend. A warning that fires on the
+#: normal case is one nobody reads -- the same argument
+#: ``Scripts/refresh_status.py`` makes for its advisory sources.
+#:
+#: Eight days rather than seven, for the reason 25 hours is not 24 there: the slack is
+#: for a late download, not tolerance for a skipped one. Past this, a week was missed.
+MANUAL_STALE_AFTER_HOURS = 8 * 24.0
 
 
 class StaleProjectionSourceWarning(UserWarning):
@@ -170,9 +197,9 @@ def absent_weekly_source(label: str, path) -> pd.DataFrame:
     drops the imputed weight and renormalises over the sources that are real. The
     result is an honest ESPN/FantasyPros blend rather than a crash.
 
-    This is the pre-season state every year -- weekly props do not exist until
-    the season starts -- and it is what the store in
-    ``docs/plans/07-frontend-foundation.md`` has to be buildable in.
+    This is the pre-season state every year -- weekly props do not exist until the
+    season starts, and nobody has downloaded a week-1 workbook yet -- and it is what
+    the store in ``docs/plans/07-frontend-foundation.md`` has to be buildable in.
 
     Args:
         label: Human-readable source name, e.g. ``"Pinnacle"``.
@@ -184,7 +211,8 @@ def absent_weekly_source(label: str, path) -> pd.DataFrame:
         validates dtype compatibility on a merge key even when one side is empty.
     """
     _warn_missing(
-        f"{label} has no weekly props for this season ({path} does not exist). "
+        f"{label} has no weekly projections for this season ({path} does not "
+        f"exist). "
         f"Its columns will be imputed from the ESPN/FantasyPros mean and dropped "
         f"from the renormalised blend, so TRUE_* is an ESPN/FP number for every "
         f"row. Check the coverage report below."
@@ -196,16 +224,27 @@ def absent_weekly_source(label: str, path) -> pd.DataFrame:
 
 
 #: The weekly sources, and where each one's file lives.
+#:
+#: **Every external weekly source that can go quiet.** Not "the props feeds" -- that is
+#: what this said until The Athletic joined on 2026-09-09, and the distinction matters
+#: because the rule was doing work. This dict drives the app's absent-source caption,
+#: and the question that caption answers is *did a source we depend on stop speaking*.
+#:
+#: TOMCAT is still deliberately absent, for the reason it always was, restated so it
+#: cannot be mistaken for "not a sportsbook": it is **ours**. It is not a feed that went
+#: quiet, it is a head nobody has built
+#: (`docs/plans/19-weekly-usage-model.md`), and reporting our own unbuilt model beside
+#: sources that failed to arrive answers a different question and makes the key set
+#: unstable for every consumer. It joins here when it ships; see `clean_usage_weekly`.
 WEEKLY_SOURCE_FILES = {
     "fantasypros": fantasypros_parquet,
     "pinnacle": pinnacle_parquet,
     "betonline": betonline_parquet,
-    # TOMCAT is deliberately absent. This dict drives the app's "no weekly props
-    # this season for X" caption, and TOMCAT is not a props feed that went quiet --
-    # it is a head nobody has built (`docs/plans/19-weekly-usage-model.md`). Listing
-    # it would put a model in a sentence about sportsbooks and make the key set
-    # unstable for every consumer. It joins here when it ships; see
-    # `clean_usage_weekly`.
+    # A hand-dropped .xlsx rather than a scrape, so it cannot go quiet because a
+    # nightly stage failed -- it goes quiet because nobody downloaded a new one. That
+    # is a reason to watch it, not to leave it out: it carries an equal vote on every
+    # player it covers. See `clean_ath_weekly` for its own staleness window.
+    "theathletic": theathletic_weekly_parquet,
 }
 
 
@@ -471,8 +510,14 @@ ESPN_PUBLISHED_POINTS = "espn_published_points"
 #: **not** in :data:`WEIGHTS`: that dict is shared with the season path, where TOMCAT
 #: was withdrawn on 2026-09-07, so an entry there would re-admit it to the draft
 #: board as a side effect. See :func:`clean_usage_weekly`.
-WEEKLY_PREFIXES: Tuple[str, ...] = ("ESPN", "FP", "MEAN", "PINNY", "BOL", "USG",
-                                    "TRUE")
+#: **``ATH`` joined on 2026-09-09**, when The Athletic began publishing weekly slates.
+#: Unlike ``USG`` above it arrives with data, so this one line is what turns the fifth
+#: weekly vote on: the columns reach the frame from :func:`clean_ath_weekly`,
+#: ``present_prefixes`` keeps the prefix because they are real, and ``proj_to_score``
+#: prices them. It needed no ``WEIGHTS`` entry -- there has been one since the season
+#: path registered it on 2026-09-01.
+WEEKLY_PREFIXES: Tuple[str, ...] = ("ESPN", "FP", "MEAN", "PINNY", "BOL", "ATH",
+                                    "USG", "TRUE")
 
 
 def present_prefixes(df, candidates=WEEKLY_PREFIXES) -> list:
@@ -524,6 +569,14 @@ WEIGHTS = {
     # 2026-09-01, as an equal vote. It covers 434 offensive players with a raw
     # stat line and abstains on kickers and defences, so on those rows the weight is
     # dropped and the rest renormalise as usual.
+    #
+    # **It became the fifth *weekly* vote on 2026-09-09** off a second, unrelated
+    # workbook -- a per-week slate of 232 offensive players. This dict is shared by both
+    # grains, so that took no entry here: adding `ATH` to `WEEKLY_PREFIXES` was the
+    # whole switch. Worth knowing in the other direction too, which is why it is written
+    # here rather than only there -- there is no way to weight the source differently by
+    # grain without splitting this dict, so a re-tune of one is a re-tune of both.
+    # See docs/plans/47-athletic-weekly.md.
     #
     # Registered straight to 0.25 rather than shipping dark at 0.0 first, which is
     # what the TOMCAT arms each did. Two things worth writing down about that:
@@ -1166,6 +1219,52 @@ def clean_bol(bol_path=None, season=None, tackle_dim=None):
     return raw
 
 
+def clean_ath_weekly(ath_path=None, season=None):
+    """Load The Athletic's weekly slates, prefixed ``proj_`` for the blend to rename.
+
+    Args:
+        ath_path: Explicit parquet location. Relative paths resolve against the repo
+            root. Takes precedence over ``season``.
+        season: Season to load. Required unless ``ath_path`` is given.
+
+    Returns:
+        pd.DataFrame: ``week``, ``player_name`` and one ``proj_<stat>`` column per
+        :data:`Scripts.load_athletic.WEEKLY_STAT_COLUMNS`, or the empty frame from
+        :func:`absent_weekly_source` when no week has been imported for ``season``.
+
+    Raises:
+        FileNotFoundError: When an explicit ``ath_path`` does not exist. A named file
+            that is missing is a typo, not an absent season.
+
+    Note:
+        **Its staleness window is its own**, :data:`MANUAL_STALE_AFTER_HOURS` rather
+        than :data:`STALE_AFTER_HOURS`. The nightly writes the other three daily; this
+        one is a hand-dropped weekly download and is *supposed* to be days old.
+
+        ``pro_team``, ``position`` and ``masked_stats`` are dropped rather than carried.
+        They are useful in the file and must not reach the frame: ``pro_team`` and
+        ``position`` already arrive from ESPN and would collide with the base columns on
+        the merge, and ``masked_stats`` is a lowercase diagnostic that has no business
+        near the ``ATH_`` namespace (see
+        :data:`Scripts.load_athletic.DIAGNOSTIC_COLUMNS`).
+    """
+    if ath_path is not None:
+        ath_path = resolve(ath_path)
+    elif season is not None:
+        ath_path = theathletic_weekly_parquet(season)
+        if not ath_path.exists():
+            return absent_weekly_source("The Athletic", ath_path)
+        check_source_freshness(
+            "The Athletic weekly projections", ath_path,
+            "python -m Scripts.load_athletic --what weekly --file <workbook.xlsx>",
+            max_age_hours=MANUAL_STALE_AFTER_HOURS)
+    else:
+        raise ValueError("clean_ath_weekly requires either ath_path or season")
+
+    return pd.read_parquet(ath_path).drop(
+        columns=["pro_team", "position", "masked_stats"], errors="ignore")
+
+
 def get_match_details(df1, df2, keys, check_col2, tbl_lab, min_wk):
     """Report how many of ``df1``'s players failed to join to ``df2``.
 
@@ -1755,7 +1854,8 @@ def proj_to_score(proj_df, s_league, col_pfix_list=['ESPN', 'FP', 'MEAN', 'PINNY
 
 
 def clean_lineups(df, lg, season=None):
-    """Blend ESPN, FantasyPros, Pinnacle and BetOnline into league-scored points.
+    """Blend ESPN, FantasyPros, Pinnacle, BetOnline and The Athletic into league-scored
+    points.
 
     Args:
         df: Lineup frame from ``get_ply_stats_by_matchup`` plus free agents.
@@ -1766,7 +1866,7 @@ def clean_lineups(df, lg, season=None):
 
     Returns:
         pd.DataFrame: One row per player-week with ``ESPN_``/``FP_``/``MEAN_``/
-        ``PINNY_``/``BOL_``/``TRUE_`` stat columns and matching ``*_Points``.
+        ``PINNY_``/``BOL_``/``ATH_``/``TRUE_`` stat columns and matching ``*_Points``.
     """
     season = lg.year if season is None else season
 
@@ -1908,9 +2008,45 @@ def clean_lineups(df, lg, season=None):
     ## d) Join Slim Transformation Back To Base
     base = base.merge(trans3_df, on=['week', 'player_name', 'primaryPosition','player_active_status'], how='left')
 
+
+    # 3c) Combine The Athletic With ESPN and Impute
+    #
+    # The fifth weekly vote, from 2026-09-09. Structurally identical to the two books
+    # above rather than special-cased, and that is the point: it answers the same
+    # question ESPN and FantasyPros do -- a projected stat line -- so it belongs in the
+    # same chain, imputed from `MEAN_` where it is silent.
+    #
+    # **Inside the impute chain, unlike `USG_` below.** The distinction is not which
+    # source is better but who wrote it: filling TOMCAT's abstention from an average of
+    # two sources it is meant to disagree with would count those two a third time
+    # (plan 03), while The Athletic *is* one of the external forecasters that average
+    # describes. Same reasoning, same treatment, as
+    # `Scripts.season_projections._merge_sources` gives `ATH_` on the board.
+    #
+    # It carries nine of the twelve stats -- no `passingAttempts`, `passingCompletions`
+    # or `receivingTargets`. Those columns are *created* by `impute_columns` from
+    # `MEAN_` with the flag set on every row, so the weight is dropped and the survivors
+    # renormalise; the source abstains on them rather than projecting zero.
+    ath_proj = clean_ath_weekly(season=season)
+    ath_proj = align_to_espn_names(ath_proj, espn_universe, "The Athletic")
+    ath_proj = change_col_prefix(df=ath_proj, old_pfix="proj", new_pfix="ATH")
+
+    trans4_df = mean_df.merge(ath_proj, on=["week", "player_name"], how='left')
+    get_match_details(df1=mean_df, df2=ath_proj, keys=["week", "player_name"],
+                      check_col2="ATH_receivingYards", min_wk=curr_week,
+                      tbl_lab="The Athletic Weekly Table")
+    trans4_df = impute_columns(trans4_df, target_prefix='ATH_', source_prefix="MEAN_")
+
+    trans4_df = trans4_df[['week', 'player_name', 'primaryPosition',
+                           'player_active_status']
+                          + list(trans4_df.filter(like='ATH_').columns)]
+    base = base.merge(trans4_df, on=['week', 'player_name', 'primaryPosition',
+                                     'player_active_status'], how='left')
+
     ## Clean Missing COlumns
     base = impute_columns(base, target_prefix='PINNY_', source_prefix='MEAN_')
     base = impute_columns(base, target_prefix='BOL_', source_prefix='MEAN_')
+    base = impute_columns(base, target_prefix='ATH_', source_prefix='MEAN_')
 
     # 3b) TOMCAT's weekly lines, if a weekly head has written any.
     #
@@ -1943,8 +2079,10 @@ def clean_lineups(df, lg, season=None):
             base = pd.concat([base, pd.DataFrame(flags, index=base.index)], axis=1)
 
     ## 4a) Re-split each book's anytime-touchdown market by the ESPN/FantasyPros
-    ## ratio. Runs here because this is the first point all four sources are on one
-    ## frame, and before the blend because the blend must see the corrected columns.
+    ## ratio. Runs here because this is the first point every source is on one frame,
+    ## and before the blend because the blend must see the corrected columns. It
+    ## touches the books only -- The Athletic publishes rushing and receiving
+    ## touchdowns separately, so there is no combined market of its to re-split.
     base = reallocate_book_touchdowns(base)
 
 
@@ -2046,8 +2184,8 @@ def check_week(lu, week, own, curr_week=None):
 
     # Get My Team
     df = lu[(lu['week'] == week) & (lu['team_owner'] == own)][['week', 'team_name', 'player_name', 'slotPosition', 'primaryPosition',
-                                                               'points', 'projPoints', 'FP_Points', 'PINNY_Points', 'BOL_Points', 'TRUE_Points', 'trueDiff',
-                                                               'PosRank', 'ESPN_PosRank', 'FP_PosRank', 'PINNY_PosRank', 'BOL_PosRank', 'TRUE_PosRank']]
+                                                               'points', 'projPoints', 'FP_Points', 'PINNY_Points', 'BOL_Points', 'ATH_Points', 'TRUE_Points', 'trueDiff',
+                                                               'PosRank', 'ESPN_PosRank', 'FP_PosRank', 'PINNY_PosRank', 'BOL_PosRank', 'ATH_PosRank', 'TRUE_PosRank']]
     
     df = df.rename(columns={
         'team_name': 'team',
@@ -2059,6 +2197,7 @@ def check_week(lu, week, own, curr_week=None):
         'FP_Points': 'FP_PTS',
         'PINNY_Points': 'PINNY_PTS',
         'BOL_Points': 'BOL_PTS',
+        'ATH_Points': 'ATH_PTS',
         'TRUE_Points': 'TRUE_PTS',
         'trueDiff': 'DIFF_PTS',
         'PosRank': 'Actual',
@@ -2066,6 +2205,7 @@ def check_week(lu, week, own, curr_week=None):
         'FP_PosRank': 'FP',
         'PINNY_PosRank': 'PINNY',
         'BOL_PosRank': 'BOL',
+        'ATH_PosRank': 'ATH',
         'TRUE_PosRank': 'TRUE',
     })
 
@@ -2081,6 +2221,7 @@ def check_week(lu, week, own, curr_week=None):
         'FP_PTS': df[~df['rosPos'].isin(['BE', 'IR'])]['FP_PTS'].sum(),
         'PINNY_PTS': df[~df['rosPos'].isin(['BE', 'IR'])]['PINNY_PTS'].sum(),
         'BOL_PTS': df[~df['rosPos'].isin(['BE', 'IR'])]['BOL_PTS'].sum(),
+        'ATH_PTS': df[~df['rosPos'].isin(['BE', 'IR'])]['ATH_PTS'].sum(),
         'TRUE_PTS': df[~df['rosPos'].isin(['BE', 'IR'])]['TRUE_PTS'].sum(),
         'DIFF_PTS': df[~df['rosPos'].isin(['BE', 'IR'])]['DIFF_PTS'].sum(),
         'Actual': '',
@@ -2088,6 +2229,7 @@ def check_week(lu, week, own, curr_week=None):
         'FP': '',
         'PINNY': '',
         'BOL': '',
+        'ATH': '',
         'TRUE': ''
         
     },
@@ -2102,6 +2244,7 @@ def check_week(lu, week, own, curr_week=None):
         'FP_PTS': df[df['rosPos'].isin(['BE', 'IR'])]['FP_PTS'].sum(),
         'PINNY_PTS': df[df['rosPos'].isin(['BE', 'IR'])]['PINNY_PTS'].sum(),
         'BOL_PTS': df[df['rosPos'].isin(['BE', 'IR'])]['BOL_PTS'].sum(),
+        'ATH_PTS': df[df['rosPos'].isin(['BE', 'IR'])]['ATH_PTS'].sum(),
         'TRUE_PTS': df[df['rosPos'].isin(['BE', 'IR'])]['TRUE_PTS'].sum(),
         'DIFF_PTS': df[df['rosPos'].isin(['BE', 'IR'])]['DIFF_PTS'].sum(),
         'Actual': '',
@@ -2109,6 +2252,7 @@ def check_week(lu, week, own, curr_week=None):
         'FP': '',
         'PINNY': '',
         'BOL': '',
+        'ATH': '',
         'TRUE': ''
         
     }])
@@ -2121,7 +2265,7 @@ def check_week(lu, week, own, curr_week=None):
     df = df.sort_values(by=['rosPos', 'TRUE_PTS'], key=lambda x: x.map(order_mapping))
 
     # Round
-    df = df.round(decimals={'FP_PTS': 2, 'PINNY_PTS': 2, 'BOL_PTS': 2, 'TRUE_PTS': 2, 'DIFF_PTS': 3})
+    df = df.round(decimals={'FP_PTS': 2, 'PINNY_PTS': 2, 'BOL_PTS': 2, 'ATH_PTS': 2, 'TRUE_PTS': 2, 'DIFF_PTS': 3})
 
     # Drop Actual if Current Week
     if week == curr_week:
@@ -2132,7 +2276,7 @@ def check_week(lu, week, own, curr_week=None):
 
 def get_league_projections(week, lu):
     df = lu[(lu['week'] == week) & (lu['team_owner'] != FREE_AGENT_OWNER) & (~lu['slotPosition'].isin(['BE', 'IR']))][['week', 'team_owner', 'team_name',
-             'points', 'projPoints', 'FP_Points', 'BOL_Points', 'PINNY_Points', 'TRUE_Points']]
+             'points', 'projPoints', 'FP_Points', 'BOL_Points', 'PINNY_Points', 'ATH_Points', 'TRUE_Points']]
     
     df['TRUE_Points'] = df['TRUE_Points'].fillna(df['projPoints'])
 
@@ -2142,6 +2286,7 @@ def get_league_projections(week, lu):
         'FP_Points': 'sum',
         'BOL_Points': 'sum',
         'PINNY_Points': 'sum',
+        'ATH_Points': 'sum',
         'TRUE_Points': 'sum'
         })
     
@@ -2170,8 +2315,8 @@ def get_rankings(pos, week, lu, primary_owner=None, visualize=False, check_fa=Fa
     """
     df = lu[(lu['primaryPosition'].isin(pos)) & (lu['week'] == week)]
     df = df[['week', 'primaryPosition','player_name', 'team_owner', 'team_name',
-                  'points', 'projPoints', 'FP_Points', 'BOL_Points', 'PINNY_Points', 'TRUE_Points',
-                  'PosRank', 'ESPN_PosRank', 'FP_PosRank', 'BOL_PosRank', 'PINNY_PosRank', 'TRUE_PosRank']]
+                  'points', 'projPoints', 'FP_Points', 'BOL_Points', 'PINNY_Points', 'ATH_Points', 'TRUE_Points',
+                  'PosRank', 'ESPN_PosRank', 'FP_PosRank', 'BOL_PosRank', 'PINNY_PosRank', 'ATH_PosRank', 'TRUE_PosRank']]
     df = df.drop(columns=['points', 'PosRank']).sort_values(by=['TRUE_Points'], ascending=False)
 
     if visualize == False:

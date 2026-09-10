@@ -566,31 +566,42 @@ SOURCE_CARDS: Dict[str, Dict[str, object]] = {
     },
     "ATH": {
         "name": "The Athletic — Jake Ciely",
-        "ingest": "<strong>A hand-dropped paid <code>.xlsx</code>.</strong> No API, "
-                  "no scraper, no nightly stage. Read from the 32 <em>team</em> "
-                  "tabs, because those are the model — <code>PASS ATT = "
-                  "team_pass_attempts × player_pass_share</code> — while the "
-                  "per-position tabs are <code>VLOOKUP</code>s that drop columns.",
+        "ingest": "<strong>Hand-dropped paid <code>.xlsx</code> files.</strong> No "
+                  "API, no scraper, no nightly stage. The season book is read from "
+                  "its 32 <em>team</em> tabs, because those are the model — "
+                  "<code>PASS ATT = team_pass_attempts × player_pass_share</code> — "
+                  "while its per-position tabs are <code>VLOOKUP</code>s that drop "
+                  "columns. The weekly slate is one sheet of four side-by-side "
+                  "position blocks of <em>unequal width</em>, so its blocks are "
+                  "bounded banner-to-banner and their headers read rather than "
+                  "counted.",
         "where": "<code>Scripts/load_athletic.py</code>",
         "file": "<code>Data/Projections/TheAthletic/Season/&lt;season&gt;/"
-                "TheAthletic_Projections_Season.parquet</code> (434 players) and "
-                "<code>…_Ranks_Season.parquet</code> (290)",
-        "when": "<strong>Draft only.</strong> One file per season, and it only goes "
-                "stale by human neglect — which is why "
-                "<code>Scripts.refresh_status</code> names it. "
-                "<strong>A weekly workbook is expected in-season</strong>, and when "
-                "it arrives it registers the way every source does: a loader, a "
-                "<code>WEEKLY_PREFIXES</code> entry and provenance flags. Do "
-                "<em>not</em> synthesise one by dividing this file by games — a "
-                "season total over 17 cannot disagree with itself week to week, so "
-                "it would add a vote that is a constant, and renormalisation would "
-                "give that constant a full share on every row it covers. Same "
-                "argument as <code>docs/plans/39-source-basis.md</code>, one grain "
-                "down. See <code>docs/plans/44-weekly-sources-and-coverage.md</code>.",
+                "TheAthletic_Projections_Season.parquet</code> (429 players in the "
+                "2026-09-04 download), "
+                "<code>…_Ranks_Season.parquet</code> (290) and "
+                "<code>…_Projections_Week_All.parquet</code> (232 per week)",
+        "when": "<strong>Draft and weekly, since 2026-09-09.</strong> Two "
+                "hand-dropped workbooks, neither with a nightly stage, so both go "
+                "stale only by human neglect — which is why "
+                "<code>Scripts.refresh_status</code> names each of them, the weekly "
+                "one on an eight-day clock rather than the nightly 25 hours. "
+                "<strong>The weekly slate is a real second file, not this one "
+                "divided by games</strong>, which is what this card warned against "
+                "and still does: a season total over 17 cannot disagree with itself "
+                "week to week, so a synthesised vote would be a constant handed a "
+                "full renormalised share on every row it covers. Same argument as "
+                "<code>docs/plans/39-source-basis.md</code>, one grain down. See "
+                "<code>docs/plans/47-athletic-weekly.md</code>.",
         "depends": "Imputes from <code>MEAN_</code>. Contributed four name aliases: "
                    "two nicknames and two of the workbook's own typos.",
-        "carries": "Twelve raw stats. <strong>No <code>lostFumbles</code></strong>. "
-                   "Its own <code>VORP</code>, <code>AUC$</code> and "
+        "carries": "Twelve raw stats on the season book, <strong>nine</strong> on "
+                   "the weekly slate — that one publishes no <code>passingAttempts"
+                   "</code>, <code>passingCompletions</code> or <code>"
+                   "receivingTargets</code>, so it abstains on them and the weekly "
+                   "<code>MEAN_receivingTargets</code> stays ESPN alone. "
+                   "<strong>No <code>lostFumbles</code></strong> on either. Its own "
+                   "<code>FPS</code>, <code>VORP</code>, <code>AUC$</code> and "
                    "<code>DST</code> outputs are deliberately not read.",
         "strengths": [
             "<strong>Genuinely well covered, which a sixth source need not have "

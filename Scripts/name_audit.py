@@ -577,6 +577,11 @@ def source_readers() -> List[Tuple[str, str, str, Callable[[int], pd.DataFrame]]
             lambda n: _BOL_TEAMS.get(str(teams.get(n, "")), ""))
         return out
 
+    def athletic_weekly(season: int) -> pd.DataFrame:
+        # Read through the loader rather than off the parquet, for the reason the
+        # note below gives: the audit must measure the join that ships.
+        return _named(pu.clean_ath_weekly(season=season))
+
     def athletic(season: int) -> pd.DataFrame:
         return _named(pd.read_parquet(season_dir(
             "TheAthletic", season, "TheAthletic_Projections_Season.parquet",
@@ -592,7 +597,7 @@ def source_readers() -> List[Tuple[str, str, str, Callable[[int], pd.DataFrame]]
             "Usage", season, "Usage_SeasonProjections.parquet", create=False)),
             column="full_name")
 
-    # The weekly three are JOIN_NORMALISED rather than JOIN_RAW, and the reason is
+    # The weekly four are JOIN_NORMALISED rather than JOIN_RAW, and the reason is
     # `align_to_espn_names`: `clean_lineups` still merges on the raw string, but it
     # rewrites every source name to ESPN's spelling of that player first, so a
     # difference `normalise_name` can bridge no longer costs the join. Before that
@@ -602,10 +607,11 @@ def source_readers() -> List[Tuple[str, str, str, Callable[[int], pd.DataFrame]]
         ("FantasyPros weekly", "weekly", JOIN_NORMALISED, fp_weekly),
         ("Pinnacle weekly", "weekly", JOIN_NORMALISED, pinny_weekly),
         ("BetOnline weekly", "weekly", JOIN_NORMALISED, bol_weekly),
+        ("The Athletic weekly", "weekly", JOIN_NORMALISED, athletic_weekly),
         ("FantasyPros season", "season", JOIN_NORMALISED, fp_season),
         ("Pinnacle season", "season", JOIN_NORMALISED, pinny_season),
         ("BetOnline season", "season", JOIN_NORMALISED, bol_season),
-        ("The Athletic", "season", JOIN_NORMALISED, athletic),
+        ("The Athletic season", "season", JOIN_NORMALISED, athletic),
         ("The Athletic ranks", "season", JOIN_NORMALISED, athletic_ranks),
         ("TOMCAT usage", "season", JOIN_NORMALISED, usage),
     ]

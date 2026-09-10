@@ -1,11 +1,20 @@
-"""Import The Athletic's season projection workbook into a tidy stat table.
+"""Import The Athletic's projection workbooks into tidy stat tables.
 
-**A hand-dropped file, not a scrape.** The workbook is a paid download from The
-Athletic (Jake Ciely's spreadsheet) with no API behind it, so this runs when a new
-copy is saved rather than nightly. Everything else about it matches the other
-season sources: raw stat lines in, ``Data/Projections/TheAthletic/Season/<season>/``
-out, and :func:`Scripts.season_projections.load_theathletic_season` reads it from
-there.
+**Hand-dropped files, not scrapes.** These are paid downloads from The Athletic (Jake
+Ciely's spreadsheets) with no API behind them, so this runs when a new copy is saved
+rather than nightly. Everything else about them matches the other sources: raw stat
+lines in, ``Data/Projections/TheAthletic/Season/<season>/`` out.
+
+**Two workbooks, two grains, one module.** The season book is 32 team tabs and is read
+by :func:`read_workbook`; the weekly slate is a single sheet of four side-by-side
+position blocks and is read by :func:`read_weekly_workbook`. They share a provider, a
+prefix and a position mask and almost nothing else -- different filenames, different
+column spellings, and the weekly one carries nine of the twelve stats. Both live here
+so that the rules the provider needs (points are never read, the mask is always
+applied) are stated once. ``--what season|weekly`` selects, following
+``Scripts/scrape_FP.py``. The readers are
+:func:`Scripts.season_projections.load_theathletic_season` and
+:func:`Scripts.projection_utils.clean_ath_weekly`.
 
 Why the *team* tabs rather than the flattened ``QB``/``RB``/``WR``/``TE`` ones: the
 team tabs are the model. Each is a team-budget times usage-share calculation --
@@ -35,9 +44,10 @@ See :data:`RANK_TAB` for why it is that tab and not the one named after him.
 
 from __future__ import annotations
 
+import re
 import shutil
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import pandas as pd
 
@@ -56,6 +66,9 @@ FILENAME = f"{SOURCE}_Projections_Season.parquet"
 #: The 32 team tabs, in workbook order. Already on ESPN's abbreviations -- ``WSH``,
 #: ``JAX``, ``LV``, ``LAR``, ``LAC`` -- so no alias map is needed here, unlike the
 #: nflverse-keyed sources that need :data:`Scripts.draft.board.ESPN_TEAM_ALIASES`.
+#:
+#: **True of this workbook only.** The weekly slate is the same provider on a different
+#: set again (``JAC``, ``WAS``); see :data:`WEEKLY_TEAM_ALIASES`.
 TEAM_TABS: Sequence[str] = (
     "ARI", "ATL", "BAL", "BUF", "CAR", "CHI", "CIN", "CLE",
     "DAL", "DEN", "DET", "GB", "HOU", "IND", "JAX", "KC",
@@ -161,6 +174,87 @@ RANK_COLUMNS: Dict[str, str] = {f: f"ath_rank_{f}" for f in RANK_FLAVORS}
 #: ranked" into a file whose nulls already mean "this source does not project that stat".
 #: Two different facts should not share a hole.
 RANKS_FILENAME = f"{SOURCE}_Ranks_Season.parquet"
+
+
+# --- the weekly slate ----------------------------------------------------
+#
+# A second workbook, not a second tab of the first. It arrives every week as its own
+# hand-dropped download (`Week_1_Proj_0909.xlsx`) and holds one slate: four position
+# blocks laid side by side on a single sheet. Everything above this line is the
+# season book and is untouched by it.
+
+#: Weekly sheet name -> the season, week and scoring flavour it holds.
+#:
+#: **The file identifies its own week, and that is the guard that matters.** A
+#: hand-dropped file does not fail by failing to parse, it fails by being the wrong
+#: download -- last week's copy still sitting in `~/Downloads` beside this week's. A
+#: filename is a label a human typed; the sheet name is what the publisher generated,
+#: so the week is taken from there and `--week` only confirms it.
+WEEKLY_SHEET = re.compile(r"^NFL_(?P<season>\d{4})_Week_(?P<week>\d+)_"
+                          r"(?P<flavor>.+?)_Weekly$")
+
+#: Output filename, matching the FantasyPros weekly file's shape.
+WEEKLY_FILENAME = f"{SOURCE}_Projections_Week_All.parquet"
+
+#: The columns a weekly row is unique on.
+#:
+#: The same pair as ``Scripts.scrape_FP.WEEKLY_KEYS`` and
+#: ``Scripts.projection_utils.SOURCE_JOIN_KEYS``, because it is the same join:
+#: ``clean_lineups`` merges this file onto the lineup frame on ``week`` and
+#: ``player_name``.
+WEEKLY_KEYS: Sequence[str] = ("week", "player_name")
+
+#: Weekly column header -> ESPN stat name.
+#:
+#: **A separate map from :data:`STAT_COLUMNS`, deliberately.** The two workbooks come
+#: from the same publisher and are otherwise unrelated files: this one spells them
+#: ``Pass YD`` where the season book says ``PASS YARDS``, and it carries **nine** of
+#: the twelve -- no ``PASS ATT``, no ``COMP``, no ``TARGETS``. Sharing one dict would
+#: mean a lookup that silently misses on six of nine headers.
+#:
+#: The three it omits are created by ``impute_columns`` from ``MEAN_`` with the
+#: provenance flag set on every row, so ``compute_weighted_stats`` drops the weight and
+#: renormalises -- the handling :data:`STAT_COLUMNS` describes for the season file's
+#: missing ``lostFumbles``. ``receivingTargets`` therefore stays an ESPN-plus-season-
+#: Athletic number on the weekly path, which is worth knowing: it is the thinnest
+#: covered stat on the board and the reason ``ATH`` joined ``MEAN_SOURCES`` at all.
+WEEKLY_STAT_COLUMNS: Dict[str, str] = {
+    "Pass YD": "passingYards",
+    "Pass TD": "passingTouchdowns",
+    "INT": "passingInterceptions",
+    "Rush Att": "rushingAttempts",
+    "Rush YD": "rushingYards",
+    "Rush TD": "rushingTouchdowns",
+    "REC": "receivingReceptions",
+    "REC YD": "receivingYards",
+    "REC TD": "receivingTouchdowns",
+}
+
+#: Headers that identify a player rather than projecting him.
+#:
+#: ``FPS`` is not here and is not in :data:`WEEKLY_STAT_COLUMNS` either -- it is the
+#: workbook's own half-PPR total, and points are what a league's rules do to a stat
+#: line. It is also derived from the nine columns above rather than independent of
+#: them (Joe Burrow, week 1: 19.3 published against 19.66 recomputed), so reading it
+#: would ship somebody else's rounding as though it were an opinion.
+WEEKLY_ID_COLUMNS: Sequence[str] = ("Name", "Team", "Opp")
+
+#: Weekly ``Team`` value -> ESPN's abbreviation for that club.
+#:
+#: **The two Athletic workbooks do not agree with each other**, which
+#: :data:`TEAM_TABS` above asserts they do -- its comment says the provider is "already
+#: on ESPN's abbreviations ... so no alias map is needed here". That is true of the
+#: season book and false of the weekly slate. Measured on the 2026 week-1 download, the
+#: weekly sheet's 32 teams are a *third* set: ``JAC`` (which is neither ESPN's ``JAX``
+#: nor nflverse's ``JAX``) and ``WAS`` (nflverse's spelling, against ESPN's ``WSH``),
+#: while ``LAR`` follows ESPN rather than nflverse's ``LA``.
+#:
+#: Normalised to ESPN here rather than left to the reader, so both grains write the same
+#: ``pro_team`` and :func:`_bye_teams` can translate once through
+#: :data:`Scripts.draft.board.ESPN_TEAM_ALIASES` like every other ESPN-keyed caller.
+#: Left alone, the bye-week check reported Jacksonville absent from a week it played --
+#: a guard that cries wolf every week is one nobody reads.
+WEEKLY_TEAM_ALIASES: Dict[str, str] = {"JAC": "JAX", "WAS": "WSH"}
 
 
 def _header_map(row: Sequence) -> Dict[str, int]:
@@ -494,11 +588,383 @@ def build(season: int, path: Path) -> pd.DataFrame:
     return frame
 
 
+def _cell(row: Sequence, index: Optional[int]):
+    """One cell of a block, or None when the column is absent or the row is short.
+
+    Rows on the weekly sheet are ragged -- ``openpyxl`` stops a row at its last
+    populated cell, so a tight end with no rushing line yields a shorter tuple than
+    the header. Indexing that directly is the ``IndexError`` this exists to not have.
+
+    Args:
+        row: One block's slice of a spreadsheet row.
+        index: Zero-based column index within the block, or None when the block has
+            no such header.
+
+    Returns:
+        The cell value, or None.
+    """
+    if index is None or index >= len(row):
+        return None
+    return row[index]
+
+
+def _weekly_team(value) -> Optional[str]:
+    """A weekly ``Team`` cell as ESPN spells it.
+
+    Args:
+        value: The raw cell, or None.
+
+    Returns:
+        str | None: The ESPN abbreviation, or None for a blank cell. An abbreviation
+        with no entry in :data:`WEEKLY_TEAM_ALIASES` passes through -- 30 of the 32
+        already agree, and a new club is not this function's problem to invent.
+    """
+    if value is None:
+        return None
+    team = str(value).strip().upper()
+    if not team:
+        return None
+    return WEEKLY_TEAM_ALIASES.get(team, team)
+
+
+def _weekly_sheet(book, path: Path) -> Tuple[str, int, int, str]:
+    """The one sheet holding a weekly slate, and what it says it holds.
+
+    Args:
+        book: An open ``openpyxl`` workbook.
+        path: The file, for the message.
+
+    Returns:
+        tuple: ``(sheet_name, season, week, flavor)``.
+
+    Raises:
+        KeyError: If the number of sheets matching :data:`WEEKLY_SHEET` is not exactly
+            one. Both directions are refused rather than resolved: no match means the
+            file is not a weekly slate, and two matches means choosing which week to
+            import, which is not a choice this function should make silently.
+    """
+    matched = [(name, WEEKLY_SHEET.match(name)) for name in book.sheetnames]
+    matched = [(name, m) for name, m in matched if m is not None]
+    if len(matched) != 1:
+        raise KeyError(
+            f"{path.name}: expected exactly one sheet named like "
+            f"NFL_<season>_Week_<n>_<flavor>_Weekly, found {len(matched)} "
+            f"among {book.sheetnames}")
+    name, m = matched[0]
+    return name, int(m.group("season")), int(m.group("week")), m.group("flavor")
+
+
+def read_weekly_workbook(path: Path) -> Tuple["pd.DataFrame", int, int, str]:
+    """Parse a weekly slate's position blocks into one tidy row per player.
+
+    **The sheet is four blocks laid side by side, not four tabs.** A sparse banner row
+    names each block, a header row sits beneath it, players start on the third row, and
+    a blank spacer column separates one block from the next. The blocks do *not* share
+    a column set: the receiver block has no ``Rush Att`` and the tight-end block has no
+    rushing columns at all.
+
+    So the geometry is read rather than assumed, twice over. Blocks are bounded
+    **banner to banner**, which makes the spacer columns need no special case and stops
+    an unequal block bleeding into the next one. And each block's headers go through
+    :func:`_header_map`, the same function the season tabs use -- for the season book
+    that is merely free, and here it is load-bearing: a download that gains a kicker
+    block or drops a column shifts instead of reading a receiver's carries into a tight
+    end.
+
+    Args:
+        path: The ``.xlsx`` workbook.
+
+    Returns:
+        tuple: ``(frame, season, week, flavor)``. The frame carries ``week``,
+        ``player_name``, ``pro_team``, ``position``, ``masked_stats`` and one
+        ``proj_<stat>`` column per :data:`WEEKLY_STAT_COLUMNS`.
+
+        **The ``proj_`` prefix is required, not stylistic.**
+        :func:`Scripts.projection_utils.clean_lineups` renames it to ``ATH_`` with
+        ``change_col_prefix``, exactly as it does for the three sources already there.
+
+    Raises:
+        FileNotFoundError: If ``path`` does not exist.
+        KeyError: If the sheet cannot be identified (:func:`_weekly_sheet`), the banner
+            row names no known position, a block has no ``Name`` column, or no player
+            rows parse at all.
+    """
+    import openpyxl
+
+    if not path.exists():
+        raise FileNotFoundError(path)
+
+    book = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    try:
+        sheet_name, season, week, flavor = _weekly_sheet(book, path)
+        rows = list(book[sheet_name].iter_rows(values_only=True))
+    finally:
+        book.close()
+
+    if len(rows) < 3:
+        raise KeyError(f"{path.name}: {sheet_name} holds {len(rows)} row(s); expected "
+                       f"a banner row, a header row and at least one player")
+
+    banners = [(i, str(value).strip().upper())
+               for i, value in enumerate(rows[0])
+               if value is not None and str(value).strip()]
+    starts = [(i, position) for i, position in banners if position in POSITION_STATS]
+    if not starts:
+        raise KeyError(f"{path.name}: {sheet_name} row 1 names no known position; "
+                       f"found {[p for _, p in banners]}")
+
+    records: List[dict] = []
+    for index, (start, position) in enumerate(starts):
+        end = starts[index + 1][0] if index + 1 < len(starts) else len(rows[1])
+        header = _header_map(rows[1][start:end])
+        if "Name" not in header:
+            raise KeyError(f"{path.name}: {sheet_name} {position} block has no Name "
+                           f"column; found {sorted(header)}")
+        allowed = POSITION_STATS[position]
+
+        for raw in rows[2:]:
+            block = raw[start:end]
+            name = _cell(block, header["Name"])
+            if name is None or not str(name).strip():
+                # Blocks are different lengths -- 95 receivers against 30 tight ends --
+                # so every block but the longest runs out of players mid-sheet.
+                continue
+            record = {
+                "week": week,
+                "player_name": str(name).strip(),
+                "pro_team": _weekly_team(_cell(block, header.get("Team"))),
+                "position": position,
+            }
+            masked = []
+            for head, stat in WEEKLY_STAT_COLUMNS.items():
+                value = _cell(block, header.get(head))
+                if stat in allowed:
+                    record[f"proj_{stat}"] = value
+                    continue
+                record[f"proj_{stat}"] = None
+                if value is not None and float(value or 0.0) != 0.0:
+                    masked.append(stat)
+            # Recorded rather than merely dropped, for the reason `read_workbook` gives:
+            # by the time the output frame exists the offending values are None and
+            # every count reads zero. The mask is near-trivially satisfied here because
+            # the blocks are position-partitioned by construction -- it is kept because
+            # a download whose tight-end block gains a rush column is exactly the drift
+            # that would hand tight ends carries with nothing to notice.
+            record["masked_stats"] = ",".join(masked)
+            records.append(record)
+
+    if not records:
+        raise KeyError(f"{path.name}: {sheet_name} parsed no players")
+
+    frame = pd.DataFrame(records)
+    for stat in WEEKLY_STAT_COLUMNS.values():
+        column = f"proj_{stat}"
+        frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    # int64 rather than whatever pandas infers, because it is a merge key and pandas
+    # validates dtype compatibility on one even when the other side is empty -- the
+    # same reason `absent_weekly_source` sets it explicitly.
+    frame["week"] = frame["week"].astype("int64")
+
+    rows_in = len(frame)
+    frame = frame.drop_duplicates(subset=list(WEEKLY_KEYS), keep="first")
+    if len(frame) != rows_in:
+        print(f"  dropped {rows_in - len(frame)} duplicate player row(s)")
+
+    return frame.reset_index(drop=True), season, week, flavor
+
+
+def _bye_teams(frame: "pd.DataFrame", season: int, week: int) -> List[str]:
+    """Teams in the workbook that are not playing in the week it claims to be.
+
+    Args:
+        frame: Output of :func:`read_weekly_workbook`.
+        season: Season year.
+        week: Week the workbook names.
+
+    Returns:
+        list: Team abbreviations on the sheet with no game that week, sorted. Empty
+        when the schedule cannot be read -- an unreadable schedule is not evidence
+        about the workbook.
+    """
+    try:
+        from Scripts.draft.board import ESPN_TEAM_ALIASES
+        from Scripts.nfl_utils import load_schedule
+        schedule = load_schedule()
+    except Exception:                                          # noqa: BLE001
+        return []
+
+    playing = set()
+    for row in schedule.filter(
+            (schedule["season"] == int(season)) & (schedule["week"] == int(week))
+    ).iter_rows(named=True):
+        playing.update({row["home_team"], row["away_team"]})
+    if not playing:
+        return []
+
+    # The schedule is nflverse-keyed and this workbook is on ESPN's abbreviations, so
+    # `WSH` and `LAR` have to be translated or they read as byes every single week.
+    on_sheet = {str(t).strip() for t in frame["pro_team"].dropna().unique()}
+    return sorted(t for t in on_sheet
+                  if ESPN_TEAM_ALIASES.get(t, t) not in playing)
+
+
+def audit_weekly(frame: "pd.DataFrame", season: int, week: int, flavor: str,
+                 top: int = 12) -> None:
+    """Print what parsed, whether it is the week it claims, and what the crosswalk knows.
+
+    The middle check is why this is not just a row count. A hand-dropped file's
+    realistic failure is not a parse error, it is importing the wrong download -- and
+    a team on bye in week N cannot appear in a week-N slate. That is the cheapest
+    signal available that the file is stale, and it costs one schedule read.
+
+    Printed rather than raised, in both directions: the schedule on disk can itself be
+    stale (``R/GetNFL.R`` writes it), and the sheet name has already refused the
+    obvious mistake.
+
+    Args:
+        frame: Output of :func:`read_weekly_workbook`.
+        season: Season year.
+        week: Week the workbook names.
+        flavor: The workbook's scoring flavour, printed rather than acted on -- ``FPS``
+            is not read, so a switch from the half-PPR download to the full-PPR one
+            cannot change a stat line. It should still be visible in the log rather
+            than silent.
+        top: How many unmatched names to name.
+    """
+    counts = frame["position"].value_counts().to_dict()
+    print(f"  week {week} of {season} ({flavor}): parsed {len(frame)} players -- "
+          + " / ".join(f"{p} {counts.get(p, 0)}" for p in POSITIONS))
+
+    bled = frame[frame["masked_stats"].astype(str).str.len() > 0]
+    if len(bled):
+        print(f"  position mask: dropped off-position stats from {len(bled)} rows")
+        for _, row in bled.iterrows():
+            print(f"    masked: {row['player_name']} ({row['position']}, "
+                  f"{row['pro_team']}) -- {row['masked_stats']}")
+
+    byes = _bye_teams(frame, season, week)
+    if byes:
+        print(f"  WARNING: {len(byes)} team(s) on the sheet are not playing in week "
+              f"{week}: {', '.join(byes)}. Is this the right download?")
+
+    try:
+        from Scripts.crosswalk import load_crosswalk
+        from Scripts.season_projections import normalise_name
+        cross = load_crosswalk()
+    except Exception as exc:                                   # noqa: BLE001
+        print(f"  crosswalk audit skipped: {exc}")
+        return
+
+    known = {normalise_name(n) for n in cross["name"].to_list() if n}
+    keys = frame["player_name"].map(normalise_name)
+    missing = frame.loc[~keys.isin(known)].copy()
+    matched = len(frame) - len(missing)
+    print(f"  crosswalk: {matched}/{len(frame)} names resolve "
+          f"({100 * matched / max(len(frame), 1):.0f}%)")
+    if len(missing):
+        order = [c for c in ("proj_receivingYards", "proj_rushingYards",
+                             "proj_passingYards") if c in missing.columns]
+        missing["_size"] = missing[order].fillna(0).sum(axis=1)
+        worst = missing.sort_values("_size", ascending=False).head(top)
+        for _, row in worst.iterrows():
+            print(f"    unmatched: {row['player_name']} "
+                  f"({row['position']}, {row['pro_team']})")
+
+
+def build_weekly(path: Path, season: Optional[int] = None, week: Optional[int] = None,
+                 merge: bool = True, force: bool = False) -> "pd.DataFrame":
+    """Import one weekly slate and write the cumulative weekly file.
+
+    **The newest download wins for the week it names**, and only for that week -- every
+    other week in the file is left exactly as it was. This is a deliberate departure
+    from ``Scripts.scrape_FP.scrape_weekly``, which merges ``keep="first"`` so that a
+    re-scrape cannot rewrite the pre-game opinion the blend voted with. The difference
+    is that this file is downloaded by hand: an updated copy on Sunday morning is the
+    normal case rather than an accident, and the owner asked for the fresh numbers. The
+    cost is that a re-import after kickoff *does* rewrite history, so the write says
+    out loud how many rows it replaced.
+
+    **The file must stay cumulative**, whichever way it is written.
+    :func:`Scripts.projection_utils.clean_lineups` re-merges it onto every week in the
+    lineup frame, and that frame gains a week every Tuesday -- a current-week-only file
+    would blank The Athletic for every prior week and turn stored history into a
+    four-source board retroactively.
+
+    Args:
+        path: The ``.xlsx`` workbook.
+        season: Override the season. Defaults to the sheet name's, which is the
+            authority; a mismatch raises unless ``force``.
+        week: Override the week. Same rule.
+        merge: Combine with whatever the file already holds. False rewrites it from
+            this workbook alone, which is how to discard a bad backfill on purpose.
+        force: Accept a ``season``/``week`` that disagrees with the sheet name. For the
+            download whose sheet is mislabelled, which is the only case where a human
+            knows better than the file.
+
+    Returns:
+        pd.DataFrame: The whole file as written -- every week it now holds, not just
+        the one this call imported, so a caller can row-count what shipped.
+
+    Raises:
+        ValueError: If ``season`` or ``week`` disagrees with the sheet name and
+            ``force`` is not set.
+    """
+    frame, sheet_season, sheet_week, flavor = read_weekly_workbook(path)
+
+    for label, given, found in (("season", season, sheet_season),
+                                ("week", week, sheet_week)):
+        if given is not None and int(given) != found:
+            if not force:
+                raise ValueError(
+                    f"{path.name} holds {label} {found} but --{label} says "
+                    f"{int(given)}. This is usually the wrong file rather than a "
+                    f"mislabelled sheet; pass --force to import it as "
+                    f"{label} {int(given)} anyway.")
+            print(f"  WARNING: --force overrides the sheet's {label} {found} "
+                  f"with {int(given)}")
+
+    season = sheet_season if season is None else int(season)
+    week = sheet_week if week is None else int(week)
+    if week != sheet_week:
+        frame["week"] = week
+
+    audit_weekly(frame, season, week, flavor)
+
+    kept = landing_dir(SOURCE, season, path.name)
+    if path.resolve() != kept.resolve():
+        shutil.copy2(path, kept)
+    print(f"  landed {kept.relative_to(kept.parents[4])}")
+
+    out = season_dir(SOURCE, season, WEEKLY_FILENAME)
+    written = frame
+    if merge and out.is_file():
+        existing = pd.read_parquet(out)
+        replaced = int((existing["week"] == week).sum())
+        written = pd.concat([existing[existing["week"] != week], frame],
+                            ignore_index=True)
+        written = written.sort_values(list(WEEKLY_KEYS)).reset_index(drop=True)
+        if replaced:
+            print(f"  replaced {replaced} row(s) already held for week {week}")
+
+    written.to_parquet(out)
+    written.to_csv(out.with_suffix(".csv"), index=False)
+    print(f"The Athletic weekly {season}: imported week {week} -- {len(frame)} rows, "
+          f"{frame['player_name'].nunique()} players; file now holds "
+          f"{len(written)} rows over weeks "
+          f"{sorted(pd.unique(written['week']))} -> {out.name}")
+    return written
+
+
 def main(argv=None):
     """Command-line entry point.
 
     No side effects at import: the workbook is only read when this is called, so
     importing the module cannot overwrite a season's file.
+
+    ``--what`` defaults to ``season`` so that every existing invocation keeps working
+    unchanged -- including the fix hint
+    :data:`Scripts.refresh_status.PROJECTION_SOURCES` prints, which is the one a reader
+    copies at 6am when the status check goes red.
     """
     import argparse
 
@@ -506,14 +972,34 @@ def main(argv=None):
 
     p = argparse.ArgumentParser(
         prog="python -m Scripts.load_athletic",
-        description="Import The Athletic's projection workbook (a manual download).",
+        description="Import The Athletic's projection workbooks (manual downloads).",
     )
+    p.add_argument("--what", choices=("season", "weekly"), default="season",
+                   help="which workbook this is (default: season)")
     p.add_argument("--season", type=int, default=None,
-                   help="defaults to the schedule's season")
+                   help="season: defaults to the schedule's season. weekly: defaults "
+                        "to the sheet name's, and must agree with it")
+    p.add_argument("--week", type=int, default=None,
+                   help="weekly only: defaults to the sheet name's, and must agree "
+                        "with it")
     p.add_argument("--file", required=True, type=Path,
                    help="path to the .xlsx workbook")
+    p.add_argument("--no-merge", dest="merge", action="store_false",
+                   help="weekly only: rewrite the file from this workbook alone "
+                        "instead of adding this week to it")
+    p.add_argument("--force", action="store_true",
+                   help="weekly only: import even though --season/--week disagrees "
+                        "with the sheet name")
     args = p.parse_args(argv)
 
+    if args.what == "weekly":
+        build_weekly(args.file, season=args.season, week=args.week,
+                     merge=args.merge, force=args.force)
+        return
+
+    for flag, value in (("--week", args.week), ("--force", args.force)):
+        if value:
+            p.error(f"{flag} applies to --what weekly")
     season = current_season() if args.season is None else args.season
     build(int(season), args.file)
 

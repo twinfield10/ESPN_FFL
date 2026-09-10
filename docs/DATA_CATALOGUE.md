@@ -75,7 +75,7 @@ source:
 | `FP_` | FantasyPros |
 | `PINNY_` | Pinnacle |
 | `BOL_` | BetOnline |
-| `ATH_` | The Athletic — Jake Ciely's workbook, offence only, at weight 0.25 |
+| `ATH_` | The Athletic — Jake Ciely's workbooks, offence only, at weight 0.25. **Two files, two grains**: the season book (~430 players, twelve stats) is on the board, and a weekly slate (232 players, nine stats — no `passingAttempts`, `passingCompletions` or `receivingTargets`) is on the lineups from 2026-09-09. Both hand-downloaded; see [plan 47](plans/47-athletic-weekly.md) |
 | `USG_` | **TOMCAT — our own model. Withdrawn from the blend 2026-09-07, at weight *nothing*.** The columns are still written and still real; they carry no weight, are not scored into a `USG_Points`, and are off the draft board. One source, three backends: the usage arm (QB/RB/WR/TE), the defence arm (D/ST, from the betting market) and the kicking arm (K, per team). They were `USG_`, `DST_` and `KIK_` until 2026-09-02; the stat sets are disjoint, so one namespace holds all three and the model cast one vote rather than three. The lower-case `kik_*` and `dst_*` diagnostics keep their own names, because they answer *which arm spoke for this row*. Why it went: [plan 43](plans/43-tomcat-out-of-season-blend.md) |
 | `MEAN_` | The unweighted cross-source mean |
 | `TRUE_` | **The blend.** This is what the board ranks on and what lineups score |
@@ -235,14 +235,16 @@ data that will not come back identically once an article is edited.
 ## 5. Projections — the sources before they are blended
 
 `Data/Projections/<source>/`, split into `Landing/` (raw scrape, as received) and
-`Season/` (cleaned, ready to blend). Weekly sources land one file per week; season
-sources land one file per season.
+`Season/` (cleaned, ready to blend). Season sources land one file per season; weekly
+sources land one **cumulative** `*_Week_All` file per season, carrying a `week` column
+— `clean_lineups` re-merges it onto every week in the lineup frame, so a
+current-week-only file would blank that source for prior weeks retroactively.
 
 | Source | What it gives | State |
 |---|---|---|
 | **Usage** | The season model's own stat lines | Current |
 | **FantasyPros** | Weekly and season projections (`week=draft` gives season lines) | Working |
-| **The Athletic** | Season stat lines for 434 offensive players, plus his hand ranking of 290 of them, from Jake Ciely's workbook | **Manual** — a paid `.xlsx` download with no API, imported by `python -m Scripts.load_athletic`. Nothing refreshes it; `Scripts.refresh_status` reports its age. One import writes both files, so the ranking cannot go stale beside fresh projections |
+| **The Athletic** | Season stat lines for ~430 offensive players plus his hand ranking of 290 of them, and — since 2026-09-09 — a weekly slate of 232 offensive players in nine stats | **Manual, twice** — two paid `.xlsx` downloads with no API, imported by `python -m Scripts.load_athletic --what season\|weekly`. Nothing refreshes either; `Scripts.refresh_status` reports both ages, the weekly one on an eight-day clock because a weekly workbook is correctly days old. One season import writes both season files, so the ranking cannot go stale beside fresh projections. The weekly file is cumulative over every week imported and the newest download wins for the week it names ([plan 47](plans/47-athletic-weekly.md)) |
 | **Pinnacle** | Sportsbook props, weekly and season | Working, Selenium |
 | **BetOnline** | Sportsbook props | **Weekly is broken** — 403, their API now wants a signed header. Season props still work |
 

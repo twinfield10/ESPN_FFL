@@ -275,16 +275,25 @@ the other sources.
   players nobody drafts, so an ungated mean is mostly a measurement of who is better
   at projecting fourth-string tight ends. Both numbers are informative; only one of
   them answers whether the source should carry a vote on draft day.
-- **It will not be scored by the existing harness, and that gap is now documented in
-  code.** `Scripts.usage.evalset.SOURCES` drives `Scripts.lab.accuracy`,
-  `Scripts.usage.gates` and `Scripts.usage.g1_season`, all of which score
-  **player-week** rows out of `lineups.parquet`. `ATH` is season-only and has no
-  weekly line, so it has no column there — running `python -m Scripts.lab.accuracy`
-  in January and reading a clean table would look like The Athletic had been judged
-  when it had not. The measurement has to come from the **season** artifact:
-  `board.parquet` carries `ATH_<stat>` beside every other source, scored against
-  realised season totals from `Scripts.usage.nflverse`. That harness does not exist
-  and is the concrete piece of work owed.
+- ~~**It will not be scored by the existing harness, and that gap is now documented in
+  code.**~~ **Half of this closed on 2026-09-09**, when The Athletic began publishing
+  weekly slates and `ATH` joined `Scripts.usage.evalset.SOURCES` — see
+  [plan 47](47-athletic-weekly.md). What the bullet said was true when written:
+
+  > `Scripts.usage.evalset.SOURCES` drives `Scripts.lab.accuracy`,
+  > `Scripts.usage.gates` and `Scripts.usage.g1_season`, all of which score
+  > **player-week** rows out of `lineups.parquet`. `ATH` is season-only and has no
+  > weekly line, so it has no column there — running `python -m Scripts.lab.accuracy`
+  > in January and reading a clean table would look like The Athletic had been judged
+  > when it had not.
+
+  It has a weekly line now, so `Scripts.lab.accuracy` scores it and that table means
+  what it reads. **The season half of the debt stands**: a weekly MAE answers whether
+  the source is fit to blend *weekly*, and the question this plan owes is whether it
+  earned a vote on **draft day**. That still has to come from `board.parquet`'s
+  `ATH_<stat>` scored against realised season totals from `Scripts.usage.nflverse`,
+  and that harness still does not exist. The cheap half became a command; the owed
+  half did not move.
 - **`Scripts/usage/g1_season.py` now describes a five-source world.**
   `_shipped_weight()` still correctly reads 1.0 — it divides TOMCAT's weight by one
   external's, and both are 0.25 — but `SOURCES` there does not name `ATH`, so the
