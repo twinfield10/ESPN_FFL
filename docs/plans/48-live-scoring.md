@@ -179,6 +179,33 @@ fractional total yet — so one league's column was `Int64` and the other eight 
 and an added row is built from those columns and nothing else, so it arrived as a row
 with no name — invisible in every table that renders one.
 
+## What `actual_unpriced` found on its first real run
+
+Three of nine leagues, and **two distinct defects** — which is the argument for the
+column, since neither was visible from the projection side.
+
+| League | Gap | What it is |
+|---|---|---|
+| `john_pc_league` | **+5.00**, one player | Five long-touchdown bonuses unmapped. A stat id fixes it |
+| `john_atl_league` | +1.00, one player | Same shape, smaller |
+| `fields_league` | **−3.14**, all 10 played rows, every one negative | Not a missing rule |
+
+`fields_league` is the one worth reading. It prices yardage as an **every N yards**
+step — 1 point per 25 passing, 1 per 10 rushing and receiving — and
+`scrape_player_stats.REPL_SCORING` models that as a **linear rate** (0.04, 0.1, 0.1).
+So our scoring of a realised line exceeds ESPN's on every row: Sam Darnold's 13
+passing yards are `13 × 0.04 = 0.52` to us and **0.0** to ESPN, because 13 yards buys
+no complete 25-yard block. Every one of the ten deltas is consistent with ESPN
+awarding completed blocks and this pipeline integrating a rate.
+
+**It cannot be fixed with a column name, and it may not want fixing at all.** A step
+function of a realised stat is a different object from a rate, but on the *projection*
+side the rate is arguably correct — a projection is a continuous expectation, and a
+player projected for 13 passing yards genuinely has some chance of reaching 25. So the
+defect is real for actuals and possibly not for projections, which is exactly why it
+survived the entire life of the repo: nothing ever scored a realised line with these
+rules and compared the answer. That belongs with [plan 34](34-stat-first-audit.md).
+
 ## The one thing left owed
 
 `current_week()` is "the first week with an unplayed game", and it does not roll over
