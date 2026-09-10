@@ -67,6 +67,9 @@ if week.is_empty():
 pool = week.filter(pl.col("team_owner") == session.FREE_AGENT_OWNER)
 rostered = week.filter(pl.col("team_owner") != session.FREE_AGENT_OWNER)
 
+#: See the note in ``routes/roster.py``.
+points_col = lu.live_points_column(week.columns)
+
 if pool.is_empty():
     st.title("Free Agents")
     st.info(
@@ -100,7 +103,7 @@ if search.strip():
 if keep:
     filtered = filtered.filter(pl.col("player_position").is_in(keep))
 if min_points:
-    filtered = filtered.filter(pl.col("TRUE_Points") >= min_points)
+    filtered = filtered.filter(pl.col(points_col) >= min_points)
 
 note = weekly.missing_sources_note(selection.meta)
 if note:
@@ -119,17 +122,17 @@ if default_owner:
 
     roster = rostered.filter(pl.col("team_owner") == owner).to_dicts()
     slots = lu.slot_counts(rostered, selection.meta)
-    drops = lu.weakest_starter_candidates(roster, slots, "TRUE_Points")[:ADD_DROP_DROPS]
+    drops = lu.weakest_starter_candidates(roster, slots, points_col)[:ADD_DROP_DROPS]
 
     # Off `pool`, not `filtered`. A flag that disappears when you narrow the table
     # below to quarterbacks is not a flag, and the same goes for the pairing: the
     # controls scope the *pool table*, not what the app is willing to tell you.
     every = pool.to_dicts()
-    candidates = lu.best_available_per_slot(every, slots, "TRUE_Points")
+    candidates = lu.best_available_per_slot(every, slots, points_col)
 
     st.markdown("**Better Than What You Have**")
     weekly.render_upgrades(
-        lu.upgrades(every, roster, slots, "TRUE_Points"), owner=owner)
+        lu.upgrades(every, roster, slots, points_col), owner=owner)
     st.caption(
         "Compared **slot by slot, not position by position** — which is what puts a "
         "free-agent quarterback up against a receiver in a superflex `OP`, a back up "
@@ -145,7 +148,7 @@ if default_owner:
     for candidate in candidates:
         best = None
         for drop in drops:
-            gain = lu.add_drop_gain(roster, slots, "TRUE_Points", candidate,
+            gain = lu.add_drop_gain(roster, slots, points_col, candidate,
                                     drop.get("player_id"))
             if best is None or gain > best[1]:
                 best = (drop, gain)
@@ -153,9 +156,9 @@ if default_owner:
             moves.append({
                 "Add": candidate.get("player_name"),
                 "Pos": candidate.get("player_position"),
-                "Add Proj": candidate.get("TRUE_Points"),
+                "Add Proj": candidate.get(points_col),
                 "Drop": best[0].get("player_name"),
-                "Drop Proj": best[0].get("TRUE_Points"),
+                "Drop Proj": best[0].get(points_col),
                 "Lineup Gain": best[1],
             })
 
@@ -210,7 +213,7 @@ st.subheader(f"Available · {filtered.height} of {pool.height}")
 columns = weekly.display_columns(
     filtered, selection.meta,
     lead=("player_name", "player_position", "pro_team"))
-weekly.render_table(filtered.sort("TRUE_Points", descending=True), selection.meta,
+weekly.render_table(filtered.sort(points_col, descending=True), selection.meta,
                     columns=columns, height=560)
 st.caption(
     "Everyone ESPN lists as unrostered in this league, projected in its own scoring. "

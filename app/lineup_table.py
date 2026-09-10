@@ -26,6 +26,7 @@ from typing import (Dict, Iterable, List, Mapping, NamedTuple, Optional,
                     Sequence, Tuple)
 
 import lineup as lu
+from Scripts.live import LIVE_POINTS, STATE_COLUMN
 
 #: Source prefix to what it is, in the words the tooltip uses.
 #:
@@ -139,9 +140,38 @@ ADVANTAGE_MAX_ALPHA = 0.6
 ADVANTAGE_MIN_ALPHA = 0.05
 
 
+#: The resolved live column's header and tooltip.
+#:
+#: Its own constant rather than an entry in :data:`POINTS_LABELS`, because that dict
+#: is keyed by projection *source* and this is not one -- it is what the sources and
+#: the box score resolve to. Same reason ``LIVE`` is absent from
+#: ``projection_utils.WEEKLY_PREFIXES``.
+LIVE_LABEL = "LIVE"
+LIVE_HELP = ("What this player is worth right now: points already scored where his "
+             "game is final, our blend where it has not kicked off, and the two "
+             "blended by the game clock in between. Before the first kickoff it is "
+             "exactly TRUE.")
+
+#: The actual-points column, shown only once something has been played.
+ACTUAL_LABEL = "ACT"
+ACTUAL_HELP = ("Points actually scored, as ESPN's box score has them -- which is the "
+               "league's official number, so this is what the standings will say.")
+
+#: How each game state reads in the table. Four characters at most: this sits in the
+#: identity block beside three-letter team abbreviations.
+STATE_LABELS: Dict[str, str] = {
+    "pre": "—", "in": "LIVE", "post": "FINAL", "bye": "BYE",
+}
+
+STATE_HELP = ("Where his NFL game is. Blank before kickoff, LIVE while it is being "
+              "played, FINAL once it is over -- and a locked player cannot be moved "
+              "out of, or into, a starting slot.")
+
+
 def points_columns(columns: Iterable[str], meta: dict, *,
                    blend_first: bool = False,
-                   corroboration: bool = True) -> List[Col]:
+                   corroboration: bool = True,
+                   locked: bool = False) -> List[Col]:
     """The points block for a league, in reading order.
 
     The sources this league really has, then the blend, then what the blend is worth
@@ -164,11 +194,23 @@ def points_columns(columns: Iterable[str], meta: dict, *,
             across a fixture -- how well corroborated *my* receiver is says nothing
             about whether he beats theirs -- and where dropping them takes the table
             from 25 columns to 21.
+        locked: Whether any player in this table has kicked off. Gates the ``ACT``
+            column, which before the first game of the week is a column of zeros --
+            and a column of zeros beside a column of projections invites exactly the
+            wrong reading.
 
     Returns:
         list: :class:`Col` specs whose sources the frame carries.
     """
     have = set(columns)
+    # First, because it is the number the table is read for. The sources behind it
+    # follow in the order they always did.
+    resolved: List[Col] = []
+    if LIVE_POINTS in have:
+        resolved.append(Col(LIVE_POINTS, LIVE_LABEL, "points", LIVE_HELP))
+        if locked and "points" in have:
+            resolved.append(Col("points", ACTUAL_LABEL, "points", ACTUAL_HELP))
+
     sources: List[Col] = []
     for prefix in lu.real_sources(meta):
         source = f"{prefix}_Points"
@@ -188,7 +230,7 @@ def points_columns(columns: Iterable[str], meta: dict, *,
                              "ESPN sets the league's expectations with. Positive "
                              "means we are higher on him."))
 
-    specs = blend + sources if blend_first else sources + blend
+    specs = resolved + (blend + sources if blend_first else sources + blend)
 
     if not corroboration:
         return specs
@@ -227,6 +269,10 @@ def info_columns(columns: Iterable[str]) -> List[Col]:
             specs.append(spec)
         elif spec.source == "player_position" and "primaryPosition" in have:
             specs.append(spec._replace(source="primaryPosition"))
+    if STATE_COLUMN in have:
+        # Beside the team, because it is a fact about that team's game rather than
+        # about the player.
+        specs.append(Col(STATE_COLUMN, "GM", "text", STATE_HELP))
     return specs
 
 
@@ -249,6 +295,11 @@ def value(row: Optional[dict], column: Col):
             return None
         return float(blend) - float(espn)
     held = row.get(column.source)
+    if column.source == STATE_COLUMN:
+        # `pre` maps to an em dash rather than the word: it is the default state of
+        # every row for most of the week, and a column reading "pre" ten times is
+        # noise that pushes the numbers off a laptop screen.
+        return STATE_LABELS.get(str(held), None) if held is not None else None
     if column.kind == "text":
         # Absent rather than the word for it -- see :data:`ABSENT_TEXT`.
         return None if held is None or str(held).strip() in ABSENT_TEXT else held

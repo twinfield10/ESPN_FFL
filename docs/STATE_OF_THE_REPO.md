@@ -11,6 +11,40 @@ on the 10th, and **plan 24 on the 11th moved the data itself to S3** — the lar
 structural change here since plan 07, and the one that changes how you set the repo
 up on a new machine.
 
+**The app shows live scores now, and that changed what several numbers mean.**
+Plan 48 landed 2026-09-10, the day after week 1 opened. `lineups.parquet` had always
+carried both halves — `points` from ESPN's box score and `TRUE_Points` from the blend
+— and nothing on the row could say which one applied: `points` is `0.0` both for a
+player who took the field and caught nothing and for one who has not kicked off. The
+two candidate signals both fail. `player_active_status` is set by looping *every*
+scoring period, so on week 1 it read `active` for **102 of 242 rows when 13 players
+had played**; `espn_api`'s `game_played` is `kickoff + 3h`, which is `0` through a
+whole live game. So `Scripts/game_state.py` reads ESPN's scoreboard, and `LIVE_Points`
+is `banked + TRUE_Points × (1 − elapsed)` — exactly `TRUE_Points` before kickoff,
+which is what made it safe to ship mid-season.
+
+Three consequences worth knowing, because they are semantic rather than cosmetic:
+
+* **A finished game uses ESPN's number, not this pipeline's scoring of the actual
+  stat line.** Measured: the two agree to float noise for every played row in eight
+  leagues and differ by **5.00 points on Jaxon Smith-Njigba in `john_pc_league`**,
+  which prices five long-touchdown bonuses nothing here maps. The gap is now a
+  column, `actual_unpriced`, and it is the stronger half of plan 34's owed item —
+  against realised data rather than against a projection.
+* **The win probability's spread comes from what is left to come.** A team with every
+  game final is quoted at 1.0 rather than the ~0.61 it used to get, because banked
+  points carry no uncertainty. No refit: plan 42's coverage of 0.802 still describes
+  the pre-kickoff path exactly.
+* **The optimiser locks.** A player whose game has started keeps his slot, so "Best
+  Available" is a lineup you may actually set. `hindsight_lineup` answers the other
+  question.
+
+`--what live` on a ten-minute cron keeps it current, and is verified to produce a
+frame numerically identical to a full rebuild. It is only modestly faster in week 1
+(7.2s against 9.8s on `knights_ffl`) because the full build's cost is mostly the
+weeks already played -- but it reads no source parquet and moves no projection
+column, which is what makes it safe to run every ten minutes.
+
 A standing assessment of what works, what is broken, and what to do next. Update
 it as things change — particularly the *Known issues* table, which is the part
 worth keeping honest.

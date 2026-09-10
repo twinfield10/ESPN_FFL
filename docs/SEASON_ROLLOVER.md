@@ -243,6 +243,47 @@ Both hand steps must come **before** `refresh`, for the same reason: the injury 
 and the Athletic import are both read while the lineups are built, so doing either
 afterwards changes nothing until next week's run.
 
+### Live scoring, which needs nothing from you
+
+Since 2026-09-10 the store carries **`LIVE_Points`** — the blend before kickoff, ESPN's
+own total once a game is final, and the two blended by the game clock in between — and
+every weekly surface reads it. `ops/espn_ffl_live.sh` keeps it current on a ten-minute
+cron; install it the same way as the nightly:
+
+```bash
+cp ops/espn_ffl_live.sh ~/bin/espn_ffl_live.sh
+chmod +x ~/bin/espn_ffl_live.sh
+crontab -e
+# ESPN FFL live scoring -- every 10 minutes; self-gates on the NFL scoreboard
+*/10 * * * * /Users/tommywinfield/bin/espn_ffl_live.sh
+```
+
+It is safe at that frequency because it asks first. `python -m Scripts.game_state
+--if-live` exits 0 only while a game is in progress or within six hours of a kickoff,
+so most of the week the job is one HTTP request. When it does run it patches this
+week's actuals and rosters onto the frame already in the store and touches no
+projection column and no source file -- 7.2s a league in week 1 against the full
+build's 9.8s, and the gap widens every week, because the full build re-reads every
+week already played and this reads one.
+
+The one-command check, any time:
+
+```bash
+python -m Scripts.game_state          # the week's board, and whether a refresh is due
+```
+
+Expect one line per game with `pre`, `in` or `post`, the teams on bye named, and two
+booleans at the bottom. If the board looks right and the app does not, the store has
+not been patched — run `python -m Scripts.refresh --all --what live` by hand and check
+`~/logs/espn_ffl_live.log`.
+
+**A warning worth reading rather than clearing.** An `UnpricedActualWarning` names a
+league where ESPN scored points for a finished game that this pipeline cannot
+reproduce — `john_pc_league` throws it every week a receiver goes over 100 yards,
+because it prices five long-touchdown bonuses nothing here maps. `LIVE_Points` is
+still correct (it uses ESPN's number); the gap is measured in `actual_unpriced` and
+closing it is [plan 34](plans/34-stat-first-audit.md).
+
 `python -m Scripts.refresh_status` is the check that the import landed — look for
 `ATH weekly`. It is on an **eight-day** clock rather than the nightly 25 hours,
 because a weekly workbook is correctly days old for most of the week; if it is red,

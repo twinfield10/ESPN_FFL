@@ -29,6 +29,8 @@ from typing import Dict, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from Scripts import game_state as gs
+from Scripts import live
 from Scripts import market as mk
 from Scripts.paths import NFL_TACKLES_CSV, resolve, season_dir
 from Scripts.scoring import get_scoring_table
@@ -2151,12 +2153,49 @@ def clean_lineups(df, lg, season=None):
     ## each source already projects.
     final['espn_unpriced'] = final['projPoints'] - final['ESPN_Points']
 
+    ## 6b) Resolve the projection against what has actually been played.
+    ##
+    ## `LIVE_Points` is the number every weekly surface should read: the blend before
+    ## kickoff, ESPN's own total once the game is final, and the two blended by the
+    ## game clock in between. See `Scripts.live` for why a finished game uses ESPN's
+    ## number rather than this pipeline's scoring of the actual stat line -- measured,
+    ## the two agree to float noise in eight of nine leagues and differ by 5.00 points
+    ## on one real player in the ninth.
+    ##
+    ## **Degrades rather than stops.** A scoreboard outage would otherwise take all
+    ## nine boards down with it, and the boards are still correct without these
+    ## columns -- `Scripts.live.points_column` falls back to `TRUE_Points`, which is
+    ## exactly what every consumer read before this landed. So it warns and carries
+    ## on, because a missing live column is visible in the app and a failed nightly
+    ## is not.
+    try:
+        board = gs.board(season, final['week'].dropna().unique().tolist(),
+                         refresh_current=curr_week)
+        final = live.attach_game_state(final, board)
+        final = live.resolve(final, lg, actual_scoring_cols + volume_actuals,
+                             label=getattr(lg.settings, 'name', None)
+                             or lg.league_id)
+        print(f"  live: {live.state_counts(final)}")
+    except Exception as e:                        # noqa: BLE001 - reported, not hidden
+        _warn_missing(
+            f"could not resolve live scoring ({type(e).__name__}: {e}), so this "
+            f"board carries no {live.LIVE_POINTS} and every surface falls back to "
+            f"TRUE_Points -- i.e. it will show projections for games already "
+            f"played. Check `python -m Scripts.game_state`.")
+
     ## 7) Build Position Rank Columns
     for i in prefixes:
         final[f"{i}_PosRank"] = final.groupby(['week', 'primaryPosition'])[f'{i}_Points'].rank(ascending=False, method='dense')
 
-    # Actual
+    # Actual. Left on `points` deliberately: the Sheets Lineup tab renames this
+    # column to "Actual" (`check_week`), so redefining it would quietly change what
+    # that column means on a surface this change does not otherwise touch. The live
+    # rank is a new column beside it.
     final['PosRank'] = final.groupby(['week', 'primaryPosition'])['points'].rank(ascending=False, method='dense')
+    if live.LIVE_POINTS in final.columns:
+        final[f'{live.LIVE_PREFIX}_PosRank'] = final.groupby(
+            ['week', 'primaryPosition'])[live.LIVE_POINTS].rank(
+            ascending=False, method='dense')
 
     return final
 

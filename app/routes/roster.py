@@ -55,6 +55,11 @@ if week.is_empty():
     st.stop()
 
 rostered = week.filter(pl.col("team_owner") != session.FREE_AGENT_OWNER)
+
+#: The resolved live number where the store has one, the blend where it does
+#: not. Bound once here rather than named at each call site, so a store built
+#: before live scoring renders instead of raising on a missing column.
+points_col = lu.live_points_column(week.columns)
 owners = session.team_owners(week)
 if not owners:
     st.title("Roster")
@@ -83,17 +88,23 @@ team = lu.with_source_spread(
     rostered.filter(pl.col("team_owner") == owner), selection.meta)
 rows = team.to_dicts()
 
-current, current_total = lu.current_lineup(rows, "TRUE_Points")
-optimal, optimal_total = lu.optimal_lineup(rows, slots, "TRUE_Points")
-changes = lu.swaps(current, optimal, "TRUE_Points")
+current, current_total = lu.current_lineup(rows, points_col)
+optimal, optimal_total = lu.optimal_lineup(rows, slots, points_col)
+changes = lu.swaps(current, optimal, points_col)
+
+game_states = lu.state_counts(team)
+locked = sum(game_states.get(state, 0) for state in ("in", "post"))
 
 metrics = st.columns(4)
 metrics[0].metric("Lineup As Set", f"{current_total:.1f}",
-                  help="Projected points from the lineup ESPN currently has, on our "
-                       "blend.")
+                  help="What the lineup ESPN currently has is worth: points already "
+                       "scored where the game is over, our blend where it has not "
+                       "kicked off, and both where it is under way.")
 metrics[1].metric("Best Available", f"{optimal_total:.1f}",
                   f"{optimal_total - current_total:+.1f}",
-                  help="The highest-projecting legal lineup this roster can field.")
+                  help="The best lineup this roster can **still** field. A player "
+                       "whose game has started keeps his slot, so this is a change "
+                       "you are actually allowed to make.")
 inactive = lu.bye_and_out(rows)
 metrics[2].metric("Cannot Play", f"{len(inactive)}",
                   help="On bye or ruled out. Excluded from the best available "
@@ -111,11 +122,19 @@ left, right = st.columns([3, 2])
 with left:
     st.subheader("Start / Sit")
     weekly.render_swaps(changes)
+    if locked:
+        left_behind = lu.points_left_on_bench(rows, slots, points_col)
+        st.caption(
+            f"{locked} of these players have kicked off and can no longer be moved, "
+            f"so the swaps above are only the ones still open to you."
+            + (f" With hindsight the best legal lineup would have been "
+               f"**{left_behind:+.1f}** on what is set."
+               if left_behind > 0 else ""))
 
 with right:
     if inactive:
         st.subheader("Cannot Play This Week")
-        for row in sorted(inactive, key=lambda r: -(r.get("TRUE_Points") or 0)):
+        for row in sorted(inactive, key=lambda r: -(r.get(points_col) or 0)):
             where = ("starting" if row.get("slotPosition") not in NON_STARTING_SLOTS
                      else "benched")
             st.markdown(
@@ -140,7 +159,8 @@ st.divider()
 # table, so the number the lineup is chosen on sits beside the player's name rather
 # than four columns downstream of it.
 info_columns = ltab.info_columns(team.columns)
-points_columns = ltab.points_columns(team.columns, selection.meta, blend_first=True)
+points_columns = ltab.points_columns(team.columns, selection.meta,
+                                     blend_first=True, locked=bool(locked))
 
 st.subheader("The Best Lineup Available")
 
@@ -175,7 +195,7 @@ for row in lu.sort_by_slot(pl.DataFrame(optimal)).to_dicts() if optimal else []:
 # be the one change the table did not show.
 for row in sorted((r for r in current if r.get("player_id") in dropped
                    and r.get("player_id") not in marks),
-                  key=lambda r: -(r.get("TRUE_Points") or 0)):
+                  key=lambda r: -(r.get(points_col) or 0)):
     table_rows.append({**row, "slot": row.get("slotPosition")})
     marks[row.get("player_id")] = "out"
 

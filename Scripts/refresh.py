@@ -11,6 +11,7 @@ the whole reason the store exists -- see
     python -m Scripts.refresh --all --what board            # draft boards
     python -m Scripts.refresh --all --what draft            # picks + tendencies
     python -m Scripts.refresh --all --what lineups,team_stats
+    python -m Scripts.refresh --all --what live              # in-week live scoring
     python -m Scripts.refresh --league Knights_FFL --season 2025
 
 Ingest is not reimplemented here. :func:`Scripts.equivalence.build_league_frame`
@@ -36,7 +37,14 @@ from Scripts.paths import REPO_ROOT
 #: Artifacts ``--what`` accepts. ``draft`` builds two of them -- the pick history
 #: and the owner tendencies read off it. ``results`` is the only one that can be
 #: built for a season in the past; see the block that builds it.
-WHAT_CHOICES = ("lineups", "team_stats", "board", "draft", "results")
+#:
+#: ``live`` is not a new artifact -- it rewrites ``lineups`` -- but it is a
+#: ``--what`` value because it is a different *cost*. It patches this week's actuals
+#: and roster onto the frame already in the store and touches no projection column,
+#: and reads no source file, so it can run at a frequency the full build cannot --
+#: it cannot go stale and it cannot move what the blend voted with. It is what runs
+#: every ten minutes on a Sunday; ``lineups`` is what runs at 06:00.
+WHAT_CHOICES = ("lineups", "team_stats", "board", "draft", "results", "live")
 
 #: Built unless ``--what`` says otherwise. ``team_stats`` is excluded on purpose --
 #: see the module docstring. ``board`` is excluded because it is a pre-season
@@ -127,6 +135,21 @@ def refresh_league(
         timings["lineups"] = time.time() - start
         _log(f"  lineups     {lineups.shape[0]:>6} rows x {lineups.shape[1]:>3} cols "
              f"  {timings['lineups']:.2f}s")
+
+    if "live" in what and "lineups" not in what:
+        # Skipped when `lineups` is also requested: the full build resolves the same
+        # columns from fresher inputs, so patching its output would be a second
+        # ESPN round-trip to arrive at the same numbers.
+        from Scripts.live import refresh_live
+
+        start = time.time()
+        lineups, counts = refresh_live(name, season, league=_league())
+        timings["live"] = time.time() - start
+        _log(f"  live        week {counts['week']}: {counts['patched']} patched, "
+             f"{counts['added']} added, {counts['uncovered']} not covered   "
+             f"{timings['live']:.2f}s")
+        _log(f"  live        {counts['states']}"
+             f"{'  <- games in progress' if counts['live'] else ''}")
 
     if "board" in what:
         from Scripts.draft.adp import fetch_draft_market, market_summary

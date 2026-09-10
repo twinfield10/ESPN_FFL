@@ -191,8 +191,8 @@ def played(fixtures: pl.DataFrame) -> pl.DataFrame:
     return fixtures.filter(scored)
 
 
-def lineup_projections(rostered: pl.DataFrame, points_column: str = "TRUE_Points"
-                       ) -> Dict[str, float]:
+def lineup_projections(rostered: pl.DataFrame,
+                       points_column: Optional[str] = None) -> Dict[str, float]:
     """Every team's projected points from **the lineup ESPN currently has set**.
 
     Lineup-as-set rather than best-available, so this number is the same one the
@@ -202,7 +202,8 @@ def lineup_projections(rostered: pl.DataFrame, points_column: str = "TRUE_Points
 
     Args:
         rostered: One week of one league's rows, free agents already excluded.
-        points_column: Which projection to total.
+        points_column: Which points column to total. None resolves to the live
+            number where the frame has one.
 
     Returns:
         dict: ``{team_owner: projected}``. Missing an owner whose rows hold no
@@ -210,6 +211,8 @@ def lineup_projections(rostered: pl.DataFrame, points_column: str = "TRUE_Points
     """
     if rostered.is_empty() or "team_owner" not in rostered.columns:
         return {}
+    if points_column is None:
+        points_column = lu.live_points_column(rostered.columns)
 
     out: Dict[str, float] = {}
     for owner, rows in rostered.partition_by("team_owner", as_dict=True).items():
@@ -217,6 +220,33 @@ def lineup_projections(rostered: pl.DataFrame, points_column: str = "TRUE_Points
         starters, total = lu.current_lineup(rows.to_dicts(), points_column)
         if starters:
             out[str(name)] = total
+    return out
+
+
+def banked_points(rostered: pl.DataFrame) -> Dict[str, float]:
+    """Every team's points **already scored** by the lineup ESPN has set.
+
+    The live half of :func:`standings`' pair. It exists because ``team_stats`` is the
+    other way to get this number and ``team_stats`` is a *weekly* artifact -- it
+    re-derives a league's entire history, so it is not on the ten-minute clock the
+    live refresh runs on. Summing the box score the live refresh just wrote gives the
+    same quantity, hours fresher.
+
+    Args:
+        rostered: One week of one league's rows, free agents already excluded.
+
+    Returns:
+        dict: ``{team_owner: points}``. Empty when the frame carries no actuals.
+    """
+    if rostered.is_empty() or "points" not in rostered.columns:
+        return {}
+
+    out: Dict[str, float] = {}
+    for owner, rows in rostered.partition_by("team_owner", as_dict=True).items():
+        name = owner[0] if isinstance(owner, tuple) else owner
+        starters, _ = lu.current_lineup(rows.to_dicts(), "points")
+        if starters:
+            out[str(name)] = sum(float(r.get("points") or 0.0) for r in starters)
     return out
 
 
@@ -260,7 +290,7 @@ def records(fixtures: pl.DataFrame) -> pl.DataFrame:
 
 
 def standings(fixtures: pl.DataFrame, projections: Dict[str, float],
-              week: int) -> pl.DataFrame:
+              week: int, banked: Optional[Dict[str, float]] = None) -> pl.DataFrame:
     """The league table: what has happened, and what this week projects.
 
     **Projection is the tiebreaker, not the ranking.** Order is win percentage, then
@@ -274,13 +304,18 @@ def standings(fixtures: pl.DataFrame, projections: Dict[str, float],
     Both numbers are shown side by side on purpose. ``This Week`` is what was scored
     and ``Projected`` is what we think will be, and the pair is the only honest way to
     show a week that is halfway through -- one column would have to lie about the
-    other half.
+    other half. With live scoring ``Projected`` is the *resolved* number rather than
+    a pure projection, so the two converge as the week is played and agree once it
+    is over, which is the behaviour you want from a pair like this.
 
     Args:
         fixtures: One season of ``team_stats``, unfiltered. :func:`played` is applied
             here.
         projections: From :func:`lineup_projections`.
         week: The week ``This Week`` and ``Projected`` are for.
+        banked: From :func:`banked_points`. When given it supplies ``This Week``
+            instead of ``team_stats``' ``team_score`` -- the same quantity, but off
+            the ten-minute live refresh rather than the weekly one.
 
     Returns:
         pl.DataFrame: ``Rk``, ``Owner``, ``W-L-T``, ``Win%``, ``PF``, ``PA``,
@@ -310,6 +345,9 @@ def standings(fixtures: pl.DataFrame, projections: Dict[str, float],
         .with_columns(
             projected=pl.col("team_owner").replace_strict(
                 projections, default=None, return_dtype=pl.Float64),
+            team_score=(pl.col("team_owner").replace_strict(
+                banked, default=None, return_dtype=pl.Float64)
+                if banked else pl.col("team_score")),
             wins=pl.col("wins").fill_null(0),
             losses=pl.col("losses").fill_null(0),
             ties=pl.col("ties").fill_null(0),
@@ -415,7 +453,7 @@ def waiver_action(upgrades: Sequence[lu.Upgrade]) -> Optional[Action]:
 def summarise(league_key: str, display_name: str, week: int, meta: dict,
               lineups: pl.DataFrame, team_stats: Optional[pl.DataFrame],
               fitted: Optional[dict], free_agent_owner: str,
-              points_column: str = "TRUE_Points") -> LeagueSummary:
+              points_column: Optional[str] = None) -> LeagueSummary:
     """Reduce one league-week to a card.
 
     Every number here is computed by the function the deep tab computes it with, so
@@ -434,11 +472,15 @@ def summarise(league_key: str, display_name: str, week: int, meta: dict,
             in, so five cards do not look it up five times.
         free_agent_owner: ``session.FREE_AGENT_OWNER``. Passed rather than imported
             because :mod:`session` draws widgets and this module must not.
-        points_column: Which projection to work in.
+        points_column: Which points column to work in. None resolves to the live
+            number where the store has one and the blend where it does not, so a
+            caller does not have to know which kind of store it is reading.
 
     Returns:
         LeagueSummary: With ``notes`` naming anything it could not answer.
     """
+    if points_column is None:
+        points_column = lu.live_points_column(lineups.columns)
     notes: List[str] = []
     blank = LeagueSummary(
         league_key=league_key, display_name=display_name, week=week, owner=None,
@@ -476,6 +518,7 @@ def summarise(league_key: str, display_name: str, week: int, meta: dict,
     actions.sort(key=lambda a: SEVERITY_ORDER.index(a.severity))
 
     projections = lineup_projections(rostered, points_column)
+    banked = banked_points(rostered)
 
     # --- the fixture, which only `team_stats` knows ----------------------
     opponent = opponent_projected = win = margin = None
@@ -490,7 +533,7 @@ def summarise(league_key: str, display_name: str, week: int, meta: dict,
         season = int(meta.get("season") or 0)
         year = (team_stats.filter(pl.col("year") == season)
                 if season and "year" in team_stats.columns else team_stats)
-        table = standings(year, projections, week)
+        table = standings(year, projections, week, banked=banked)
 
         if not table.is_empty():
             mine = table.filter(pl.col("Owner") == owner)

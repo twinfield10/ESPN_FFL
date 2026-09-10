@@ -511,10 +511,25 @@ runbook has the decision rule.
 `refresh` must come first: `populateGoogleSheet.py` reads the store rather than
 ESPN, so the two outputs cannot disagree.
 
-**Two jobs run themselves, so they are not in that list.** `run_daily_refresh.sh` at
+**Three jobs run themselves, so they are not in that list.** `run_daily_refresh.sh` at
 06:00 pulls the season's projection sources and rebuilds the boards;
 `run_odds_refresh_nfl.sh` at 07:00 pulls NFL sportsbook game lines into `Data/Odds/`
-and stores only what moved, so line history accumulates for free.
+and stores only what moved, so line history accumulates for free; and
+`ops/espn_ffl_live.sh` every ten minutes keeps the week's **actual** scores current.
+
+That last one is why the app stops showing a projection for a game that has been
+played. The store carries `LIVE_Points` — the blend before kickoff, ESPN's own total
+once a game is final, and the two blended by the game clock in between — and every
+weekly surface reads it. Ten minutes is affordable because the job asks first:
+`python -m Scripts.game_state --if-live` exits 0 only while a game is in progress or
+within six hours of a kickoff, so most of the week it is one HTTP request and nothing
+else. See [docs/plans/48-live-scoring.md](docs/plans/48-live-scoring.md).
+
+```bash
+python -m Scripts.game_state                    # the week's board; the one-command check
+python -m Scripts.refresh --all --what live      # patch the actuals by hand
+python -m Scripts.lab.accuracy --season 2026 --week 1   # how each source did, finished games only
+```
 
 `python -m Scripts.refresh_status` reports both, plus every projection source by name
 and how old it is. That last part exists because it did not before: both books once
