@@ -363,9 +363,11 @@ merges no cells and stacks no third header row — and because sorting a matchup
 by one column would leave a quarterback opposite a kicker.
 
 **Roster is the same table without the mirroring, and it is a decision table rather
-than a comparison**, so it differs in three deliberate ways. `TRUE` and `Δ` come
-*first*, beside the player's name, because the blend is the number the lineup is
-chosen on. The changes are marked in the lineup rather than listed beside it: **green
+than a comparison**, so it differs in three deliberate ways. `LIVE`, `TRUE` and `Δ`
+come *first*, beside the player's name, because the resolved number is what the
+lineup is chosen on. `LIVE` leads on both tables — it is what the player is worth
+*now*, and at kickoff it equals the blend exactly, so it costs nothing before a game
+starts. `ACT` joins it once any game in the week is final. The changes are marked in the lineup rather than listed beside it: **green
 `IN`** for a player to start who is currently benched, **red `OUT`** for one currently
 starting who the best lineup drops, drawn directly under the man taking his place so a
 swap reads as one decision. And the bench sits **below** the `TOTAL` row, because the
@@ -377,12 +379,52 @@ him with, so `swaps` has nothing to say about him, and he is the change you most
 flagged; `lineup.changed_ids` reports him anyway. Every mark is **printed as well as
 coloured**, the same rule the draft board's `Δ` columns follow.
 
-The Roster table also carries `Sources` and `Spread` — how many sources really had an
-opinion, and how far apart they were. The matchup table does not: that answers a
-question about your own bench, and across a fixture it says nothing about whether your
-receiver beats theirs. Its `TOTAL` row **does not sum the two of them**: `Sources` is
-averaged, since ten starters on one source each is not a well-corroborated lineup, and
-`Spread` is composed as `√Σspread²`, which is what independent disagreements add up to.
+The Roster table also carries `Sources` — how many sources really had an opinion,
+after dropping the ones imputed from the mean. The matchup table does not: that
+answers a question about your own bench, and across a fixture it says nothing about
+whether your receiver beats theirs. Its `TOTAL` row **does not sum it**: `Sources` is
+averaged, since ten starters on one source each is not a well-corroborated lineup.
+
+`Spread` — the standard deviation across those real sources — is composed by
+`lineup_table.totals` as `√Σspread²`, which is what independent disagreements add up
+to, but **is no longer drawn on either table**. At nine numeric columns a side the
+disagreement *between* sources was competing with the number the table exists for.
+`tail` is still a parameter, so a caller can ask for the column and it arrives
+configured.
+
+### Whether the number is any good
+
+14.7 points is a strong week for a running back and a poor one for a quarterback, and
+until 2026-09-10 no weekly table said which. `LIVE` and `TRUE` are now **filled
+against one ruler per position**, computed from the whole league-week: zero, the
+median of what this league's *rostered* players at that position are worth, and the
+best number anyone at that position holds. It is the Google Sheet's own
+`scale_dict`, which [plan 08](docs/plans/08-frontend-weekly-views.md) always named as
+the reference, with its white midpoint expressed as **alpha 0** so one pair of
+colours composites correctly over both themes and no renderer needs a theme argument.
+
+Two of the Sheet's choices carry over exactly because both are load-bearing: the pivot
+**excludes** the free-agent pool — including it moves the running-back pivot by a
+quarter — and the ceiling **includes** it, so a waiver-wire star still reads as one.
+Only these two columns are painted. The draft board painted its levels as well as its
+differences once, and at that density the table read as a heatmap and the columns
+carrying a judgement stopped being the ones that caught the eye.
+
+`LIVE` shares the ruler with `TRUE`, which is what makes one shared ruler safe: a
+ruler built from projections alone puts **15–50% of realised scores above its own
+ceiling** — half of all kicker and D/ST weeks — because actuals run two to three
+times wider than projections. Pooling both columns makes the ceiling at least every
+value either can hold, and since the two agree at kickoff the ruler widens on its own
+as games finish rather than needing to know what day it is.
+
+**The fill is blue and red, where every other fill in the repo is green and red**, and
+that is the one place the rule two paragraphs above bites. `ADV` earns green/red
+because every cell prints a `+` or `−`: the sign is the second channel, and a reader
+who cannot separate the hues reads the number. A *level* has no sign. Measured through
+the dataviz validator over both themes, green/red tops out at CVD ΔE 4.7 and never
+reaches the 6–8 floor band, and below alpha 0.40 it fails the *normal-vision* floor as
+well — a soft green and a soft red nobody can tell apart, which is worse than no fill
+because it still looks like information. Blue/red clears outright at 12.2 and 14.2.
 
 Matchup needs the `team_stats` artifact for the fixture list, which is opt-in:
 

@@ -96,6 +96,12 @@ if week_rows.is_empty() or fixtures.is_empty():
 
 rostered = week_rows.filter(pl.col("team_owner") != session.FREE_AGENT_OWNER)
 
+#: The positional colour rulers -- see the note in ``routes/roster.py``.
+scales = ltab.points_scales(
+    week_rows.select([c for c in ltab.SCALE_INPUTS
+                      if c in week_rows.columns]).to_dicts(),
+    week_rows.columns)
+
 #: See the note in ``routes/roster.py``.
 points_col = lu.live_points_column(week_rows.columns)
 
@@ -260,7 +266,8 @@ points_columns = ltab.points_columns(shape.columns, selection.meta,
 weekly.render_matchup(
     ltab.pair_by_slot(lineups_by_owner[owner][1], lineups_by_owner[opponent][1],
                       slots),
-    info_columns, points_columns, home_label=owner, away_label=opponent)
+    info_columns, points_columns, home_label=owner, away_label=opponent,
+    scales=scales)
 st.caption(
     f"`TOTAL` adds the points columns down each side — {owner} "
     f"{sides[owner].projected:.1f}, {opponent} {sides[opponent].projected:.1f} — "

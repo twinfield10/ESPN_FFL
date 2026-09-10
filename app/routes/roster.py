@@ -56,6 +56,16 @@ if week.is_empty():
 
 rostered = week.filter(pl.col("team_owner") != session.FREE_AGENT_OWNER)
 
+#: The positional colour rulers, from the **whole** league-week -- rostered players
+#: and the free-agent pool alike, before any filter this page applies. See
+#: :func:`lineup_table.points_scales`: a scale computed over whatever survives the
+#: current filters repaints the table every time the view changes, so the same 14.7
+#: would read as strong in one view and neutral in the next.
+scales = ltab.points_scales(
+    week.select([c for c in ltab.SCALE_INPUTS
+                 if c in week.columns]).to_dicts(),
+    week.columns)
+
 #: The resolved live number where the store has one, the blend where it does
 #: not. Bound once here rather than named at each call site, so a store built
 #: before live scoring renders instead of raising on a missing column.
@@ -214,7 +224,7 @@ bench = [{**row, "slot": row.get("slotPosition")} for row in
          if row.get("player_id") not in shown]
 
 weekly.render_lineup(table_rows, info_columns, points_columns, label=owner,
-                     total_rows=optimal, marks=marks, below=bench)
+                     total_rows=optimal, marks=marks, below=bench, scales=scales)
 
 changed = sum(1 for mark in marks.values() if mark == "in")
 marking = (

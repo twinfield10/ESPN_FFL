@@ -22,11 +22,13 @@ import _bootstrap  # noqa: F401  -- must precede the Scripts imports
 
 import html
 import math
+import statistics
 from typing import (Dict, Iterable, List, Mapping, NamedTuple, Optional,
                     Sequence, Tuple)
 
 import lineup as lu
 from Scripts.live import LIVE_POINTS
+from Scripts.scrape_player_stats import FREE_AGENT_OWNER
 
 #: Source prefix to what it is, in the words the tooltip uses.
 #:
@@ -138,6 +140,114 @@ ADVANTAGE_MAX_ALPHA = 0.6
 #: Fills fainter than this are dropped rather than drawn, so a one-point edge reads
 #: as the neutral it effectively is instead of as a smudge.
 ADVANTAGE_MIN_ALPHA = 0.05
+
+#: The two arms of the positional fill, as RGB.
+#:
+#: **Blue and red rather than the green and red every other fill in this repo uses,
+#: and the reason is measured rather than preferred.** ``advantage_fill`` gets away
+#: with green/red because every ``ADV`` value is formatted ``%+``: the sign is printed
+#: in the cell, so a reader who cannot separate the hues reads the number instead.
+#: That is the "second channel" :data:`draft_view.DELTA_FILLS` records as the
+#: condition of using the pair at all. **A level has no sign** -- ``18.2`` does not say
+#: which side of the pivot it is on -- so the condition is not met here and the pair
+#: has to stand on hue alone.
+#:
+#: Run through the dataviz validator, composited over both themes' backgrounds at the
+#: saturation :data:`ADVANTAGE_MAX_ALPHA` actually produces:
+#:
+#: =========== ======================== ========================
+#: pair        light (CVD / normal)     dark (CVD / normal)
+#: =========== ======================== ========================
+#: green/red   4.4 / 20.5               4.7 / 21.0
+#: blue/red    **12.2 / 18.7**          **14.2 / 21.2**
+#: green/blue  12.4 / 14.1              15.0 / 15.8
+#: =========== ======================== ========================
+#:
+#: Green/red does not reach the 6-8 floor band at *any* alpha, let alone the ΔE 8
+#: target; 4.7 is its ceiling. Below about alpha 0.40 it fails the normal-vision floor
+#: too -- ΔE 3.3 at alpha 0.10 -- so the soft end of that ramp is a "soft green" and a
+#: "soft red" that nobody can tell apart, which is the mistake
+#: :data:`draft_view.DELTA_FILLS` already made once and threw away.
+#:
+#: ``DELTA_FILLS``'s own note suggests swapping the *red* arm for blue. Measured, that
+#: is the worse of the two swaps: green/blue never clears the normal-vision floor in
+#: light mode, because both arms are cool -- the same reason the reference palette
+#: rejects blue/aqua as a diverging pair. So the *green* arm is the one that goes, and
+#: red keeps meaning what it means everywhere else in the app.
+#:
+#: The near-pivot steps converge toward the surface, and that is the design rather
+#: than a defect: this is a diverging scale, where the midpoint is supposed to read as
+#: nothing. The validator's lightness-band and chroma-floor checks are scoped to
+#: categorical palettes -- series that must be told apart anywhere -- and are not the
+#: right test for the neutral end of a diverging ramp. What has to separate is the two
+#: saturated arms, which is what the table above measures.
+POINTS_RGB: Dict[str, Tuple[int, int, int]] = {
+    "positive": (42, 120, 214), "negative": (227, 73, 72),
+}
+
+#: Which points columns carry a positional fill, by :attr:`Col.label`.
+#:
+#: The same two :data:`EMPHASIS` bolds, and for the same reason -- these are the
+#: reading and the rest is context. Painting the per-source columns too was what the
+#: draft board tried and removed; see :class:`draft_view.Shading`.
+PAINTED_LABELS: Tuple[str, ...] = ("LIVE", "TRUE")
+
+#: The one scale key that is not a position: the ``TOTAL`` row's.
+#:
+#: Sheets calls it ``TEAM`` and builds it from team weekly totals rather than from
+#: players, which is the only ruler a lineup total can be read against -- a 118-point
+#: lineup is good or bad relative to the other managers, not to a quarterback.
+TEAM_GROUP = "TEAM"
+
+#: Where individual defenders pool.
+#:
+#: Follows ``populateGoogleSheet``'s ``position_mapping``, which sends LB/S/CB/DE/DT
+#: to one ``IDP`` group rather than giving each its own ruler. One league carries
+#: these at all, and splitting them would put three or four players in each scale.
+IDP_GROUP = "IDP"
+
+#: The columns :func:`points_scales` reads.
+#:
+#: Exported so a caller can narrow before converting: ``lineups.parquet`` is 628
+#: columns and the scale needs six of them, on every rerun.
+SCALE_INPUTS: Tuple[str, ...] = (
+    "primaryPosition", "player_position", "team_owner", "slotPosition",
+    LIVE_POINTS, f"{lu.BLEND}_Points",
+)
+
+
+class PointsScale(NamedTuple):
+    """One position's ruler for the painted points columns.
+
+    The three stops Sheets' ``gradientRule`` uses.
+
+    **Levels, unlike the draft board's differences, do have a reference here.**
+    :class:`draft_view.Shading` records why that board paints only differences --
+    "340 projected points is not the opposite of anything" -- and a season total
+    indeed has no midpoint. A *week* does: the median of what this league's rostered
+    players at this position are worth, which is exactly the question a reader
+    scanning a lineup is asking. That is the pivot, and it is why this scale is
+    two-armed where a season one could not be.
+
+    Attributes:
+        low: Where the red arm saturates. **0.0 for a position** -- Sheets hardcodes
+            its ``minpoint`` there for every position group, and zero is the true
+            floor for a player's week. :data:`TEAM_GROUP` is the one scale that takes
+            a real minimum instead, as Sheets does, because a lineup total is never
+            anywhere near zero: anchoring it there would spend the whole red arm on
+            a range no team ever occupies, leaving a below-average lineup
+            indistinguishable from an average one while an above-average one lit up.
+        mid: The pivot, and Sheets' white. Median of each painted column's non-zero
+            median, over **rostered players only** -- the free-agent pool is hundreds
+            of near-zero rows and including them moves the running-back pivot by a
+            quarter.
+        high: Where the green arm saturates. Max across the painted columns over
+            **every** player at the position, free agents included, as Sheets does.
+    """
+
+    mid: float
+    high: float
+    low: float = 0.0
 
 
 #: The resolved live column's header and tooltip.
@@ -428,6 +538,244 @@ def advantage_fill(points: Optional[float],
     return f"rgba({red}, {green}, {blue}, {alpha:.2f})"
 
 
+def position_group(position: Optional[str]) -> str:
+    """Which scale a position is read against.
+
+    Args:
+        position: ``primaryPosition``, or ``player_position`` where that is absent.
+
+    Returns:
+        str: The position itself, ``IDP`` for an individual defender, or ``""`` when
+        there is nothing to group on.
+    """
+    name = (position or "").strip()
+    if not name:
+        return ""
+    return IDP_GROUP if name in lu.IDP_SLOTS else name
+
+
+def _pooled(rows: Sequence[dict],
+            columns: Sequence[str]) -> List[List[float]]:
+    """The finite values in each pooled column, one list per column."""
+    out = []
+    for column in columns:
+        held = []
+        for row in rows:
+            number = row.get(column)
+            if number is None:
+                continue
+            number = float(number)
+            if not math.isnan(number):
+                held.append(number)
+        out.append(held)
+    return out
+
+
+def _pivot(per_column: Sequence[Sequence[float]]) -> Optional[float]:
+    """Sheets' ``.replace(0, nan).median().median()``: a median of column medians.
+
+    Zeros are dropped rather than counted, because a zero in a projection column is
+    "no opinion" rather than "worth nothing" -- the same fact
+    :func:`lineup.real_sources` turns on. A median over the flattened pool would also
+    weight whichever column has more values more heavily, which is not what the Sheet
+    does.
+    """
+    medians = [statistics.median([v for v in held if v != 0])
+               for held in per_column if any(v != 0 for v in held)]
+    return statistics.median(medians) if medians else None
+
+
+def points_scales(rows: Sequence[dict], columns: Iterable[str], *,
+                  position_column: str = "primaryPosition"
+                  ) -> Dict[str, PointsScale]:
+    """One ruler per position group, plus the team-total ruler.
+
+    Ported from ``populateGoogleSheet``'s ``scale_dict``, which is the reference
+    ``docs/plans/08-frontend-weekly-views.md`` names for this. Two things carry over
+    exactly: the pivot excludes free agents and the ceiling includes them.
+
+    **Pass the unfiltered league-week rows.** The rule is
+    :func:`draft_view.shade_scales`'s: a scale computed over whatever survives the
+    current filters repaints the table every time a position is deselected, so the
+    same 14.7 would read as strong in one view and neutral in the next. A colour that
+    moves when you filter is not encoding the number.
+
+    **``LIVE`` is pooled into the same ruler as ``TRUE``, and that is what makes one
+    shared ruler safe.** Sheets pools six projection columns, all similarly
+    compressed, and never paints an actual. ``LIVE_Points`` is part-actual once games
+    start, and realised points are far wider: measured over 2025, a ruler built from
+    projections alone puts 15-50% of realised scores above its own ceiling -- half of
+    all kicker and D/ST weeks -- where they would clip to one saturated green.
+    Pooling both columns makes the ceiling at least every value either column can
+    hold, so nothing clips. At ``elapsed = 0`` the two are identical, so the ruler
+    starts where a projection-only one would and widens on its own as games finish;
+    no part of this knows what day it is.
+
+    The cost, since it is real: late in the week the widened ceiling compresses
+    ``TRUE``'s own colours toward neutral -- to 11% of the green arm at D/ST and 2%
+    at kicker, against 32-47% at QB/RB/WR/TE.
+
+    Args:
+        rows: The whole league-week, rostered and free agents alike, narrowed to
+            :data:`SCALE_INPUTS` by the caller.
+        columns: The frame's column names, to decide what is poolable. A store
+            written before live scoring pools ``TRUE_Points`` alone and renders.
+        position_column: Which column holds the player's own position.
+
+    Returns:
+        Dict[str, PointsScale]: Keyed by :func:`position_group`, plus
+        :data:`TEAM_GROUP`. **A group with no measurable spread is omitted**, which
+        the renderers read as "do not paint this one" -- a position with nobody
+        rostered has no pivot, and inventing one is how ``scale_dict`` came to send
+        the literal string ``"nan"`` to the Sheets API.
+    """
+    have = set(columns)
+    pool = [c for c in (LIVE_POINTS, f"{lu.BLEND}_Points") if c in have]
+    if not pool:
+        return {}
+
+    grouped: Dict[str, List[dict]] = {}
+    for row in rows:
+        group = position_group(row.get(position_column)
+                               or row.get("player_position"))
+        if group:
+            grouped.setdefault(group, []).append(row)
+
+    scales: Dict[str, PointsScale] = {}
+    for group, members in grouped.items():
+        ceilings = [max(held) for held in _pooled(members, pool) if held]
+        rostered = [row for row in members
+                    if (row.get("team_owner") or "") != FREE_AGENT_OWNER]
+        pivot = _pivot(_pooled(rostered, pool))
+        if not ceilings or pivot is None:
+            continue
+        high = max(ceilings)
+        if high > pivot:
+            scales[group] = PointsScale(mid=float(pivot), high=float(high))
+
+    team = _team_scale(rows, pool)
+    if team is not None:
+        scales[TEAM_GROUP] = team
+    return scales
+
+
+def _team_scale(rows: Sequence[dict],
+                pool: Sequence[str]) -> Optional[PointsScale]:
+    """The ``TOTAL`` row's ruler, from each manager's started points.
+
+    Sheets' ``TEAM`` scale, including its one departure from the position scales:
+    the ``minpoint`` is the room's actual worst lineup rather than zero. See
+    :attr:`PointsScale.low` for why that is not an inconsistency.
+
+    Bench rows are excluded because a lineup total is over the lineup and not the
+    roster -- the same population :func:`totals` sums.
+    """
+    per_owner: Dict[str, Dict[str, float]] = {}
+    for row in rows:
+        owner = row.get("team_owner") or ""
+        if not owner or owner == FREE_AGENT_OWNER:
+            continue
+        if (row.get("slotPosition") or "") in lu.NON_STARTING_SLOTS:
+            continue
+        held = per_owner.setdefault(owner, {})
+        for column in pool:
+            number = row.get(column)
+            if number is None:
+                continue
+            number = float(number)
+            if not math.isnan(number):
+                held[column] = held.get(column, 0.0) + number
+
+    if len(per_owner) < 2:
+        # One manager cannot be above or below the room.
+        return None
+    columns = [[held[c] for held in per_owner.values() if c in held] for c in pool]
+    ceilings = [max(held) for held in columns if held]
+    floors = [min(held) for held in columns if held]
+    pivot = _pivot(columns)
+    if not ceilings or pivot is None:
+        return None
+    high, low = max(ceilings), min(floors)
+    if high <= pivot or low >= pivot:
+        return None
+    return PointsScale(mid=float(pivot), high=float(high), low=float(low))
+
+
+def points_fill(number: Optional[float],
+                scale: Optional[PointsScale]) -> str:
+    """A painted cell's background, as a CSS colour or ``""`` for none.
+
+    Sheets' three-stop gradient, in :data:`POINTS_RGB`, with its white midpoint
+    expressed as **alpha 0**.
+    That is the substantive change in porting it: a spreadsheet is white, an app has
+    two themes, and :data:`CSS` sets the house rule that every colour here composites
+    over the page rather than naming a paper colour. So one pair of colours reads
+    correctly in light and in dark and this function needs no theme argument, unlike
+    :func:`draft_view.styled_frame`.
+
+    Args:
+        number: The cell's value. None, NaN and the pivot itself all paint nothing;
+            a pivot has no colour to be.
+        scale: That position's ruler, or None to paint nothing.
+
+    Returns:
+        str: An ``rgba(...)``, or ``""``.
+    """
+    if number is None or scale is None:
+        return ""
+    number = float(number)
+    if any(math.isnan(v) for v in (number, scale.low, scale.mid, scale.high)):
+        return ""
+    if number >= scale.mid:
+        span = scale.high - scale.mid
+        if span <= 0:
+            return ""
+        share = (number - scale.mid) / span
+        red, green, blue = POINTS_RGB["positive"]
+    else:
+        span = scale.mid - scale.low
+        if span <= 0:
+            return ""
+        share = (scale.mid - number) / span
+        red, green, blue = POINTS_RGB["negative"]
+    alpha = min(max(share, 0.0), 1.0) * ADVANTAGE_MAX_ALPHA
+    if alpha < ADVANTAGE_MIN_ALPHA:
+        return ""
+    return f"rgba({red}, {green}, {blue}, {alpha:.2f})"
+
+
+def cell_fill(row: Optional[dict], column: Col,
+              scales: Optional[Mapping[str, PointsScale]]) -> str:
+    """The fill for one player's cell, or ``""`` -- the painting rule in one place.
+
+    Both renderers go through this, so the HTML tables and the Free Agents grid
+    cannot drift about which cells are painted or on which ruler.
+
+    The ``TOTAL`` row does **not** come through here: it has no player to read a
+    position from, and its value is an aggregate rather than a cell, so it calls
+    :func:`points_fill` against :data:`TEAM_GROUP` directly.
+
+    Args:
+        row: The player, or None for a slot this side left empty.
+        column: Its spec. Only :data:`PAINTED_LABELS` are ever filled.
+        scales: From :func:`points_scales`, or None to paint nothing.
+
+    Returns:
+        str: An ``rgba(...)``, or ``""``.
+    """
+    if not scales or row is None or column.label not in PAINTED_LABELS:
+        return ""
+    # A bye is 0.0 by construction -- see ``Scripts.live.resolve`` -- and zero there
+    # is the absence of a game rather than a bad week, so it is not a number this
+    # scale has anything true to say about. The Roster tab already says that an
+    # unplayable starter is a problem, in words and in red.
+    if column.label == "LIVE" and row.get("game_state") == "bye":
+        return ""
+    group = position_group(row.get("primaryPosition")
+                           or row.get("player_position"))
+    return points_fill(value(row, column), scales.get(group)) if group else ""
+
+
 # --- markup ---------------------------------------------------------------
 
 #: The table's stylesheet, emitted with every table.
@@ -540,7 +888,8 @@ def _fmt(held, column: Col, *, total: bool = False) -> str:
 
 
 def _run(row: Optional[dict], columns: Sequence[Col], *, align_left: bool,
-         edge_first: bool = False, mark: str = "") -> str:
+         edge_first: bool = False, mark: str = "",
+         scales: Optional[Mapping[str, PointsScale]] = None) -> str:
     """One side's cells for one row.
 
     Args:
@@ -551,6 +900,8 @@ def _run(row: Optional[dict], columns: Sequence[Col], *, align_left: bool,
         edge_first: Draw a block border before the first cell.
         mark: ``"in"``, ``"out"`` or ``""``. A marked row prints the word beside the
             player's name -- see :data:`MARK_LABELS`.
+        scales: From :func:`points_scales`. None paints nothing, which is what a
+            store with no poolable column falls back to.
 
     Returns:
         str: ``<td>`` elements.
@@ -569,18 +920,30 @@ def _run(row: Optional[dict], columns: Sequence[Col], *, align_left: bool,
         if column.label == "Player" and mark in MARK_LABELS:
             text += f'<span class="lt-tag">{MARK_LABELS[mark]}</span>'
         left = "lt-l" if align_left and column.kind == "text" else ""
+        fill = cell_fill(row, column, scales)
+        style = f' style="background-color: {fill}"' if fill else ""
         cells.append(
-            f"<td{_classes(edge, left, EMPHASIS.get(column.label, ''))}>{text}</td>")
+            f"<td{_classes(edge, left, EMPHASIS.get(column.label, ''))}{style}>"
+            f"{text}</td>")
     return "".join(cells)
 
 
 def _total_run(values: Sequence[Optional[float]], columns: Sequence[Col], *,
-               edge_first: bool = False) -> str:
-    """One side's ``TOTAL`` cells, from :func:`totals`."""
+               edge_first: bool = False,
+               scales: Optional[Mapping[str, PointsScale]] = None) -> str:
+    """One side's ``TOTAL`` cells, from :func:`totals`.
+
+    Painted against :data:`TEAM_GROUP` rather than against any position, because a
+    lineup total is only good or bad relative to what the other managers put out --
+    see :func:`_team_scale`.
+    """
+    team = (scales or {}).get(TEAM_GROUP)
     cells = []
     for index, (held, column) in enumerate(zip(values, columns)):
         edge = "lt-edge" if edge_first and index == 0 else ""
-        cells.append(f"<td{_classes(edge, EMPHASIS.get(column.label, ''))}>"
+        fill = points_fill(held, team) if column.label in PAINTED_LABELS else ""
+        style = f' style="background-color: {fill}"' if fill else ""
+        cells.append(f"<td{_classes(edge, EMPHASIS.get(column.label, ''))}{style}>"
                      f"{_fmt(held, column, total=True)}</td>")
     return "".join(cells)
 
@@ -625,7 +988,8 @@ SLOT_HELP = ("The starting slot both rows are filling — the slot, not the posi
 
 def matchup_html(rows: Sequence[SlotRow], info: Sequence[Col],
                  points: Sequence[Col], *, home_label: str, away_label: str,
-                 total_label: str = "TOTAL") -> str:
+                 total_label: str = "TOTAL",
+                 scales: Optional[Mapping[str, PointsScale]] = None) -> str:
     """The whole matchup: one table, two mirrored halves, a total.
 
     The away half draws the same columns in reverse -- points then identity, and each
@@ -639,6 +1003,9 @@ def matchup_html(rows: Sequence[SlotRow], info: Sequence[Col],
         home_label: What to call the left side, on the header and on the total.
         away_label: The right side.
         total_label: What the middle column says on the total row.
+        scales: From :func:`points_scales`, computed on the **unfiltered**
+            league-week. Both sides are painted on the one set, which is the point:
+            a receiver reads the same colour whichever half of the table he is in.
 
     Returns:
         str: A complete ``<style>`` plus ``<table>``, for ``st.html``.
@@ -673,11 +1040,13 @@ def matchup_html(rows: Sequence[SlotRow], info: Sequence[Col],
         body.append(
             "<tr>"
             + _run(row.home, info, align_left=True)
-            + _run(row.home, points, align_left=True, edge_first=True)
+            + _run(row.home, points, align_left=True, edge_first=True,
+                   scales=scales)
             + _advantage_cell(row.advantage, ADVANTAGE_FULL_AT, edge=True)
             + f'<td class="lt-slot">{html.escape(row.slot)}</td>'
             + _advantage_cell(-row.advantage, ADVANTAGE_FULL_AT)
-            + _run(row.away, away_points, align_left=False, edge_first=True)
+            + _run(row.away, away_points, align_left=False, edge_first=True,
+                   scales=scales)
             + _run(row.away, away_info, align_left=False, edge_first=True)
             + "</tr>")
 
@@ -692,11 +1061,12 @@ def matchup_html(rows: Sequence[SlotRow], info: Sequence[Col],
     foot = (
         '<tr class="lt-total">'
         f'<td colspan="{len(info)}" class="lt-l">{html.escape(home_label)}</td>'
-        + _total_run(home_totals, points, edge_first=True)
+        + _total_run(home_totals, points, edge_first=True, scales=scales)
         + _advantage_cell(margin, MARGIN_FULL_AT, edge=True)
         + f'<td class="lt-slot">{html.escape(total_label)}</td>'
         + _advantage_cell(-margin, MARGIN_FULL_AT)
-        + _total_run(list(reversed(away_totals)), away_points, edge_first=True)
+        + _total_run(list(reversed(away_totals)), away_points, edge_first=True,
+                     scales=scales)
         + f'<td colspan="{len(info)}" class="lt-edge">{html.escape(away_label)}</td>'
         + "</tr>"
     )
@@ -711,7 +1081,8 @@ def side_html(rows: Sequence[dict], info: Sequence[Col], points: Sequence[Col], 
               total_rows: Optional[Sequence[dict]] = None,
               total_label: str = "TOTAL",
               marks: Optional[Mapping[object, str]] = None,
-              below: Optional[Sequence[dict]] = None) -> str:
+              below: Optional[Sequence[dict]] = None,
+              scales: Optional[Mapping[str, PointsScale]] = None) -> str:
     """One lineup, with the matchup table's columns and its total.
 
     The mirroring and the advantage columns are what a matchup adds; the header
@@ -737,6 +1108,12 @@ def side_html(rows: Sequence[dict], info: Sequence[Col], points: Sequence[Col], 
             Below rather than above because they are not in the lineup the total
             describes, and the total is the boundary between the two: everything
             above it counts, everything under it does not.
+        scales: From :func:`points_scales`, computed on the **unfiltered**
+            league-week. The bench rows in ``below`` are painted on their own
+            positions' rulers rather than on a bench constant the way the Sheet does
+            them -- on a tab whose subject is the best lineup available, a benched
+            running back is a candidate, and the comparison being made is against the
+            starting running back.
 
     Returns:
         str: A complete ``<style>`` plus ``<table>``, for ``st.html``.
@@ -765,7 +1142,8 @@ def side_html(rows: Sequence[dict], info: Sequence[Col], points: Sequence[Col], 
                 f'<tr{_classes(MARK_CLASSES.get(mark, ""))}>'
                 f'<td class="lt-slot">{html.escape(str(slot))}</td>'
                 + _run(row, info, align_left=True, mark=mark)
-                + _run(row, points, align_left=True, edge_first=True)
+                + _run(row, points, align_left=True, edge_first=True,
+                       scales=scales)
                 + "</tr>")
         return "".join(out)
 
@@ -777,7 +1155,8 @@ def side_html(rows: Sequence[dict], info: Sequence[Col], points: Sequence[Col], 
         f'<tr class="{"lt-total lt-split" if trailing else "lt-total"}">'
         f'<td class="lt-slot">{html.escape(total_label)}</td>'
         f'<td colspan="{len(info)}" class="lt-l">{html.escape(label)}</td>'
-        + _total_run(totals(counted, points), points, edge_first=True)
+        + _total_run(totals(counted, points), points, edge_first=True,
+                     scales=scales)
         + "</tr>"
     )
 
