@@ -817,3 +817,148 @@ def test_team_sd_is_the_independent_sum():
 
 def test_team_sd_is_none_when_nothing_is_priced():
     assert lu.team_total_sd([{"weekly_sd": None}]) is None
+
+
+# --- kickoff, and what it takes off the table ----------------------------
+#
+# The optimiser's suggestion stopped being hypothetical the moment live scoring
+# landed: a swap involving a player whose game has started is not a decision, it is
+# an illegal move. What these pin is that the *achievable* optimum and the
+# *hindsight* optimum are two different questions, and that a frame carrying no game
+# state still answers the first one exactly the way it always did.
+
+STARTERS = {"QB": 1, "RB": 2, "WR": 2, "TE": 1}
+
+
+def locked(row, state="post"):
+    """The same row, with its game already under way or over."""
+    return {**row, lu.STATE_COLUMN: state, lu.LOCKED_COLUMN: True}
+
+
+def unlocked(row):
+    """The same row, explicitly before kickoff."""
+    return {**row, lu.STATE_COLUMN: "pre", lu.LOCKED_COLUMN: False}
+
+
+def test_a_frame_with_no_game_state_locks_nobody():
+    """The compatibility guarantee. Every store written before live scoring must
+    optimise exactly as it did, or shipping this would silently rewrite history."""
+    rows = [player("Starter", "WR", 4.0, slot="WR"),
+            player("Bench", "WR", 20.0),
+            player("Filler", "WR", 3.0, slot="WR"),
+            player("QB", "QB", 15.0, slot="QB"),
+            player("RB1", "RB", 12.0, slot="RB"),
+            player("RB2", "RB", 11.0, slot="RB"),
+            player("TE", "TE", 8.0, slot="TE")]
+    starters, total = lu.optimal_lineup(rows, STARTERS, "TRUE_Points")
+    assert {r["player_name"] for r in starters if r["slot"] == "WR"} == {
+        "Bench", "Starter"}
+    assert total == pytest.approx(20.0 + 4.0 + 15.0 + 12.0 + 11.0 + 8.0)
+
+
+def test_a_locked_starter_keeps_his_slot_however_bad_he_was():
+    """He played and scored 1.2. Nothing can be done about it, and an optimiser that
+    swaps him out is describing a lineup you are not allowed to set."""
+    rows = [locked(player("Played Badly", "WR", 1.2, slot="WR")),
+            unlocked(player("Bench", "WR", 20.0)),
+            unlocked(player("Other", "WR", 18.0, slot="WR")),
+            unlocked(player("QB", "QB", 15.0, slot="QB")),
+            unlocked(player("RB1", "RB", 12.0, slot="RB")),
+            unlocked(player("RB2", "RB", 11.0, slot="RB")),
+            unlocked(player("TE", "TE", 8.0, slot="TE"))]
+    starters, _ = lu.optimal_lineup(rows, STARTERS, "TRUE_Points")
+    names = {r["player_name"] for r in starters}
+    assert "Played Badly" in names
+    # Only one WR slot was left, so the better of the two movable receivers takes it.
+    assert "Bench" in names and "Other" not in names
+
+
+def test_a_locked_bench_player_cannot_be_promoted():
+    """His game is over. Whatever he scored, he scored it on your bench."""
+    rows = [unlocked(player("Starter", "WR", 4.0, slot="WR")),
+            locked(player("Big Game On The Bench", "WR", 31.0)),
+            unlocked(player("Available", "WR", 9.0)),
+            unlocked(player("QB", "QB", 15.0, slot="QB"))]
+    starters, _ = lu.optimal_lineup(rows, {"QB": 1, "WR": 2}, "TRUE_Points")
+    names = {r["player_name"] for r in starters}
+    assert "Big Game On The Bench" not in names
+    assert names == {"Starter", "Available", "QB"}
+
+
+def test_a_locked_starter_is_seated_even_when_ruled_out():
+    """`player_active_status` excludes him from the candidate pool, but he is not a
+    candidate -- he is a fact. Dropping him would hand his slot to someone who
+    cannot legally have it."""
+    rows = [locked(player("Ruled Out", "WR", 0.0, slot="WR", status="inactive")),
+            unlocked(player("Bench", "WR", 14.0))]
+    starters, total = lu.optimal_lineup(rows, {"WR": 1}, "TRUE_Points")
+    assert [r["player_name"] for r in starters] == ["Ruled Out"]
+    assert total == pytest.approx(0.0)
+
+
+def test_swaps_only_offers_moves_you_can_make():
+    rows = [locked(player("Locked Dud", "WR", 1.0, slot="WR")),
+            unlocked(player("Bench Star", "WR", 22.0)),
+            unlocked(player("Weak Starter", "WR", 5.0, slot="WR"))]
+    current, _ = lu.current_lineup(rows, "TRUE_Points")
+    optimal, _ = lu.optimal_lineup(rows, {"WR": 2}, "TRUE_Points")
+    changes = lu.swaps(current, optimal, "TRUE_Points")
+    assert [(c.start_row["player_name"], c.sit_row["player_name"])
+            for c in changes] == [("Bench Star", "Weak Starter")]
+
+
+# --- hindsight, which is the other question ------------------------------
+
+def test_hindsight_ignores_kickoff():
+    rows = [locked(player("Locked Dud", "WR", 1.0, slot="WR")),
+            locked(player("Bench Star", "WR", 22.0))]
+    starters, total = lu.hindsight_lineup(rows, {"WR": 1}, "TRUE_Points")
+    assert [r["player_name"] for r in starters] == ["Bench Star"]
+    assert total == pytest.approx(22.0)
+
+
+def test_points_left_on_bench_is_what_the_week_cost():
+    rows = [locked(player("Started", "WR", 6.0, slot="WR")),
+            locked(player("Should Have Started", "WR", 24.0))]
+    assert lu.points_left_on_bench(rows, {"WR": 1}, "TRUE_Points") == pytest.approx(18.0)
+
+
+def test_a_perfect_lineup_left_nothing_on_the_bench():
+    """Never negative: hindsight maximises over a superset of what was started, so a
+    negative number here would be a modelling artefact rather than a finding."""
+    rows = [locked(player("Best", "WR", 24.0, slot="WR")),
+            locked(player("Worse", "WR", 6.0))]
+    assert lu.points_left_on_bench(rows, {"WR": 1}, "TRUE_Points") == 0.0
+
+
+# --- the free-agent pool -------------------------------------------------
+
+def test_a_free_agent_whose_game_has_finished_is_not_an_upgrade():
+    """The question `ESPN_Points > 0` could never answer. He may have scored 30
+    points; you cannot start him at 4:30 for a game that ended at 4:20."""
+    finished = locked(player("Already Played", "WR", 12.0))
+    finished["ESPN_Points"] = 12.0
+    assert not lu.pool_playable(finished)
+
+
+def test_a_free_agent_before_kickoff_is_playable():
+    upcoming = unlocked(player("Sunday Night", "WR", 12.0))
+    upcoming["ESPN_Points"] = 12.0
+    assert lu.pool_playable(upcoming)
+
+
+def test_a_free_agent_on_bye_is_not_playable():
+    bye = locked(player("On Bye", "WR", 2.12), state="bye")
+    bye["ESPN_Points"] = 0.0
+    assert not lu.pool_playable(bye)
+
+
+def test_the_espn_points_proxy_still_answers_for_an_older_store():
+    """No `game_state` on the row, so the measured proxy is used -- which is what a
+    2025 store carries."""
+    has_game = player("Playing", "WR", 12.0)
+    has_game["ESPN_Points"] = 12.0
+    no_game = player("Bye", "WR", 2.12)
+    no_game["ESPN_Points"] = 0.0
+    assert lu.pool_playable(has_game)
+    assert not lu.pool_playable(no_game)

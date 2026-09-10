@@ -27,6 +27,10 @@ from typing import Dict, Iterable, List, NamedTuple, Optional, Sequence, Tuple
 import polars as pl
 
 from Scripts.draft.board import NON_STARTING_SLOTS
+from Scripts.live import (LIVE_POINTS, LIVE_REMAINING, LOCKED_COLUMN,
+                          STATE_COLUMN)
+from Scripts.live import points_column as live_points_column
+from Scripts.live import state_counts
 
 #: Weekly per-source points columns, and the ``meta["weekly_sources_present"]`` key
 #: each one answers to.
@@ -371,8 +375,22 @@ def _eligible(row: dict) -> List[str]:
     return [position] if position else []
 
 
+def _is_locked(row: dict) -> bool:
+    """Whether this player's game has started, so his slot is settled.
+
+    Args:
+        row: A lineups row.
+
+    Returns:
+        bool: False when the frame carries no game state, which preserves the
+        behaviour of every store written before live scoring landed.
+    """
+    return bool(row.get(LOCKED_COLUMN) or False)
+
+
 def optimal_lineup(rows: Sequence[dict], slots: Dict[str, int],
-                   points_column: str) -> Tuple[List[dict], float]:
+                   points_column: str, *,
+                   respect_locks: bool = True) -> Tuple[List[dict], float]:
     """The highest-projecting legal lineup a roster can field.
 
     Greedy, descending by projection, each player taken into the **scarcest** slot he
@@ -390,10 +408,26 @@ def optimal_lineup(rows: Sequence[dict], slots: Dict[str, int],
     is not a lineup you would set. ``player_active_status`` carries ``"bye"`` and
     ``"inactive"`` beside ``"active"``.
 
+    **Once a player's game has kicked off he cannot be moved**, and with
+    ``respect_locks`` the optimiser says so: a locked starter keeps his slot whatever
+    he is now worth, and a locked bench player can no longer be promoted. Without it
+    the suggestion is a lineup you are not allowed to set -- which on a Sunday
+    afternoon is most of them. The lock is read from
+    :data:`Scripts.live.LOCKED_COLUMN`; a frame that does not carry it locks nobody,
+    so a store written before live scoring behaves exactly as it did.
+
+    A locked starter is seated **regardless of ``player_active_status``**. A player
+    who was ruled out an hour before kickoff scored zero and is still occupying the
+    slot; excluding him would quietly hand it to somebody who cannot legally have
+    it.
+
     Args:
         rows: One team's lineups rows as dicts, starters and bench together.
         slots: From :func:`slot_counts`.
         points_column: Which projection to maximise.
+        respect_locks: Honour kickoff. False gives the hindsight optimum -- the best
+            lineup with the week's results known, which is what "points left on the
+            bench" is measured against. See :func:`hindsight_lineup`.
 
     Returns:
         tuple: ``(starters, total)``. Each starter gains a ``"slot"`` key. Slots the
@@ -403,19 +437,36 @@ def optimal_lineup(rows: Sequence[dict], slots: Dict[str, int],
     if not slots:
         return [], 0.0
 
-    playable = [r for r in rows
+    openings: List[str] = []
+    for slot, count in slots.items():
+        openings.extend([slot] * int(count))
+
+    starters: List[dict] = []
+    total = 0.0
+    candidates = list(rows)
+
+    if respect_locks:
+        locked = [r for r in candidates if _is_locked(r)]
+        candidates = [r for r in candidates if not _is_locked(r)]
+        for row in locked:
+            slot = row.get("slotPosition")
+            if slot in NON_STARTING_SLOTS or slot not in openings:
+                # Locked on the bench, or in a slot this league does not start.
+                # Either way he is not available and not startable.
+                continue
+            starters.append({**row, "slot": slot})
+            total += float(row.get(points_column) or 0.0)
+            openings.remove(slot)
+
+    playable = [r for r in candidates
                 if r.get(points_column) is not None
                 and (r.get("player_active_status") or "active") == "active"]
     ranked = sorted(playable, key=lambda r: r[points_column], reverse=True)
 
-    demand = {slot: sum(1 for r in ranked if slot in _eligible(r)) for slot in slots}
-    openings: List[str] = []
-    for slot, count in slots.items():
-        openings.extend([slot] * int(count))
+    demand = {slot: sum(1 for r in ranked if slot in _eligible(r))
+              for slot in set(openings)}
     openings.sort(key=lambda slot: demand.get(slot, 0))
 
-    starters: List[dict] = []
-    total = 0.0
     for row in ranked:
         eligible = _eligible(row)
         for index, slot in enumerate(openings):
@@ -448,6 +499,49 @@ def current_lineup(rows: Iterable[dict], points_column: str
     total = sum(float(r[points_column]) for r in starters
                 if r.get(points_column) is not None)
     return starters, total
+
+
+def hindsight_lineup(rows: Sequence[dict], slots: Dict[str, int],
+                     points_column: str = LIVE_POINTS
+                     ) -> Tuple[List[dict], float]:
+    """The best lineup a roster could have fielded, kickoff ignored.
+
+    The *after* question, and a different one from :func:`optimal_lineup`'s. Once
+    the week is played there is nothing to decide, and the only thing worth knowing
+    is how much the roster held that the lineup did not use. Asking that with locks
+    on would always answer "nothing", because by then every slot is settled.
+
+    Args:
+        rows: One team's lineups rows.
+        slots: From :func:`slot_counts`.
+        points_column: What to maximise. Defaults to the resolved live number.
+
+    Returns:
+        tuple: ``(starters, total)``.
+    """
+    return optimal_lineup(rows, slots, points_column, respect_locks=False)
+
+
+def points_left_on_bench(rows: Sequence[dict], slots: Dict[str, int],
+                         points_column: str = LIVE_POINTS) -> float:
+    """What the best legal lineup would have scored, minus what was started.
+
+    Zero rather than negative when the lineup that was set *is* the best one --
+    :func:`hindsight_lineup` maximises over a superset of what was started, so the
+    difference cannot be negative unless a slot was left empty, and reporting a
+    negative there would read as a modelling artefact.
+
+    Args:
+        rows: One team's lineups rows.
+        slots: From :func:`slot_counts`.
+        points_column: What to total.
+
+    Returns:
+        float: Points a different lineup would have scored.
+    """
+    _, best = hindsight_lineup(rows, slots, points_column)
+    _, started = current_lineup(rows, points_column)
+    return max(0.0, best - started)
 
 
 def changed_ids(current: Sequence[dict], optimal: Sequence[dict]
@@ -561,16 +655,22 @@ POOL_STATUS = "inactive"
 
 
 def pool_playable(row: dict, points_column: str = f"{BLEND}_Points") -> bool:
-    """Whether an unrostered player has a game to play this week.
+    """Whether an unrostered player can still be started this week.
 
-    ``player_active_status`` cannot answer it -- see :data:`POOL_STATUS` -- so ESPN's
-    own projection does. Measured across all ten 2026 leagues, ``ESPN_Points == 0``
-    is exactly "no game": it holds for **all 81** rostered players ESPN marks as on
-    bye, and for 3 of the 1,581 it marks active, who are players it projects nothing
-    for and who could not be an upgrade over anybody.
+    **Game state answers this directly, where everything before it was a proxy.**
+    A player is startable when his game has not kicked off. That is one condition
+    covering two questions the old rule could only answer one of: he is not on bye,
+    *and* his game is not already over -- and the second one matters, because a free
+    agent whose game finished at 16:20 cannot help a lineup at 16:30 however many
+    points he scored.
 
-    **The blend cannot stand in for it.** ``TRUE_Points`` imputes an absent source
-    from the ESPN/FantasyPros mean, so 24 of those 81 bye players carry a non-zero
+    The proxy it replaces was ``ESPN_Points > 0``, measured across all ten 2026
+    leagues as exactly "no game": true for all 81 rostered players ESPN marks as on
+    bye, and for 3 of 1,581 it marks active. It was right about byes and blind to
+    kickoff. It is kept as the fallback for a store written before live scoring, and
+    the note that forced it is still worth keeping: **the blend cannot stand in for
+    either version**, because ``TRUE_Points`` imputes an absent source from the
+    ESPN/FantasyPros mean, so 24 of those 81 bye players carry a non-zero
     ``TRUE_Points`` of up to 2.12 -- enough to leak a player with no game into a
     comparison, if not enough to win one.
 
@@ -581,6 +681,8 @@ def pool_playable(row: dict, points_column: str = f"{BLEND}_Points") -> bool:
     Returns:
         bool: True when he can be started this week.
     """
+    if row.get(STATE_COLUMN):
+        return not _is_locked(row)
     signal = "ESPN_Points" if "ESPN_Points" in row else points_column
     return float(row.get(signal) or 0.0) > 0
 

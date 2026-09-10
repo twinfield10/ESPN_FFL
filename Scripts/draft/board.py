@@ -22,12 +22,14 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-from Scripts.nfl_utils import load_schedule
+from Scripts.nfl_utils import ESPN_TEAM_ALIASES, load_schedule
 from Scripts.paths import NFL_SCHEDULE_CSV
 from Scripts.season_projections import PROJECTION_PREFIXES
 
-#: ESPN's team abbreviations that differ from the schedule's, ESPN spelling first.
-ESPN_TEAM_ALIASES: Dict[str, str] = {"LAR": "LA", "WSH": "WAS"}
+#: Re-exported from :mod:`Scripts.nfl_utils`, where it now lives -- it is a fact
+#: about the schedule file, and :mod:`Scripts.game_state` needs it too. Kept as a
+#: name here because callers already import it from this module.
+ESPN_TEAM_ALIASES: Dict[str, str] = ESPN_TEAM_ALIASES
 
 #: Flex slots and the positions that may fill them. ESPN's ``OP`` is "offensive
 #: player" -- a superflex that accepts a quarterback, which is what makes

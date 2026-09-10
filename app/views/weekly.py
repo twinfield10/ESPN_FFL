@@ -27,6 +27,7 @@ import streamlit as st
 
 import lineup as lu
 import lineup_table as ltab
+from Scripts import live
 
 #: Source prefix to what it is. Owned by :mod:`lineup_table`, which both renderers
 #: read, so the grid below and the HTML tables cannot disagree about what a column
@@ -47,10 +48,21 @@ BASE_LABELS: Dict[str, str] = {
     "player_position": "Pos",
     "primaryPosition": "Pos",
     "pro_team": "NFL",
+    live.STATE_COLUMN: "Game",
     "player_active_status": "Status",
     "points": "Actual",
+    live.LIVE_POINTS: "Live",
     "sources_real": "Sources",
     "source_spread": "Spread",
+}
+
+#: Tooltips for the live block. The grid needs its own copy because
+#: :func:`render_table` builds ``column_config`` from labels rather than from
+#: :class:`lineup_table.Col` specs.
+LIVE_HELP: Dict[str, str] = {
+    "Live": ltab.LIVE_HELP,
+    "Actual": ltab.ACTUAL_HELP,
+    "Game": ltab.STATE_HELP,
 }
 
 
@@ -90,6 +102,14 @@ def display_columns(frame: pl.DataFrame, meta: dict, *,
                                            "source_spread")) -> List[str]:
     """Columns to show, in reading order: identity, then sources, then status.
 
+    The live block leads the numbers when the frame carries it, because it is the
+    number the table is read for. ``Actual`` is shown **once any game in the frame
+    has started**, which is a different rule from the one it replaces: that test was
+    ``frame["points"].sum() == 0``, which is a proxy for "nothing has been played"
+    that stops being true the instant one player scores -- so the column appeared
+    mid-week and, worse, would have stayed hidden through a week in which everybody
+    genuinely scored zero. Game state says it directly.
+
     Args:
         frame: A lineups frame, ideally through :func:`lineup.with_source_spread`.
         meta: The store's ``meta.json``.
@@ -100,13 +120,32 @@ def display_columns(frame: pl.DataFrame, meta: dict, *,
         list: Column names present on ``frame``.
     """
     columns = [c for c in lead if c in frame.columns]
+    if live.STATE_COLUMN in frame.columns:
+        columns.append(live.STATE_COLUMN)
+    if live.LIVE_POINTS in frame.columns:
+        columns.append(live.LIVE_POINTS)
     columns += lu.points_columns(frame, meta)
     columns += [c for c in tail if c in frame.columns]
-    # `points` is zero for every row until a game is played, and a column of zeros
-    # reads as "he scored nothing" rather than "nothing has happened yet".
-    if "points" in columns and frame.height and frame["points"].sum() == 0:
+    if "points" in columns and not _anything_played(frame):
         columns.remove("points")
     return columns
+
+
+def _anything_played(frame: pl.DataFrame) -> bool:
+    """Whether any row in the frame belongs to a game that has started.
+
+    Args:
+        frame: A lineups frame.
+
+    Returns:
+        bool: Falls back to the old sum-of-points proxy for a store written before
+        live scoring, so an older season still hides the column the way it used to.
+    """
+    if not frame.height:
+        return False
+    if live.LOCKED_COLUMN in frame.columns:
+        return bool(frame[live.LOCKED_COLUMN].fill_null(False).any())
+    return "points" in frame.columns and bool(frame["points"].sum() != 0)
 
 
 def render_table(frame: pl.DataFrame, meta: dict, *, columns: Sequence[str],
@@ -121,8 +160,14 @@ def render_table(frame: pl.DataFrame, meta: dict, *, columns: Sequence[str],
     """
     labels = {**BASE_LABELS, **SOURCE_LABELS}
     present = [c for c in columns if c in frame.columns]
-    shown = frame.select(present).rename(
-        {c: labels[c] for c in present if c in labels})
+    shown = frame.select(present)
+    if live.STATE_COLUMN in present:
+        # The stored values are the wire words -- `pre`, `in`, `post`, `bye`. Mapped
+        # here rather than in the artifact so the data keeps saying what ESPN said.
+        shown = shown.with_columns(
+            pl.col(live.STATE_COLUMN).replace_strict(
+                ltab.STATE_LABELS, default=None))
+    shown = shown.rename({c: labels[c] for c in present if c in labels})
 
     config: Dict[str, object] = {
         # 100px rather than auto: auto sizes to the *header*, and "Slot" is four
@@ -136,8 +181,11 @@ def render_table(frame: pl.DataFrame, meta: dict, *, columns: Sequence[str],
         "Player": st.column_config.TextColumn(pinned=True),
         "Pos": st.column_config.TextColumn(),
         "NFL": st.column_config.TextColumn(),
+        "Live": st.column_config.NumberColumn(
+            format="%.1f", help=LIVE_HELP["Live"]),
         "Actual": st.column_config.NumberColumn(
-            format="%.1f", help="Points actually scored this week."),
+            format="%.1f", help=LIVE_HELP["Actual"]),
+        "Game": st.column_config.TextColumn(help=LIVE_HELP["Game"]),
         "Status": st.column_config.TextColumn(
             help="ESPN's own reading: `active`, `bye`, or `inactive`. A player who "
                  "is not active is excluded from the optimal lineup."),

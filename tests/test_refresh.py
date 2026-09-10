@@ -192,3 +192,62 @@ def test_a_failed_league_leaves_its_previous_store_alone(fake_ingest):
 def test_exit_code_is_nonzero_when_a_league_fails(fake_ingest):
     assert refresh.main(["--league", EXPLODING]) == 1
     assert refresh.main(["--league", "Knights_FFL"]) == 0
+
+
+# --- the live stage ------------------------------------------------------
+#
+# `--what live` rewrites `lineups` rather than building a new artifact, which makes
+# its failure modes different from every other stage's: the ways it can go wrong all
+# end with a *plausible* frame in the store rather than an exception. So what is
+# pinned here is mostly the refusals.
+
+
+def test_live_is_a_what_choice_but_not_a_default():
+    """It runs on a ten-minute cron, not at 06:00 -- the nightly builds `lineups`
+    from fresher inputs and resolves the same columns as a by-product."""
+    assert "live" in refresh.WHAT_CHOICES
+    assert "live" not in refresh.DEFAULT_WHAT
+
+
+def test_live_is_skipped_when_lineups_is_also_requested(monkeypatch, fake_ingest):
+    """Patching the full build's own output would be a second ESPN round-trip to
+    arrive at the numbers it just computed."""
+    called = []
+
+    def _never(*args, **kwargs):
+        called.append(args)
+        return None, {}
+
+    monkeypatch.setattr("Scripts.live.refresh_live", _never)
+    refresh.refresh_league("Jeffs_League", 2026, what=["lineups", "live"])
+    assert called == []
+
+
+def test_the_live_stage_writes_what_the_patch_returned(monkeypatch, fake_ingest):
+    frame = pd.DataFrame({"week": [3], "player_name": ["A"], "points": [12.0],
+                          "TRUE_Points": [9.0], "LIVE_Points": [12.0]})
+    counts = {"week": 3, "patched": 1, "added": 0, "uncovered": 0,
+              "states": {"post": 1}, "live": False}
+    monkeypatch.setattr("Scripts.live.refresh_live",
+                        lambda *a, **k: (frame, counts))
+    timings = refresh.refresh_league("Jeffs_League", 2026, what=["live"])
+    assert "live" in timings
+
+    from Scripts import store
+    written = store.read_league_store(2026, "jeffs_league", "lineups")
+    assert written["LIVE_Points"].tolist() == [12.0]
+
+
+def test_the_live_stage_refuses_a_week_the_store_does_not_hold(monkeypatch,
+                                                               fake_ingest):
+    """The refusal that matters most. Appending a week the frame does not have would
+    add a second, projection-free copy of it and halve every team total -- and the
+    result would look like a perfectly ordinary store."""
+    from Scripts import live
+
+    def _explode(*args, **kwargs):
+        raise live.LiveRefreshError("lineups.parquet holds weeks [1], not 3")
+
+    monkeypatch.setattr("Scripts.live.refresh_live", _explode)
+    with pytest.raises(live.LiveRefreshError, match="holds weeks"):
+        refresh.refresh_league("Jeffs_League", 2026, what=["live"])

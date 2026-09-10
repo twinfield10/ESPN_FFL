@@ -19,6 +19,19 @@ from Scripts.paths import NFL_SCHEDULE_CSV
 
 _SCHEDULE: Optional[pl.DataFrame] = None
 
+#: ESPN's team abbreviations that differ from the schedule's, ESPN spelling first.
+#:
+#: Lives here rather than beside its first caller because it is a fact about the
+#: schedule file, and two modules now need it: the draft board's bye weeks and
+#: :mod:`Scripts.game_state`'s offline fallback. ``Scripts.draft.board`` re-exports
+#: it under the same name, so nothing that already imports it from there breaks.
+ESPN_TEAM_ALIASES = {"LAR": "LA", "WSH": "WAS"}
+
+#: The schedule's spellings, keyed by ESPN's. The inverse of
+#: :data:`ESPN_TEAM_ALIASES`, for going the other way.
+SCHEDULE_TEAM_ALIASES = {v: k for k, v in ESPN_TEAM_ALIASES.items()}
+
+
 
 def load_schedule(refresh: bool = False) -> pl.DataFrame:
     """Load and cache the NFL schedule.

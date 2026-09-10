@@ -140,6 +140,34 @@ estimate.
 `lineups` adds the week's actuals: `points`, `projPoints`, the raw stat columns,
 `slotPosition`, `team_owner`.
 
+**And, since 2026-09-10, the resolution between the two halves.** A projection and an
+actual side by side is not usable on its own, because until game state existed nothing
+on the row could say *which one applies* — `points` is `0.0` both for a player who took
+the field and caught nothing and for one who has not kicked off, and
+`build_league_frame`'s `fillna(0)` means a null cannot carry the difference either.
+Eight columns close that:
+
+| Column | What it is |
+|---|---|
+| `game_state` | `pre` \| `in` \| `post` \| `bye`, from ESPN's scoreboard. A **string**, because a numeric or nullable state would be silently zeroed by `fillna(0)` |
+| `game_elapsed` | Fraction of regulation played, 0.0–1.0, from `period` and `displayClock` |
+| `game_locked` | `game_state != "pre"`. The one flag consumers branch on: it is what makes a lineup change impossible and a free agent unstartable |
+| **`LIVE_Points`** | **The number every weekly surface reads.** `banked + TRUE_Points × (1 − game_elapsed)`, so it is exactly `TRUE_Points` before kickoff and exactly ESPN's `points` once the game is final |
+| `LIVE_remaining_points` | `TRUE_Points × (1 − game_elapsed)`. What the win probability's spread is computed from — banked points have no uncertainty left |
+| `ACT_Points` | This league's rules applied to the *actual* stat line. The audit half, not the answer |
+| `actual_unpriced` | `points − ACT_Points` on a started game: what ESPN paid that this pipeline cannot price. Non-zero means a scoring rule is unmapped — see [plan 34](plans/34-stat-first-audit.md) |
+| `live_only` | The row was added by a live refresh because the box score had a player the stored frame did not. It carries actuals and **no projection** |
+
+`LIVE_Points` follows ESPN rather than `ACT_Points` for a finished game, and the two
+are not interchangeable: measured on 2026 week 1 they agreed to float noise across
+every played row in eight leagues and differed by 5.00 points on one player in the
+ninth. ESPN's number is the league's official score.
+
+**`LIVE` is not a source.** It is absent from `projection_utils.WEEKLY_PREFIXES` on
+purpose — that tuple is the register of things that have an *opinion*, and
+`Scripts.lab.sources` reads it to decide what a source is. `LIVE_Points` is what the
+sources and the box score resolve to.
+
 **Column width varies by league** and that is correct, not drift: the IDP league's
 board carries individual defenders and nobody else's does, because ESPN returns a pool
 shaped by each league's own roster slots.

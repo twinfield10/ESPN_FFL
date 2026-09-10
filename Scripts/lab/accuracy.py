@@ -421,6 +421,145 @@ def points_accuracy(season: int, league_key: str,
     return {"league": league_key, "n": rows.height, "mae": mae, "counts": counts}
 
 
+#: Minimum leave-one-out weekly projection for a row to join the source comparison.
+#:
+#: The weekly analogue of the season pool's 100-point floor, and it exists for the
+#: same reason: a deep backup projected 0.4 who scores 0.0 is an easy row every
+#: source gets right, and a pool full of them compresses every percentage difference
+#: toward zero. Five points is roughly a startable floor at any position.
+#:
+#: **Built from the other sources, never from the one under test.** Gating on a
+#: source's own number lets it choose its own exam: a source that projects a player
+#: at 0.2 excuses itself from the row, and the rows it keeps are the ones it was
+#: already confident about.
+WEEKLY_GATE_POINTS = 5.0
+
+
+def weekly_points_accuracy(season: int, week: Optional[int] = None,
+                           league_keys: Optional[Sequence[str]] = None,
+                           gate: float = WEEKLY_GATE_POINTS) -> List[Dict]:
+    """Each source's weekly points error, over games that have actually finished.
+
+    The in-season counterpart to :func:`points_accuracy`, and different from it in
+    the two ways that matter mid-week:
+
+    * **Finished games only.** ``game_state == "post"``. Without that filter every
+      player who has not kicked off is a row whose actual is zero, and a week
+      measured at 1pm on Sunday would report every source as catastrophically
+      over-projecting. This is the whole reason it is a separate function.
+    * **Gated**, per :data:`WEEKLY_GATE_POINTS`.
+
+    Points are league-specific -- ``docs/DATA_CATALOGUE.md`` says never to compare
+    them across leagues -- so this returns one entry per league rather than a pooled
+    number.
+
+    ``unpriced`` is the other half, and it is not about the sources at all: it is
+    what ESPN paid for finished games that this pipeline's own scoring cannot
+    reproduce. See :data:`Scripts.live.ACTUAL_UNPRICED`.
+
+    Args:
+        season: Season year.
+        week: One week, or None for every finished game in the season.
+        league_keys: Leagues to read. Defaults to every league with a store.
+        gate: Minimum leave-one-out projection.
+
+    Returns:
+        list: One dict per league -- ``league``, ``n``, ``mae``, ``bias``,
+        ``counts``, ``unpriced``, ``unpriced_rows``. Leagues with no finished game
+        are omitted rather than reported as zero.
+    """
+    from Scripts import store
+    from Scripts.draft.board import NON_STARTING_SLOTS
+    from Scripts.game_state import POST
+    from Scripts.live import ACTUAL_UNPRICED, STATE_COLUMN
+    from Scripts.scrape_player_stats import FREE_AGENT_OWNER
+
+    keys = list(league_keys) if league_keys else store.list_leagues(season)
+    out: List[Dict] = []
+    for key in keys:
+        try:
+            frame = pl.read_parquet(store.require_artifact(season, key, "lineups"))
+        except FileNotFoundError:
+            continue
+        if STATE_COLUMN not in frame.columns:
+            # Same reason `outcomes.weekly.residuals` refuses these: a zero in such a
+            # store might be a player who has not kicked off, and there is no way to
+            # tell from here.
+            continue
+        rows = (frame
+                .filter(pl.col(STATE_COLUMN) == POST)
+                .filter(~pl.col("slotPosition").is_in(list(NON_STARTING_SLOTS)))
+                .filter(pl.col("team_owner") != FREE_AGENT_OWNER)
+                .filter(pl.col("points").is_not_null()))
+        if week is not None:
+            rows = rows.filter(pl.col("week") == int(week))
+        if rows.is_empty():
+            continue
+
+        mae, bias, counts = {}, {}, {}
+        for prefix in (BLEND,) + SOURCES:
+            column = f"{prefix}_Points"
+            if column not in rows.columns:
+                continue
+            others = [f"{p}_Points" for p in SOURCES
+                      if p != prefix and f"{p}_Points" in rows.columns]
+            gated = rows.filter(pl.col(column).is_not_null())
+            if others:
+                gated = gated.filter(
+                    pl.mean_horizontal([pl.col(c) for c in others]) >= gate)
+            if gated.is_empty():
+                continue
+            error = pl.col(column) - pl.col("points")
+            found = gated.select(error.abs().mean().alias("mae"),
+                                 error.mean().alias("bias"))
+            mae[prefix] = float(found["mae"][0])
+            bias[prefix] = float(found["bias"][0])
+            counts[prefix] = gated.height
+
+        unpriced_rows = 0
+        unpriced = 0.0
+        if ACTUAL_UNPRICED in rows.columns:
+            gap = rows.filter(pl.col(ACTUAL_UNPRICED).abs() > 0.01)
+            unpriced_rows = gap.height
+            unpriced = float(gap[ACTUAL_UNPRICED].sum() or 0.0)
+
+        out.append({"league": key, "n": rows.height, "mae": mae, "bias": bias,
+                    "counts": counts, "unpriced": unpriced,
+                    "unpriced_rows": unpriced_rows})
+    return out
+
+
+def render_weekly(entries: List[Dict], gate: float = WEEKLY_GATE_POINTS) -> str:
+    """The weekly scoreboard, as text."""
+    if not entries:
+        return ("  No finished games in any store with game state. Either the week "
+                "has not started, or the stores predate live scoring -- rebuild "
+                "with `python -m Scripts.refresh --all --what lineups`.")
+    order = [BLEND] + [s for s in SOURCES]
+    lines = [f"  gate: leave-one-out projection >= {gate:.1f} points",
+             f"  {'league':26s} {'n':>4s} " + " ".join(f"{s:>13s}" for s in order),
+             f"  {'':26s} {'':>4s} " + " ".join(f"{'mae / bias':>13s}" for s in order)]
+    for entry in entries:
+        cells = []
+        for source in order:
+            if source in entry["mae"]:
+                cells.append(f"{entry['mae'][source]:5.2f} /{entry['bias'][source]:+6.2f}")
+            else:
+                cells.append(f"{'--':>13s}")
+        lines.append(f"  {entry['league'][:26]:26s} {entry['n']:4d} " + " ".join(cells))
+    flagged = [e for e in entries if e["unpriced_rows"]]
+    if flagged:
+        lines.append("")
+        lines.append("  Unpriced actuals -- points ESPN paid that our scoring cannot "
+                     "reproduce:")
+        for entry in flagged:
+            lines.append(f"    {entry['league']:26s} {entry['unpriced']:+8.2f} over "
+                         f"{entry['unpriced_rows']} player-week(s)")
+        lines.append("    This is a scoring-coverage defect, not a projection error. "
+                     "See docs/plans/34-stat-first-audit.md.")
+    return "\n".join(lines)
+
+
 def render(board: Dict[str, Dict[str, Dict]], population: str) -> str:
     """One population's table, as text."""
     lines = [f"\n=== {population} " + "=" * (58 - len(population)),
@@ -511,7 +650,23 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help="print only this population")
     parser.add_argument("--no-save", action="store_true",
                         help="print without touching the ledger")
+    parser.add_argument("--week", type=int, default=None,
+                        help="in-season mode: score each source's weekly points "
+                             "against finished games only, per league. Prints and "
+                             "exits without touching the ledger, which is a record "
+                             "of finished seasons.")
+    parser.add_argument("--gate", type=float, default=WEEKLY_GATE_POINTS,
+                        help="minimum leave-one-out weekly projection (--week only)")
     args = parser.parse_args(argv)
+
+    if args.week is not None:
+        entries = weekly_points_accuracy(args.season, week=args.week,
+                                         league_keys=args.league or None,
+                                         gate=args.gate)
+        print(f"\nWeekly points accuracy, {args.season} week {args.week}, "
+              f"finished games only.")
+        print(render_weekly(entries, gate=args.gate))
+        return 0
 
     entry = run(args.season, league_keys=args.league or None,
                 points_league=args.points_league)

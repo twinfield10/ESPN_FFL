@@ -219,3 +219,70 @@ def test_a_fitted_model_names_what_it_was_fitted_on():
     note = sim.gate_note(MODEL)
     assert note["kind"] == "ok"
     assert "2025" in note["text"]
+
+
+# --- what has already happened has no spread left ------------------------
+#
+# The change that makes a Sunday-night win probability mean anything. The spread is
+# computed from `LIVE_remaining_points` rather than from the total, so a player whose
+# game is over contributes his points and none of his uncertainty. Read off the total
+# instead, a team that had banked 140 points with every game final would still be
+# quoted at roughly 70% rather than 100%.
+
+
+def played(position="RB", points=100.0):
+    """A starter whose game is over: points banked, nothing left to come."""
+    return {**starter(position, points), "LIVE_remaining_points": 0.0}
+
+
+def midway(position="RB", points=100.0, remaining=50.0):
+    """A starter halfway through his game."""
+    return {**starter(position, points), "LIVE_remaining_points": remaining}
+
+
+def test_a_finished_starter_has_no_variance():
+    side = sim.side("A", [played()], fitted=MODEL)
+    assert side.projected == pytest.approx(100.0)
+    assert side.sd == 0.0
+
+
+def test_a_lineup_of_finished_starters_is_a_certainty():
+    home = sim.side("A", [played(points=20.0)] * 9, fitted=MODEL)
+    away = sim.side("B", [played(points=15.0)] * 9, fitted=MODEL)
+    result = sim.outcome(home, away)
+    assert result.margin == pytest.approx(45.0)
+    assert result.win == pytest.approx(1.0)
+
+
+def test_the_losing_side_of_a_finished_week_is_a_certainty_too():
+    home = sim.side("A", [played(points=15.0)] * 9, fitted=MODEL)
+    away = sim.side("B", [played(points=20.0)] * 9, fitted=MODEL)
+    assert sim.outcome(home, away).win == pytest.approx(0.0)
+
+
+def test_a_midway_starter_keeps_the_spread_of_what_is_left():
+    """`phi = 1.0` at RB in this model, so sd is sqrt of the remaining projection --
+    the full 10.0 before kickoff and sqrt(50) halfway through."""
+    assert sim.side("A", [midway(remaining=50.0)], fitted=MODEL).sd == pytest.approx(
+        50.0 ** 0.5)
+    assert sim.side("A", [midway(remaining=100.0)], fitted=MODEL).sd == pytest.approx(
+        100.0 ** 0.5)
+
+
+def test_a_row_with_no_remaining_column_falls_back_to_the_total():
+    """A store written before live scoring. The shipped coverage of 0.802 describes
+    this path, so it must not move."""
+    with_column = sim.side("A", [midway(remaining=100.0)], fitted=MODEL)
+    without = sim.side("A", [starter(points=100.0)], fitted=MODEL)
+    assert without.sd == pytest.approx(with_column.sd)
+    assert without.priced == with_column.priced == 1
+
+
+def test_a_finished_starter_is_not_counted_as_unpriced():
+    """`priced` counts players the dispersion model had something to say about. A
+    finished player legitimately has sd 0, which is a statement rather than a gap --
+    but it does read as unpriced, and the caption that surfaces `priced` should be
+    read with that in mind."""
+    side = sim.side("A", [played(), midway(remaining=100.0)], fitted=MODEL)
+    assert side.starters == 2
+    assert side.priced == 1

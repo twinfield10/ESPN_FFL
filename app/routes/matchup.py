@@ -96,6 +96,9 @@ if week_rows.is_empty() or fixtures.is_empty():
 
 rostered = week_rows.filter(pl.col("team_owner") != session.FREE_AGENT_OWNER)
 
+#: See the note in ``routes/roster.py``.
+points_col = lu.live_points_column(week_rows.columns)
+
 # The fixture list and the rosters are two artifacts that do not always spell a team
 # the same way -- see `matchup_sim.opponent_map`, which is where that is reconciled.
 identities = (rostered.select(["team_owner", "team_name"]).unique()
@@ -138,9 +141,9 @@ sides, lineups_by_owner = {}, {}
 for name in (owner, opponent):
     rows = lu.with_source_spread(
         rostered.filter(pl.col("team_owner") == name), selection.meta).to_dicts()
-    current, _ = lu.current_lineup(rows, "TRUE_Points")
+    current, _ = lu.current_lineup(rows, points_col)
     lineups_by_owner[name] = (rows, current)
-    sides[name] = sim.side(name, current, "TRUE_Points", fitted)
+    sides[name] = sim.side(name, current, points_col, fitted)
 
 home, away = sides[owner], sides[opponent]
 result = sim.outcome(home, away)
@@ -148,7 +151,10 @@ result = sim.outcome(home, away)
 # --- the headline ---------------------------------------------------------
 top = st.columns([2, 2, 3])
 top[0].metric(owner, f"{home.projected:.1f}",
-              help="Projected points from the lineup currently set, on our blend.")
+              help="What the lineup currently set is worth: points already scored "
+                   "where the game is final, our blend where it has not kicked off. "
+                   "The spread narrows as games finish, because banked points have "
+                   "no uncertainty left.")
 top[1].metric(opponent, f"{away.projected:.1f}")
 if result.win is None:
     top[2].metric("Projected Margin", f"{result.margin:+.1f}",
@@ -178,8 +184,8 @@ st.divider()
 
 # --- what a change is worth ----------------------------------------------
 rows, current = lineups_by_owner[owner]
-optimal, optimal_total = lu.optimal_lineup(rows, slots, "TRUE_Points")
-changes = lu.swaps(current, optimal, "TRUE_Points")
+optimal, optimal_total = lu.optimal_lineup(rows, slots, points_col)
+changes = lu.swaps(current, optimal, points_col)
 
 left, right = st.columns([3, 2])
 
@@ -211,11 +217,11 @@ with right:
         if not out:
             continue
         st.markdown(f"**{name}** · {len(out)} out, {len(starting)} of them starting")
-        for row in sorted(starting, key=lambda r: -(r.get("TRUE_Points") or 0))[:4]:
+        for row in sorted(starting, key=lambda r: -(r.get(points_col) or 0))[:4]:
             st.markdown(
                 f"- {row.get('player_name')} ({row.get('player_position')}) · "
                 f"`{row.get('player_active_status')}` · "
-                f"{row.get('TRUE_Points'):.1f} projected")
+                f"{row.get(points_col):.1f} projected")
         trouble = trouble or bool(starting)
     if not trouble:
         st.success("Nobody unavailable is in either starting lineup.", icon="✅")
@@ -246,7 +252,10 @@ if missing:
 shape = lu.with_source_spread(rostered, selection.meta)
 info_columns = ltab.info_columns(shape.columns)
 points_columns = ltab.points_columns(shape.columns, selection.meta,
-                                     corroboration=False)
+                                     corroboration=False,
+                                     locked=bool(
+                                         sum(lu.state_counts(rostered).get(s, 0)
+                                             for s in ("in", "post"))))
 
 weekly.render_matchup(
     ltab.pair_by_slot(lineups_by_owner[owner][1], lineups_by_owner[opponent][1],

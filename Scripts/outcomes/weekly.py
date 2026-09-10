@@ -57,6 +57,9 @@ import numpy as np
 import polars as pl
 
 from Scripts import paths
+from Scripts.game_state import POST
+from Scripts.nfl_utils import current_season
+from Scripts.live import STATE_COLUMN
 from Scripts.scrape_player_stats import FREE_AGENT_OWNER
 
 #: Bump when the fitted form changes meaning. Readers refuse a version they do not
@@ -114,6 +117,24 @@ def _log(message: str) -> None:
     print(message, flush=True)
 
 
+class UnstatedGameStateWarning(UserWarning):
+    """A current-season store predates live scoring, so its rows cannot be used."""
+
+
+def _warn_unstated(path) -> None:
+    """Warn that a store was skipped, naming the command that fixes it."""
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("always", UnstatedGameStateWarning)
+        warnings.warn(
+            f"{path.parent.name} has no `{STATE_COLUMN}`, so none of its rows can "
+            f"be used as residuals -- a zero in it might be a player who has not "
+            f"kicked off. Rebuild it: "
+            f"`python -m Scripts.refresh --league {path.parent.name} --what lineups`.",
+            UnstatedGameStateWarning, stacklevel=4)
+
+
 def residuals(seasons: Sequence[int] = TRAIN_SEASONS) -> pl.DataFrame:
     """Every started, active player-week with both an actual and a projection.
 
@@ -139,7 +160,27 @@ def residuals(seasons: Sequence[int] = TRAIN_SEASONS) -> pl.DataFrame:
         if not root.is_dir():
             continue
         for path in sorted(root.glob("*/lineups.parquet")):
-            frame = pl.read_parquet(path, columns=wanted)
+            # `game_state` only exists on stores written since live scoring landed.
+            # Read it when it is there, because it is the difference between a
+            # residual and a game that has not finished -- see the filter below.
+            have = pl.scan_parquet(path).collect_schema().names()
+            columns = wanted + ([STATE_COLUMN] if STATE_COLUMN in have else [])
+            frame = pl.read_parquet(path, columns=columns)
+            if STATE_COLUMN not in frame.columns:
+                # A store written before live scoring landed. For a finished season
+                # that is harmless -- every game in it was played -- so the rows are
+                # admitted as `post`. For the *current* season it is not: such a
+                # store cannot say which of its zeros are "played and scored nothing"
+                # and which are "has not kicked off", and admitting them taught the
+                # fit that a 15-point projection has a 15-point error. Measured on
+                # 2026 week 1 before this guard: 951 rows, nearly all of them
+                # pre-kickoff RBs at `actual = 0.0`. Rebuild with
+                # `Scripts.refresh --what lineups` to get them back.
+                assumed = POST if int(season) < current_season() else None
+                frame = frame.with_columns(
+                    pl.lit(assumed, pl.String).alias(STATE_COLUMN))
+                if assumed is None:
+                    _warn_unstated(path)
             frames.append(frame.with_columns(
                 pl.lit(path.parent.name).alias("lg"),
                 pl.lit(season).alias("season")))
@@ -149,15 +190,29 @@ def residuals(seasons: Sequence[int] = TRAIN_SEASONS) -> pl.DataFrame:
             f"Run `python -m Scripts.sync --pull` or `Scripts.refresh`."
         )
 
-    return (pl.concat(frames)
+    # `vertical_relaxed`, not the default. `points` is written from whatever ESPN
+    # happens to have returned, so a league in which nobody has yet scored a
+    # fractional total lands as Int64 while the other eight are Float64 -- which is
+    # exactly the state of `weenieless_wanderers` in 2026 week 1, and a plain concat
+    # raises `SchemaError: type Int64 is incompatible with expected type Float64`.
+    # Latent until a 2026 store existed to read.
+    return (pl.concat(frames, how="vertical_relaxed")
             .filter(~pl.col("slotPosition").is_in(list(BENCH_SLOTS)))
             .filter(pl.col("team_owner") != FREE_AGENT_OWNER)
             .filter(pl.col("player_active_status") == "active")
+            # **A game still being played is not a residual.** Before live scoring
+            # this could not be expressed, and it did not need to be: the fit ran on
+            # a finished season. It does now -- the live refresh rewrites
+            # `lineups.parquet` every ten minutes on a Sunday, so a refit during the
+            # slate would read a half-played week as a set of enormous negative
+            # residuals and widen every interval in the app. Null means a store
+            # written before this existed, which is by definition a finished week.
+            .filter(pl.col(STATE_COLUMN) == POST)
             .filter(pl.col("TRUE_Points").is_not_null())
             .filter(pl.col("points").is_not_null())
             .rename({"TRUE_Points": "mu", "points": "actual"})
             .with_columns((pl.col("actual") - pl.col("mu")).alias("resid"))
-            .drop(["slotPosition", "player_active_status"]))
+            .drop(["slotPosition", "player_active_status", STATE_COLUMN]))
 
 
 def _fit_one(mu: np.ndarray, resid: np.ndarray) -> Tuple[float, float]:

@@ -28,6 +28,7 @@ from typing import Dict, List, NamedTuple, Optional, Sequence
 
 import streamlit as st
 
+from Scripts.live import LIVE_REMAINING
 from Scripts.outcomes import weekly as wk
 
 
@@ -126,13 +127,23 @@ class Side(NamedTuple):
         sd: Standard deviation of that total.
         starters: How many starters it holds.
         priced: How many of them carry a fitted spread. Below ``starters`` when the
-            lineup includes a kicker or a defence, which have none.
+            lineup includes a kicker or a defence, which have none -- and, since live
+            scoring, also when a starter's game is over, which is a *statement* that
+            his points are settled rather than a gap in the model.
+        modelled: Whether a fitted dispersion was available at all.
+
+            This exists because ``sd == 0`` stopped being one thing. It used to mean
+            only "there is no fitted model, so no probability can be quoted"; now it
+            also means "every game is final, so the outcome is certain" -- opposite
+            readings from the same number. :func:`outcome` needs to tell them apart,
+            and nothing else on the frame can.
     """
     owner: str
     projected: float
     sd: float
     starters: int
     priced: int
+    modelled: bool = True
 
     def band(self, z: float = wk.Z_P90) -> tuple:
         """An 80% interval on the total.
@@ -166,16 +177,34 @@ def model() -> Optional[dict]:
 
 
 def side(owner: str, starters: Sequence[dict], points_column: str = "TRUE_Points",
-         fitted: Optional[dict] = None) -> Side:
+         fitted: Optional[dict] = None,
+         variance_column: str = LIVE_REMAINING) -> Side:
     """Total, spread and counts for one starting lineup.
+
+    **The spread is computed from what is still to come, not from the total.** Once a
+    player's game is over his points are a fact with no uncertainty left, and
+    ``Var = phi*mu + mu^2/k`` evaluated at his *remaining* projection returns exactly
+    zero for him. Evaluated at the total instead it would hand a player who has
+    already banked 40 points the spread of a 40-point projection -- so a team whose
+    games were all final would still show a win probability around 70% rather than
+    the 100% it has earned. That is the difference between a live number and a
+    number that merely moves.
+
+    The fit itself is untouched and needs no refit: at ``elapsed = 0`` the remaining
+    projection *is* the projection, so before kickoff this reproduces the shipped
+    numbers exactly (``docs/plans/42-weekly-matchup-odds.md``'s coverage of 0.802
+    still describes it).
 
     Args:
         owner: Whose team.
         starters: Rows from :func:`lineup.current_lineup` or
             :func:`lineup.optimal_lineup`.
-        points_column: Which projection to total.
+        points_column: Which points column to total.
         fitted: From :func:`model`. Read once by the caller and passed in, so a page
             drawing two sides does not look it up twice.
+        variance_column: What the spread is computed from. Falls back to
+            ``points_column`` per row when absent, which is what a store written
+            before live scoring carries.
 
     Returns:
         Side: With ``sd`` of 0.0 when there is no fitted model, which
@@ -184,16 +213,19 @@ def side(owner: str, starters: Sequence[dict], points_column: str = "TRUE_Points
     projected = sum(float(row.get(points_column) or 0.0) for row in starters)
 
     if fitted is None:
-        return Side(owner, projected, 0.0, len(starters), 0)
+        return Side(owner, projected, 0.0, len(starters), 0, modelled=False)
 
     variance, priced = 0.0, 0
     for row in starters:
-        deviation = wk.player_sd(fitted, row.get("player_position"),
-                                 row.get(points_column))
+        remaining = row.get(variance_column)
+        if remaining is None:
+            remaining = row.get(points_column)
+        deviation = wk.player_sd(fitted, row.get("player_position"), remaining)
         if deviation > 0:
             priced += 1
         variance += deviation ** 2
-    return Side(owner, projected, variance ** 0.5, len(starters), priced)
+    return Side(owner, projected, variance ** 0.5, len(starters), priced,
+                modelled=True)
 
 
 class Outcome(NamedTuple):
@@ -216,11 +248,18 @@ def outcome(home: Side, away: Side) -> Outcome:
         away: The opponent.
 
     Returns:
-        Outcome: ``win`` is None when neither side carries a spread -- which happens
-        with no fitted model, and is reported rather than papered over with a 50%.
+        Outcome: ``win`` is None only when there is **no fitted model** -- reported
+        rather than papered over with a 50%.
+
+        A zero spread on both sides used to be read as that same case, and since
+        live scoring it is usually the opposite one: once every game in a matchup is
+        final there is nothing left to be uncertain about, and the honest answer is
+        1.0 or 0.0 rather than "unavailable". ``win_probability`` has always returned
+        exactly that for a zero spread; this function was discarding it. Hence
+        :attr:`Side.modelled`.
     """
     margin = home.projected - away.projected
-    if home.sd <= 0 and away.sd <= 0:
+    if not home.modelled and not away.modelled:
         return Outcome(None, margin)
     return Outcome(wk.win_probability(home.projected, home.sd,
                                       away.projected, away.sd), margin)
