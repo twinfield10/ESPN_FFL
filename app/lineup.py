@@ -249,6 +249,16 @@ def slot_counts(frame: pl.DataFrame, meta: dict) -> Dict[str, int]:
     Taking the metadata alone is what does not work: it is written when a *board* is
     built, and the lineups it would be applied to are written by a different command.
 
+    **Grouped by owner *and* team name, because an owner name is not a team key.**
+    ESPN serves no owner for some teams and ``fetch_utils.set_owner_names`` calls
+    them all ``"Unknown Owner"``, so two such teams merge into one 32-row roster.
+    Grouping on the owner alone then reads that merged roster as a team filling
+    ``QB`` twice and **doubles every slot in the league**: on 2026 week 1
+    ``big_red_fantasy_football`` returned QB 2, RB 4, WR 4 against a declared
+    QB1/RB2/WR2, so its optimiser was solving a lineup twice the real size and every
+    add/drop number it produced was wrong. The team name disambiguates them, and for
+    a league whose owners are all named it changes nothing -- one owner has one team.
+
     Args:
         frame: A lineups frame for one week, all teams.
         meta: The store's ``meta.json``.
@@ -267,7 +277,8 @@ def slot_counts(frame: pl.DataFrame, meta: dict) -> Dict[str, int]:
     if started.is_empty():
         return counts
 
-    per_team = started.group_by(["team_owner", "slotPosition"]).len()
+    keys = [c for c in ("team_owner", "team_name") if c in started.columns]
+    per_team = started.group_by([*keys, "slotPosition"]).len()
     widest = per_team.group_by("slotPosition").agg(pl.col("len").max())
     for slot, n in widest.iter_rows():
         counts[slot] = max(counts.get(slot, 0), int(n))
@@ -687,6 +698,81 @@ def pool_playable(row: dict, points_column: str = f"{BLEND}_Points") -> bool:
     return float(row.get(signal) or 0.0) > 0
 
 
+#: ESPN designations that may occupy an IR slot.
+#:
+#: The vocabulary is ESPN's fantasy enum, the same one ``draft_view.INJURY_CODES``
+#: names for the board: ``ACTIVE``, ``QUESTIONABLE``, ``DOUBTFUL``, ``OUT``,
+#: ``INJURY_RESERVE``, ``SUSPENSION``. Only the last two of those describe a man ESPN
+#: will let you park outside the roster count, and ``SUSPENSION`` is excluded because
+#: leagues configure it separately and none of these nine do.
+IR_ELIGIBLE_STATUSES = frozenset({"INJURY_RESERVE", "OUT"})
+
+
+def ir_eligible(row: dict) -> bool:
+    """Whether this player could be placed in an IR slot.
+
+    Args:
+        row: A lineups row carrying ``injury_status``.
+
+    Returns:
+        bool: False when the column is absent or null, which is the conservative
+        answer -- see :func:`droppable_for`.
+    """
+    return (row.get("injury_status") or "") in IR_ELIGIBLE_STATUSES
+
+
+def droppable_for(drop: dict, candidate: dict) -> bool:
+    """Whether dropping ``drop`` actually makes room for ``candidate``.
+
+    **An IR slot sits outside the roster count**, so dropping the man in it frees an
+    IR slot rather than a bench spot, and only a player ESPN would let *into* that
+    slot can use it. Adding a healthy free agent means dropping somebody who is
+    occupying a real roster place.
+
+    Without this rule the drop side is actively wrong rather than merely unhelpful,
+    because :func:`weakest_starter_candidates` ranks on projection ascending and an
+    IR player projects ``0.0`` -- so he sorts **first**. On 2026 week 1 that made
+    Jordyn Tyson the top suggested drop on Brian Barrett's ``gop_degenerates``
+    roster and Tank Dell the second on Ryan Bonifay's, 19 such rows across the nine
+    leagues.
+
+    Args:
+        drop: The rostered row being given up.
+        candidate: The free agent being added.
+
+    Returns:
+        bool: True when the swap is one ESPN would let you make.
+    """
+    if (drop.get("slotPosition") or "") != "IR":
+        return True
+    return ir_eligible(candidate)
+
+
+def playable_pool(frame: pl.DataFrame,
+                  points_column: str = f"{BLEND}_Points") -> pl.DataFrame:
+    """The free-agent rows that can still be started this week.
+
+    The frame-level counterpart of :func:`pool_playable`, with the same precedence
+    and the same fallback, so the table and the suggestions cannot disagree about
+    who is available.
+
+    Args:
+        frame: Free-agent rows.
+        points_column: Fallback signal, for a frame with no ESPN column at all.
+
+    Returns:
+        pl.DataFrame: Rows whose game has not kicked off.
+    """
+    if STATE_COLUMN in frame.columns:
+        return frame.filter(
+            pl.col(STATE_COLUMN).is_null()
+            | ~pl.col(LOCKED_COLUMN).fill_null(False))
+    signal = "ESPN_Points" if "ESPN_Points" in frame.columns else points_column
+    if signal not in frame.columns:
+        return frame
+    return frame.filter(pl.col(signal).fill_null(0.0) > 0)
+
+
 def as_rostered(row: dict) -> dict:
     """A pool row as it would look on a roster, for the optimiser to score.
 
@@ -831,7 +917,13 @@ def upgrades(pool: Sequence[dict], roster: Sequence[dict], slots: Dict[str, int]
     found: List[Upgrade] = []
     for slot in sorted(slots, key=slot_rank):
         candidates = [row for row in available if slot in competing_slots(row, slots)]
-        mine = [row for row in roster if slot in competing_slots(row, slots)]
+        # `not _is_locked`: a man whose game has kicked off cannot be replaced this
+        # week, so flagging him as out-projected is an alert about a decision that
+        # is already made. His number is also no longer a projection -- on a
+        # finished game it is the banked score -- so the margin would not mean what
+        # the column says it means.
+        mine = [row for row in roster
+                if slot in competing_slots(row, slots) and not _is_locked(row)]
         if not candidates or not mine:
             continue
         best = max(candidates, key=points)
@@ -947,25 +1039,37 @@ def add_drop_gain(roster: Sequence[dict], slots: Dict[str, int], points_column: 
 
 
 def weakest_starter_candidates(roster: Sequence[dict], slots: Dict[str, int],
-                               points_column: str) -> List[dict]:
+                               points_column: str, *,
+                               exclude_locked: bool = True) -> List[dict]:
     """Roster players ordered by how little the lineup would miss them.
 
     The drop side of an add/drop. Ordered by projection ascending among players who
     do **not** make the optimal lineup, then by projection among those who do -- so
     the first suggestions are people whose absence costs nothing this week.
 
+    **A player whose game has kicked off is not a drop candidate.** His points are
+    banked either way, so dropping him cannot recover them, and the projection this
+    sorts on is no longer a projection. Left unfiltered he sorts *first*, because a
+    finished zero looks exactly like a worthless bench player: on 2026 week 1 the
+    top suggested drop on Ryan Bonifay's ``gop_degenerates`` roster was Nick
+    Emmanwori, already ``post`` at 0.0. 5-20 rostered players per league were in
+    that state on a single Wednesday.
+
     Args:
         roster: The team's current rows.
         slots: From :func:`slot_counts`.
         points_column: Which projection to optimise.
+        exclude_locked: Drop players whose game has started from the result. Off
+            only for callers reasoning about a week that is already over.
 
     Returns:
         list: Rows, most droppable first.
     """
+    candidates = [r for r in roster if not (exclude_locked and _is_locked(r))]
     starters, _ = optimal_lineup(roster, slots, points_column)
     starting = {r.get("player_id") for r in starters}
     return sorted(
-        roster,
+        candidates,
         key=lambda r: (r.get("player_id") in starting,
                        float(r.get(points_column) or 0.0)))
 

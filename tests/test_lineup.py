@@ -962,3 +962,159 @@ def test_the_espn_points_proxy_still_answers_for_an_older_store():
     no_game["ESPN_Points"] = 0.0
     assert lu.pool_playable(has_game)
     assert not lu.pool_playable(no_game)
+
+
+# --- moves that cannot legally be made -----------------------------------
+#
+# Both of these shipped wrong and both were confirmed against the live 2026 stores
+# on 2026-09-10, which is why they are pinned by name rather than by shape.
+
+
+def test_a_man_who_has_played_is_not_a_drop_candidate():
+    """His points are banked whether you drop him or not, so the swap cannot
+    recover them -- and the number the sort reads is no longer a projection.
+
+    Left unfiltered a finished zero is indistinguishable from a worthless bench
+    player and sorts **first**: on 2026 week 1 the top suggested drop on Ryan
+    Bonifay's `gop_degenerates` roster was Nick Emmanwori, already `post` at 0.0.
+    """
+    roster = [
+        player("QB", "QB", 18.0, slot="QB"),
+        player("RB1", "RB", 14.0, slot="RB"),
+        player("RB2", "RB", 11.0, slot="RB"),
+        player("WR1", "WR", 13.0, slot="WR"),
+        player("WR2", "WR", 12.0, slot="WR"),
+        player("TE", "TE", 8.0, slot="TE"),
+        player("K", "K", 7.0, slot="K"),
+        player("DST", "D/ST", 6.0, slot="D/ST"),
+        player("Flex", "RB", 9.0, slot="RB/WR/TE"),
+        locked(player("Already Played", "WR", 0.0)),
+        player("Real Bench", "WR", 5.0),
+    ]
+    names = [r["player_name"]
+             for r in lu.weakest_starter_candidates(roster, FLEX_SLOTS,
+                                                    "TRUE_Points")]
+    assert "Already Played" not in names
+    assert names[0] == "Real Bench"
+
+
+def test_a_played_man_is_still_droppable_when_the_caller_asks():
+    """`exclude_locked=False` is for reasoning about a week that is already over,
+    where 'who should we have dropped' is a real question."""
+    roster = [player("Starter", "WR", 10.0, slot="WR"),
+              locked(player("Played", "WR", 0.0))]
+    names = [r["player_name"]
+             for r in lu.weakest_starter_candidates(
+                 roster, {"WR": 1}, "TRUE_Points", exclude_locked=False)]
+    assert "Played" in names
+
+
+def test_a_man_who_has_played_is_never_flagged_as_out_projected():
+    """`upgrades` compares the pool against the lineup as it is set. A starter whose
+    game has kicked off cannot be replaced this week, so telling you somebody beats
+    him is an alert about a decision that is already made."""
+    roster = [locked(player("Played Badly", "WR", 1.0, slot="WR")),
+              player("Fine", "WR", 14.0, slot="WR")]
+    pool = [free_agent("Available", "WR", 11.0)]
+    flags = lu.upgrades(pool, roster, {"WR": 2}, "TRUE_Points")
+    assert [u.over["player_name"] for u in flags] == []
+
+
+def test_an_unplayed_starter_is_still_flagged():
+    """The guard above must not silence the flag it exists to keep honest."""
+    roster = [unlocked(player("Weak", "WR", 1.0, slot="WR")),
+              player("Fine", "WR", 14.0, slot="WR")]
+    pool = [free_agent("Available", "WR", 11.0)]
+    flags = lu.upgrades(pool, roster, {"WR": 2}, "TRUE_Points")
+    assert [u.over["player_name"] for u in flags] == ["Weak"]
+
+
+# --- the IR slot ----------------------------------------------------------
+
+
+def test_only_an_ir_or_out_player_may_take_an_ir_slot():
+    assert lu.ir_eligible({"injury_status": "INJURY_RESERVE"})
+    assert lu.ir_eligible({"injury_status": "OUT"})
+    assert not lu.ir_eligible({"injury_status": "QUESTIONABLE"})
+    assert not lu.ir_eligible({"injury_status": "ACTIVE"})
+
+
+def test_an_absent_injury_status_is_not_ir_eligible():
+    """A store with no board joined leaves the column absent. Reading that as
+    "eligible" would restore the bug; reading it as "not" costs at most one drop
+    candidate, so the conservative direction is the right default."""
+    assert not lu.ir_eligible({})
+    assert not lu.ir_eligible({"injury_status": None})
+
+
+def test_dropping_an_ir_player_does_not_make_room_for_a_healthy_add():
+    """The mechanic: an IR slot sits **outside** the roster count, so giving up the
+    man in it frees an IR slot rather than a bench place. On 2026 week 1 this made
+    Jordyn Tyson the top suggested drop on Brian Barrett's roster -- a move ESPN
+    would not have let him make."""
+    on_ir = player("Jordyn Tyson", "WR", 0.0, slot="IR")
+    healthy = free_agent("Healthy Add", "WR", 12.0)
+    healthy["injury_status"] = "ACTIVE"
+    assert not lu.droppable_for(on_ir, healthy)
+
+
+def test_dropping_an_ir_player_makes_room_for_an_out_add():
+    on_ir = player("Jordyn Tyson", "WR", 0.0, slot="IR")
+    hurt = free_agent("Hurt Add", "WR", 0.0)
+    hurt["injury_status"] = "OUT"
+    assert lu.droppable_for(on_ir, hurt)
+
+
+def test_a_bench_player_is_droppable_for_anybody():
+    bench = player("Bench", "WR", 4.0, slot="BE")
+    healthy = free_agent("Healthy Add", "WR", 12.0)
+    healthy["injury_status"] = "ACTIVE"
+    assert lu.droppable_for(bench, healthy)
+
+
+# --- the pool, as a frame -------------------------------------------------
+
+
+def test_playable_pool_agrees_with_the_row_by_row_rule():
+    """The table and the suggestions must not disagree about who is available, so
+    the frame filter and `pool_playable` are the same rule twice."""
+    rows = [unlocked(free_agent("Upcoming", "WR", 12.0)),
+            locked(free_agent("Finished", "WR", 12.0)),
+            locked(free_agent("On Bye", "WR", 0.0), state="bye")]
+    frame = pl.DataFrame(rows)
+    kept = lu.playable_pool(frame)["player_name"].to_list()
+    assert kept == [r["player_name"] for r in rows if lu.pool_playable(r)]
+    assert kept == ["Upcoming"]
+
+
+def test_playable_pool_keeps_everyone_on_a_store_with_no_game_state():
+    """The 2025 stores, and `winfield_football`'s 2026 one, carry no `game_state`.
+    They must behave exactly as they did before live scoring landed."""
+    frame = pl.DataFrame([free_agent("Playing", "WR", 12.0),
+                          free_agent("Bye", "WR", 0.0)])
+    kept = lu.playable_pool(frame)["player_name"].to_list()
+    assert kept == ["Playing"]
+
+
+# --- one owner is not a team key ------------------------------------------
+
+
+def test_two_teams_with_no_owner_do_not_merge_into_one_roster():
+    """ESPN serves no owner for some teams and `fetch_utils.set_owner_names` called
+    them all `"Unknown Owner"`. Grouped on the owner alone, two such teams read as
+    one manager starting two quarterbacks, and **every slot in the league doubled**:
+    `big_red_fantasy_football` 2026 week 1 returned QB 2, RB 4, WR 4 against a
+    declared QB1/RB2/WR2, so its optimiser was solving a lineup twice the real size.
+    """
+    def row(owner, team, slot, position):
+        return {**player(f"{team}-{slot}", position, 10.0, slot=slot),
+                "team_owner": owner, "team_name": team}
+
+    frame = pl.DataFrame([
+        row("Unknown Owner", "Team 5", "QB", "QB"),
+        row("Unknown Owner", "Team 5", "RB", "RB"),
+        row("Unknown Owner", "Team 7", "QB", "QB"),
+        row("Unknown Owner", "Team 7", "RB", "RB"),
+    ])
+    counts = lu.slot_counts(frame, {})
+    assert counts == {"QB": 1, "RB": 1}
