@@ -310,6 +310,287 @@ def test_the_fill_grows_with_the_advantage():
     assert alpha(2.0) < alpha(5.0) < alpha(9.0)
 
 
+# --- the positional scale ------------------------------------------------
+#
+# Ported from ``populateGoogleSheet``'s ``scale_dict``. The two facts worth pinning
+# hardest are the ones that make the port faithful rather than merely similar: the
+# pivot excludes free agents and the ceiling includes them.
+
+#: The columns a scale row needs. Narrower than :data:`COLUMNS` on purpose -- this is
+#: what :data:`lineup_table.SCALE_INPUTS` narrows a 628-column frame down to.
+SCALE_COLUMNS = ("primaryPosition", "player_position", "team_owner", "slotPosition",
+                 "LIVE_Points", "TRUE_Points")
+
+
+def scale_row(position, points, *, owner="Tommy", slot=None, live=None):
+    """One row as :func:`lineup_table.points_scales` reads it."""
+    return {
+        "primaryPosition": position,
+        "player_position": position,
+        "team_owner": owner,
+        "slotPosition": position if slot is None else slot,
+        "LIVE_Points": points if live is None else live,
+        "TRUE_Points": points,
+    }
+
+
+def rulers(rows, columns=SCALE_COLUMNS):
+    return lt.points_scales(rows, columns)
+
+
+def alpha_of(fill):
+    """The alpha out of an ``rgba(...)``, for comparing two fills' strength."""
+    return float(fill.rsplit(", ", 1)[1].rstrip(")"))
+
+
+def test_the_ruler_is_per_position():
+    """The whole point. 14 points is a fine week for a running back and a poor one
+    for a quarterback, and the table has to say which."""
+    rows = ([scale_row("QB", p) for p in (16.0, 17.0, 18.0, 24.0)]
+            + [scale_row("RB", p, owner=f"O{p}") for p in (8.0, 14.0, 15.0, 22.0)])
+    scales = rulers(rows)
+    assert lt.points_fill(14.0, scales["RB"]) != lt.points_fill(14.0, scales["QB"])
+    red = lt.POINTS_RGB["negative"]
+    assert f"{red[0]}, {red[1]}, {red[2]}" in lt.points_fill(14.0, scales["QB"])
+
+
+def test_the_two_arms_are_the_validated_diverging_pair():
+    """Blue and red, not the green and red every other fill here uses.
+
+    ``advantage_fill`` earns green/red with a printed sign in every cell; a *level*
+    has no sign, so the pair has to stand on hue alone -- and green/red does not
+    reach the CVD floor band at any alpha, 4.7 being its ceiling. This test exists so
+    that swapping the pair back is a deliberate act with a failing test attached,
+    rather than a tidy-up nobody measures."""
+    assert lt.POINTS_RGB["positive"] == (42, 120, 214)
+    assert lt.POINTS_RGB["negative"] == lt.ADVANTAGE_RGB["negative"]
+    # And the ADV column keeps the pair it can justify.
+    assert lt.ADVANTAGE_RGB["positive"] == (27, 175, 122)
+
+
+def test_the_arms_are_the_two_colours():
+    scale = lt.PointsScale(mid=12.0, high=20.0)
+    blue, red = lt.POINTS_RGB["positive"], lt.POINTS_RGB["negative"]
+    assert f"{blue[0]}, {blue[1]}, {blue[2]}" in lt.points_fill(19.0, scale)
+    assert f"{red[0]}, {red[1]}, {red[2]}" in lt.points_fill(3.0, scale)
+
+
+def test_the_pivot_excludes_free_agents_and_the_ceiling_includes_them():
+    """Sheets' two deliberate asymmetries, and the reason the scale survives a pool
+    of hundreds of near-zero rows: including them moved the running-back pivot by a
+    quarter on real week-1 data."""
+    rostered = [scale_row("RB", p, owner=f"O{i}")
+                for i, p in enumerate((12.0, 14.0, 16.0))]
+    pool = [scale_row("RB", p, owner=lt.FREE_AGENT_OWNER) for p in (0.4, 0.8, 40.0)]
+    only_rostered = rulers(rostered)["RB"]
+    with_pool = rulers(rostered + pool)["RB"]
+    assert with_pool.mid == only_rostered.mid          # pivot untouched
+    assert with_pool.high == 40.0                      # ceiling moved
+
+
+def test_a_zero_does_not_drag_the_pivot_down():
+    """A zero in a projection column is "no opinion", not "worth nothing" -- the same
+    fact ``lineup.real_sources`` turns on. Sheets nulls them before taking the
+    median."""
+    without = rulers([scale_row("WR", p, owner=f"O{i}")
+                      for i, p in enumerate((10.0, 12.0, 14.0))])["WR"]
+    withzero = rulers([scale_row("WR", p, owner=f"O{i}")
+                       for i, p in enumerate((0.0, 10.0, 12.0, 14.0))])["WR"]
+    assert withzero.mid == without.mid
+
+
+def test_the_pivot_has_no_colour_to_be():
+    scale = lt.PointsScale(mid=12.0, high=20.0)
+    assert lt.points_fill(12.0, scale) == ""
+
+
+def test_nothing_clips_because_both_painted_columns_are_pooled():
+    """The measured reason one shared ruler is safe. A ruler built from projections
+    alone put 15-50% of realised scores above its own ceiling; pooling ``LIVE`` makes
+    the ceiling at least every value either column can hold."""
+    rows = [scale_row("TE", 9.0, owner=f"O{i}", live=realised)
+            for i, realised in enumerate((0.0, 9.0, 11.0, 45.6))]
+    scale = rulers(rows)["TE"]
+    assert scale.high >= 45.6
+    for row in rows:
+        for column in ("LIVE_Points", "TRUE_Points"):
+            assert row[column] <= scale.high
+
+
+def test_at_kickoff_the_ruler_is_the_projection_ruler():
+    """``LIVE == TRUE`` exactly at ``elapsed = 0`` -- see
+    ``test_live_points.test_before_any_kickoff_live_is_exactly_the_blend`` -- so this
+    was inert until the first game started rather than needing a week-phase switch."""
+    projections = [scale_row("QB", p, owner=f"O{i}")
+                   for i, p in enumerate((14.0, 18.0, 22.0))]
+    pooled = rulers(projections)["QB"]
+    blend_only = lt.points_scales(projections, [c for c in SCALE_COLUMNS
+                                                if c != "LIVE_Points"])["QB"]
+    assert pooled == blend_only
+
+
+def test_a_store_written_before_live_scoring_still_gets_a_ruler():
+    rows = [scale_row("RB", p, owner=f"O{i}") for i, p in enumerate((8.0, 12.0, 20.0))]
+    for row in rows:
+        del row["LIVE_Points"]
+    scales = lt.points_scales(rows, [c for c in SCALE_COLUMNS if c != "LIVE_Points"])
+    assert scales["RB"].high == 20.0
+
+
+def test_a_frame_with_no_poolable_column_paints_nothing():
+    assert lt.points_scales([scale_row("RB", 10.0)], ("primaryPosition",)) == {}
+
+
+def test_a_position_with_nobody_rostered_is_left_unpainted():
+    """Rather than inventing a pivot. Doing that is how ``scale_dict`` came to send
+    the literal string "nan" to the Sheets API for a league with no kicker tab."""
+    rows = [scale_row("K", 9.0, owner=lt.FREE_AGENT_OWNER) for _ in range(3)]
+    assert "K" not in rulers(rows)
+
+
+def test_individual_defenders_pool_into_one_ruler():
+    """Following Sheets' ``position_mapping``. One league carries these at all, and a
+    ruler per defensive position would hold three players."""
+    rows = [scale_row(pos, 8.0 + i, owner=f"O{i}")
+            for i, pos in enumerate(("LB", "CB", "S", "DE"))]
+    scales = rulers(rows)
+    assert lt.IDP_GROUP in scales
+    assert not {"LB", "CB", "S", "DE"} & set(scales)
+
+
+def test_the_team_ruler_takes_a_real_minimum_where_a_position_takes_zero():
+    """Sheets' one departure from its own rule, and it is load-bearing. A lineup total
+    is never near zero, so anchoring its red arm there spends the whole arm on a range
+    no team occupies -- a below-average lineup would read as neutral while an
+    above-average one lit up."""
+    rows = []
+    for owner, total in (("A", 120.0), ("B", 130.0), ("C", 140.0)):
+        rows += [scale_row("RB", total / 2, owner=owner, slot="RB") for _ in range(2)]
+    team = rulers(rows)[lt.TEAM_GROUP]
+    assert team.low == 120.0
+    assert rulers(rows)["RB"].low == 0.0
+    # Symmetric: the worst and best lineups are both fully painted.
+    assert alpha_of(lt.points_fill(120.0, team)) == pytest.approx(
+        alpha_of(lt.points_fill(140.0, team)))
+
+
+def test_the_team_ruler_counts_the_lineup_and_not_the_roster():
+    """The same population :func:`lineup_table.totals` sums. The bench values here
+    are large enough to reverse the ordering if they were counted, so this fails
+    loudly rather than by a rounding difference."""
+    rows = [
+        scale_row("RB", 10.0, owner="A", slot="RB"),
+        scale_row("RB", 10.0, owner="A", slot="RB"),
+        scale_row("RB", 99.0, owner="A", slot="BE"),
+        scale_row("RB", 10.0, owner="B", slot="RB"),
+        scale_row("RB", 20.0, owner="B", slot="RB"),
+        scale_row("RB", 1.0, owner="B", slot="IR"),
+    ]
+    team = rulers(rows)[lt.TEAM_GROUP]
+    assert (team.low, team.high) == (20.0, 30.0)
+
+
+def test_two_managers_who_played_the_same_lineup_have_nothing_to_compare():
+    """No spread, so no ruler -- and the renderers read a missing ruler as "do not
+    paint this one" rather than painting a row of neutral grey."""
+    rows = [scale_row("RB", 10.0, owner=owner, slot="RB") for owner in ("A", "B")]
+    assert lt.TEAM_GROUP not in rulers(rows)
+
+
+def test_one_manager_is_not_a_room():
+    rows = [scale_row("RB", 10.0, owner="A", slot="RB"),
+            scale_row("RB", 20.0, owner="A", slot="RB")]
+    assert lt.TEAM_GROUP not in rulers(rows)
+
+
+# --- what the scale does to a cell ---------------------------------------
+
+def test_only_the_two_reading_columns_are_ever_painted():
+    """The warning ``draft_view.Shading`` records: at seventeen shaded columns the
+    table read as a heatmap and the columns carrying a judgement stopped being the
+    ones that caught the eye."""
+    scales = {"RB": lt.PointsScale(mid=12.0, high=20.0)}
+    row = scale_row("RB", 19.0)
+    row["ESPN_Points"] = 19.0
+    painted = lt.cell_fill(row, lt.Col("TRUE_Points", "TRUE", "points", ""), scales)
+    assert painted
+    for label in ("ESPN", "FP", "PINNY", "BOL", "ATH", "Sources", "Δ"):
+        assert lt.cell_fill(
+            row, lt.Col("ESPN_Points", label, "points", ""), scales) == ""
+
+
+def test_a_bye_is_not_a_bad_week():
+    """``Scripts.live.resolve`` scores a bye as 0.0, which on a ruler anchored at zero
+    is the deepest red the table can draw. Zero there is the absence of a game."""
+    scales = {"RB": lt.PointsScale(mid=12.0, high=20.0)}
+    bye = scale_row("RB", 0.0, live=0.0)
+    bye["game_state"] = "bye"
+    assert lt.cell_fill(bye, lt.Col("LIVE_Points", "LIVE", "points", ""),
+                        scales) == ""
+    # And a real zero in a game that was played still reads as one.
+    played = scale_row("RB", 0.0, live=0.0)
+    played["game_state"] = "post"
+    assert lt.cell_fill(played, lt.Col("LIVE_Points", "LIVE", "points", ""), scales)
+
+
+def test_an_absent_row_and_an_absent_number_both_paint_nothing():
+    scales = {"RB": lt.PointsScale(mid=12.0, high=20.0)}
+    assert lt.cell_fill(None, lt.Col("TRUE_Points", "TRUE", "points", ""),
+                        scales) == ""
+    empty = scale_row("RB", 10.0)
+    empty["TRUE_Points"] = None
+    assert lt.cell_fill(empty, lt.Col("TRUE_Points", "TRUE", "points", ""),
+                        scales) == ""
+    assert lt.points_fill(float("nan"), scales["RB"]) == ""
+
+
+def test_no_scales_means_no_paint_rather_than_an_exception():
+    """A pre-live store, or a league with one manager. The fill is cosmetic and must
+    never be the thing that takes the page."""
+    row = scale_row("RB", 10.0)
+    assert lt.cell_fill(row, lt.Col("TRUE_Points", "TRUE", "points", ""), None) == ""
+    assert lt.cell_fill(row, lt.Col("TRUE_Points", "TRUE", "points", ""), {}) == ""
+
+
+def test_the_fill_needs_no_theme_because_it_composites():
+    """The house rule in :data:`lineup_table.CSS`: every colour here is an alpha over
+    whatever the page's background is, so one pair works in light and in dark. An
+    opaque hex would have to be chosen per theme, the way the draft board's is."""
+    fill = lt.points_fill(19.0, lt.PointsScale(mid=12.0, high=20.0))
+    assert fill.startswith("rgba(")
+    assert "#" not in fill
+
+
+def test_the_fill_saturates_at_the_ceiling_and_the_floor():
+    scale = lt.PointsScale(mid=12.0, high=20.0)
+    assert lt.points_fill(20.0, scale) == lt.points_fill(400.0, scale)
+    assert lt.points_fill(0.0, scale) == lt.points_fill(-50.0, scale)
+    assert f"{lt.ADVANTAGE_MAX_ALPHA:.2f}" in lt.points_fill(20.0, scale)
+
+
+def test_the_fill_grows_with_the_distance_from_the_pivot():
+    scale = lt.PointsScale(mid=12.0, high=20.0)
+    assert (alpha_of(lt.points_fill(14.0, scale))
+            < alpha_of(lt.points_fill(17.0, scale))
+            < alpha_of(lt.points_fill(19.5, scale)))
+
+
+def test_negative_points_saturate_rather_than_wrapping():
+    """A quarterback throwing three interceptions and a defence giving up 40 both
+    score below zero in most of these leagues, so the arm has to hold past its own
+    floor rather than clamping to nothing or inverting."""
+    scale = lt.PointsScale(mid=12.0, high=20.0)
+    assert lt.points_fill(-3.0, scale) == lt.points_fill(0.0, scale)
+    red = lt.POINTS_RGB["negative"]
+    assert f"{red[0]}, {red[1]}, {red[2]}" in lt.points_fill(-3.0, scale)
+
+
+def test_a_number_barely_off_the_pivot_is_not_smudged():
+    """The same floor :func:`lineup_table.advantage_fill` keeps: a fill too faint to
+    read looks like information and is not."""
+    assert lt.points_fill(12.05, lt.PointsScale(mid=12.0, high=20.0)) == ""
+
+
 # --- the markup ----------------------------------------------------------
 
 def matchup():

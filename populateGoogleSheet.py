@@ -349,6 +349,16 @@ def write_to_google(df_dict, league_name, primary_owner):
                 median_value = scale_dict["MEDIAN"][scale_key]
                 min_value = scale_dict["MIN"][scale_key]
 
+                # A league that carries no players at a position gives that group an
+                # all-NaN frame, so `.max().max()` is NaN and `str(NaN)` sends the
+                # literal string "nan" as a gradient stop. The FA tab for that
+                # position is skipped by the rename's ValueError, but this tab still
+                # looks the same group up for any row matching it -- a `K` row in a
+                # league whose kicker frame came back empty. Better unpainted.
+                if any(v != v for v in (max_value, median_value, min_value)):
+                    print(f"  no {scale_key} scale ({position_value} rows unpainted)")
+                    continue
+
                 # Create a range for each row with this position
                 for row_num in row_numbers:
                     rule = {
@@ -358,8 +368,16 @@ def write_to_google(df_dict, league_name, primary_owner):
                                     "sheetId": worksheet.id,
                                     "startRowIndex": row_num - 1,  # Convert to 0-indexed
                                     "endRowIndex": row_num,  # Exclusive, so this is just the one row
-                                    "startColumnIndex": 5,  # Column F (0-indexed)
-                                    "endColumnIndex": 10  # Column J (0-indexed, exclusive)
+                                    # Derived, not literal. The hardcoded ``5, 10``
+                                    # here stopped at ``ATH_PTS`` when The Athletic
+                                    # was inserted on 2026-09-09, leaving
+                                    # ``TRUE_PTS`` -- the blend this whole pipeline
+                                    # exists to produce -- the one column on the tab
+                                    # with no colour. ``points_span`` above was
+                                    # written for exactly this and was only ever
+                                    # wired to ``numberFormat``.
+                                    "startColumnIndex": pts_start,
+                                    "endColumnIndex": pts_end
                                 }],
                                 "gradientRule": {
                                     "minpoint": {
@@ -518,8 +536,10 @@ def write_to_google(df_dict, league_name, primary_owner):
                             "sheetId": worksheet.id,
                             "startRowIndex": 1,  # Start at row 2 (0-indexed)
                             "endRowIndex": num_rows,
-                            "startColumnIndex": 4,  # Column E (0-indexed)
-                            "endColumnIndex": 9  # Column I (0-indexed, exclusive)
+                            # See the note on the Lineup tab's gradient: literal
+                            # ``4, 9`` left ``TRUE`` unpainted here too.
+                            "startColumnIndex": proj_start,
+                            "endColumnIndex": proj_end
                         }],
                         "gradientRule": {
                             "minpoint": {
@@ -623,8 +643,11 @@ def write_to_google(df_dict, league_name, primary_owner):
                             "sheetId": worksheet.id,
                             "startRowIndex": 1,  # Start at row 2 (0-indexed)
                             "endRowIndex": num_rows,
-                            "startColumnIndex": 4,  # Column E (0-indexed)
-                            "endColumnIndex": 10  # Column J (0-indexed, exclusive)
+                            # Wrong at *both* ends as a literal: ``4`` is the text
+                            # column ``TEAM``, and ``10`` stopped before
+                            # ``TRUE_PTS``. See the Lineup tab's gradient.
+                            "startColumnIndex": fa_start,
+                            "endColumnIndex": fa_end
                         }],
                         "gradientRule": {
                             "minpoint": {

@@ -55,6 +55,21 @@ LINKS = (
 #: lines each on a laptop.
 CARD_COLUMNS = 2
 
+#: The band on the row belonging to whoever owns the league being shown.
+#:
+#: **An alpha-composited grey rather than an opaque hex per theme**, so this module
+#: needs no ``theme`` argument -- the rule :data:`lineup_table.CSS` sets and
+#: :func:`lineup_table.points_fill` follows. :data:`sheet_view.SHEET_FILLS` predates
+#: it and threads a ``theme`` parameter through two call sites to do the same job.
+#:
+#: **Grey rather than the accent, and deliberately.** A hue on your own row would be
+#: read as a verdict on where you sit, and the row is worth finding whether you are
+#: first or last -- on ``knights_ffl`` the primary owner is tenth of twelve, which is
+#: the case that most needs a findable row and least wants a colour with an opinion.
+#: Weight carries "this one is yours" without asserting anything about it, which is
+#: the same split :data:`lineup_table.EMPHASIS` draws.
+OWN_ROW_FILL = "rgba(128, 128, 128, 0.16)"
+
 #: The standings table's columns.
 #:
 #: ``This Week`` and ``Projected`` are both here on purpose: one is what has been
@@ -66,7 +81,11 @@ STANDINGS_CONFIG: Dict[str, object] = {
         help="Win percentage, then points for, then this week's projection — which "
              "only separates two teams that are level on both, and before week 1 "
              "separates all of them."),
-    "Owner": st.column_config.TextColumn(pinned=True),
+    "Owner": st.column_config.TextColumn(
+        pinned=True,
+        help="Whoever this league's store names as its primary owner is banded and "
+             "bold — the same team Roster and Matchup open on. In a league that is "
+             "someone else's, that is correctly their name."),
     "W-L-T": st.column_config.TextColumn(
         width="small",
         help="Over weeks that have actually been played. An unplayed fixture is "
@@ -85,6 +104,55 @@ STANDINGS_CONFIG: Dict[str, object] = {
         help="Our blend's total for the lineup ESPN currently has set — the same "
              "basis the Matchup tab quotes, not the best lineup available."),
 }
+
+
+def _own_row_styler(card: home.LeagueSummary):
+    """The standings frame with the league's own owner banded, as a ``Styler``.
+
+    A twelve-team table is scanned for one row, and ``Rk`` does not help find it --
+    you have to know your rank before you can look it up, which is the thing you came
+    to the table for. ``meta["primary_owner"]`` is the same value
+    :attr:`session.Selection.my_owner` carries, so the banded row is the team Roster
+    and Matchup already open on.
+
+    Row-wise rather than per-cell: the band is a property of the row, and
+    ``Styler.map`` cannot see which row a cell is in. Same shape as
+    :func:`sheet_view.panel_styler`.
+
+    Returns the frame untouched rather than raising, on any of the three ways this
+    can have nothing to say -- a store with no ``primary_owner``, a frame with no
+    ``Owner`` column, or an owner who is not in the table. A standings table that
+    renders unbanded is a cosmetic loss; one that raises takes the landing page.
+
+    Args:
+        card: A summary whose ``standings`` is present and non-empty.
+
+    Returns:
+        A pandas ``Styler``, or ``card.standings`` unchanged.
+    """
+    frame = card.standings
+    if card.owner is None or frame is None or "Owner" not in frame.columns:
+        return frame
+    try:
+        pandas_frame = frame.to_pandas()
+        mine = pandas_frame["Owner"] == card.owner
+        if not bool(mine.any()):
+            return frame
+        band = f"background-color: {OWN_ROW_FILL}; font-weight: 700"
+
+        def row_style(row) -> List[str]:
+            return [band if bool(mine.iloc[int(row.name)]) else ""] * len(row)
+
+        # Paint only. Number formatting stays `column_config`'s job -- see
+        # :data:`STANDINGS_CONFIG` -- because a Styler that also formats hands
+        # Streamlit display *strings*, and a string column cannot be sorted as a
+        # number. This table is sorted (`PF`, `Projected`), so that cost is real
+        # here. Same division of labour as `sheet_view.panel_styler` and
+        # `draft_view.styled_frame`; `views.weekly._emphasised` is the one place
+        # that knowingly goes the other way.
+        return pandas_frame.style.apply(row_style, axis=1).format(na_rep="")
+    except Exception:                    # noqa: BLE001 - cosmetic, never fatal
+        return frame
 
 
 def _go(league_key: str, week: int, route: str) -> None:
@@ -269,7 +337,7 @@ def _render_standings(cards: Sequence[home.LeagueSummary]) -> None:
             # nothing, because a stretched table redistributes the slack. Found by
             # screenshot; `AppTest` reports the frame a page rendered, never the
             # width it rendered into.
-            st.dataframe(card.standings, width="content", hide_index=True,
+            st.dataframe(_own_row_styler(card), width="content", hide_index=True,
                          placeholder="", lazy=False,
                          column_config=STANDINGS_CONFIG)
             st.caption(

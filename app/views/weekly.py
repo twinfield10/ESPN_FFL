@@ -73,6 +73,22 @@ LIVE_HELP: Dict[str, str] = {
 BOLD_LABELS = ("Live", "Us")
 ITALIC_LABELS = ("Δ",)
 
+#: The painted columns, as ``(frame column, lineup_table label, grid label)``.
+#:
+#: Three names for two columns, because the grid and the HTML tables head them
+#: differently -- ``TRUE_Points`` is ``TRUE`` on a lineup table and ``Us`` here. The
+#: middle name is what :func:`lineup_table.cell_fill` checks against
+#: :data:`lineup_table.PAINTED_LABELS`, so the two renderers cannot come to disagree
+#: about which cells are painted; only about what the header says.
+#:
+#: The same two columns :data:`BOLD_LABELS` emboldens, and deliberately so: the fill
+#: says whether the number is any good, and the only numbers worth asking that about
+#: are the ones the table is read for.
+PAINTED: tuple = (
+    (live.LIVE_POINTS, "LIVE", "Live"),
+    (f"{lu.BLEND}_Points", "TRUE", "Us"),
+)
+
 
 def missing_sources_note(meta: dict) -> Optional[str]:
     """A sentence naming the weekly sources this league does not have, if any.
@@ -157,7 +173,8 @@ def _anything_played(frame: pl.DataFrame) -> bool:
 
 
 def render_table(frame: pl.DataFrame, meta: dict, *, columns: Sequence[str],
-                 height: Optional[int] = None) -> None:
+                 height: Optional[int] = None,
+                 scales: Optional[Mapping[str, ltab.PointsScale]] = None) -> None:
     """Draw one weekly table with house labels and tooltips.
 
     Args:
@@ -165,9 +182,17 @@ def render_table(frame: pl.DataFrame, meta: dict, *, columns: Sequence[str],
         meta: The store's ``meta.json``.
         columns: From :func:`display_columns`.
         height: Optional pixel cap.
+        scales: From :func:`lineup_table.points_scales`, computed on the
+            **unfiltered** league-week rather than on ``frame`` -- a colour that
+            moves when you filter the pool is not encoding the number.
     """
     labels = {**BASE_LABELS, **SOURCE_LABELS}
     present = [c for c in columns if c in frame.columns]
+    # Off ``frame`` rather than ``shown``, because the fill rule reads columns the
+    # table does not show: the player's own position, and ``game_state`` -- a bye is
+    # a scored 0.0 that means "no game", and painting it deepest red would be the
+    # table asserting a bad week nobody had.
+    fills = _fills(frame, scales)
     shown = frame.select(present).rename(
         {c: labels[c] for c in present if c in labels})
 
@@ -208,7 +233,7 @@ def render_table(frame: pl.DataFrame, meta: dict, *, columns: Sequence[str],
         config[label] = st.column_config.NumberColumn(
             format="%.1f", help=SOURCE_HELP.get(prefix, ""))
 
-    st.dataframe(_emphasised(shown), width="stretch", hide_index=True,
+    st.dataframe(_emphasised(shown, fills), width="stretch", hide_index=True,
                  column_config=config, placeholder="", lazy=False,
                  **({"height": height} if height else {}))
 
@@ -235,7 +260,47 @@ def _numeric_format(label: str) -> str:
     return "{:.1f}"
 
 
-def _emphasised(shown: pl.DataFrame):
+def _fills(frame: pl.DataFrame,
+           scales: Optional[Mapping[str, ltab.PointsScale]]
+           ) -> List[Dict[str, str]]:
+    """One dict of ``grid label -> CSS colour`` per row, in ``frame``'s own order.
+
+    Computed here rather than inside the ``Styler`` because the rule needs columns
+    the grid does not display, and because going through
+    :func:`lineup_table.cell_fill` is what keeps this grid and the HTML tables
+    agreeing about which cells are painted and on which ruler.
+
+    Args:
+        frame: The rows to show, before renaming.
+        scales: From :func:`lineup_table.points_scales`, or None to paint nothing.
+
+    Returns:
+        list: One dict per row. Empty when there is nothing to paint, which the
+        caller reads as "no fills" without having to special-case it.
+    """
+    if not scales:
+        return []
+    painted = [(source, label, shown) for source, label, shown in PAINTED
+               if source in frame.columns]
+    if not painted:
+        return []
+    wanted = {c for c in ltab.SCALE_INPUTS if c in frame.columns}
+    wanted.update(source for source, _, _ in painted)
+    wanted.add(live.STATE_COLUMN)
+    rows = frame.select(sorted(wanted & set(frame.columns))).to_dicts()
+    out = []
+    for row in rows:
+        got = {}
+        for source, label, shown in painted:
+            fill = ltab.cell_fill(row, ltab.Col(source, label, "points", ""), scales)
+            if fill:
+                got[shown] = f"background-color: {fill}"
+        out.append(got)
+    return out
+
+
+def _emphasised(shown: pl.DataFrame,
+                fills: Optional[Sequence[Mapping[str, str]]] = None):
     """The frame as a pandas ``Styler``, with the reading columns emphasised.
 
     A Streamlit dataframe is drawn on a canvas, so no stylesheet reaches its cells and
@@ -249,6 +314,9 @@ def _emphasised(shown: pl.DataFrame):
 
     Args:
         shown: The renamed, ordered frame.
+        fills: From :func:`_fills`, one dict per row and aligned to ``shown``'s row
+            order. Applied row-wise rather than per-cell because a row's colour
+            depends on the player's *own* position, which ``Styler.map`` cannot see.
 
     Returns:
         A pandas ``Styler``, or ``shown`` unchanged on failure.
@@ -265,6 +333,18 @@ def _emphasised(shown: pl.DataFrame):
             styler = styler.set_properties(subset=bold, **{"font-weight": "700"})
         if italic:
             styler = styler.set_properties(subset=italic, **{"font-style": "italic"})
+        if fills:
+            held = list(fills)
+
+            def paint(row):
+                # ``to_pandas`` always hands back a fresh 0..n-1 index, so the row
+                # label *is* its position in `held`. Guarded anyway: a mismatch would
+                # colour the wrong player, which is worse than colouring nobody.
+                got = held[row.name] if isinstance(row.name, int) and \
+                    0 <= row.name < len(held) else {}
+                return [got.get(str(column), "") for column in row.index]
+
+            styler = styler.apply(paint, axis=1)
         return styler
     except Exception:                    # noqa: BLE001 - cosmetic, never fatal
         return shown
@@ -305,7 +385,8 @@ def render_lineup(rows: Sequence[dict], info: Sequence[ltab.Col],
                   slot_column: str = "slot",
                   total_rows: Optional[Sequence[dict]] = None,
                   marks: Optional[Mapping[object, str]] = None,
-                  below: Optional[Sequence[dict]] = None) -> None:
+                  below: Optional[Sequence[dict]] = None,
+                  scales: Optional[Mapping[str, ltab.PointsScale]] = None) -> None:
     """Draw one lineup under spanner headers, with a total row.
 
     Args:
@@ -319,15 +400,18 @@ def render_lineup(rows: Sequence[dict], info: Sequence[ltab.Col],
         marks: ``player_id`` to ``"in"`` or ``"out"``, from
             :func:`lineup.changed_ids`.
         below: Rows to draw after the total row -- the bench.
+        scales: From :func:`lineup_table.points_scales`, on the unfiltered
+            league-week.
     """
     st.html(ltab.side_html(rows, info, points, label=label,
                            slot_column=slot_column, total_rows=total_rows,
-                           marks=marks, below=below))
+                           marks=marks, below=below, scales=scales))
 
 
 def render_matchup(rows: Sequence[ltab.SlotRow], info: Sequence[ltab.Col],
                    points: Sequence[ltab.Col], *, home_label: str,
-                   away_label: str) -> None:
+                   away_label: str,
+                   scales: Optional[Mapping[str, ltab.PointsScale]] = None) -> None:
     """Draw both lineups as one mirrored table.
 
     Args:
@@ -336,9 +420,12 @@ def render_matchup(rows: Sequence[ltab.SlotRow], info: Sequence[ltab.Col],
         points: From :func:`lineup_table.points_columns`.
         home_label: The left side.
         away_label: The right side.
+        scales: From :func:`lineup_table.points_scales`, on the unfiltered
+            league-week. One set for both halves, so a receiver reads the same colour
+            whichever side of the table he is on.
     """
     st.html(ltab.matchup_html(rows, info, points, home_label=home_label,
-                              away_label=away_label))
+                              away_label=away_label, scales=scales))
 
 
 #: How each upgrade severity announces itself: the callout, and the icon.

@@ -24,6 +24,7 @@ import polars as pl
 import streamlit as st
 
 import lineup as lu
+import lineup_table as ltab
 import session
 import store
 from views import weekly
@@ -66,6 +67,12 @@ if week.is_empty():
 
 pool = week.filter(pl.col("team_owner") == session.FREE_AGENT_OWNER)
 rostered = week.filter(pl.col("team_owner") != session.FREE_AGENT_OWNER)
+
+#: The positional colour rulers -- see the note in ``routes/roster.py``.
+scales = ltab.points_scales(
+    week.select([c for c in ltab.SCALE_INPUTS
+                 if c in week.columns]).to_dicts(),
+    week.columns)
 
 #: See the note in ``routes/roster.py``.
 points_col = lu.live_points_column(week.columns)
@@ -214,7 +221,7 @@ columns = weekly.display_columns(
     filtered, selection.meta,
     lead=("player_name", "player_position", "pro_team"))
 weekly.render_table(filtered.sort(points_col, descending=True), selection.meta,
-                    columns=columns, height=560)
+                    columns=columns, height=560, scales=scales)
 st.caption(
     "Everyone ESPN lists as unrostered in this league, projected in its own scoring. "
     "**A player with no game this week projects 0.0 on ESPN** — that is how a bye "

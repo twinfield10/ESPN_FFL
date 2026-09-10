@@ -367,3 +367,147 @@ def test_a_store_that_records_no_weeks_takes_the_request_on_trust():
 
 def test_no_request_means_this_leagues_own_week():
     assert home.week_for({"current_week": 5, "weeks_present": [4, 5]}, None) == 5
+
+
+# --- the viewer's own row -------------------------------------------------
+#
+# ``app/views/home_tab.py`` is layout, not decision, so almost nothing in it is
+# tested here. ``_own_row_styler`` is the exception: it decides *which* row, and
+# getting that wrong points the reader at another manager's season.
+
+from views import home_tab as ht  # noqa: E402
+
+
+def carded(owners, owner, **overrides):
+    """A summary whose ``standings`` holds ``owners`` in table order."""
+    fields = dict(
+        league_key="lg", display_name="lg", week=1, owner=owner, projected=100.0,
+        opponent=None, opponent_projected=None, win=None, margin=None,
+        record=(0, 0, 0), rank=None, teams=len(owners), actions=[], notes=[],
+        standings=pl.DataFrame({
+            "Rk": list(range(1, len(owners) + 1)),
+            "Owner": owners,
+            "W-L-T": ["0-0-0"] * len(owners),
+            "Win%": [0.0] * len(owners),
+            "PF": [float(i) for i in range(len(owners))],
+            "PA": [0.0] * len(owners),
+            "This Week": [None] * len(owners),
+            "Projected": [100.0 - i for i in range(len(owners))],
+        }))
+    fields.update(overrides)
+    return home.LeagueSummary(**fields)
+
+
+def rendered_css(card):
+    """The CSS Streamlit will actually send for this card's table.
+
+    Marshalled rather than asserted on intent, for the reason
+    ``test_weekly_views.css_for`` gives: a ``Styler`` property Streamlit silently
+    drops looks identical from Python.
+    """
+    from streamlit.elements.lib.pandas_styler_utils import marshall_styler
+    from streamlit.proto.ArrowData_pb2 import ArrowData
+
+    proto = ArrowData()
+    marshall_styler(proto, ht._own_row_styler(card), "uuid")
+    return proto.styler.styles
+
+
+def banded_rows(css):
+    """Which row indices carry the band."""
+    import re
+    out = set()
+    for selector, body in re.findall(r"([^{]+)\{([^}]*)\}", css):
+        if ht.OWN_ROW_FILL in body:
+            out |= {int(r) for r in re.findall(r"_row(\d+)_col", selector)}
+    return out
+
+
+def test_the_owners_row_is_the_one_banded():
+    css = rendered_css(carded(["Ann", "Me", "Bo"], "Me"))
+    assert banded_rows(css) == {1}
+
+
+def test_it_follows_the_owner_and_not_the_top_of_the_table():
+    """The case that matters: on ``knights_ffl`` the primary owner is tenth of
+    fourteen, which is both the hardest row to find by eye and the one a
+    rank-based shortcut would get wrong."""
+    owners = [f"O{i}" for i in range(14)]
+    owners[9] = "Me"
+    assert banded_rows(rendered_css(carded(owners, "Me"))) == {9}
+
+
+def test_the_band_is_carried_on_every_column_of_that_row():
+    """A partial band reads as a rendering fault rather than as emphasis."""
+    import re
+    css = rendered_css(carded(["Ann", "Me"], "Me"))
+    cols = {int(c) for selector, body in re.findall(r"([^{]+)\{([^}]*)\}", css)
+            if ht.OWN_ROW_FILL in body
+            for c in re.findall(r"_row1_col(\d+)", selector)}
+    assert cols == set(range(8))
+
+
+def test_the_row_is_bold_as_well_as_banded():
+    """Two channels, so the row is findable where a faint band over an unfamiliar
+    background is not -- and weight is one of the three properties Streamlit's grid
+    actually honours."""
+    css = rendered_css(carded(["Ann", "Me"], "Me"))
+    assert "font-weight: 700" in css
+
+
+def test_the_band_needs_no_theme_because_it_composites():
+    """An alpha over whatever is behind it, so this module takes no ``theme``
+    argument -- unlike :func:`sheet_view.panel_styler`, which threads one through to
+    pick an opaque hex for the same job."""
+    assert ht.OWN_ROW_FILL.startswith("rgba(")
+    assert "#" not in ht.OWN_ROW_FILL
+
+
+def test_the_band_carries_no_hue():
+    """A colour on your own row would read as a verdict on where you sit, and the
+    row is worth finding whether you are first or last."""
+    import re
+    red, green, blue = (int(n) for n in
+                        re.findall(r"[\d.]+", ht.OWN_ROW_FILL)[:3])
+    assert red == green == blue
+
+
+def test_nothing_is_painted_when_the_store_names_no_owner():
+    """Every store written before ``primary_owner`` existed."""
+    card = carded(["Ann", "Bo"], None)
+    assert ht._own_row_styler(card) is card.standings
+
+
+def test_nothing_is_painted_when_the_owner_is_not_in_the_table():
+    """A rename upstream, or a manager who left the league mid-season."""
+    card = carded(["Ann", "Bo"], "Me")
+    assert ht._own_row_styler(card) is card.standings
+
+
+def test_nothing_is_painted_without_an_owner_column():
+    card = carded(["Ann", "Me"], "Me")
+    card = card._replace(standings=card.standings.drop("Owner"))
+    assert ht._own_row_styler(card) is card.standings
+
+
+def test_the_styler_paints_and_does_not_format():
+    """``column_config`` owns the number formats -- see
+    :data:`views.home_tab.STANDINGS_CONFIG`. A ``Styler`` that also formats hands
+    Streamlit display *strings*, and this table is sorted on ``PF`` and
+    ``Projected``, so a string column would cost real behaviour. Same division of
+    labour as ``sheet_view.panel_styler``."""
+    styler = ht._own_row_styler(carded(["Ann", "Me"], "Me"))
+    kinds = {name: dtype.kind for name, dtype in styler.data.dtypes.items()}
+    assert kinds["Rk"] == "i"
+    assert kinds["Win%"] == kinds["PF"] == kinds["Projected"] == "f"
+
+
+def test_a_missing_number_renders_blank_not_the_word_nan():
+    """``This Week`` is null until the week is played, and pandas renders a missing
+    value with ``str`` unless told otherwise -- which is how ``Exp Return`` on the
+    draft board came to read "None" on 998 of 1,026 rows. ``na_rep`` is the half of
+    that fix this styler owns; ``st.dataframe(placeholder="")`` is the other."""
+    styler = ht._own_row_styler(carded(["Ann", "Me"], "Me"))
+    shown = styler._compute()._display_funcs
+    week = list(styler.data.columns).index("This Week")
+    assert shown[(0, week)](None) == ""

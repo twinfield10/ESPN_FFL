@@ -127,6 +127,46 @@ labelling in cell 28 is broken — its import is commented out at cell 0), plus
   grouping recur on most pages. Build once in `components/tables.py`; the
   `scale_dict` conditional-formatting logic in `write_to_google` is the
   reference for the colour scales.
+
+  **The colour-scale half shipped 2026-09-10**, in `app/lineup_table.py`
+  (`points_scales`, `points_fill`, `cell_fill`, `PointsScale`) rather than in a new
+  `components/tables.py` — it is vocabulary both weekly renderers already speak, and
+  `views/weekly.py` imports that module anyway. `LIVE` and `TRUE` are filled on
+  Roster, Matchup and Free Agents, on one ruler per position group computed from the
+  **unfiltered** league-week: Sheets' `0 → rostered non-zero median → league max`,
+  with its white midpoint expressed as alpha 0 so one pair of colours works in both
+  themes. Two things carried over exactly because they are load-bearing — the pivot
+  excludes free agents (including them moves the RB pivot 25%) and the ceiling
+  includes them.
+
+  Three findings worth not re-deriving:
+
+  1. **`LIVE` must be pooled into the same ruler as `TRUE`.** A ruler built from
+     projections alone puts 15–50% of realised scores above its own ceiling — half of
+     all kicker and D/ST weeks — because actuals are 2–3× more dispersed than
+     projections. Pooling both makes the ceiling ≥ every value either column holds,
+     so nothing clips; measured 0.0% at every position. Since `LIVE == TRUE` at
+     `elapsed = 0`, the ruler needs no notion of what day it is.
+  2. **The fill is blue/red, not the green/red used everywhere else here.**
+     `advantage_fill` earns green/red because `ADV` prints a `%+` sign in every cell;
+     a *level* has no sign, so the pair stands on hue alone. Measured through the
+     dataviz validator, composited over both themes: green/red tops out at CVD ΔE 4.7
+     and never reaches the 6–8 floor band, and below ~alpha 0.40 it fails the
+     *normal-vision* floor too. Blue/red clears outright (12.2/18.7 light,
+     14.2/21.2 dark). `DELTA_FILLS`'s note suggesting the **red** arm be swapped for
+     blue is the worse swap — green/blue are both cool and never clear in light mode.
+  3. **`TEAM` takes a real minimum where a position takes zero**, which is Sheets'
+     own asymmetry and not an oversight: a lineup total is never near zero, so
+     anchoring its red arm there spends the whole arm on a range no team occupies.
+
+  The `TRUE` column was also unpainted on all ten **Sheets** tabs from 2026-09-09,
+  when The Athletic was inserted and the three hardcoded `gradientRule` ranges were
+  not updated alongside the `df.columns` assignments. `points_span` had been written
+  for exactly that hazard and wired only to `numberFormat`; the gradients now use it
+  too, pinned by `tests/test_sheets_renderer.py`.
+
+  **Still open here:** the draft board's tier bands and per-source column grouping,
+  which is what a real `components/tables.py` would be for.
 - **Empty and pre-season states.** Pre-draft there are no lineups and
   `current_week` is 0 (clamped to 1). Every page needs a sensible empty state —
   this is the condition the app will actually launch in.

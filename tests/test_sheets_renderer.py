@@ -91,6 +91,75 @@ def test_driver_reads_the_store():
     assert "read_meta" in imported
 
 
+# --- the gradients ------------------------------------------------------
+#
+# Nothing here had any coverage until 2026-09-10, which is how the three gradient
+# ranges came to disagree with the ``df.columns`` assignments they depend on and
+# leave ``TRUE`` -- the blend the whole pipeline exists to produce -- unpainted on all
+# ten tabs for a day.
+
+
+def _gradient_ranges(tree):
+    """Every ``addConditionalFormatRule`` range in the driver, as AST nodes.
+
+    Matched on the dict carrying both keys rather than on line numbers, so this keeps
+    working when the file moves around.
+    """
+    found = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Dict):
+            continue
+        keys = [k.value for k in node.keys
+                if isinstance(k, ast.Constant) and isinstance(k.value, str)]
+        if "gradientRule" not in keys or "ranges" not in keys:
+            continue
+        ranges = node.values[keys.index("ranges")]
+        for element in getattr(ranges, "elts", []):
+            if isinstance(element, ast.Dict):
+                found.append({
+                    k.value: v for k, v in zip(element.keys, element.values)
+                    if isinstance(k, ast.Constant)})
+    return found
+
+
+def test_every_gradient_range_is_derived_rather_than_written_out():
+    """The actual bug, in the form that would have caught it. ``points_span`` exists
+    precisely so a seventh source needs no edit here, and its docstring says so --
+    but it was wired only to ``numberFormat``, so the gradients went on naming
+    columns F..J by hand and silently stopped one short of ``TRUE``."""
+    ranges = _gradient_ranges(ast.parse(DRIVER.read_text()))
+    assert len(ranges) == 3, "one gradient per formatter: Lineup, League, FA"
+    for found in ranges:
+        for edge in ("startColumnIndex", "endColumnIndex"):
+            node = found[edge]
+            assert isinstance(node, ast.Name), (
+                f"{edge} is a literal ({ast.dump(node)}); it must come from "
+                f"points_span so inserting a source cannot orphan the last column")
+
+
+def test_the_gradients_use_the_same_span_as_the_number_formats():
+    """The two must agree: a column formatted as a number and not coloured, or the
+    reverse, is the state this file was in. Both now read the same pair of names."""
+    tree = ast.parse(DRIVER.read_text())
+    spans = {t.id for node in ast.walk(tree)
+             if isinstance(node, ast.Assign)
+             for target in node.targets if isinstance(target, ast.Tuple)
+             for t in target.elts if isinstance(t, ast.Name)}
+    edges = [found[edge] for found in _gradient_ranges(tree)
+             for edge in ("startColumnIndex", "endColumnIndex")]
+    used = {node.id for node in edges if isinstance(node, ast.Name)}
+    assert len(used) == len(edges) == 6, (
+        "three formatters, two edges each, every one a name from points_span")
+    assert used <= spans, f"gradient uses names no points_span produced: {used - spans}"
+
+
+def test_a_missing_position_scale_is_skipped_rather_than_sent_as_nan():
+    """``str(float("nan"))`` is ``"nan"``, and the Sheets API is handed it as a
+    gradient stop for any Lineup row whose position group came back empty."""
+    body = DRIVER.read_text()
+    assert "v != v for v in (max_value, median_value, min_value)" in body
+
+
 # --- table building ------------------------------------------------------
 
 def test_build_tables_produces_all_ten_tabs(driver, lineups):
