@@ -218,10 +218,14 @@ def fetch(season: int, week: int, timeout: int = 30) -> Dict[str, Any]:
 
     Raises:
         requests.HTTPError: On a non-2xx response.
-        ValueError: When the payload carries no ``events`` array. ESPN answers a
-            bad season or week with a 200 and an empty body rather than an error,
-            so this is the check that a nonsense week is not read as a week in
-            which nobody plays.
+        ValueError: When the payload carries no games. ESPN answers a bad season or
+            week with **200 and an empty ``events`` array** rather than an error --
+            verified: ``dates=3000`` and ``week=99`` both return
+            ``{"events": []}``. Checking only that the key exists is therefore not
+            enough, and getting it wrong is worse than an exception: :func:`parse`
+            fills every team with no game as :data:`BYE`, so an empty week reads as
+            **all 32 teams on bye**, which is a plausible-looking frame that zeroes
+            every projection in it. No NFL regular-season week has zero games.
     """
     response = requests.get(
         ENDPOINT,
@@ -234,6 +238,12 @@ def fetch(season: int, week: int, timeout: int = 30) -> Dict[str, Any]:
         raise ValueError(
             f"{ENDPOINT} returned no 'events' array for {season} week {week}; "
             f"keys were {sorted(payload)}."
+        )
+    if not payload["events"]:
+        raise ValueError(
+            f"{ENDPOINT} returned 0 games for {season} week {week}. That is not a "
+            f"week in which nobody plays -- it is how ESPN answers a season or week "
+            f"it does not have."
         )
     return payload
 
@@ -291,6 +301,36 @@ _SCHEMA = {
     "detail": pl.String,
     "fetched_at": pl.String,
 }
+
+
+def has_real_games(frame: pl.DataFrame) -> bool:
+    """Whether a board holds at least one actual game.
+
+    **A week in which all 32 teams are on bye has never happened**, and this is the
+    check that says so. It is load-bearing in three places rather than defensive
+    tidiness in one:
+
+    * :func:`parse` fills every team with no game in the payload as :data:`BYE`, so an
+      empty ``events`` array becomes a complete, plausible-looking 32-row frame.
+    * :func:`_settled` reads an all-bye week as **settled**, which exempts it from
+      :data:`STALE_AFTER_SECONDS` -- so a bad board does not expire, it is served
+      forever.
+    * Downstream, ``bye`` zeroes ``LIVE_Points``. An all-bye board therefore zeroes
+      every projection in every league, and nothing about the result looks broken.
+
+    Found by testing the cron's gate rather than by reading the code: a probe with a
+    nonsense season wrote exactly that frame and the cache then served it
+    permanently.
+
+    Args:
+        frame: A board.
+
+    Returns:
+        bool: True when at least one team has an opponent.
+    """
+    if frame.is_empty():
+        return False
+    return bool(frame.filter(pl.col("state") != BYE).height)
 
 
 def parse(payload: Dict[str, Any], season: int, week: int,
@@ -427,6 +467,13 @@ def from_schedule(season: int, week: int,
         )
 
     this_week = schedule.filter(pl.col("week") == int(week))
+    if this_week.is_empty():
+        held = sorted(schedule["week"].unique().to_list())
+        raise ValueError(
+            f"the schedule has no week {week} (it holds {held[:3]}..{held[-1:]}), so "
+            f"there is nothing to derive. Returning a board here would mark all 32 "
+            f"teams as on bye, which zeroes every projection in it."
+        )
     rows: List[Dict[str, Any]] = []
     for game in this_week.iter_rows(named=True):
         kickoff = _schedule_kickoff(game.get("gameday"), game.get("gametime"))
@@ -545,7 +592,8 @@ def states(season: int, week: int, *, refresh: bool = False,
             return cached
 
     try:
-        frame = parse(fetch(season, week, timeout=timeout), season, week)
+        frame = _checked(parse(fetch(season, week, timeout=timeout), season, week),
+                         season, week)
     except Exception as error:                    # noqa: BLE001 - reported, not hidden
         if not allow_fallback:
             raise
@@ -555,9 +603,20 @@ def states(season: int, week: int, *, refresh: bool = False,
         stale = _read_cache(path, week, ignore_age=True)
         if stale is not None:
             return stale
-        return from_schedule(season, week)
+        return _checked(from_schedule(season, week), season, week)
 
     _write_cache(frame, week)
+    return frame
+
+
+def _checked(frame: pl.DataFrame, season: int, week: int) -> pl.DataFrame:
+    """A board, or an error if it holds no games. The last gate before a caller."""
+    if not has_real_games(frame):
+        raise ValueError(
+            f"the board for {season} week {week} holds no real games -- all 32 teams "
+            f"read as on bye. That is not a week; it is a failed read. "
+            f"See has_real_games()."
+        )
     return frame
 
 
@@ -570,6 +629,12 @@ def _read_cache(path, week: int, ignore_age: bool = False) -> Optional[pl.DataFr
     except Exception:                             # noqa: BLE001 - a corrupt cache is a miss
         return None
     if frame.is_empty():
+        return None
+    if not has_real_games(frame):
+        # Never expires on its own -- `_settled` reads all-bye as settled -- so it
+        # has to be rejected on read as well as on write.
+        _warn(f"the cached board for week {week} holds no real games; ignoring it. "
+              f"Delete {path} if this persists.")
         return None
     if ignore_age or _settled(frame):
         return frame
@@ -635,6 +700,9 @@ def _write_cache(frame: pl.DataFrame, week: int) -> None:
     week 6 must not erase week 5's final states, which is what the accuracy pass
     reads.
     """
+    if not has_real_games(frame):
+        _warn(f"refusing to cache a board for week {week} with no real games.")
+        return
     path = game_state_path(frame["season"][0], create=True)
     combined = frame
     if path.exists():
@@ -661,6 +729,17 @@ def anything_live(frame: pl.DataFrame) -> bool:
         bool: True when at least one row is :data:`IN`.
     """
     return bool(frame.filter(pl.col("state") == IN).height)
+
+
+#: Exit code for ``--if-live`` when the week is not worth refreshing.
+#:
+#: **Three, not one.** The cron wrapper branches on this, and "there is no football on"
+#: has to be distinguishable from "the gate itself is broken" -- an unhandled exception
+#: exits 1 and argparse exits 2, so a gate that returned 1 for a quiet Tuesday made
+#: those three cases identical. The wrapper would then exit 0 for all of them and the
+#: live refresh would stop running *silently*, which is the failure this repo keeps
+#: paying for: something stops answering and the output looks entirely normal.
+NOT_LIVE_EXIT = 3
 
 
 #: How long after kickoff a game still counts as worth polling.
@@ -747,16 +826,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--cached", action="store_true",
                         help="Read the cache if it is fresh, instead of ESPN.")
     parser.add_argument("--if-live", action="store_true",
-                        help="Print nothing and exit 0 only when this week is worth "
-                             "a live refresh; 1 otherwise. What the cron wrapper "
-                             "branches on, so a quiet day costs one request.")
+                        help=f"Print nothing and exit 0 when this week is worth a "
+                             f"live refresh, {NOT_LIVE_EXIT} when it is not. What the "
+                             f"cron wrapper branches on, so a quiet day costs one "
+                             f"request. Any other code is a failure, and the wrapper "
+                             f"treats it as one.")
     args = parser.parse_args(argv)
 
     season = args.season if args.season is not None else current_season()
     week = args.week if args.week is not None else current_week()
 
     if args.if_live:
-        return 0 if in_window(states(season, week, refresh=not args.cached)) else 1
+        live = in_window(states(season, week, refresh=not args.cached))
+        return 0 if live else NOT_LIVE_EXIT
 
     print(f"\n===== NFL game state: {season} week {week} =====")
     frame = states(season, week, refresh=not args.cached)

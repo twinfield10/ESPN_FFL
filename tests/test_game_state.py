@@ -297,3 +297,91 @@ def test_kickoff_is_converted_from_eastern(monkeypatch):
         "2026-09-13T17:00")
     assert november.filter(pl.col("team") == "SEA")["kickoff_utc"][0].startswith(
         "2026-11-15T18:00")
+
+
+# --- an all-bye week is not a week -------------------------------------
+#
+# Found by testing the cron's gate rather than by reading the code, and it was three
+# bugs wearing one coat. ESPN answers a season or week it does not have with **200 and
+# `{"events": []}`** -- verified against `dates=3000` and `week=99`. `parse` fills
+# every team with no game as `bye`, so that empty array became a complete, plausible
+# 32-row frame; `_settled` reads all-bye as settled, so the cache never expired it; and
+# `bye` zeroes `LIVE_Points`, so the frame would have zeroed every projection in every
+# league with nothing about the result looking broken.
+#
+# A probe with a nonsense season really did write that board, and the cache really did
+# serve it back permanently.
+
+
+def test_no_nfl_week_has_zero_games():
+    assert not gs.has_real_games(gs.parse(payload(), 2026, 1))
+    assert gs.has_real_games(gs.parse(payload(event("SEA", "NE", "pre")), 2026, 1))
+
+
+def test_an_empty_events_array_is_an_error_not_a_bye_week():
+    """The 200-with-no-games response. Checking only that the key exists is not
+    enough, and getting it wrong is worse than an exception."""
+    class _Response:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"events": []}
+
+    original = gs.requests.get
+    gs.requests.get = lambda *a, **k: _Response()
+    try:
+        with pytest.raises(ValueError, match="0 games"):
+            gs.fetch(3000, 1)
+    finally:
+        gs.requests.get = original
+
+
+def test_the_cache_refuses_to_store_an_all_bye_board(tmp_path, monkeypatch):
+    monkeypatch.setattr(gs, "game_state_path",
+                        lambda season, create=False: tmp_path / "game_state.parquet")
+    gs._write_cache(gs.parse(payload(), 2026, 1), 1)
+    assert not (tmp_path / "game_state.parquet").exists()
+
+
+def test_the_cache_refuses_to_serve_an_all_bye_board(tmp_path):
+    """The half that makes it permanent. `_settled` exempts an all-bye week from the
+    TTL, so rejecting it on write alone would still leave any board already on disk
+    being served for the rest of the season."""
+    path = tmp_path / "game_state.parquet"
+    gs.parse(payload(), 2026, 1).write_parquet(path)
+    with pytest.warns(gs.GameStateWarning, match="no real games"):
+        assert gs._read_cache(path, 1) is None
+
+
+def test_an_all_bye_week_would_have_looked_settled():
+    """Why rejecting it on read is not belt-and-braces: this is the property that
+    turned a transient bad read into a permanent one."""
+    assert gs._settled(gs.parse(payload(), 2026, 1))
+
+
+def test_the_schedule_fallback_refuses_a_week_it_does_not_have(monkeypatch):
+    """Same hole, other path. Deriving from a week with no rows marks all 32 teams as
+    on bye just as effectively as an empty payload does."""
+    schedule = pl.DataFrame({
+        "season": [2026], "week": [1], "gameday": ["2026-09-13"],
+        "gametime": ["13:00"], "home_team": ["SEA"], "away_team": ["NE"],
+        "home_score": ["NA"], "away_score": ["NA"],
+    })
+    monkeypatch.setattr("Scripts.nfl_utils.load_schedule", lambda *a, **k: schedule)
+    with pytest.raises(ValueError, match="no week 99"):
+        gs.from_schedule(2026, 99)
+
+
+# --- the gate's exit codes ----------------------------------------------
+
+def test_not_live_has_its_own_exit_code():
+    """`--if-live` returns 3 for "no football on". It has to differ from 1 and 2:
+    an unhandled exception exits 1 and argparse exits 2, and the cron wrapper treats
+    3 as "nothing to do" and everything else as a failure. Collapsed into one code,
+    a broken gate looked exactly like a quiet Tuesday -- and the live refresh would
+    stop for the season without a line in the log."""
+    assert gs.NOT_LIVE_EXIT == 3
+    assert gs.NOT_LIVE_EXIT not in (0, 1, 2)
