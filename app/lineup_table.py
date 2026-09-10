@@ -26,7 +26,7 @@ from typing import (Dict, Iterable, List, Mapping, NamedTuple, Optional,
                     Sequence, Tuple)
 
 import lineup as lu
-from Scripts.live import LIVE_POINTS, STATE_COLUMN
+from Scripts.live import LIVE_POINTS
 
 #: Source prefix to what it is, in the words the tooltip uses.
 #:
@@ -157,17 +157,6 @@ ACTUAL_LABEL = "ACT"
 ACTUAL_HELP = ("Points actually scored, as ESPN's box score has them -- which is the "
                "league's official number, so this is what the standings will say.")
 
-#: How each game state reads in the table. Four characters at most: this sits in the
-#: identity block beside three-letter team abbreviations.
-STATE_LABELS: Dict[str, str] = {
-    "pre": "—", "in": "LIVE", "post": "FINAL", "bye": "BYE",
-}
-
-STATE_HELP = ("Where his NFL game is. Blank before kickoff, LIVE while it is being "
-              "played, FINAL once it is over -- and a locked player cannot be moved "
-              "out of, or into, a starting slot.")
-
-
 def points_columns(columns: Iterable[str], meta: dict, *,
                    blend_first: bool = False,
                    corroboration: bool = True,
@@ -189,11 +178,18 @@ def points_columns(columns: Iterable[str], meta: dict, *,
             the player's name rather than four columns downstream of it. The Matchup
             tab keeps the sources first, so that the blend and the delta land next to
             the ``ADV`` column they are being compared through.
-        corroboration: Include ``Sources`` and ``Spread``. Off for the matchup table,
-            where they are the two columns that answer a question nobody is asking
-            across a fixture -- how well corroborated *my* receiver is says nothing
-            about whether he beats theirs -- and where dropping them takes the table
-            from 25 columns to 21.
+        corroboration: Include ``Sources``. Off for the matchup table, where it
+            answers a question nobody is asking across a fixture -- how well
+            corroborated *my* receiver is says nothing about whether he beats theirs.
+
+            It used to carry ``Spread`` too. That came out when the live columns
+            landed and the table reached fifteen columns: the standard deviation
+            *between* the sources is a second-order reading, and at that width it was
+            competing for attention with the number the table exists for. ``Sources``
+            survives because it is the one that changes a decision -- a projection
+            resting on one source is a different thing from one four sources agree
+            on. The column is still on the frame for anything that wants it, and
+            :func:`totals` still knows how to compose it.
         locked: Whether any player in this table has kicked off. Gates the ``ACT``
             column, which before the first game of the week is a column of zeros --
             and a column of zeros beside a column of projections invites exactly the
@@ -241,12 +237,6 @@ def points_columns(columns: Iterable[str], meta: dict, *,
                          "after dropping the ones imputed from the mean. 1 means "
                          "the projection beside it is a single source's view. The "
                          "TOTAL row averages this rather than summing it."))
-    if "source_spread" in have:
-        specs.append(Col("source_spread", "Spread", "spread",
-                         "Standard deviation across those real sources. Blank below "
-                         "two, because one number cannot disagree with itself. The "
-                         "TOTAL row composes these as sqrt of the sum of squares, "
-                         "which is what independent disagreements add up to."))
     return specs
 
 
@@ -269,10 +259,6 @@ def info_columns(columns: Iterable[str]) -> List[Col]:
             specs.append(spec)
         elif spec.source == "player_position" and "primaryPosition" in have:
             specs.append(spec._replace(source="primaryPosition"))
-    if STATE_COLUMN in have:
-        # Beside the team, because it is a fact about that team's game rather than
-        # about the player.
-        specs.append(Col(STATE_COLUMN, "GM", "text", STATE_HELP))
     return specs
 
 
@@ -295,11 +281,6 @@ def value(row: Optional[dict], column: Col):
             return None
         return float(blend) - float(espn)
     held = row.get(column.source)
-    if column.source == STATE_COLUMN:
-        # `pre` maps to an em dash rather than the word: it is the default state of
-        # every row for most of the week, and a column reading "pre" ten times is
-        # noise that pushes the numbers off a laptop screen.
-        return STATE_LABELS.get(str(held), None) if held is not None else None
     if column.kind == "text":
         # Absent rather than the word for it -- see :data:`ABSENT_TEXT`.
         return None if held is None or str(held).strip() in ABSENT_TEXT else held
@@ -315,7 +296,9 @@ def totals(rows: Sequence[dict], columns: Sequence[Col]) -> List[Optional[float]
     * ``Sources`` is averaged. Ten starters on one source each would otherwise total
       ten, which reads as a well-corroborated lineup and is the opposite of the
       truth.
-    * ``Spread`` is composed as ``sqrt(Σ spread²)``, the same way
+    * ``Spread`` -- no longer rendered by :func:`points_columns`, but still composed
+      here, because the column remains on the frame and a caller may ask for it --
+      is composed as ``sqrt(Σ spread²)``, the same way
       :func:`lineup.team_total_sd` composes per-player dispersion. Summing standard
       deviations assumes every source disagrees about every player in the same
       direction at once; adding variances assumes the disagreements are independent,
@@ -477,7 +460,9 @@ CSS = """<style>
 .lt th.lt-edge, .lt td.lt-edge { border-left: 1px solid rgba(128, 128, 128, 0.3); }
 .lt th.lt-slot, .lt td.lt-slot { text-align: center; font-weight: 600;
                                  background: rgba(128, 128, 128, 0.1); }
-.lt td.lt-true { font-weight: 600; }
+.lt td.lt-em { font-weight: 700; }
+.lt th.lt-em { font-weight: 700; }
+.lt td.lt-delta, .lt th.lt-delta { font-style: italic; }
 .lt td.lt-mute { opacity: 0.42; }
 .lt tbody tr:hover td { background-color: rgba(128, 128, 128, 0.08); }
 .lt tbody tr.lt-in td { background-color: rgba(27, 175, 122, 0.16); }
@@ -520,12 +505,20 @@ ABSENT_TEXT = frozenset({"", "None", "none", "nan", "NaN", "NA", "null"})
 
 #: Extra classes a points column's cells carry, by :attr:`Col.label`.
 #:
-#: Only the blend. It is the number every other column on the row is context for, and
-#: at eight numeric columns per side something has to be the one your eye lands on.
-#: Nothing here is *coloured*: the draft board painted its levels as well as its
+#: Three columns, and the split is by *what you do with the number* rather than by
+#: which source it came from. ``LIVE`` is what the player is worth now and ``TRUE`` is
+#: what we think he is worth over a full game; those two are the reading, and every
+#: per-source column beside them is context for how they were arrived at. The delta is
+#: neither -- it is a comment on the pair -- so it is italic rather than bold.
+#:
+#: This grew from ``{"TRUE": "lt-true"}`` when the live column landed: at nine numeric
+#: columns per side, one bold column no longer told you where to look, because the
+#: number the table now exists for was not the one emphasised.
+#:
+#: Nothing here is *coloured*. The draft board painted its levels as well as its
 #: differences once, and at that density the table read as a heatmap and the columns
 #: carrying a judgement stopped being the ones that caught the eye.
-EMPHASIS: Dict[str, str] = {"TRUE": "lt-true"}
+EMPHASIS: Dict[str, str] = {"LIVE": "lt-em", "TRUE": "lt-em", "Δ": "lt-delta"}
 
 
 def _classes(*names: str) -> str:
@@ -587,7 +580,8 @@ def _total_run(values: Sequence[Optional[float]], columns: Sequence[Col], *,
     cells = []
     for index, (held, column) in enumerate(zip(values, columns)):
         edge = "lt-edge" if edge_first and index == 0 else ""
-        cells.append(f"<td{_classes(edge)}>{_fmt(held, column, total=True)}</td>")
+        cells.append(f"<td{_classes(edge, EMPHASIS.get(column.label, ''))}>"
+                     f"{_fmt(held, column, total=True)}</td>")
     return "".join(cells)
 
 
@@ -599,7 +593,7 @@ def _labels(columns: Sequence[Col], *, align_left: bool,
         edge = "lt-edge" if edge_first and index == 0 else ""
         left = "lt-l" if align_left and column.kind == "text" else ""
         title = f' title="{html.escape(column.help)}"' if column.help else ""
-        cells.append(f"<th{_classes(edge, left)}{title}>"
+        cells.append(f"<th{_classes(edge, left, EMPHASIS.get(column.label, ''))}{title}>"
                      f"{html.escape(column.label)}</th>")
     return "".join(cells)
 
