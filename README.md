@@ -229,7 +229,13 @@ league carries the record over **weeks that were actually played** — ESPN repo
 unplayed fixture as a 0-0 tie, and believing it had every team reading 0-0-1 before the
 season started — beside what this week has scored and what it projects. Ranking is win
 percentage, then points for, then the projection, which breaks a tie in the first two
-and before week 1 is the only thing separating anybody.
+and before week 1 is the only thing separating anybody. **Your own row is banded and
+bold** — whoever the store names as that league's primary owner, which is the same
+team Roster and Matchup open on, and correctly someone else's name in a league that is
+theirs. `Rk` cannot do that job: you have to know your rank before you can look it up,
+which is the thing you came to the table for. The band is a grey rather than a colour
+on purpose — on Knights the primary owner is tenth of fourteen, which is the row that
+most needs finding and least wants a hue with an opinion about it.
 
 The sidebar's freshness line says **whether the nightly build ran**, not whether you
 should refresh. It is a plain caption inside 25 hours and an error past it, because the
