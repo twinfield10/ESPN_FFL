@@ -82,9 +82,18 @@ cd "${NIGHTLY}" 2>/dev/null || { log "no nightly checkout at ${NIGHTLY}"; exit 1
 # commit is noise. A commit lands in the live path at the next 06:00.
 REV="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 
-if ! "${PYTHON}" -m Scripts.game_state --if-live >/dev/null 2>>"${LOG}"; then
+# 0 = a game is on or just finished; 3 = nothing to do; anything else = the gate is
+# broken. The three used to be one code, which made a broken gate look exactly like a
+# quiet Tuesday -- and this job would then stop refreshing for the rest of the season
+# without a single line in the log.
+"${PYTHON}" -m Scripts.game_state --if-live >/dev/null 2>>"${LOG}"
+GATE=$?
+if [ "${GATE}" -eq 3 ]; then
   # Not an error: most of the week there is no football on.
   exit 0
+elif [ "${GATE}" -ne 0 ]; then
+  log "FAILED: Scripts.game_state --if-live exited ${GATE} -- the gate is broken, not closed. Nothing was refreshed."
+  exit 1
 fi
 
 log "live window open at ${REV}; refreshing"
