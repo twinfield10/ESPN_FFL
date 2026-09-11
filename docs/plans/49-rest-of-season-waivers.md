@@ -3,9 +3,10 @@
 **Status:** IN PROGRESS
 
 **Priority:** High · **Effort:** L, and most of it is measurement
-**Where it stands:** Stages 0–1 shipped 2026-09-10; the ROS source and its two
-gates shipped 2026-09-11, **G-R0 and G-R1 both pass**. The decision layer is not
-started.
+**Where it stands:** **COMPLETE as designed, 2026-09-11.** Stages 0–1 shipped
+2026-09-10; the ROS source and gates G-R0/G-R1 and the decision layer the same
+week. What is owed is measurement, not building: G-R2 and G-R4 need the pool
+history to accumulate and cannot be answered before roughly week 8.
 **Depends on:** [48](48-live-scoring.md) — kickoff is what decides "available" ·
 [28](28-outcome-distributions.md) — the fitted dispersion the confidence column needs ·
 [33](33-role-resolution.md) — how much a depth chart can be trusted ·
@@ -258,6 +259,92 @@ scoring side rather than from the 2025 hit-rate study, and agreeing with it.
 `ros_ppg` is published from this and is **display only**. Nothing in the decision
 path reads it, and deleting it would leave the gates untouched — which is the point
 of expressing them as ranks.
+
+## The decision layer, as built — 2026-09-11
+
+`app/waivers.py` sits on top of `app/lineup.py`: the latter answers arithmetic
+questions about a roster, the former decides what to say. Four things narrow the
+panel and **none of them is a hand-tuned constant**.
+
+### The threshold is the existing metric's own first half
+
+`optimal_lineup` maximises over a transversal matroid, so the optimum as a function
+of an inserted player's projection is `max(base, base − w + x)` — one kink, slope 0
+then 1. `w` therefore comes out of **two exact solves**, no search.
+
+That makes `add_drop_gain == add_value − drop_cost` an **identity**, verified at
+**448 of 448** pairings across the 16 GOP rosters. So the threshold is not a rival
+number bolted alongside `Lineup Gain`; it is what `Lineup Gain` is made of, which
+is why the panel can now lead with *what it takes to play for you* instead of a
+list of moves.
+
+Three answers, not one, and the distinctions are load-bearing:
+
+| return | meaning |
+|---|---|
+| a float | the bar |
+| `None` | **this league cannot start him anywhere** — an IDP where there is no `DP`. Not zero, which would say the whole wire is an upgrade |
+| `math.inf` | every slot he could fill is **held by a man who has kicked off**. A fact about the hour, not the league |
+
+**The bar follows the flex cascade, not the position.** A receiver who displaces
+your WR2 pushes him into the flex, and it is whoever falls out of the *flex* that
+you actually lose. On the test roster that makes a receiver cost 10 and a tight end
+9, where a naive "beat my worst receiver" rule would have said 11 and 9 — wrong on
+two of three.
+
+### Scarcity is priced, not vetoed
+
+`insurance_value` is what the man going out would be worth the week a starter above
+him sits. A rule saying "never drop your last back" cannot be wrong and therefore
+cannot be tested; a price competes with the value of the add on one scale, so the
+honest case — a great add worth the exposure — still wins, and the table shows the
+tension as `Cover Cost`.
+
+### Confidence replaces the margin
+
+`UPGRADE_MIN_MARGIN = 0.5` is sized from *between-source* disagreement (median sd
+0.43). That is how much the five projections argue, not how wrong they are
+together. Outcome dispersion is the thing that decides whether a move was right,
+and it is already fitted — `weekly_dispersion_1.0.0.json`, 15,989 started
+player-weeks. A skill-position swap has a realised-difference sd near **11**, so a
+`+0.5` alert is **0.045 sd → 52%**, a coin flip wearing a red badge.
+
+Measured over the 101 moves the panel now shows across nine leagues: **median
+confidence 0.559, and six clear 70%.** That is the most useful number on the page.
+
+### What it did to the flood
+
+| | before | after |
+|---|---|---|
+| urgent flags | 151 (1.34/team-week) | **64 (0.57)** — 58% fewer |
+| moves shown | 161 (1.42/team-week) | **101 (0.89)** |
+| of which give up real cover | — | 9, shown as a warning rather than a recommendation |
+| kicker and defence | in the main table | **44, on their own line** |
+
+Against the 2025 base rate — ~9 skill-position successes per league-season, about
+one per fortnight — roughly one suggestion per team-week is the right order.
+
+### Three things that were built and cut, on measurement
+
+**The upside gate.** Promote an add whose `pts_p90` clears the threshold. It fired
+on **324 of 369** rescues, because `pts_p90` is a *season* total (Gibbs reads 621)
+and a threshold is a *weekly* number. Per-game it still fired 195 times: comparing
+a 90th percentile against a median bar is structurally generous whatever the units.
+`p_top12` looked like the calibrated replacement and its own top of the pool
+refuted it — **Troy Franklin at 0.41 on a 3.3-point projection**, Alvin Kamara at
+0.28 on 2.31. A wide band on a player the model knows little about is **ignorance,
+not upside**, which is the trap plan 18 recorded. The distribution columns now
+travel as context and nothing is ever recommended because of them.
+
+**An ungated rest-of-season rescue.** It proposed giving up Terry McLaurin — worth
+**11.9** as cover — for a player who does nothing this week. A rescue now requires
+a drop that is genuinely spare and a swap that does not cost points now, because a
+rank has no units to buy back what it gave away.
+
+**Two smaller defects the same run found.** The upgrade flags were comparing
+against players on **IR** (Jeffs week 1 reported Jaylen Warren as an upgrade over
+Brock Bowers, who could be neither played nor dropped for him), and the streaming
+line was offering defences *worse* than the one you already have.
 
 ### Pre-registered gates
 

@@ -31,6 +31,8 @@ See ``docs/plans/08-frontend-weekly-views.md``,
 
 import _bootstrap  # noqa: F401  -- must precede the Scripts imports
 
+import math
+
 import polars as pl
 import streamlit as st
 
@@ -38,7 +40,12 @@ import lineup as lu
 import lineup_table as ltab
 import session
 import store
+import waivers as wv
 from views import weekly
+
+from Scripts import ros
+from Scripts.draft import board as board_ranks
+from Scripts.outcomes import weekly as outcomes_weekly
 
 #: How many drop candidates each addition is weighed against.
 #:
@@ -89,7 +96,11 @@ if week.is_empty():
 # (`Scripts/live.py` PATCH_COLUMNS covers the lineups frame only), so a designation
 # here can be a day old. That is right for an IR placement, which is not an
 # intraday event, and wrong for anything needing the hour.
-BOARD_COLUMNS = ("injury_status", "percent_owned")
+#: ``pts_p90``, ``p_top12``, ``games`` and ``usg_depth_rank`` ride along as
+#: **context, never as a gate** -- see ``waivers.UPSIDE_IS_CONTEXT_NOT_A_GATE`` for
+#: the three measurements that decided that.
+BOARD_COLUMNS = ("injury_status", "percent_owned", "pts_p90", "p_top12", "games",
+                 "usg_depth_rank")
 
 if store.has_artifact(selection.season, selection.league_key, "board"):
     board = store.load_board(selection.season, selection.league_key)
@@ -142,6 +153,35 @@ note = weekly.missing_sources_note(selection.meta)
 if note:
     st.caption(note)
 
+# --- rest of season -------------------------------------------------------
+#
+# A rank, never a level. `Scripts/ros` carries the argument: `r2p_pts` is a total
+# over the games *FantasyPros* expects, it is denominated in STD while every league
+# here scores its own way, and the consensus behind it is 2-3 people. So it enters
+# the decision as a positional rank against this league's own `replacement_rank`,
+# which is a comparison ranks can support and points cannot.
+ros_frame = ros.load_ros(selection.season)
+pool_rows = ros.attach_ros(pool.to_pandas(), ros_frame).to_dict("records")
+
+#: How deep each position is started in *this* league, which is what makes a
+#: rest-of-season rank mean something here rather than in the abstract. Handles
+#: superflex (Jeff's `OP` pushes QB replacement to 16 in an 8-team league) and IDP
+#: (a position nobody really starts is omitted, not floored at 1).
+try:
+    replacement = board_ranks.replacement_ranks(
+        lu.slot_counts(rostered, selection.meta),
+        int(selection.meta.get("team_count") or 0),
+        pool=week.to_pandas(), points_column=points_col)
+except Exception:                                   # noqa: BLE001 - context, not data
+    replacement = {}
+
+#: The fitted outcome dispersion, for the confidence column. Absent on a fresh
+#: clone, and then no confidence is published rather than a made-up one.
+try:
+    dispersion = outcomes_weekly.load()
+except Exception:                                   # noqa: BLE001
+    dispersion = None
+
 # --- add / drop -----------------------------------------------------------
 owners = session.team_owners(week)
 default_owner = selection.my_owner if selection.my_owner in owners else (
@@ -155,105 +195,195 @@ if default_owner:
 
     roster = rostered.filter(pl.col("team_owner") == owner).to_dicts()
     slots = lu.slot_counts(rostered, selection.meta)
-    # IR-slotted players are held out of the cap rather than counted against it.
-    # They sort first -- an IR man projects 0.0 -- but `lineup.droppable_for` will
-    # refuse them for all but an IR/OUT add, so letting them occupy two of the four
-    # places would quietly halve the drop candidates a healthy add is weighed
-    # against. They ride along instead: cheap, and still available for the one kind
-    # of add that can legally take the slot.
-    droppable = lu.weakest_starter_candidates(roster, slots, points_col)
-    on_ir = [r for r in droppable if (r.get("slotPosition") or "") == "IR"]
-    drops = [r for r in droppable
-             if (r.get("slotPosition") or "") != "IR"][:ADD_DROP_DROPS] + on_ir
 
-    # Off `pool`, not `filtered`. A flag that disappears when you narrow the table
-    # below to quarterbacks is not a flag, and the same goes for the pairing: the
-    # controls scope the *pool table*, not what the app is willing to tell you.
-    every = pool.to_dicts()
-    candidates = lu.best_available_per_slot(every, slots, points_col)
+    # --- what it takes to play here ---------------------------------------
+    #
+    # The panel leads with this because it reduces a few hundred pool rows to one
+    # sentence per slot, and because it is the only part of the page that owes
+    # nothing to any outside source: it is this team's own optimiser read back.
+    # `lineup.lineup_threshold` gets it in two exact solves off the matroid kink
+    # rather than by searching -- and `add_drop_gain` is the same arithmetic's two
+    # halves, verified identical on all 448 pairings of the 16 GOP rosters.
+    st.markdown("**What It Takes To Play For You**")
+    bars = wv.threshold_table(roster, pool_rows, slots, points_col)
+    st.dataframe(
+        pl.DataFrame([{
+            "Slot": row["slot"],
+            "To Start": (None if row["bar"] is None
+                         else (None if row["bar"] == math.inf else row["bar"])),
+            "Settled": row["bar"] == math.inf,
+            "Best Available": (row["best"] or {}).get("player_name"),
+            "Projects": (None if row["best"] is None
+                         else float(row["best"].get(points_col) or 0.0)),
+            "Beats It": row["beats"],
+        } for row in bars]),
+        width="stretch", hide_index=True, placeholder="—", lazy=False,
+        column_config={
+            "Slot": st.column_config.TextColumn(width=100, pinned=True),
+            "To Start": st.column_config.NumberColumn(
+                format="%.1f",
+                help="What a free agent must project to displace whoever holds "
+                     "this slot in your optimal lineup. Blank where the slot is "
+                     "already settled by a kickoff."),
+            "Settled": st.column_config.CheckboxColumn(
+                help="The man in this slot has played. Nothing can reach it this "
+                     "week, whatever he scored."),
+            "Best Available": st.column_config.TextColumn(),
+            "Projects": st.column_config.NumberColumn(format="%.1f"),
+            "Beats It": st.column_config.CheckboxColumn(
+                help="The wire can improve this slot today."),
+        },
+    )
+    beaten = [row["slot"] for row in bars if row["beats"]]
+    settled = [row["slot"] for row in bars if row["bar"] == math.inf]
+    lead = (f"The wire can improve **{', '.join(beaten)}**."
+            if beaten else
+            "**Nothing available can crack this lineup today.**")
+    if settled:
+        lead += (f" {', '.join(settled)} {'is' if len(settled) == 1 else 'are'} "
+                 f"already settled — those players have kicked off.")
+    st.caption(
+        lead + " A slot with no bar is one this league cannot start you at. "
+        "**The bar is what you would actually lose, not who is in the slot**: a "
+        "receiver who displaces your WR2 pushes him into the flex, and it is "
+        "whoever falls out of the *flex* that you give up. That is why two slots "
+        "linked by a flex often show the same number — and why a bar can sit below "
+        "the man currently filling the slot."
+    )
 
+    # --- the flag, kept because Home mirrors it ---------------------------
     st.markdown("**Better Than What You Have**")
     weekly.render_upgrades(
-        lu.upgrades(every, roster, slots, points_col), owner=owner)
+        lu.upgrades(pool_rows, roster, slots, points_col), owner=owner)
     st.caption(
         "Compared **slot by slot, not position by position** — which is what puts a "
         "free-agent quarterback up against a receiver in a superflex `OP`, a back up "
         "against a receiver in the flex, and five defensive positions up against "
         "each other in `DP`. Eligibility is ESPN's own `eligiblePositions`. Measured "
-        "against the lineup ESPN currently has set, so if the Roster tab says to "
-        "bench that player anyway, fix that first — it may cost you no waiver claim "
-        "at all."
+        "against the lineup ESPN currently has set, where the table above is "
+        "measured against your *optimal* one — so if the Roster tab says to bench "
+        "that player anyway, fix that first; it may cost you no waiver claim at all."
     )
 
+    # --- the moves --------------------------------------------------------
     st.markdown("**What The Move Is Worth**")
-    moves = []
-    for candidate in candidates:
-        best = None
-        for drop in drops:
-            # An IR slot is outside the roster count, so giving up the man in it
-            # makes room only for somebody ESPN would let into that slot. See
-            # `lineup.droppable_for` -- without it an IR player, projecting 0.0,
-            # is ranked the most droppable man on the roster.
-            if not lu.droppable_for(drop, candidate):
-                continue
-            gain = lu.add_drop_gain(roster, slots, points_col, candidate,
-                                    drop.get("player_id"))
-            if best is None or gain > best[1]:
-                best = (drop, gain)
-        if best and best[1] > 0.01:
-            moves.append({
-                "Add": candidate.get("player_name"),
-                "Pos": candidate.get("player_position"),
-                "Add Proj": candidate.get(points_col),
-                "Drop": best[0].get("player_name"),
-                "Drop Proj": best[0].get(points_col),
-                "Lineup Gain": best[1],
-            })
+    moves = wv.rank_moves(roster, pool_rows, slots, points_col,
+                          replacement=replacement, model=dispersion)
+    shown = [m for m in moves if m.verdict != wv.VERDICT_STREAM]
 
-    blurb = (
-        f"Weighing the best available player at each of {len(slots)} starting slots "
-        f"— {len(candidates)} distinct players — against the "
-        f"{len(drops) - len(on_ir)} most droppable on {owner}'s roster"
+    picker[1].caption(
+        f"Weighing the best available player at each of {len(slots)} starting "
+        f"slots against the most droppable on {owner}'s roster. A move that only "
+        f"improves the bench is not shown unless the rest-of-season consensus says "
+        f"he starts in a league this shape."
     )
-    if on_ir:
-        blurb += (
-            f", plus {len(on_ir)} on IR — who free an IR slot rather than a bench "
-            f"place, so they are only offered against an add ESPN would let into it"
-        )
-    picker[1].caption(blurb + ".")
 
-    if moves:
+    if shown:
         st.dataframe(
-            pl.DataFrame(moves).sort("Lineup Gain", descending=True),
-            width="stretch", hide_index=True, placeholder="", lazy=False,
+            pl.DataFrame([{
+                "": wv.VERDICT_STYLE[m.verdict][0],
+                "Add": m.add.get("player_name"),
+                "Pos": m.add.get("player_position"),
+                "ROS": m.add.get("ros_pos_rank"),
+                "Drop": m.drop.get("player_name"),
+                "Week Gain": m.week_gain,
+                "Cover Cost": m.insurance or None,
+                "Net": m.net,
+                "Confidence": m.confidence,
+                "Why": m.reason,
+            } for m in shown]),
+            width="stretch", hide_index=True, placeholder="—", lazy=False,
             column_config={
+                "": st.column_config.TextColumn(width=40),
                 "Add": st.column_config.TextColumn(pinned=True),
                 "Pos": st.column_config.TextColumn(),
-                "Add Proj": st.column_config.NumberColumn(format="%.1f"),
+                "ROS": st.column_config.TextColumn(
+                    help="FantasyPros' rest-of-season positional rank. Backed by "
+                         "two or three experts, so it is used to order players and "
+                         "never to set a level — and it covers no individual "
+                         "defenders at all."),
                 "Drop": st.column_config.TextColumn(),
-                "Drop Proj": st.column_config.NumberColumn(format="%.1f"),
-                "Lineup Gain": st.column_config.NumberColumn(
+                "Week Gain": st.column_config.NumberColumn(
                     format="%+.1f",
-                    help="What this move adds to the best lineup you could field "
-                         "this week — the difference between two optimal lineups, "
+                    help="The difference between two optimal lineups this week — "
                          "not the difference between two players."),
+                "Cover Cost": st.column_config.NumberColumn(
+                    format="%.1f",
+                    help="What the man going out would be worth the week a starter "
+                         "above him sits. This is positional scarcity priced rather "
+                         "than vetoed, so a thin position defends itself in points."),
+                "Net": st.column_config.NumberColumn(
+                    format="%+.1f", help="Week Gain minus Cover Cost. The sort key."),
+                "Confidence": st.column_config.NumberColumn(
+                    format="%.0f%%",
+                    help="P(this move actually helps), on the fitted per-position "
+                         "outcome dispersion — 15,989 started player-weeks. A "
+                         "+0.5 edge is about 52%, which is the point of showing it."),
+                "Why": st.column_config.TextColumn(width="large"),
             },
         )
         st.caption(
-            "`Lineup Gain` is the difference between two **optimal lineups**, not "
-            "between two players — which is why it can be zero for someone the flags "
-            "above call an upgrade: a player who beats your worst starter is worth "
-            "nothing extra if the optimiser was going to bench that man anyway. "
-            "**This week only.** A move that gains nothing this week can still be "
-            "right for the rest of the season; rest-of-season value needs the weekly "
-            "model that plan 19 has not built, so it is not claimed here."
+            "Sorted by **Net**, because a waiver claim is a decision about a roster "
+            "spot rather than about Sunday alone. `Confidence` is the number to "
+            "read last and trust most: a margin of half a point against an outcome "
+            "spread near 11 is a coin flip however confident the projection looks, "
+            "and no amount of ranking makes it otherwise."
         )
     else:
         st.info(
-            f"None of the {len(candidates)} best-available players would improve the "
-            f"best lineup {owner} could field this week. A waiver claim that does "
-            f"not change your Sunday is a roster spot spent on nothing — though the "
-            f"flags above still apply to the lineup as it is actually set."
+            f"Nothing on the wire would improve {owner}'s starting lineup or beat "
+            f"it rest-of-season. A claim that does not change your Sunday and does "
+            f"not survive to December is a roster spot spent on nothing."
+        )
+
+    # --- streaming --------------------------------------------------------
+    #
+    # Their own line rather than the table above. K and D/ST were 64 of the 156
+    # successful in-season adds across the nine 2025 leagues -- 41% -- but each one
+    # is nearly costless and fully reversible, so they crowd out the decisions that
+    # matter if they compete on the same list. They are also the two positions
+    # whose rest-of-season conversion is loosest (plan 49, G-R1), which is a second
+    # reason arrived at independently.
+    streamers = wv.best_streamers(pool_rows, roster, slots, points_col)
+    if streamers:
+        st.markdown("**Streaming**")
+        st.dataframe(
+            pl.DataFrame([{
+                "Slot": row["slot"],
+                "Best Available": row["best"].get("player_name"),
+                "Projects": float(row["best"].get(points_col) or 0.0),
+                "You Have": (row["mine"] or {}).get("player_name"),
+                "Gain": row["gain"],
+            } for row in streamers]),
+            width="stretch", hide_index=True, placeholder="—", lazy=False,
+            column_config={
+                "Slot": st.column_config.TextColumn(width=100),
+                "Best Available": st.column_config.TextColumn(),
+                "Projects": st.column_config.NumberColumn(format="%.1f"),
+                "You Have": st.column_config.TextColumn(),
+                "Gain": st.column_config.NumberColumn(format="%+.1f"),
+            },
+        )
+        st.caption(
+            "Kicker and defence, kept apart from the table above because the "
+            "decision is a different shape: 41% of the in-season adds that worked "
+            "across the nine 2025 leagues were at these two positions, and each one "
+            "is nearly costless and undone next week. Worth a glance, never an "
+            "emergency."
+        )
+
+    #: FantasyPros publishes no individual defenders, so on an IDP league a large
+    #: part of the pool carries no rest-of-season number at all. Saying so is the
+    #: house rule -- an absent source is dropped, never zeroed -- and it matters
+    #: most exactly where it is least visible.
+    silent = sum(1 for r in pool_rows
+                 if r.get("ros_missing_reason") == ros.MISSING_NO_PUBLICATION)
+    if silent:
+        st.caption(
+            f"**{silent} of {len(pool_rows)} available players have no "
+            f"rest-of-season number**, because FantasyPros does not rank individual "
+            f"defenders. They are judged on this week alone. That is a gap in the "
+            f"source, not a verdict on the players."
         )
 
 # --- the pool -------------------------------------------------------------
