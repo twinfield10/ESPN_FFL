@@ -50,7 +50,23 @@ and a point in the superflex league mean what they say. Nothing downstream re-sc
 | `tendencies.parquet` | A **manager**, and what they reliably do that the room does not | `--what draft` |
 | `team_stats.parquet` | A **team-week** of matchup history | `--what team_stats`, opt-in |
 | `board_frozen.parquet` | A **draftable player**, as the board stood when the drafts finished | `python -m Scripts.freeze`, once a season |
+| `pool.parquet` | An **available player-week** — the waiver wire as it stood | `--what pool`, and the only artifact that **accumulates** |
 | `meta.json` | Build time, current week, roster slots, source coverage, versions, git sha | always, **last** |
+
+`pool.parquet` is the only artifact that **accumulates**, and it exists because the
+nightly destroys what it reads. `league.free_agents()` serves the wire only as it is
+*now*, and `extract_fa_stats` stamps every row `current_week`, so each rebuild replaces
+the whole free-agent history with a single current-week snapshot. The 2025 stores are
+the evidence: nine leagues, seventeen weeks of rosters, and free-agent rows on **week 17
+only**. Nothing can backfill it — ESPN will not serve a past week's wire at any price.
+
+So `--what pool` reads the store after each lineups build and appends that week's pool,
+27 columns rather than 625: identity, `eligiblePositions`, the five per-source
+`*_Points`, the blend, `LIVE_Points`, game state, and `percent_owned` / `injury_status`
+joined from the board. Two rules make it safe to run on a ten-minute cadence:
+**re-writing a week replaces it rather than appending**, and **an empty snapshot is
+refused** — in an accumulating store "nobody was available" and "the fetch broke"
+produce the same file. See [plan 49](plans/49-rest-of-season-waivers.md).
 
 `board_frozen.parquet` is the only artifact **not** written by `Scripts.refresh`, and
 that is the point of it. It is a copy of `board.parquet` taken once the drafts are over
