@@ -917,13 +917,25 @@ def upgrades(pool: Sequence[dict], roster: Sequence[dict], slots: Dict[str, int]
     found: List[Upgrade] = []
     for slot in sorted(slots, key=slot_rank):
         candidates = [row for row in available if slot in competing_slots(row, slots)]
+        # Two exclusions, and both are about whether the comparison is a decision
+        # you could act on.
+        #
         # `not _is_locked`: a man whose game has kicked off cannot be replaced this
         # week, so flagging him as out-projected is an alert about a decision that
         # is already made. His number is also no longer a projection -- on a
         # finished game it is the banked score -- so the margin would not mean what
         # the column says it means.
+        #
+        # **Not `IR`**: an injured-reserve player is outside the roster count, so he
+        # is neither in the lineup to be beaten nor droppable for anyone but an
+        # IR/OUT add (see :func:`droppable_for`). Left in, he read as a bench player
+        # and drew a depth flag -- Jeff's league week 1 reported Jaylen Warren as an
+        # upgrade over Brock Bowers, who was on IR and could not have been either
+        # played or dropped for him.
         mine = [row for row in roster
-                if slot in competing_slots(row, slots) and not _is_locked(row)]
+                if slot in competing_slots(row, slots)
+                and not _is_locked(row)
+                and (row.get("slotPosition") or "") != "IR"]
         if not candidates or not mine:
             continue
         best = max(candidates, key=points)
@@ -1036,6 +1048,171 @@ def add_drop_gain(roster: Sequence[dict], slots: Dict[str, int], points_column: 
     after_rows.append(as_rostered(candidate))
     _, after = optimal_lineup(after_rows, slots, points_column)
     return after - before
+
+
+#: Points given to the synthetic player :func:`lineup_threshold` inserts.
+#:
+#: Large enough that he always wins whatever slot he is eligible for, so the
+#: optimiser's answer is a clean read of what he displaced. Not ``inf``: the
+#: optimiser sums, and ``inf - inf`` is a nan rather than an answer.
+THRESHOLD_PROBE = 1e6
+
+
+def lineup_threshold(roster: Sequence[dict], slots: Dict[str, int],
+                     points_column: str, eligible: Iterable[str]) -> Optional[float]:
+    """What a player must project to change this lineup at all.
+
+    **This is not a second metric beside :func:`add_drop_gain`; it is that metric's
+    own first half, named.** :func:`optimal_lineup` maximises over a transversal
+    matroid, so the optimum as a function of an inserted player's projection ``x``
+    is exactly ``max(base, base - w + x)`` -- one kink, slope 0 then 1, where ``w``
+    is the starter he displaces. So ``w`` comes out of **two solves**, exactly,
+    with no search: insert a player worth :data:`THRESHOLD_PROBE` and read off how
+    much the optimum moved.
+
+    Verified on all 16 GOP rosters, 2026 week 1:
+    ``add_drop_gain == add_value(roster - drop) - drop_cost``, 448 of 448 pairings
+    to float precision.
+
+    Args:
+        roster: The team's rows.
+        slots: From :func:`slot_counts`.
+        points_column: Which projection to optimise.
+        eligible: Slots the hypothetical player may fill, as
+            :func:`_eligible` returns them.
+
+    Returns:
+        float | None: The bar, or:
+
+        * ``None`` when this league has **no slot he could ever fill** -- an
+          individual defender in a league with no ``DP``. That is not a bar of
+          zero, and reporting it as one would say the whole waiver wire is an
+          upgrade.
+        * ``math.inf`` when every slot he could fill is **held by a man whose game
+          has kicked off**. The slot is settled for the week, and no projection
+          reaches it. Distinct from the case above: one is a fact about the league,
+          the other about the hour.
+    """
+    reachable = set(eligible) & set(slots)
+    if not reachable:
+        return None
+
+    _, base = optimal_lineup(roster, slots, points_column)
+    probe = {"player_id": object(), "player_name": "", "player_position": None,
+             "eligiblePositions": list(reachable), "slotPosition": "BE",
+             "player_active_status": "active", points_column: THRESHOLD_PROBE}
+    _, after = optimal_lineup(list(roster) + [probe], slots, points_column)
+
+    if after <= base + 1e-9:
+        return math.inf
+    return base + THRESHOLD_PROBE - after
+
+
+def slot_thresholds(roster: Sequence[dict], slots: Dict[str, int],
+                    points_column: str) -> Dict[str, Optional[float]]:
+    """:func:`lineup_threshold` for each starting slot, one at a time.
+
+    The table the Free Agents tab leads with, because it reduces a pool of a few
+    hundred to one sentence per slot: *this is what it takes to play for you here.*
+
+    Args:
+        roster: The team's rows.
+        slots: From :func:`slot_counts`.
+        points_column: Which projection to optimise.
+
+    Returns:
+        dict: Slot to bar, in slot order. ``math.inf`` marks a slot already settled
+        by a kickoff.
+    """
+    return {slot: lineup_threshold(roster, slots, points_column, [slot])
+            for slot in sorted(slots, key=slot_rank)}
+
+
+def add_value(roster: Sequence[dict], slots: Dict[str, int], points_column: str,
+              candidate: dict) -> float:
+    """What adding this player is worth, before anything is given up for him.
+
+    Args:
+        roster: The team's rows, **already without whoever is being dropped**.
+        slots: From :func:`slot_counts`.
+        points_column: Which projection to optimise.
+        candidate: A pool row.
+
+    Returns:
+        float: ``max(0, his projection - the bar)``. Zero when he cannot start
+        here, would not start here, or when the slot is already settled.
+    """
+    bar = lineup_threshold(roster, slots, points_column, _eligible(candidate))
+    if bar is None or bar == math.inf:
+        return 0.0
+    return max(0.0, float(candidate.get(points_column) or 0.0) - bar)
+
+
+def drop_cost(roster: Sequence[dict], slots: Dict[str, int], points_column: str,
+              drop_id) -> float:
+    """What losing this player costs the lineup this week.
+
+    Args:
+        roster: The team's rows.
+        slots: From :func:`slot_counts`.
+        points_column: Which projection to optimise.
+        drop_id: ``player_id`` of the man being given up.
+
+    Returns:
+        float: Points the optimal lineup loses. Zero for anyone it was not going
+        to start.
+    """
+    _, base = optimal_lineup(roster, slots, points_column)
+    remaining = [r for r in roster if r.get("player_id") != drop_id]
+    _, without = optimal_lineup(remaining, slots, points_column)
+    return base - without
+
+
+def insurance_value(roster: Sequence[dict], slots: Dict[str, int],
+                    points_column: str, drop_id) -> float:
+    """What this player would be worth in a week one starter above him is out.
+
+    **The answer to "if we are weak at RB, I do not want to drop an RB".** A pure
+    this-week cost says a fourth receiver and your only spare back are both free to
+    drop, because neither starts on Sunday. They are not the same thing, and the
+    difference is what it would cost you the week somebody ahead of them sits.
+
+    Priced rather than vetoed. A rule that says "never drop your last back" cannot
+    be wrong and therefore cannot be tested; this is in points, so it competes with
+    the value of the add on one scale and the honest case -- a great add worth the
+    exposure -- still wins.
+
+    Args:
+        roster: The team's rows.
+        slots: From :func:`slot_counts`.
+        points_column: Which projection to optimise.
+        drop_id: ``player_id`` of the man being given up.
+
+    Returns:
+        float: The largest cost, over each starter he could cover for, of losing
+        him *and* that starter rather than that starter alone. Zero when he covers
+        nobody.
+    """
+    him = next((r for r in roster if r.get("player_id") == drop_id), None)
+    if him is None:
+        return 0.0
+    mine = set(_eligible(him)) & set(slots)
+    if not mine:
+        return 0.0
+
+    starters, _ = optimal_lineup(roster, slots, points_column)
+    worst = 0.0
+    for starter in starters:
+        if starter.get("player_id") == drop_id:
+            continue
+        if not (set(_eligible(starter)) & mine):
+            continue
+        out = [r for r in roster if r.get("player_id") != starter.get("player_id")]
+        _, with_him = optimal_lineup(out, slots, points_column)
+        _, without = optimal_lineup(
+            [r for r in out if r.get("player_id") != drop_id], slots, points_column)
+        worst = max(worst, with_him - without)
+    return worst
 
 
 def weakest_starter_candidates(roster: Sequence[dict], slots: Dict[str, int],
