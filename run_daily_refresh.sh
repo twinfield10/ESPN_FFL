@@ -337,6 +337,43 @@ if [ "${FP_WK_ROWS}" -le 60 ]; then
   fail "FantasyPros weekly returned ${FP_WK_ROWS} rows for week ${WEEK} against a teaser threshold of 60 -- the registration fence is back, which means the session cookie in config.yaml has expired. Log in again and replace it."
 fi
 
+# --- 2b'''. FantasyPros rest-of-season ranks -----------------------------
+# Third on the same cookie, so all three FantasyPros failures read in one place.
+#
+# A different page from the two above, and it has to be: on `/nfl/projections/`,
+# `week=ros` silently returns week 1, a future `week=N` silently returns *last
+# season's* week N, and `week=draft` is capped at 10 rows per position even
+# authenticated. None of the three errors -- each returns a plausible table of the
+# wrong thing. `/nfl/rankings/ros-<pos>.php` is the page that answers, and it is
+# robots-allowed at the same `Crawl-delay: 5`.
+#
+# **The file accumulates and that is the point.** Nothing anywhere archives what a
+# rest-of-season consensus said in a past week, so overwriting would leave the
+# source permanently unmeasurable -- you could never ask whether week 5's ranking
+# ordered weeks 6-18 correctly. ~485 rows a night, about 58k by January.
+log "pulling FantasyPros rest-of-season ranks"
+"${PYTHON}" -m Scripts.scrape_FP --what ros --week "${WEEK}" >>"${LOG}" 2>&1 \
+  || fail "Scripts.scrape_FP --what ros"
+
+# Today's capture only, for the reason the weekly guard above spells out: the file
+# is cumulative, so a whole-file count would report health off one good night
+# weeks after the cookie died. 485 rows is a full read; the fence caps it near 60.
+ROS_ROWS="$("${PYTHON}" -c "
+import polars as pl
+from Scripts.paths import season_dir
+p = season_dir('FantasyPros', ${SEASON}, 'FantasyPros_ROS_Ranks.parquet',
+                create=False)
+if not p.is_file():
+    print(0)
+else:
+    df = pl.read_parquet(p)
+    print(df.filter(pl.col('captured_date') == df['captured_date'].max()).height)
+" 2>/dev/null)" || ROS_ROWS=0
+log "FantasyPros ROS rows in today's capture: ${ROS_ROWS}"
+if [ "${ROS_ROWS}" -le 60 ]; then
+  fail "FantasyPros ROS returned ${ROS_ROWS} rows against a teaser threshold of 60 -- the registration fence is back, which means the session cookie in config.yaml has expired. Log in again and replace it."
+fi
+
 # --- 2b''. Pinnacle weekly player props ---------------------------------
 # **Non-fatal, deliberately, and it is the only stage here that is.**
 #

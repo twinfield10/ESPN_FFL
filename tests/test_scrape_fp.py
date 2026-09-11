@@ -29,24 +29,44 @@ def test_the_crawl_delay_matches_what_robots_asks_for():
     assert fp.CRAWL_DELAY_SECONDS >= 5.0
 
 
+#: Paths robots.txt leaves open that this module is allowed to request.
+#:
+#: `/nfl/rankings/` joined the list when the rest-of-season scrape landed. It is
+#: allowed for the same reason `/nfl/projections/` is -- robots.txt disallows only
+#: `/ajax/`, `/api/`, `/json/`, `/xml/` and `/nfl/ranker/`, and `ranker` is not
+#: `rankings`.
+ALLOWED_PATHS = ("/nfl/projections/", "/nfl/rankings/")
+
+
 def test_the_scraper_only_reads_a_robots_allowed_path():
-    """`/api/`, `/json/`, `/ajax/` and `/xml/` are Disallow-ed. `/nfl/projections/`
-    is not, and is the only path this module may touch -- the same call this repo
-    made for BetOnline's weekly endpoint and Pro-Football-Reference."""
+    """`/api/`, `/json/`, `/ajax/`, `/xml/` and `/nfl/ranker/` are Disallow-ed.
+
+    Scans the URL **constants** as well as the in-function assignments. The
+    original version matched only `url = "https://..."` lines, so hoisting a URL to
+    a module constant -- which is what `ROS_URL` did -- would have walked straight
+    past the guard.
+    """
     import inspect
 
-    # Only URLs the module actually *requests* -- prose mentioning robots.txt is not a
-    # fetch, so scan assignment lines rather than the whole source.
     src = inspect.getsource(fp)
+    # Prose mentioning robots.txt is not a fetch, so scan assignment lines only.
     fetched = [ln for ln in src.splitlines()
-               if re.match(r'\s*url\s*=\s*\(?\s*f?["\']https?://', ln)]
-    assert fetched, "expected a URL assignment in the module"
+               if re.match(r'\s*[A-Za-z_]+\s*=\s*\(?\s*f?["\']https?://', ln)]
+    assert len(fetched) >= 2, "expected the projections and rankings URLs"
     for ln in fetched:
         u = re.search(r'https://www\.fantasypros\.com(/[^"\'{\s?]*)', ln)
         assert u, f"unrecognised host in: {ln.strip()}"
-        assert u.group(1).startswith("/nfl/projections/"), f"non-projections path: {u.group(1)}"
-        for banned in ("/api/", "/json/", "/ajax/", "/xml/"):
+        path = u.group(1)
+        assert any(path.startswith(ok) for ok in ALLOWED_PATHS), \
+            f"path outside the allowed set: {path}"
+        for banned in ("/api/", "/json/", "/ajax/", "/xml/", "/nfl/ranker/"):
             assert banned not in ln
+
+
+def test_the_rankings_path_is_rankings_and_not_ranker():
+    """One letter apart, and `/nfl/ranker/` is the one robots.txt disallows."""
+    assert "/nfl/rankings/" in fp.ROS_URL
+    assert "/nfl/ranker/" not in fp.ROS_URL
 
 
 # --- the session ----------------------------------------------------------
