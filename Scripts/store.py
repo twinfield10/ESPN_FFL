@@ -69,6 +69,12 @@ ARTIFACTS = {
     # any question about how a season actually went reaches years before the
     # store existed. See docs/plans/25-results-backfill.md.
     "results": "results.parquet",
+    # The free-agent pool, week by week, and the only artifact here that
+    # **accumulates**. Everything else is rebuilt from ESPN on demand; this one
+    # cannot be, because ESPN serves the wire only as it is now. See
+    # `Scripts/pool.py` -- the nightly destroys the week it just read, so if this
+    # file does not keep it, nothing does.
+    "pool": "pool.parquet",
     # The board as it stood when the drafts finished, and it is the *point* that it
     # never moves again. `board.parquet` is rebuilt by the 06:00 nightly, so by
     # Thursday it is a rest-of-season instrument and can no longer answer "what did
@@ -443,6 +449,7 @@ def write_league_store(
     tendencies: Optional[pd.DataFrame] = None,
     results: Optional[pd.DataFrame] = None,
     board_frozen: Optional[pd.DataFrame] = None,
+    pool: Optional[pd.DataFrame] = None,
     league=None,
     meta_extra: Optional[Dict[str, Any]] = None,
 ) -> Path:
@@ -469,6 +476,9 @@ def write_league_store(
         board_frozen: A copy of ``board`` taken once the drafts are done. Written
             only by ``python -m Scripts.freeze``; nothing in the ingest path
             supplies it, which is the point -- see :data:`ARTIFACTS`.
+        pool: The accumulated free-agent history from ``Scripts.pool.accumulate``.
+            Pass the **whole** history, not one week -- this writes what it is
+            given, like every other artifact, and the merge belongs to the caller.
         league: The live ESPN ``League``, for metadata.
         meta_extra: Extra keys for ``meta.json``.
 
@@ -481,7 +491,7 @@ def write_league_store(
     """
     candidates = {"lineups": lineups, "team_stats": team_stats, "board": board,
                   "draft": draft, "tendencies": tendencies, "results": results,
-                  "board_frozen": board_frozen}
+                  "board_frozen": board_frozen, "pool": pool}
     written = {name: df for name, df in candidates.items() if df is not None}
     if not written:
         raise ValueError(

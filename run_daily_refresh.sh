@@ -482,6 +482,26 @@ log "rebuilding weekly lineups for all leagues"
 "${PYTHON}" -m Scripts.refresh --all --what lineups >>"${LOG}" 2>&1 \
   || fail "Scripts.refresh --what lineups"
 
+# --- 4c. Keep this week's waiver wire ------------------------------------
+# **The stage above just destroyed the one it read.** `league.free_agents()` serves
+# the pool only as it is now and `extract_fa_stats` stamps it `current_week`, so
+# every rebuild replaces the whole free-agent history with a single current-week
+# snapshot. The 2025 stores carry free-agent rows on week 17 alone, for all of
+# 2025 -- that is what this costs, and none of it is recoverable.
+#
+# `pool.parquet` accumulates instead: one row per available player per week,
+# re-written idempotently within a week so the daily cadence does not multiply it.
+# It reads the store rather than ESPN, so it adds no round-trip and cannot fail on
+# anything upstream.
+#
+# **Separate from the lineups stage, and non-fatal.** It is a recording, not an
+# input -- nothing in the app reads it yet -- so a failure here must not withhold
+# the S3 push of boards and lineups that are already correct.
+log "capturing the free-agent pool"
+"${PYTHON}" -m Scripts.refresh --all --what pool >>"${LOG}" 2>&1 \
+  || log "NOTE: pool capture failed -- this week's wire is lost and cannot be
+        refetched. Nothing downstream depends on it yet, so the run continues."
+
 # --- 5. Verify the data actually moved ----------------------------------
 # Exit code 0 means the commands ran. It does not mean upstream served anything new.
 # This is the check that tells the two apart.

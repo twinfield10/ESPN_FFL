@@ -350,9 +350,9 @@ the four it answers a question for, which is the structural payoff of the restru
 | Playoff Odds (`simulate_season`) | Matchup | needs porting off the live `League` object, and caching into the store during refresh |
 | Standings, power rankings, luck index | Matchup | `luck_index.py` carries seven TODOs calling its own scaling "crude and trash" |
 | History, `h2h_build` | Matchup | `team_stats` now exists, so unblocked |
-| Rest-of-season value on Free Agents | Free Agents | [19](19-weekly-usage-model.md), the weekly TOMCAT head |
+| ~~Rest-of-season value on Free Agents~~ | Free Agents | **Re-scoped 2026-09-10 to [49](49-rest-of-season-waivers.md)**, which does not wait for 19: FantasyPros publishes a rest-of-season consensus, and the decision logic uses its *rank* against this league's own `replacement_rank` rather than its points |
 | Points-over-expectation per manager | Rundown | scoring past seasons in each league's own rules (roadmap phase 1) |
-| `percent_owned` in the weekly store | Free Agents | a `refresh` change; it is on the board and not in `lineups.parquet`, so the pool cannot yet be narrowed to players who are *gettable* rather than merely unrostered |
+| ~~`percent_owned` in the weekly store~~ | Free Agents | **Done 2026-09-10** — and it needed no `refresh` change at all. `board.parquet` joins to the weekly frame on `player_id` 1:1, measured across all ten 2026 stores: no board carries a duplicate id, and `percent_owned` reaches **100% of every league's pool**. The Free Agents tab joins it in the route and gained a `Max Owned %` filter. `injury_status` came along the same way, which is what made the IR drop rule possible. See [49](49-rest-of-season-waivers.md) |
 | Live draft polling | nowhere, on purpose | still refused: it would put an ESPN client in a render path the app promises is an 11ms parquet read |
 
 Smaller things, named so they are not rediscovered:

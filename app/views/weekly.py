@@ -53,6 +53,7 @@ BASE_LABELS: Dict[str, str] = {
     live.LIVE_POINTS: "Live",
     "sources_real": "Sources",
     "source_spread": "Spread",
+    "percent_owned": "Owned %",
 }
 
 #: Tooltips for the live block. The grid needs its own copy because
@@ -220,6 +221,13 @@ def render_table(frame: pl.DataFrame, meta: dict, *, columns: Sequence[str],
             help="How many sources really had an opinion about this player, after "
                  "dropping the ones that were imputed from the mean. `1` means the "
                  "projection beside it is a single source's view."),
+        # Not in the default `tail` -- the Free Agents pool asks for it by name,
+        # because "is he gettable" is a question only the wire has.
+        "Owned %": st.column_config.NumberColumn(
+            format="%.0f%%",
+            help="Share of ESPN leagues rostering this player, from the draft "
+                 "board. High ownership on an unrostered player means this league "
+                 "is shallower than most, not that he is available everywhere."),
         # Kept though `display_columns` no longer emits it: `tail` is a parameter,
         # so a caller can still ask for the column and it should arrive configured.
         "Spread": st.column_config.NumberColumn(
@@ -257,6 +265,10 @@ def _numeric_format(label: str) -> str:
         return "{:+.1f}"
     if label == "Sources":
         return "{:.0f}"
+    if label == "Owned %":
+        # Must match the `%.0f%%` in `column_config`, or the Styler's display
+        # values and the grid's format disagree about the same cell.
+        return "{:.0f}%"
     return "{:.1f}"
 
 

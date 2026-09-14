@@ -30,6 +30,8 @@ import sys
 import time
 from typing import Dict, List, Optional, Sequence, Tuple
 
+import pandas as pd
+
 from Scripts import store
 from Scripts.config_utils import build_lg_vars, get_season, resolve_league
 from Scripts.paths import REPO_ROOT
@@ -44,7 +46,8 @@ from Scripts.paths import REPO_ROOT
 #: and reads no source file, so it can run at a frequency the full build cannot --
 #: it cannot go stale and it cannot move what the blend voted with. It is what runs
 #: every ten minutes on a Sunday; ``lineups`` is what runs at 06:00.
-WHAT_CHOICES = ("lineups", "team_stats", "board", "draft", "results", "live")
+WHAT_CHOICES = ("lineups", "team_stats", "board", "draft", "results", "live",
+                "pool")
 
 #: Built unless ``--what`` says otherwise. ``team_stats`` is excluded on purpose --
 #: see the module docstring. ``board`` is excluded because it is a pre-season
@@ -52,6 +55,12 @@ WHAT_CHOICES = ("lineups", "team_stats", "board", "draft", "results", "live")
 #: stronger version of the same reason: a finished draft never changes at all, so
 #: rebuilding it weekly re-reads ten seasons to write the same bytes.
 DEFAULT_WHAT = ("lineups",)
+
+#: ``--what pool`` needs a lineups frame to snapshot from, and takes the one this
+#: run just built rather than re-reading the store. Requesting it alone reads the
+#: stored frame instead, which is right for a backfill and wrong for a nightly --
+#: the nightly should build and capture in one pass so the two cannot disagree
+#: about which week is current.
 
 #: The columns kept in ``results.parquet``. Deliberately narrow: the box-score
 #: frame arrives ~104 columns wide and the rest are per-stat detail the
@@ -114,6 +123,7 @@ def refresh_league(
     draft = None
     tendencies = None
     results = None
+    pool_history = None
     league = None
 
     def _league():
@@ -248,8 +258,52 @@ def refresh_league(
              f"{team_stats.shape[1]:>3} cols   {timings['team_stats']:.2f}s "
              f"({start_year}-{season})")
 
+    if "pool" in what:
+        from Scripts import pool as pool_mod
+
+        # The frame this run built, or the stored one on a `--what pool` backfill.
+        source = lineups
+        if source is None and store.has_store(season, league_key):
+            try:
+                source = pd.read_parquet(
+                    store.artifact_path(season, league_key, "lineups"))
+            except (OSError, ValueError) as exc:
+                _log(f"  pool        cannot read stored lineups: {exc}")
+                source = None
+
+        week = getattr(_league() if source is None else league, "current_week", None)
+        if week is None and source is not None and "week" in source.columns:
+            week = int(source["week"].max())
+
+        if source is None or week is None:
+            _log("  pool        no lineups to snapshot")
+        else:
+            start = time.time()
+            board_frame = None
+            if store.has_store(season, league_key):
+                board_path = store.artifact_path(season, league_key, "board")
+                if board_path.exists():
+                    board_frame = pd.read_parquet(board_path)
+            fresh = pool_mod.snapshot(source, int(week), board_frame)
+            if fresh.empty:
+                # Loud, not silent: an empty pull here means ESPN served no wire,
+                # and quietly writing nothing would look identical next week to
+                # having captured it.
+                _log(f"  pool        week {week}: EMPTY -- nothing captured")
+            else:
+                existing = None
+                existing_path = store.artifact_path(season, league_key, "pool")
+                if existing_path.exists():
+                    existing = pd.read_parquet(existing_path)
+                pool_history = pool_mod.accumulate(existing, fresh)
+                timings["pool"] = time.time() - start
+                _log(f"  pool        {fresh.shape[0]:>6} available in week {week}; "
+                     f"history {pool_history.shape[0]} rows over weeks "
+                     f"{pool_mod.weeks_present(pool_history)}   "
+                     f"{timings['pool']:.2f}s")
+
     if all(artifact is None for artifact in
-           (lineups, team_stats, board, draft, tendencies, results)):
+           (lineups, team_stats, board, draft, tendencies, results, pool_history)):
         _log("  nothing to write")
         return timings
 
@@ -260,7 +314,7 @@ def refresh_league(
     directory = store.write_league_store(
         season, league_key,
         lineups=lineups, team_stats=team_stats, board=board, draft=draft,
-        tendencies=tendencies, results=results, league=league,
+        tendencies=tendencies, results=results, pool=pool_history, league=league,
         meta_extra={
             "display_name": cfg["display_name"],
             "primary_owner": cfg["primary_own"],

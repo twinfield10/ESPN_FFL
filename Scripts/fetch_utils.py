@@ -152,7 +152,14 @@ def set_owner_names(league: League) -> None:
                 team.owners[0]["firstName"] + " " + team.owners[0]["lastName"],
             ).title()
         else:
-            team.owner = "Unknown Owner"
+            # Qualified by team name, because this fallback is a **team key** as
+            # well as a label. ESPN serves no owner for more than one team in a
+            # league -- `big_red_fantasy_football` 2026 has two, `Team 5` and
+            # `Team 7` -- and a bare "Unknown Owner" merged them into a single
+            # 32-row roster. Everything downstream groups by `team_owner`, so that
+            # merged team read as one manager starting two quarterbacks and
+            # `lineup.slot_counts` doubled every starting slot in the league.
+            team.owner = f"Unknown Owner ({team.team_name})"
 
 
 def isolate_scoring_format(league: League) -> None:
