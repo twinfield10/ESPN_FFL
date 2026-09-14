@@ -161,9 +161,28 @@ def blend(board: pd.DataFrame, league_key: str, season: int,
     from Scripts.injury.transfer import redistribute
     from Scripts.season_projections import reconcile_team_totals
 
+    from Scripts.season_projections import blended_stats
+
     scoring = scoring_table(league_key, season, SLOT_BASE)
     stats = [c for c in scoring["colName"].dropna().unique()]
-    out = compute_weighted_stats(df=board.copy(), stats_list=stats,
+
+    # **`blended_stats`, not the bare scored list, and the difference is a whole
+    # side of an identity.** `build_season_projections` blends
+    # `blended_stats(stats)` -- the scored columns plus `VOLUME_STATS` -- so the
+    # pipeline reblends 47 stats where this reblended 43. The four it missed
+    # include `passingCompletions`, which no league here scores and which
+    # `reconcile_team_totals` nonetheless pairs against `receivingReceptions`.
+    #
+    # So the tail below ran on a mixture: receptions freshly blended from the
+    # sources, completions still carrying the board's already-reconciled,
+    # already-redistributed value. Reconcile took the midpoint of one fresh side
+    # and one finished side, which is not the midpoint the board was built from,
+    # and dragged *both* to it. That is the entire "the identity has more than one
+    # fixed point" story -- reconcile is idempotent, and the composite was never
+    # the problem. Measured before the fix: yardage reproduced at 0.0 while
+    # receptions drifted 9.69 and completions 35.96, growing sixfold in a
+    # fortnight as in-season data pulled the stale value further from a fresh one.
+    out = compute_weighted_stats(df=board.copy(), stats_list=blended_stats(stats),
                                  weights_dict={"default": weights})
     # The shipping path's tail, in the same order, because a lab that reproduces a
     # different object than the board measures the wrong thing. Plan 28 phase 6's

@@ -143,49 +143,42 @@ def test_carry_columns_include_the_identity_needed_to_score_later():
 def test_reblend_reproduces_the_shipped_board(league_key):
     """The whole archive rests on this, so it is pinned rather than assumed.
 
-    **Every yardage stat reproduces exactly and the identity-reconciled pair does
-    not, and the split is the finding.** Measured 2026-09-01 on both leagues, and
-    identical in both -- which is itself the evidence that it is a property of the
-    shared stat line rather than of a league's scoring:
+    **It reproduces exactly, and the residual this used to tolerate was a bug in
+    the lab rather than a property of the blend.**
 
-    ========================  ==========  ==========  =======
-    stat                      2026-09-01  2026-09-14  bound
-    ========================  ==========  ==========  =======
-    TRUE_passingYards                0.0         0.0  exact
-    TRUE_rushingYards                0.0         0.0  exact
-    TRUE_receivingYards              0.0         0.0  exact
-    TRUE_receivingReceptions    1.526789      9.6925     15.0
-    TRUE_passingCompletions     6.081067     35.9585     60.0
-    ========================  ==========  ==========  =======
+    The story is worth keeping because the wrong diagnosis survived two rounds of
+    loosening. ``reconcile_team_totals`` ties ``passingCompletions`` to
+    ``receivingReceptions``, and a reblend used to land 1.53 off on receptions and
+    6.08 on completions while every yardage stat came back to the bit. That split
+    was read as the identity having more than one fixed point -- yards converging
+    from either starting state and receptions not -- and the bound was set an
+    order of magnitude above the miss to catch it growing. It grew: by 2026-09-14
+    the two were **9.69 and 35.96**, sixfold in a fortnight, and the rank check
+    tipped over on Jahan Dotson moving WR88 -> WR83.
 
-    **The residual has grown about sixfold in a fortnight and that is the live
-    finding here, not the rank bound below.** Both figures are identical across the
-    two leagues again, so it remains a property of the shared stat line. Yardage
-    still reproduces exactly, so the blend is not drifting; what grew is the gap
-    between the two fixed points, and the first reconcile pass now closes 76
-    completions where it used to close far fewer. Nothing in this repo changed --
-    this is in-season source movement enlarging the identity gap.
+    Reconcile is idempotent. It was never the composite.
+    ``build_season_projections`` blends ``blended_stats(stats)`` -- the scored
+    columns **plus** ``VOLUME_STATS`` -- and :func:`Scripts.lab.g2.blend` was
+    blending the bare scored list, 43 stats against the pipeline's 47. The four it
+    skipped include ``passingCompletions``, which no league here scores and which
+    the tail nonetheless reconciles. So the tail ran on a mixture: receptions
+    freshly blended from the sources, completions still holding the board's
+    already-reconciled, already-redistributed value. Reconcile took the midpoint of
+    one fresh side and one finished side -- not the midpoint the board was built
+    from -- and dragged both to it.
 
-    The bounds were set an order of magnitude above the 09-01 measurement. They are
-    now at **65%** and **60%** of that headroom, so on this trajectory they breach
-    rather than hold, and the thing to fix at that point is the multiple fixed
-    point in reconcile -> redistribute -> reconcile, not the number in this test.
+    Yardage was exact throughout because both its sides are scored everywhere, so
+    both were always reblended. **That asymmetry was the evidence all along**, and
+    it was read as a fact about the stats rather than about which of them the lab
+    happened to recompute.
 
-    Receptions and completions are the two sides of an identity -- a team's catches
-    are its completions -- and ``reconcile_team_totals`` ties them. The tail runs
-    reconcile, then ``redistribute``, then reconcile again, and **that identity has
-    more than one fixed point**: yards converge to the same one from either starting
-    state, receptions do not. So a reblend lands on a neighbouring solution rather
-    than on a wrong one.
+    The residual grew because the board is rebuilt nightly and in-season source
+    movement pulled the stale completions further from a fresh blend of them, which
+    is also why this failed now rather than in August.
 
-    The board itself is settled, which is the property that actually matters and is
-    asserted below: reconcile moves it by 0.0 on every further pass.
-
-    This used to assert 1e-9 on ``TRUE_Points`` and passed until 2026-09-01, when
-    camp cuts gave ``redistribute`` 13 vacated starters to move instead of a
-    near-empty set and the residual became visible. Loosening the bar without saying
-    why would have hidden it, so the bound is measured, the mechanism is written
-    down, and the thing a board is *for* -- ordering -- is asserted directly.
+    So the bound is back where it belongs: every reconciled column, and
+    ``TRUE_Points`` with them, reproduces to float precision. A residual here is
+    once again a real regression rather than something to be characterised.
 
     Skipped when the store has not been built -- it is gitignored and regenerable,
     so a fresh checkout legitimately has no board to compare against.
@@ -216,21 +209,17 @@ def test_reblend_reproduces_the_shipped_board(league_key):
         assert both.sum() > 100, f"{column} has too few comparable rows to mean anything"
         return (left[both] - right[both]).abs().max()
 
-    # Volume reproduces exactly. Anything here is a real regression.
-    for column in ("TRUE_receivingYards", "TRUE_rushingYards", "TRUE_passingYards"):
+    # **Every reconciled column, to float precision.** Both halves of each identity
+    # pair, not just the side every league happens to score -- the one this used to
+    # skip is exactly where the bug lived.
+    for column in ("TRUE_passingYards", "TRUE_rushingYards", "TRUE_receivingYards",
+                   "TRUE_passingTouchdowns", "TRUE_receivingTouchdowns",
+                   "TRUE_receivingReceptions", "TRUE_passingCompletions"):
         if column in original.columns:
             assert drift(column) == pytest.approx(0.0, abs=1e-9), column
 
-    # The identity pair carries a bounded residual. The bar is an order of magnitude
-    # above what is measured, so it catches the residual *growing* rather than
-    # re-failing on float dust.
-    for column, bound in (("TRUE_receivingReceptions", 15.0),
-                          ("TRUE_passingCompletions", 60.0)):
-        if column in original.columns:
-            assert drift(column) < bound, f"{column} residual has grown"
-
-    # Which is worth at most a couple of points of scoring.
-    assert drift("TRUE_Points") < 15.0
+    # And the number every league actually reads.
+    assert drift("TRUE_Points") == pytest.approx(0.0, abs=1e-9)
 
     # **The property the board actually has to hold**: it is a fixed point, so
     # nothing about it is mid-convergence.
@@ -244,42 +233,15 @@ def test_reblend_reproduces_the_shipped_board(league_key):
             assert (left[both] - right[both]).abs().max() == pytest.approx(0.0, abs=1e-9), (
                 f"the shipped board is not settled: reconcile still moves {column}")
 
-    # **And the thing a board is for.** A residual that reordered the draft would
-    # matter whatever its size; one that does not is a rounding difference with a
-    # long name.
-    #
-    # **Asserted where ordering can change a decision, which is not the whole
-    # board.** The unrestricted version of this check reached exactly 5 on
-    # 2026-09-14 and failed, on Jahan Dotson moving WR88 -> WR83 in both leagues.
-    # He is 74 ranks below replacement with a VOR of -152; nobody drafts or starts
-    # him. What moved him is that the curve is flat there: around WR83-88 it runs
-    # **0.56 points per rank** against **5.56 in the top 24**, so the same residual
-    # buys ten times the rank movement in the tail. A fixed rank bound over all 499
-    # projected players therefore measures the *shape of the distribution* as much
-    # as the size of the residual, and it gets more fragile every week as
-    # in-season data compresses the tail further.
-    #
-    # Restricted to players inside their own position's replacement rank -- the
-    # ones a draft actually chooses between -- it is stable: **0 places on
-    # Winfield (54 players), 2 on Knights (126)**, the latter nine adjacent swaps
-    # between WR21 and WR37.
+    # **And the thing a board is for.** With the blend reproducing exactly nothing
+    # can reorder, so this is now a tautology guarding the two above rather than a
+    # tolerance: if a residual ever returns, it says so in the units that matter.
     projected = original.loc[shared, "projection_missing"].fillna(False).eq(False)
     ranks = pd.DataFrame({
         "pos": original.loc[shared, "primaryPosition"],
-        "pos_rank": pd.to_numeric(original.loc[shared, "pos_rank"], errors="coerce"),
-        "replacement": pd.to_numeric(original.loc[shared, "replacement_rank"],
-                                     errors="coerce"),
         "was": pd.to_numeric(original.loc[shared, "TRUE_Points"], errors="coerce"),
         "now": pd.to_numeric(rebuilt.loc[shared, "TRUE_Points"], errors="coerce"),
     }).loc[projected]
     moved = (ranks.groupby("pos")["was"].rank(ascending=False, method="min")
              - ranks.groupby("pos")["now"].rank(ascending=False, method="min")).abs()
-
-    startable = ranks["pos_rank"] <= ranks["replacement"]
-    assert startable.sum() > 40, "too few startable players to mean anything"
-    assert moved[startable].max() < 4, (
-        "the reblend residual now reorders the startable board")
-
-    # The tail is still watched, an order of magnitude looser, for a gross
-    # regression rather than for a place or two of drift among undrafted players.
-    assert moved.max() < 25, "the reblend residual has begun reordering wholesale"
+    assert moved.max() == 0, "the reblend no longer reproduces the board's ordering"
