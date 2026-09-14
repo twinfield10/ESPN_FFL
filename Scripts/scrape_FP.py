@@ -1,4 +1,6 @@
 # Base
+import json
+import re
 import time
 from datetime import datetime
 import requests
@@ -420,6 +422,219 @@ def scrape_season_long(season=None):
     return df
 
 
+# --- rest of season -------------------------------------------------------
+#
+# A different page from the projections above, and it has to be: on
+# `/nfl/projections/`, `week=ros` silently returns **week 1**, a future `week=N`
+# silently returns **last season's** week N, and `week=draft` is capped at 10 rows
+# per position even with the session cookie. All three were probed on 2026-09-10.
+# None of them errors -- each returns a plausible table of the wrong thing, which
+# is the worst failure shape a source can have.
+#
+# `/nfl/rankings/ros-<pos>.php` is allowed by robots.txt (which disallows only
+# `/ajax/`, `/api/`, `/json/`, `/xml/` and `/nfl/ranker/`) and honours the same
+# `Crawl-delay: 5` the projections scrape already does.
+
+#: The rest-of-season rankings page, one per position.
+#:
+#: The bare slug is the STD scoring variant for every position -- verified, not
+#: assumed -- which matches what :func:`get_fp` already pulls, so the two
+#: FantasyPros artifacts are denominated the same way. PPR and half-PPR variants
+#: exist at `ros-ppr-<pos>` and `ros-half-point-ppr-<pos>` and are deliberately not
+#: used: the repo scores every league from stat lines in its own rules, so picking
+#: a scoring flavour here would be choosing one league's rules for all of them.
+ROS_URL = "https://www.fantasypros.com/nfl/rankings/ros-{pos}.php"
+
+#: The same six positions :data:`pos_list` covers.
+#:
+#: **There is no IDP rest-of-season page.** FantasyPros does not publish one, which
+#: on GOP_Degenerates means 150 of 284 free-agent rows can never carry an ROS
+#: number. That is a gap in the source and must read as an abstention downstream,
+#: never as a projection of zero.
+ROS_POSITIONS = tuple(pos_list)
+
+#: The table is rendered by JavaScript, so the rows are read from the JSON the page
+#: ships them in rather than from the DOM. `re.S` because the blob is multi-line;
+#: non-greedy up to the terminating `};` because several other `var` blocks follow.
+_ECR_DATA = re.compile(r"var\s+ecrData\s*=\s*(\{.*?\});\s*\n", re.S)
+
+#: Fields taken verbatim off each `ecrData["players"]` row.
+#:
+#: `rank_min`/`rank_max`/`rank_std` come along because **this consensus is thin** --
+#: `total_experts` is 2-3 on these pages against 100+ on the in-season rankings --
+#: and a spread over three opinions has to travel with the number it describes.
+#: `r2p_pts` is kept and is *not* to be divided by our own games-remaining: it is a
+#: total over the games FantasyPros thinks the player will play, so mixing their
+#: numerator with our denominator discounts a known absence twice.
+ROS_PLAYER_FIELDS = (
+    "player_name", "player_team_id", "player_positions", "player_bye_week",
+    "player_owned_avg", "rank_ecr", "rank_min", "rank_max", "rank_ave",
+    "rank_std", "pos_rank", "r2p_pts", "player_ecr_delta",
+)
+
+#: What a row is keyed by once captured. The capture date is part of the key
+#: because this file **accumulates**: a rest-of-season opinion is only meaningful
+#: as of a date, and overwriting it would make the source permanently
+#: unfalsifiable -- there is no archive of what the consensus said in week 5.
+ROS_KEYS = ["captured_date", "position", "player_name"]
+
+#: FantasyPros' team abbreviations, where they differ from ESPN's.
+#:
+#: Only two of thirty-two, and D/ST joins on this key rather than on the name, so
+#: each one is a defence that silently never matches. Caught by gate G-R0 on the
+#: first run: every league was missing exactly its Jaguars and its Commanders.
+#: FantasyPros writes `LAR` like ESPN, so the nflverse map in
+#: `Scripts/nfl_utils.ESPN_TEAM_ALIASES` is the wrong one to reach for -- this is a
+#: fact about FantasyPros, and it lives here for the same reason that one lives
+#: beside the schedule.
+ROS_TEAM_ALIASES = {"JAC": "JAX", "WAS": "WSH"}
+
+
+def parse_ecr_data(html):
+    """The ``ecrData`` blob a rankings page embeds.
+
+    Args:
+        html: The page source.
+
+    Returns:
+        dict: The decoded payload, with ``players`` among its keys.
+
+    Raises:
+        ValueError: When the blob is absent or will not decode -- which means
+            FantasyPros has restructured the page, and is a build failure rather
+            than an empty result. A rankings scrape that silently returns nothing
+            looks exactly like a week in which nobody was ranked.
+    """
+    found = _ECR_DATA.search(html or "")
+    if not found:
+        raise ValueError(
+            "no `var ecrData` on the page. FantasyPros has changed the rankings "
+            "template, or the response was an interstitial rather than the page."
+        )
+    try:
+        return json.loads(found.group(1))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"ecrData did not decode as JSON: {exc}") from exc
+
+
+def get_ros(pos, year=None, *, html=None):
+    """Rest-of-season consensus for one position.
+
+    Args:
+        pos: One of :data:`ROS_POSITIONS`.
+        year: Season for the ``year`` query parameter. None for the current one.
+        html: Pre-fetched page source, for tests. Skips the request entirely.
+
+    Returns:
+        pd.DataFrame: One row per ranked player, with the envelope's
+        ``total_experts``, ``scoring`` and ``last_updated`` stamped on every row so
+        a stored snapshot can say how thin the consensus behind it was.
+    """
+    if html is None:
+        url = ROS_URL.format(pos=pos)
+        if year is not None:
+            url += f"?year={int(year)}"
+        headers = {"User-Agent": USER_AGENT}
+        cookie = _session_cookie()
+        if cookie:
+            headers["Cookie"] = cookie
+        response = requests.get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+        html = response.text
+
+    payload = parse_ecr_data(html)
+    players = payload.get("players") or []
+    rows = [{field: player.get(field) for field in ROS_PLAYER_FIELDS}
+            for player in players]
+    df = pd.DataFrame(rows, columns=list(ROS_PLAYER_FIELDS))
+
+    df["position"] = pos.upper()
+    df["total_experts"] = payload.get("total_experts")
+    df["scoring"] = payload.get("scoring")
+    df["ranking_type"] = payload.get("type")
+    df["last_updated"] = payload.get("last_updated")
+    df["source_year"] = payload.get("year")
+
+    # `pro_team` is the join key the store uses, and for D/ST it is the *only* one
+    # that works: FantasyPros names a defence "Houston Texans" where the store says
+    # "Texans D/ST", so 0 of 14 match by name. The abbreviation matches directly.
+    df["pro_team"] = df["player_team_id"].replace(ROS_TEAM_ALIASES)
+    if pos == "dst":
+        df["player_name"] = df["player_name"].replace(dst_map)
+
+    # The same two the weekly scrape rewrites, for the same reason.
+    df["player_name"] = df["player_name"].replace(
+        {"Patrick Mahomes II": "Patrick Mahomes",
+         "Gardner Minshew II": "Gardner Minshew"})
+
+    for column in ("r2p_pts", "rank_min", "rank_max", "rank_ave", "rank_std",
+                   "player_owned_avg", "player_ecr_delta"):
+        df[column] = pd.to_numeric(df[column], errors="coerce")
+    return df
+
+
+def scrape_ros(season=None, week=None, merge=True):
+    """Scrape every position's rest-of-season consensus and append it to the file.
+
+    **Append-only, keyed by capture date, and that is the point.** There is no
+    archive anywhere of what a rest-of-season consensus said in a past week --
+    FantasyPros serves only today's, and the `year` parameter that rescues the
+    weekly projections does not rescue this. Overwriting would leave the source
+    permanently unmeasurable: you could never ask whether week 5's ranking ordered
+    week 6-18 correctly. At ~485 rows a night it is about 58k rows by January.
+
+    Args:
+        season: Season for the output path. Defaults to the schedule's season.
+        week: Week to stamp the capture with. Defaults to the current week.
+        merge: Append to the stored file. False rewrites it, for a repair.
+
+    Returns:
+        pd.DataFrame: The whole accumulated file, not just this capture.
+    """
+    season = SEASON if season is None else season
+    week = WEEK if week is None else week
+    year = None if int(season) == int(SEASON) else int(season)
+
+    frames = []
+    for i, pos in enumerate(ROS_POSITIONS):
+        if i:
+            time.sleep(CRAWL_DELAY_SECONDS)
+        frames.append(get_ros(pos, year=year))
+
+    fresh = pd.concat(frames, ignore_index=True)
+    stamp = datetime.now()
+    fresh["captured_at"] = stamp.strftime("%Y-%m-%d %H:%M:%S")
+    fresh["captured_date"] = stamp.strftime("%Y-%m-%d")
+    fresh["captured_week"] = week
+    fresh["season"] = int(season)
+
+    out = season_dir("FantasyPros", season, "FantasyPros_ROS_Ranks.parquet")
+    combined = fresh
+    if merge and out.exists():
+        previous = pd.read_parquet(out)
+        # `keep="last"` so a same-day re-run refreshes rather than duplicates, which
+        # is the opposite of the weekly file's rule and for the opposite reason:
+        # there the point is to freeze a pre-game opinion, here it is to hold the
+        # most recent read of a forecast that is *meant* to move.
+        combined = (pd.concat([previous, fresh], ignore_index=True)
+                    .drop_duplicates(subset=ROS_KEYS, keep="last")
+                    .reset_index(drop=True))
+
+    combined.to_parquet(out)
+    combined.to_csv(out.with_suffix(".csv"), index=False)
+
+    experts = fresh.groupby("position")["total_experts"].max().to_dict()
+    priced = int(fresh["r2p_pts"].notna().sum())
+    print(f"FantasyPros ROS {season} week {week}: {len(fresh)} ranked, "
+          f"{priced} with points; file now {len(combined)} rows over "
+          f"{combined['captured_date'].nunique()} captures")
+    print(f"  experts per position: {experts}")
+    if len(fresh) <= 60:
+        print("  NOTE: 60 rows or fewer -- the registration fence is back. See "
+              "_session_cookie().")
+    return combined
+
+
 def main(argv=None):
     """Command-line entry point.
 
@@ -439,7 +654,12 @@ def main(argv=None):
                    help="explicit weeks to fetch, e.g. 1-3 or 1,4,7 (a backfill)")
     p.add_argument("--no-merge", action="store_true",
                    help="rewrite the weekly file instead of merging into it")
-    p.add_argument("--what", choices=["weekly", "season", "both"], default="both")
+    # `both` still means weekly+season. `ros` is a third thing rather than a
+    # widening of the default: the nightly names its stages explicitly, and
+    # silently adding six requests to a default a human invokes by hand is how a
+    # crawl delay turns into a rate limit.
+    p.add_argument("--what", choices=["weekly", "season", "both", "ros"],
+                   default="both")
     args = p.parse_args(argv)
 
     if args.what in ("weekly", "both"):
@@ -447,6 +667,9 @@ def main(argv=None):
                       weeks=parse_weeks(args.weeks), merge=not args.no_merge)
     if args.what in ("season", "both"):
         scrape_season_long(season=args.season)
+    if args.what == "ros":
+        scrape_ros(season=args.season, week=args.week,
+                   merge=not args.no_merge)
     return 0
 
 

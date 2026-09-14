@@ -554,6 +554,24 @@ def source_readers() -> List[Tuple[str, str, str, Callable[[int], pd.DataFrame]]
     def fp_weekly(season: int) -> pd.DataFrame:
         return _named(pd.read_parquet(pu.fantasypros_parquet(season)))
 
+    def fp_ros(season: int) -> pd.DataFrame:
+        """The rest-of-season consensus, latest capture only.
+
+        Registered because a name-joined source whose misses nobody counts is a
+        source that quietly shrinks. It also answers the question
+        `Scripts.ros.MISSING_NOT_RANKED` deliberately does not: whether a player
+        with no rest-of-season number is missing because FantasyPros does not rank
+        him, or because the spelling differs.
+        """
+        from Scripts import ros as ros_mod
+
+        frame = ros_mod.load_ros(season)
+        if frame is None or frame.empty:
+            return pd.DataFrame(columns=["player_name"])
+        out = frame[["player_name"]].copy()
+        out["pro_team"] = frame["pro_team"].astype(str)
+        return out
+
     def pinny_weekly(season: int) -> pd.DataFrame:
         return _named(pu.clean_pinny(season=season))
 
@@ -609,6 +627,7 @@ def source_readers() -> List[Tuple[str, str, str, Callable[[int], pd.DataFrame]]
         ("BetOnline weekly", "weekly", JOIN_NORMALISED, bol_weekly),
         ("The Athletic weekly", "weekly", JOIN_NORMALISED, athletic_weekly),
         ("FantasyPros season", "season", JOIN_NORMALISED, fp_season),
+        ("FantasyPros ROS", "season", JOIN_NORMALISED, fp_ros),
         ("Pinnacle season", "season", JOIN_NORMALISED, pinny_season),
         ("BetOnline season", "season", JOIN_NORMALISED, bol_season),
         ("The Athletic season", "season", JOIN_NORMALISED, athletic),

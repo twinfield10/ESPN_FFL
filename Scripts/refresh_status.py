@@ -88,6 +88,15 @@ PROJECTION_SOURCES = (
     ("Injuries",
      lambda s: DATA_DIR / "Injuries" / str(s) / "espn_injuries.parquet",
      "python -m Scripts.scrape_espn_injuries"),
+    # Rest of season, and the one source here whose **staleness is the whole
+    # signal**. The others answer a question that barely moves within a week; this
+    # one is a forecast that is meant to move, so a file three days old is not a
+    # slightly older opinion, it is the wrong one -- and because the file
+    # accumulates, its mtime is the only thing that can say so.
+    ("FantasyPros ROS",
+     lambda s: season_dir("FantasyPros", s, "FantasyPros_ROS_Ranks.parquet",
+                          create=False),
+     "python -m Scripts.scrape_FP --what ros"),
 )
 
 #: The **weekly** blend's sources, separate from :data:`PROJECTION_SOURCES`.

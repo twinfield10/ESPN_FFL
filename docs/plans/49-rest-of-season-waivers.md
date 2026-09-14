@@ -3,7 +3,9 @@
 **Status:** IN PROGRESS
 
 **Priority:** High · **Effort:** L, and most of it is measurement
-**Where it stands:** Stage 0 and Stage 1 shipped 2026-09-10. Stages 2–4 not started.
+**Where it stands:** Stages 0–1 shipped 2026-09-10; the ROS source and its two
+gates shipped 2026-09-11, **G-R0 and G-R1 both pass**. The decision layer is not
+started.
 **Depends on:** [48](48-live-scoring.md) — kickoff is what decides "available" ·
 [28](28-outcome-distributions.md) — the fitted dispersion the confidence column needs ·
 [33](33-role-resolution.md) — how much a depth chart can be trusted ·
@@ -192,6 +194,70 @@ veteran.
 Coleman's board row already carries `usg_depth_rank` 3.0, `pts_p10/p50/p90` of
 12.1 / 61.9 / 131.3 and `p_top12` 5.9% — a very wide band, which is what upside *is*.
 Present on only 76 of 284 pool rows, so it abstains often.
+
+## The source, as built — 2026-09-11
+
+`--what ros` on `Scripts/scrape_FP`, six requests at the 5s crawl delay, into
+`FantasyPros_ROS_Ranks.parquet`. **Append-only, keyed by capture date**, because
+nothing anywhere archives what a rest-of-season consensus said in a past week:
+overwrite it and the source can never be measured. 485 rows a capture, ~58k by
+January. Nightly stage 2b''' beside the other two FantasyPros pulls, with the same
+60-row teaser guard counting **today's capture only** — a cumulative file would
+otherwise report health off one good night weeks after the cookie died. Registered
+in `Scripts/name_audit.source_readers` and `Scripts/refresh_status`.
+
+### G-R0 — the source joins. **PASS**, after it caught a real defect.
+
+Free-agent pool coverage, all ten 2026 stores:
+
+| position | coverage | note |
+|---|---|---|
+| RB | **30/30 in every league** | |
+| TE | **20/20 in every league** | |
+| QB | 20/20, except 19/20 on GOP | the miss is Philip Rivers, retired — an ESPN pool artifact |
+| WR | 28–30/30 | Jayden Higgins and Ricky Pearsall are outside FantasyPros' 149 |
+| K | 17–20/20 | Justin Tucker and Younghoe Koo are unsigned, and outside its 37 |
+| **D/ST** | **100% in every league** | was 8/9, 13/14, 19/20 … before the fix below |
+
+**The gate earned its place on the first run.** Every league was missing exactly its
+Jaguars and its Commanders: FantasyPros writes `JAC` and `WAS` where ESPN writes
+`JAX` and `WSH`, and D/ST joins on that key rather than on the name. Two of
+thirty-two, each one a defence that would have silently never matched.
+`ROS_TEAM_ALIASES` fixes it — and note it is *not*
+`Scripts/nfl_utils.ESPN_TEAM_ALIASES`, which maps `LAR → LA` for nflverse;
+FantasyPros writes `LAR` like ESPN, so reaching for the existing map would have
+fixed one team and broken another.
+
+**The remaining misses are the source, not the join**, and that was checked rather
+than assumed: no surname variant of Higgins, Pearsall, Tucker or Koo appears
+anywhere in the file, and `python -m Scripts.name_audit --season 2026` reports
+**FantasyPros ROS: 0 to fix, 0 to review**. The reason code is therefore
+`not_ranked` rather than `unmatched_name` — the older label asserted a defect where
+the common case is a gap, and the two want opposite responses.
+
+### G-R1 — the conversion holds together. **PASS.**
+
+Within-position coefficient of variation of
+`k = median(FP_Points / STD_FantasyPoints)`, all ten leagues, against a 0.15 bar at
+QB/RB/WR/TE:
+
+| position | CV range | factor range across leagues |
+|---|---|---|
+| QB | 0.011–0.025 | 0.94 – 1.32 |
+| RB | 0.040–0.080 | 1.10 – 1.35 |
+| WR | 0.035–0.124 | 1.26 – 1.58 |
+| TE | 0.041–0.078 | 1.31 – 1.66 |
+| K | 0.064–0.198 | 1.12 – 1.63 |
+| D/ST | 0.068–**0.221** | 0.88 – **2.66** |
+
+No gated position exceeds 0.124. The spread *between* leagues is the conversion
+doing its job. **K and D/ST are the two loosest by a distance**, which is a second,
+independent reason for the separate streaming channel — arrived at from the
+scoring side rather than from the 2025 hit-rate study, and agreeing with it.
+
+`ros_ppg` is published from this and is **display only**. Nothing in the decision
+path reads it, and deleting it would leave the gates untouched — which is the point
+of expressing them as ranks.
 
 ### Pre-registered gates
 
