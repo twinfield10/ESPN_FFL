@@ -363,10 +363,31 @@ def test_no_source_has_a_miss_a_rename_would_close(universes):
 
 
 def test_a_known_upstream_defect_is_reported_but_does_not_fail_the_check(universes):
-    """Visible, attributed, and not counted against the exit code."""
+    """Visible, attributed, and not counted against the exit code.
+
+    **The registry is an allowlist, so the assertion runs one way only.** It used
+    to require every entry in :data:`name_audit.KNOWN_UPSTREAM` to still be found,
+    which reads as "the registry describes reality" but actually asserts that a
+    third party keeps supplying the same defect. It went 3 → 2 → 0 over a fortnight
+    without anything in this repo changing: BetOnline **retires its season-long
+    markets once games are played** — `run_daily_refresh.sh` already says so, which
+    is why that stage is fatal only pre-season — and the file fell from ~516 props
+    to 33 across 19 players. The three truncated first names went with it.
+
+    A registry entry that stops appearing is upstream going quiet or upstream
+    fixing it, and neither is this repo's bug. What must fail the build is the
+    other direction: an upstream defect nobody has written down. So the check is
+    containment, and the guard on `--maps` in `test_no_source_has_a_miss_a_rename
+    _would_close` is what keeps the actionable set honest.
+    """
     audit = na.audit_all(SEASON)
     upstream = audit[audit["verdict"] == na.UPSTREAM]
-    assert len(upstream) == len(na.KNOWN_UPSTREAM)
+
+    found = {(row.source, row.source_name) for row in upstream.itertuples()}
+    unexplained = found - set(na.KNOWN_UPSTREAM)
+    assert not unexplained, (
+        f"upstream defects with no entry in KNOWN_UPSTREAM: {sorted(unexplained)}")
+
     assert all("GetSeasonProps" in n for n in upstream["note"])
     assert na.UPSTREAM not in na.CONFIDENT
     assert na.UPSTREAM in na.ACTIONABLE
