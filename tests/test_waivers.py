@@ -336,3 +336,152 @@ def test_the_threshold_table_marks_the_slot_the_wire_can_improve():
 def test_the_threshold_table_covers_every_starting_slot():
     rows = wv.threshold_table(full_roster(), [], FLEX_SLOTS, "TRUE_Points")
     assert {r["slot"] for r in rows} == set(FLEX_SLOTS)
+
+
+# --- roster composition ---------------------------------------------------
+#
+# ESPN publishes `positionLimits` and nothing here had ever read it. The engine
+# could therefore propose swaps ESPN would refuse.
+
+GOP_LIMITS = {"QB": 2, "RB": 3, "WR": 5, "TE": 2, "K": 2, "D/ST": 2, "LB": 2}
+
+
+def test_a_player_on_ir_does_not_count_against_the_limit():
+    """The same fact `droppable_for` turns on from the other side: IR sits outside
+    the roster. It is why a team can hold six receivers against a limit of five."""
+    roster = [player("WR1", "WR", 10.0, slot="WR"),
+              player("Hurt", "WR", 0.0, slot="IR")]
+    assert lu.position_counts(roster) == {"WR": 1}
+
+
+def test_you_cannot_add_a_position_you_are_already_full_at():
+    """Tommy Winfield's GOP roster, 2026 week 1: LB 2/2, RB 3/3, WR 5/5. The
+    engine's best pairing for him was add Alex Singleton (LB) / drop Jonah Coleman
+    (RB) at +0.45 -- a move ESPN would simply refuse."""
+    roster = [player("LB1", "LB", 11.0, slot="DP"), player("LB2", "LB", 10.0),
+              player("RB3", "RB", 3.7)]
+    assert not lu.within_position_limits(
+        roster, GOP_LIMITS, pool_row("New LB", "LB", 12.0), roster[2])
+
+
+def test_dropping_the_same_position_does_make_room():
+    roster = [player("LB1", "LB", 11.0, slot="DP"), player("LB2", "LB", 10.0)]
+    assert lu.within_position_limits(
+        roster, GOP_LIMITS, pool_row("New LB", "LB", 12.0), roster[1])
+
+
+def test_dropping_an_ir_player_of_that_position_does_not_make_room():
+    """He was never counted, so giving him up frees nothing at the cap."""
+    roster = [player("LB1", "LB", 11.0, slot="DP"), player("LB2", "LB", 10.0),
+              player("LB3", "LB", 0.0, slot="IR")]
+    assert not lu.within_position_limits(
+        roster, GOP_LIMITS, pool_row("New LB", "LB", 12.0), roster[2])
+
+
+def test_an_unknown_limit_permits():
+    """A store written before the limits were recorded must behave as it did."""
+    roster = [player("LB1", "LB", 11.0), player("LB2", "LB", 10.0)]
+    assert lu.within_position_limits(roster, {}, pool_row("New LB", "LB", 12.0),
+                                     roster[0])
+
+
+def test_a_negative_limit_means_no_limit():
+    """ESPN writes -1 for unlimited, which every league but the tight one uses for
+    individual defenders."""
+    roster = [player("LB1", "LB", 11.0), player("LB2", "LB", 10.0)]
+    assert lu.within_position_limits(roster, {"LB": -1},
+                                     pool_row("New LB", "LB", 12.0), roster[0])
+
+
+def test_the_engine_picks_a_legal_drop_rather_than_the_best_illegal_one():
+    """**What the fix is actually worth.** It does not suppress the move, it
+    corrects it: across the limit-bearing leagues it turned "add the Titans
+    defence, drop TreVeyon Henderson" into "drop the Bills defence", which is the
+    only kind of drop that makes room for a defence.
+
+    The second defence here is worth more than the spare receiver, so the
+    unconstrained engine reaches past it for the cheaper drop -- and that cheaper
+    drop is the illegal one.
+    """
+    roster = full_roster() + [player("DST2", "D/ST", 6.0)]
+    pool = [pool_row("Great D/ST", "D/ST", 20.0)]
+
+    loose = wv.rank_moves(roster, pool, FLEX_SLOTS, "TRUE_Points", limits={})
+    tight = wv.rank_moves(roster, pool, FLEX_SLOTS, "TRUE_Points",
+                          limits={"D/ST": 2})
+
+    assert [m.add["player_name"] for m in loose] == ["Great D/ST"]
+    assert loose[0].drop["player_position"] == "WR", (
+        "unconstrained, it gives up the cheapest man on the roster")
+
+    assert [m.add["player_name"] for m in tight] == ["Great D/ST"]
+    assert tight[0].drop["player_position"] == "D/ST", (
+        "a defence can only be added by giving up a defence")
+
+
+# --- insurance, past a single absence -------------------------------------
+
+#: GOP Degenerates' shape: **one** dedicated RB slot, plus a flex a receiver can
+#: fill. `FLEX_SLOTS` starts two backs, which is precisely the shape in which a
+#: third back is ordinary depth rather than the last legal body.
+GOP_SLOTS = {"QB": 1, "RB": 1, "WR": 2, "TE": 1, "RB/WR/TE": 1, "K": 1, "D/ST": 1}
+
+
+def two_elite_backs():
+    """The shape that breaks a one-absence test: two good backs, one dedicated
+    ``RB`` slot, a flex that a receiver can fill, and a third back behind them."""
+    return [
+        player("QB1", "QB", 20.0, slot="QB"),
+        player("Elite RB1", "RB", 22.0, slot="RB"),
+        player("Elite RB2", "RB", 24.0, slot="RB/WR/TE"),
+        player("Spare RB", "RB", 3.7),
+        player("WR1", "WR", 14.0, slot="WR"),
+        player("WR2", "WR", 13.0, slot="WR"),
+        player("WR3", "WR", 12.0),
+        player("TE1", "TE", 9.0, slot="TE"),
+        player("K1", "K", 8.0, slot="K"),
+        player("DST1", "D/ST", 7.0, slot="D/ST"),
+    ]
+
+
+def test_a_third_back_is_worth_nothing_when_only_one_elite_sits():
+    """The flex simply takes a receiver, so he never enters the lineup."""
+    roster = two_elite_backs()
+    spare = next(r for r in roster if r["player_name"] == "Spare RB")["player_id"]
+    value, depth = lu.insurance_detail(roster, GOP_SLOTS, "TRUE_Points", spare,
+                                       max_absences=1)
+    assert value == pytest.approx(0.0)
+    assert depth == 0
+
+
+def test_a_third_back_is_the_only_legal_body_when_both_sit():
+    """**The case a one-absence test cannot see**, and the reason the engine came
+    to propose giving Jonah Coleman up for a linebacker worth +0.45. A receiver
+    cannot fill a dedicated `RB` slot, so with both elites out he is all there is.
+    Measured on the real roster: 0.00, 0.00, and +3.69."""
+    roster = two_elite_backs()
+    spare = next(r for r in roster if r["player_name"] == "Spare RB")
+    value, depth = lu.insurance_detail(roster, GOP_SLOTS, "TRUE_Points",
+                                       spare["player_id"])
+    assert depth == 2
+    assert value == pytest.approx(spare["TRUE_Points"])
+
+
+def test_depth_is_capped_so_the_number_stays_a_number():
+    """Each extra absence considers a rarer event with a larger value. Two is where
+    a capped room's last man first becomes load-bearing; three would just be a
+    bigger number about a less likely week."""
+    assert lu.MAX_COVERED_ABSENCES == 2
+
+
+def test_a_player_who_covers_nobody_still_insures_nothing():
+    """A fifth receiver behind four better ones, in a league starting two plus a
+    flex: even two absences leave somebody ahead of him, so he is free to drop.
+
+    This is the control for the test above. Without it, "insurance is non-zero"
+    would just mean "we now look two deep" rather than "this player is load-bearing".
+    """
+    roster = two_elite_backs() + [player("WR4", "WR", 11.0),
+                                  player("WR5", "WR", 1.0)]
+    wr5 = roster[-1]["player_id"]
+    assert lu.insurance_value(roster, GOP_SLOTS, "TRUE_Points", wr5) == pytest.approx(0.0)

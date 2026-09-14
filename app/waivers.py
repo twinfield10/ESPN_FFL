@@ -86,6 +86,7 @@ class Move(NamedTuple):
     add_value: float
     drop_cost: float
     insurance: float
+    insurance_depth: int
     net: float
     confidence: Optional[float]
     verdict: str
@@ -247,7 +248,8 @@ def is_streamed(row: dict) -> bool:
 
 def judge(add: dict, drop: dict, *, week_gain: float, add_val: float,
           cost: float, insurance: float, bar: Optional[float],
-          replacement: Dict[str, int], min_margin: float) -> tuple:
+          replacement: Dict[str, int], min_margin: float,
+          insurance_depth: int = 1) -> tuple:
     """Classify one pairing, and say why in a sentence.
 
     Returns:
@@ -262,10 +264,11 @@ def judge(add: dict, drop: dict, *, week_gain: float, add_val: float,
         return VERDICT_STREAM, "the week's best available at a streamed position"
 
     if week_gain >= min_margin and insurance > week_gain:
+        when = ("the week a starter above him sits" if insurance_depth <= 1
+                else f"the week {insurance_depth} of the men above him sit")
         return VERDICT_COSTLY, (
             f"{drop.get('player_name')} is your cover at a thin slot — worth "
-            f"{insurance:.1f} the week a starter above him sits, against "
-            f"{week_gain:+.1f} gained now")
+            f"{insurance:.1f} {when}, against {week_gain:+.1f} gained now")
 
     if week_gain >= min_margin and net > 0:
         return VERDICT_LINEUP, "improves the lineup you would field on Sunday"
@@ -303,6 +306,7 @@ def rank_moves(roster: Sequence[dict], pool: Sequence[dict],
                drops: Optional[Sequence[dict]] = None,
                replacement: Optional[Dict[str, int]] = None,
                model: Optional[dict] = None,
+               limits: Optional[Dict[str, int]] = None,
                min_margin: float = lu.UPGRADE_MIN_MARGIN) -> List[Move]:
     """Every add/drop worth showing, best first.
 
@@ -319,6 +323,9 @@ def rank_moves(roster: Sequence[dict], pool: Sequence[dict],
         drops: Override for :func:`lineup.weakest_starter_candidates`.
         replacement: From ``Scripts.draft.board.replacement_ranks``.
         model: The fitted weekly dispersion, for the confidence column.
+        limits: ``meta["position_limits"]`` -- how many of each position ESPN
+            will let this roster carry. Empty permits everything, which is what a
+            store written before the limits were recorded must do.
         min_margin: See :data:`lineup.UPGRADE_MIN_MARGIN`.
 
     Returns:
@@ -341,6 +348,10 @@ def rank_moves(roster: Sequence[dict], pool: Sequence[dict],
         for drop in drops:
             if not lu.droppable_for(drop, candidate):
                 continue
+            # Roster composition, the other half of "can this move be made".
+            # Giving up a back does not make room for another linebacker.
+            if not lu.within_position_limits(roster, limits or {}, candidate, drop):
+                continue
             gain = lu.add_drop_gain(roster, slots, points_column, candidate,
                                     drop.get("player_id"))
             if best is None or gain > best[1]:
@@ -355,20 +366,21 @@ def rank_moves(roster: Sequence[dict], pool: Sequence[dict],
         add_val = lu.add_value(remaining, slots, points_column,
                                lu.as_rostered(candidate))
         cost = lu.drop_cost(roster, slots, points_column, drop.get("player_id"))
-        insurance = lu.insurance_value(roster, slots, points_column,
-                                       drop.get("player_id"))
+        insurance, depth = lu.insurance_detail(roster, slots, points_column,
+                                               drop.get("player_id"))
 
         verdict, reason = judge(
             candidate, drop, week_gain=week_gain, add_val=add_val, cost=cost,
             insurance=insurance, bar=bar, replacement=replacement,
-            min_margin=min_margin)
+            min_margin=min_margin, insurance_depth=depth)
         if verdict is None:
             continue
 
         displaced = _displaced(starters, candidate, slots, points_column)
         moves.append(Move(
             add=candidate, drop=drop, week_gain=week_gain, add_value=add_val,
-            drop_cost=cost, insurance=insurance, net=week_gain - insurance,
+            drop_cost=cost, insurance=insurance, insurance_depth=depth,
+            net=week_gain - insurance,
             confidence=confidence(week_gain,
                                   swap_sd(model, candidate, displaced,
                                           points_column)),

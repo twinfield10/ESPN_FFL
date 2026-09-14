@@ -346,6 +346,89 @@ against players on **IR** (Jeffs week 1 reported Jaylen Warren as an upgrade ove
 Brock Bowers, who could be neither played nor dropped for him), and the streaming
 line was offering defences *worse* than the one you already have.
 
+## Roster construction — 2026-09-14
+
+A capped position changes what a bench spot is *for*, and the engine could not see
+either half of that.
+
+### ESPN publishes `positionLimits` and nothing had ever read it
+
+`espn_api` does not expose it, but `get_roster_settings` already parses the
+`view=mSettings` payload it sits in — so this costs no extra request, the same
+argument that function already makes for `draft_settings`.
+
+| league | limits |
+|---|---|
+| `gop_degenerates` | QB 2, **RB 3**, WR 5, TE 2, K 2, D/ST 2, **every IDP 2** |
+| the other eight | QB 4, RB 8, WR 8, TE 3, K 3, D/ST 3, IDP unlimited |
+
+**It is keyed by `defaultPositionId`, not by lineup slot**, and reading it with the
+slot map — the obvious mistake, since that map is right there — decodes GOP as
+"QB 0, TE 0, K 0", which says a roster may carry none of them. As default-position
+ids it reads QB 2 / RB 3 / WR 5, which is what all sixteen of that league's rosters
+actually obey: **every one of them carries exactly three backs.**
+
+It is not only the tight league. The large caps never bind — eight backs on a
+seven-slot bench is unreachable — but TE 3, K 3 and D/ST 3 bind everywhere, because
+a roster naturally carries two or three of those.
+
+**The fix corrects moves rather than suppressing them.** When the best drop is
+illegal the pairing falls through to the next legal one, so the count is unchanged
+and four recommendations across the limit-bearing leagues now name a different
+player:
+
+| was | now |
+|---|---|
+| add Titans D/ST, drop TreVeyon Henderson | drop Bills D/ST |
+| add Titans D/ST, drop Brian Robinson Jr. | drop Buccaneers D/ST |
+| add Colston Loveland (TE), drop Jayden Higgins (WR) | drop Jake Tonges (TE) |
+| add Michael Mayer (TE), drop Zach Charbonnet (RB) | drop Terrance Ferguson (TE) |
+
+A store written before the limits were recorded carries none, and an absent limit
+permits — so the gate is inert until the first rebuild rather than wrong.
+
+### `insurance_value` only ever removed one starter
+
+Which is the wrong depth for exactly the roster shape a cap produces.
+
+Tommy Winfield's GOP roster, week 1: two elite backs, **one** dedicated `RB` slot,
+a flex a receiver can fill, and Jonah Coleman behind them.
+
+| scenario | with Coleman | without | his value |
+|---|---|---|---|
+| everyone healthy | 143.61 | 143.61 | **0.00** |
+| Gibbs out | 126.78 | 126.78 | **0.00** |
+| McCaffrey out | 129.82 | 129.82 | **0.00** |
+| **both out** | 109.00 | 105.31 | **+3.69** |
+
+He is worth nothing when *one* elite sits, because the flex simply takes a
+receiver. He is the only legal body for the dedicated slot when **both** do — and a
+one-absence test reports him free to drop.
+
+That is how the engine came to want **add Alex Singleton (LB) / drop Jonah Coleman,
++0.45** — a move suppressed only by landing 0.05 under the noise floor, and illegal
+anyway at LB 2/2. Give up your only running-back depth for a gain you cannot
+distinguish from zero.
+
+`insurance_detail` now searches every set of up to `MAX_COVERED_ABSENCES = 2`
+starters he could cover for, and reports the depth alongside the value so the panel
+can say *worth 3.7 the week both your backs sit* rather than a bare number. Two,
+not three: each extra depth prices a rarer event at a larger number, and two is
+where a capped room's last man first becomes load-bearing. The combinations stay
+small because only *starters at slots he can fill* are considered — two or three,
+never the lineup.
+
+Across the nine leagues this moved the main table from 101 to 94 and took `costly`
+from 9 to 15.
+
+### What is still open
+
+Pricing the spot itself. A bench place at a capped position is not fungible with
+one at an uncapped position: it can hold a lottery ticket or cover a thin room, not
+both, and at 3/3 you cannot buy another. Doing that properly means
+P(the room thins) × value-when-thin plus the value of the room changing, which is
+the same machinery as path-to-role and wants the pool history to calibrate against.
+
 ### Pre-registered gates
 
 - **G-R0 — the panel accumulates and the cap is honest.** By week 8: ≥6 decision-week snapshots for ≥8 leagues, zero empty partitions. And of players actually added in week `w+1`, **≥85%** appeared in week `w`'s captured pool — below that, `build_fa_market`'s 20/30/30/20/20 cap is a blind spot.
