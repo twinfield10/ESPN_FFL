@@ -120,6 +120,13 @@ ACTIONABLE = CONFIDENT + NEEDS_REVIEW + UPSTREAM_DEFECTS
 #: out of the prop wording -- never runs. ``CHRISTIAN`` is Christian McCaffrey's
 #: receptions line and the team narrows it no further, because the 2026 boards put
 #: Christian Kirk on San Francisco too.
+#: **Entries go dormant in-season and that is not a fix.** BetOnline retires its
+#: season-long markets once games are played -- `run_daily_refresh.sh` makes that
+#: stage fatal only pre-season for the same reason -- and the 2026 file fell from
+#: ~516 props to 33 across 19 players between 09-01 and 09-14, taking all three
+#: truncated first names with it. They are kept rather than deleted because the
+#: scrape that truncates them is unchanged, so they will return with next
+#: pre-season's markets. The test reads this as an allowlist, one way.
 KNOWN_UPSTREAM: Dict[Tuple[str, str], str] = {
     ("BetOnline season", "AKHEEM"): "R/GetSeasonProps.R drops the surname",
     ("BetOnline season", "KELDRIC"): "R/GetSeasonProps.R drops the surname",
