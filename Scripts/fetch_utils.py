@@ -46,6 +46,24 @@ def set_league_endpoint(league: League) -> None:
 #: ``auctionBudget`` is per-league and really does differ -- GOP_Degenerates plays
 #: for $250 and the other eight for $200 -- which matters because the market auction
 #: values ESPN publishes are denominated in *its* $200 default regardless.
+#: ESPN's ``defaultPositionId`` values, for reading ``positionLimits``.
+#:
+#: **Not the same enumeration as the lineup-slot map above**, and reading it with
+#: that one is how this was nearly mis-decoded: as slot ids, GOP's limits come out
+#: as "QB 0, TE 0, K 0", which would say a roster may carry none of them. As
+#: default-position ids they read QB 2, RB 3, WR 5, TE 2, K 2, D/ST 2 and every
+#: IDP 2, which is what all sixteen of that league's rosters actually obey --
+#: every one of them carries exactly three backs.
+DEFAULT_POSITION_IDS = {
+    1: "QB", 2: "RB", 3: "WR", 4: "TE", 5: "K",
+    9: "DT", 10: "DE", 11: "LB", 12: "CB", 13: "S", 16: "D/ST",
+}
+
+#: ``positionLimits`` value meaning "no limit". ESPN also writes ``0`` for a
+#: position the league does not use at all, which is **not** the same thing and
+#: must not be read as "you may carry none".
+NO_POSITION_LIMIT = -1
+
 DRAFT_SETTING_KEYS = {
     "type": "type",
     "keeperCount": "keeper_count",
@@ -121,6 +139,27 @@ def get_roster_settings(league: League) -> None:
     league.roster_settings = {
         "roster_slots": roster_slots,
         "starting_roster_slots": starting_roster_slots,
+    }
+
+    # How many of each position a roster may carry, from the same payload and for
+    # the same reason as the draft settings below: it is already parsed.
+    #
+    # **`espn_api` does not expose this and nothing here had ever read it**, so the
+    # add/drop engine could propose swaps ESPN would refuse -- 4 of 148 shown
+    # suggestions on 2026-09-14, and 20 of the positive-gain pairings it searched.
+    # It is not only the tight league: the large caps (RB 8, WR 8) never bind on a
+    # seven-slot bench, but TE 3, K 3 and D/ST 3 bind everywhere, because a roster
+    # naturally carries two or three of those.
+    #
+    # `0` is dropped rather than recorded. ESPN writes it for a position the league
+    # does not use, and a limit of zero would read as "you may carry none of these"
+    # -- which is true in effect but says it in a way that would make a legality
+    # check refuse every D/ST in a league that simply has no D/ST slot.
+    limits = settings["rosterSettings"].get("positionLimits") or {}
+    league.position_limits = {
+        DEFAULT_POSITION_IDS[int(pid)]: int(cap)
+        for pid, cap in limits.items()
+        if int(pid) in DEFAULT_POSITION_IDS and int(cap) != 0
     }
 
     # Draft settings, from the same payload. Absent keys are left out rather than

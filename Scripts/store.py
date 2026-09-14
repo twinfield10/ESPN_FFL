@@ -422,6 +422,11 @@ def build_meta(
         # season's rosters into a keeper league, so `on_team_id` means "was on this
         # roster last year", not "is unavailable", until keepers are declared.
         meta["draft_settings"] = getattr(league, "draft_settings", {}) or {}
+        # How many of each position a roster may carry. Read from the same
+        # `mSettings` payload as the two above -- `espn_api` does not expose it --
+        # and carried here so the add/drop engine can refuse an illegal swap
+        # without an ESPN call in a render path. See `fetch_utils.DEFAULT_POSITION_IDS`.
+        meta["position_limits"] = getattr(league, "position_limits", {}) or {}
 
     if "board" in written:
         meta["espn_calibration"] = calibration_summary(written["board"])

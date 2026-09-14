@@ -21,6 +21,7 @@ means the optimiser is always solving the league that is actually being played. 
 
 import _bootstrap  # noqa: F401  -- must precede the Scripts imports
 
+import itertools
 import math
 from typing import Dict, Iterable, List, NamedTuple, Optional, Sequence, Tuple
 
@@ -773,6 +774,72 @@ def playable_pool(frame: pl.DataFrame,
     return frame.filter(pl.col(signal).fill_null(0.0) > 0)
 
 
+def position_counts(roster: Sequence[dict]) -> Dict[str, int]:
+    """How many of each position this roster carries, for the limit check.
+
+    **IR does not count.** An injured-reserve player sits outside the roster, which
+    is the same fact :func:`droppable_for` turns on from the other side, and it is
+    why a team can look like it holds six receivers against a limit of five.
+
+    Args:
+        roster: One team's rows.
+
+    Returns:
+        dict: Position to count, excluding IR.
+    """
+    counts: Dict[str, int] = {}
+    for row in roster:
+        if (row.get("slotPosition") or "") == "IR":
+            continue
+        position = row.get("player_position")
+        if position:
+            counts[position] = counts.get(position, 0) + 1
+    return counts
+
+
+def within_position_limits(roster: Sequence[dict], limits: Dict[str, int],
+                           candidate: dict, drop: dict) -> bool:
+    """Whether ESPN would let this swap through on roster composition.
+
+    **ESPN publishes `positionLimits` and nothing here had ever read it.** The
+    engine could therefore propose moves that cannot be made: on 2026-09-14, 4 of
+    148 shown suggestions and 20 of the positive-gain pairings searched. The
+    tightest league caps running backs at **3** and every individual defensive
+    position at **2** -- all sixteen of its rosters carry exactly three backs -- so
+    the binding case is not exotic, it is the normal state of every team in it.
+
+    It bites outside that league too. The large caps never do: eight running backs
+    on a seven-slot bench is unreachable. The small ones do, everywhere, because a
+    roster naturally carries two or three tight ends, kickers and defences.
+
+    Args:
+        roster: The team's current rows.
+        limits: ``meta["position_limits"]``. Empty means unknown, and unknown
+            permits -- a store built before this was recorded must behave exactly
+            as it did.
+        candidate: The free agent coming in.
+        drop: The player going out.
+
+    Returns:
+        bool: True when the resulting roster is legal.
+    """
+    if not limits:
+        return True
+    coming = candidate.get("player_position")
+    cap = limits.get(coming)
+    if cap is None or cap < 0:
+        return True
+
+    counts = position_counts(roster)
+    after = counts.get(coming, 0) + 1
+    # Only a drop at the *same* position makes room at that position. Giving up a
+    # back does not let you carry another defence.
+    if (drop.get("player_position") == coming
+            and (drop.get("slotPosition") or "") != "IR"):
+        after -= 1
+    return after <= cap
+
+
 def as_rostered(row: dict) -> dict:
     """A pool row as it would look on a roster, for the optimiser to score.
 
@@ -1168,9 +1235,25 @@ def drop_cost(roster: Sequence[dict], slots: Dict[str, int], points_column: str,
     return base - without
 
 
+#: How many simultaneous absences :func:`insurance_value` considers.
+#:
+#: **Two, because one is not the binding case at a capped position.** A third
+#: running back behind two good ones is worth nothing when either sits -- the flex
+#: simply takes a receiver -- and is the only legal body for the dedicated ``RB``
+#: slot when both do. Measured on Tommy Winfield's GOP roster, 2026 week 1: Jonah
+#: Coleman is worth 0.00 if Gibbs sits, 0.00 if McCaffrey sits, and **+3.69 if both
+#: do**. A one-absence test reports him as free to drop, which is how the engine
+#: came to propose giving him up for a linebacker worth +0.45.
+#:
+#: Not three. Each extra depth considers a rarer event with a larger number, and
+#: two is where a capped room's last man first becomes load-bearing.
+MAX_COVERED_ABSENCES = 2
+
+
 def insurance_value(roster: Sequence[dict], slots: Dict[str, int],
-                    points_column: str, drop_id) -> float:
-    """What this player would be worth in a week one starter above him is out.
+                    points_column: str, drop_id, *,
+                    max_absences: int = MAX_COVERED_ABSENCES) -> float:
+    """What this player would be worth in a week the room above him thins.
 
     **The answer to "if we are weak at RB, I do not want to drop an RB".** A pure
     this-week cost says a fourth receiver and your only spare back are both free to
@@ -1187,32 +1270,64 @@ def insurance_value(roster: Sequence[dict], slots: Dict[str, int],
         slots: From :func:`slot_counts`.
         points_column: Which projection to optimise.
         drop_id: ``player_id`` of the man being given up.
+        max_absences: See :data:`MAX_COVERED_ABSENCES`.
 
     Returns:
-        float: The largest cost, over each starter he could cover for, of losing
-        him *and* that starter rather than that starter alone. Zero when he covers
-        nobody.
+        float: The largest cost, over every set of up to ``max_absences`` starters
+        he could cover for, of losing them **and** him rather than them alone. Zero
+        when he covers nobody.
+    """
+    return insurance_detail(roster, slots, points_column, drop_id,
+                            max_absences=max_absences)[0]
+
+
+def insurance_detail(roster: Sequence[dict], slots: Dict[str, int],
+                     points_column: str, drop_id, *,
+                     max_absences: int = MAX_COVERED_ABSENCES
+                     ) -> Tuple[float, int]:
+    """:func:`insurance_value`, and how many absences it took to get there.
+
+    The depth is worth surfacing rather than folding away: "worth 3.7 the week both
+    your backs sit" is a different claim from "worth 3.7 if one does", and a reader
+    can price the difference themselves far better than a single number lets them.
+
+    Args:
+        roster: The team's rows.
+        slots: From :func:`slot_counts`.
+        points_column: Which projection to optimise.
+        drop_id: ``player_id`` of the man being given up.
+        max_absences: See :data:`MAX_COVERED_ABSENCES`.
+
+    Returns:
+        tuple: ``(value, absences)``. ``(0.0, 0)`` when he covers nobody.
     """
     him = next((r for r in roster if r.get("player_id") == drop_id), None)
     if him is None:
-        return 0.0
+        return 0.0, 0
     mine = set(_eligible(him)) & set(slots)
     if not mine:
-        return 0.0
+        return 0.0, 0
 
     starters, _ = optimal_lineup(roster, slots, points_column)
-    worst = 0.0
-    for starter in starters:
-        if starter.get("player_id") == drop_id:
-            continue
-        if not (set(_eligible(starter)) & mine):
-            continue
-        out = [r for r in roster if r.get("player_id") != starter.get("player_id")]
-        _, with_him = optimal_lineup(out, slots, points_column)
-        _, without = optimal_lineup(
-            [r for r in out if r.get("player_id") != drop_id], slots, points_column)
-        worst = max(worst, with_him - without)
-    return worst
+    # Only starters he could actually stand in for, which is what keeps the
+    # combinations below small -- typically two or three, never the whole lineup.
+    covered = [r for r in starters
+               if r.get("player_id") != drop_id and set(_eligible(r)) & mine]
+    if not covered:
+        return 0.0, 0
+
+    best, depth = 0.0, 0
+    for size in range(1, min(max_absences, len(covered)) + 1):
+        for gone in itertools.combinations(covered, size):
+            missing = {r.get("player_id") for r in gone}
+            out = [r for r in roster if r.get("player_id") not in missing]
+            _, with_him = optimal_lineup(out, slots, points_column)
+            _, without = optimal_lineup(
+                [r for r in out if r.get("player_id") != drop_id],
+                slots, points_column)
+            if with_him - without > best + 1e-9:
+                best, depth = with_him - without, size
+    return best, depth
 
 
 def weakest_starter_candidates(roster: Sequence[dict], slots: Dict[str, int],

@@ -268,7 +268,8 @@ if default_owner:
     # --- the moves --------------------------------------------------------
     st.markdown("**What The Move Is Worth**")
     moves = wv.rank_moves(roster, pool_rows, slots, points_col,
-                          replacement=replacement, model=dispersion)
+                          replacement=replacement, model=dispersion,
+                          limits=selection.meta.get("position_limits") or {})
     shown = [m for m in moves if m.verdict != wv.VERDICT_STREAM]
 
     picker[1].caption(
@@ -277,6 +278,17 @@ if default_owner:
         f"improves the bench is not shown unless the rest-of-season consensus says "
         f"he starts in a league this shape."
     )
+    caps = selection.meta.get("position_limits") or {}
+    if caps:
+        full = [f"`{pos}` {n}/{caps[pos]}"
+                for pos, n in sorted(lu.position_counts(roster).items())
+                if caps.get(pos, -1) >= 0 and n >= caps[pos]]
+        if full:
+            st.caption(
+                "Roster is full at " + ", ".join(full) +
+                " — ESPN will not let you add another there without giving one up, "
+                "so those swaps are not offered. Players on IR do not count."
+            )
 
     if shown:
         st.dataframe(
@@ -309,8 +321,12 @@ if default_owner:
                          "not the difference between two players."),
                 "Cover Cost": st.column_config.NumberColumn(
                     format="%.1f",
-                    help="What the man going out would be worth the week a starter "
-                         "above him sits. This is positional scarcity priced rather "
+                    help="What the man going out would be worth in the week the room "
+                         "above him thins — looking up to two absences deep, because "
+                         "one is not the binding case. A third back behind two good "
+                         "ones is worth nothing when either sits, since the flex just "
+                         "takes a receiver, and is the only legal body for a dedicated "
+                         "`RB` slot when both do. Positional scarcity priced rather "
                          "than vetoed, so a thin position defends itself in points."),
                 "Net": st.column_config.NumberColumn(
                     format="%+.1f", help="Week Gain minus Cover Cost. The sort key."),
