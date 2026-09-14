@@ -1118,3 +1118,23 @@ def test_two_teams_with_no_owner_do_not_merge_into_one_roster():
     ])
     counts = lu.slot_counts(frame, {})
     assert counts == {"QB": 1, "RB": 1}
+
+
+def test_a_pool_where_everyone_has_played_is_empty_not_nearly_empty():
+    """The condition the Free Agents tab branches on for a settled week.
+
+    **Fantasy week N+1 begins when week N's last game ends**, and waivers clear
+    into that gap -- so this is the state the page is in on the morning it is most
+    used, not an edge case. Measured on 2026-09-14 with one week-1 game left: 25 of
+    GOP's 283 pool players still available, 7 of 124 on Jeff's, 3 of 36 on Big Red;
+    after that game, 5, 0 and 0.
+
+    Nothing can be built ahead to cover it. ESPN serves `box_scores(2)` as week 1
+    verbatim while its own week counter still reads 1 -- all 243 players, identical
+    projections *and* opponents -- so a pipeline that looped one week further would
+    write a copy of this week wearing next week's number.
+    """
+    rows = [locked(free_agent("Played A", "WR", 12.0)),
+            locked(free_agent("Played B", "RB", 9.0)),
+            locked(free_agent("On Bye", "TE", 0.0), state="bye")]
+    assert lu.playable_pool(pl.DataFrame(rows)).is_empty()
