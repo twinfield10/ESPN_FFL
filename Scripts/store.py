@@ -515,6 +515,19 @@ def write_league_store(
         if (directory / ARTIFACTS[name]).is_file():
             meta["artifacts"][name] = entry
 
+    # `built_at` means "when this store was built", and `pool` does not build it.
+    #
+    # The pool snapshot is a *recording* of a store somebody else produced: it reads
+    # `lineups.parquet` back and copies the free-agent rows out of it, touching no
+    # source and fetching nothing. Stamping a fresh `built_at` for it would tell
+    # `Scripts.refresh_status` and the app's stale badge that the boards had been
+    # rebuilt when they had not -- and that badge exists precisely to say "the
+    # nightly was missed". Harmless in the designed path, where `--what pool` runs
+    # minutes after `--what lineups`; actively misleading on a `--what pool`
+    # backfill run on a day the nightly failed, which is the day the badge matters.
+    if set(written) <= {"pool"} and previous.get("built_at"):
+        meta["built_at"] = previous["built_at"]
+
     # And carry forward every other key this call could not compute, for the same
     # reason and a sharper one.
     #

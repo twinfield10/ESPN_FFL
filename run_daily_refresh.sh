@@ -337,7 +337,7 @@ if [ "${FP_WK_ROWS}" -le 60 ]; then
   fail "FantasyPros weekly returned ${FP_WK_ROWS} rows for week ${WEEK} against a teaser threshold of 60 -- the registration fence is back, which means the session cookie in config.yaml has expired. Log in again and replace it."
 fi
 
-# --- 2b'''. FantasyPros rest-of-season ranks -----------------------------
+# --- 2b''. FantasyPros rest-of-season ranks ------------------------------
 # Third on the same cookie, so all three FantasyPros failures read in one place.
 #
 # A different page from the two above, and it has to be: on `/nfl/projections/`,
@@ -374,7 +374,7 @@ if [ "${ROS_ROWS}" -le 60 ]; then
   fail "FantasyPros ROS returned ${ROS_ROWS} rows against a teaser threshold of 60 -- the registration fence is back, which means the session cookie in config.yaml has expired. Log in again and replace it."
 fi
 
-# --- 2b''. Pinnacle weekly player props ---------------------------------
+# --- 2b'''. Pinnacle weekly player props --------------------------------
 # **Non-fatal, deliberately, and it is the only stage here that is.**
 #
 # Plan 36 step 3 deferred retiring this Selenium path because Pinnacle had posted

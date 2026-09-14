@@ -133,3 +133,28 @@ def test_the_artifact_is_registered_so_sync_and_catalogue_see_it():
     would mean a season of captures that never leave the laptop."""
     from Scripts.store import ARTIFACTS
     assert ARTIFACTS["pool"] == "pool.parquet"
+
+
+def test_a_pool_only_write_does_not_claim_the_store_was_rebuilt(tmp_path, monkeypatch):
+    """`built_at` means "when this store was built", and the pool does not build it.
+
+    The snapshot reads `lineups.parquet` back and copies rows out of it — no source
+    is touched and nothing is fetched. Stamping a fresh `built_at` would tell
+    `Scripts.refresh_status` and the app's stale badge that the boards had been
+    rebuilt when they had not, and that badge exists to say the nightly was missed.
+    """
+    from Scripts import paths, store as scripts_store
+
+    monkeypatch.setattr(paths, "STORE_DIR", tmp_path / "Store")
+
+    frame = lineups()
+    scripts_store.write_league_store(2026, "somewhere", lineups=frame)
+    first = scripts_store.read_meta(2026, "somewhere")["built_at"]
+
+    scripts_store.write_league_store(2026, "somewhere",
+                                     pool=pm.snapshot(frame, 1))
+    after = scripts_store.read_meta(2026, "somewhere")
+
+    assert after["built_at"] == first, "a pool-only write moved built_at"
+    assert "pool" in after["artifacts"]
+    assert "lineups" in after["artifacts"], "the lineups record was carried forward"
