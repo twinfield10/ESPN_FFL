@@ -1,6 +1,6 @@
 # ESPN Fantasy Football Analytics
 
-Pulls league data from the ESPN Fantasy API for nine leagues, blends six
+Pulls league data from the ESPN Fantasy API for eight leagues, blends six
 independent projection sources into each league's **own** scoring settings, and
 publishes weekly lineup and free-agent boards to a local app and to Google
 Sheets.
@@ -440,8 +440,8 @@ python -m Scripts.refresh --all --what lineups,team_stats
 
 ### Who the app is for
 
-The picker offers **your** leagues, not all nine. `config.yaml` holds nine across
-five owners and the app scopes them through `app/auth.py`, which defaults to
+The picker offers **your** leagues, not all eight. `config.yaml` holds eight across
+four owners and the app scopes them through `app/auth.py`, which defaults to
 Winfield_Football. Adding a league takes **two** edits, not one — `config.yaml` *and*
 `DEFAULT_VIEWER.leagues` in that module; `jeffs_league` was configured, refreshed and
 published on 2026-09-01 and stayed invisible until the tuple changed. **Removing one is
@@ -507,7 +507,7 @@ with the name.
 
 Each source is reduced to a **stat line**, never to points. The stat lines are blended,
 and only then scored through each league's own rules. That ordering is what lets one
-pipeline serve nine leagues with different scoring.
+pipeline serve eight leagues with different scoring.
 
 The weighting rule is **one equal vote per source that has an opinion**. Every source
 carries the same nominal weight, a source with no real line for a player is flagged and
@@ -603,15 +603,30 @@ Sheet is their only access. See
 
 ## Leagues
 
-Nine leagues across five owners, ranging from 6 to 16 teams, including one IDP
+Eight leagues across four owners, ranging from 6 to 16 teams, including one IDP
 league (GOP Degenerates) and one superflex (Jeffs_League).
 Configured in `config.yaml`; see `display_name` for the key used throughout the
-pipeline, which must match the Google Sheet name exactly. Seven are published to
+pipeline, which must match the Google Sheet name exactly. Six are published to
 Google Sheets and four are the app viewer's own — the three counts differ on purpose,
 and `populateGoogleSheet.py` and `app/auth.py` are where the other two live.
 
-A tenth, `Weenieless_Wanderers`, was **disconnected on 2026-09-09**: out of
-`config.yaml`, out of `DEFAULT_VIEWER.leagues`, and off both Google Sheet cohorts, with
-its 2025 and 2026 parquet deliberately left in S3. The pipeline no longer fetches it and
-the app no longer offers it; its existing Sheet tabs stop being refreshed but are not
-deleted. `ESPN_FFL_ALL_LEAGUES=1` is the only way back to the kept data.
+Two others have been **disconnected**, by the same edits and with the same deliberate
+omission — the store is never the third edit:
+
+| League | Disconnected | Out of `DEFAULT_VIEWER` | Sheet cohorts |
+|---|---|---|---|
+| `Weenieless_Wanderers` | 2026-09-09 | yes, it was in it | `all` |
+| `Big_Red_Fantasy_Football` | 2026-09-15 | not needed, never in it | `all`, `cooleen` |
+
+Both came out of `config.yaml` and off their Google Sheet cohorts, with their 2025 and
+2026 parquet deliberately left in S3. The pipeline no longer fetches either and the app
+no longer offers them; existing Sheet tabs stop being refreshed but are not deleted.
+`ESPN_FFL_ALL_LEAGUES=1` is the only way back to the kept data.
+
+Big Red was disconnected while **playing**: it has a real week 1 in the store, 10 owners
+and 2105 live points. What it does not have is a week 2 — ESPN reports it at
+`scoringPeriodId: 0` with `isActive: false` and a last waiver run of 2026-03-25, so the
+nightly was rebuilding a store that could not advance. `Scripts/fetch_utils.py` floors
+that 0 to 1, which is the only reason it ever read as "week 1" rather than as nothing.
+Removing `cooleen` matters more than removing a cohort usually does: it was Robert
+Cooleen's only league, so that Sheet now has no owner cohort at all.
