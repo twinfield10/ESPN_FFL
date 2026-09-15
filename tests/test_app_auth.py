@@ -5,10 +5,11 @@ will hand its answer to. The point of the module is that the leagues the store h
 narrow to one viewer's four in exactly one place, so these tests are the ones that
 would fail if a page went back to reading ``store.list_leagues`` directly.
 
-**The store list and ``config.yaml`` are not the same list, and since 2026-09-09 they
-disagree by one.** ``weenieless_wanderers`` was disconnected -- removed from the config
-and from :data:`auth.DEFAULT_VIEWER` -- but its parquet was deliberately kept, and
-:func:`store.list_leagues` reads store prefixes rather than the config. So it is still
+**The store list and ``config.yaml`` are not the same list, and since 2026-09-15 they
+disagree by two.** ``weenieless_wanderers`` and ``big_red_fantasy_football`` were
+disconnected -- removed from the config, and from :data:`auth.DEFAULT_VIEWER` where they
+were in it -- but their parquet was deliberately kept, and
+:func:`store.list_leagues` reads store prefixes rather than the config. So both are still
 in :data:`ALL_LEAGUES` below, which is the honest fixture, and
 ``test_a_disconnected_league_is_not_offered_even_though_its_data_remains`` is what
 makes sure that data cannot come back through the picker.
@@ -27,8 +28,9 @@ import auth  # noqa: E402
 
 #: Every league **the store holds**, in the order it lists them (sorted).
 #:
-#: One more than ``config.yaml`` has: ``weenieless_wanderers`` was disconnected on
-#: 2026-09-09 and its data left in place. See the module docstring.
+#: Two more than ``config.yaml`` has: ``weenieless_wanderers`` (2026-09-09) and
+#: ``big_red_fantasy_football`` (2026-09-15) were disconnected and their data left in
+#: place. See the module docstring.
 ALL_LEAGUES = [
     "big_red_fantasy_football", "fields_league", "gop_degenerates",
     "jeffs_league", "john_atl_league", "john_pc_league", "knights_ffl",
@@ -51,11 +53,11 @@ def test_the_default_viewer_sees_only_the_leagues_he_plays_in():
 
 
 def test_the_other_owners_leagues_are_not_offered():
-    """Five of the nine configured leagues belong to other owners. The pipeline still
+    """Four of the eight configured leagues belong to other owners. The pipeline still
     builds them and the Sheet still publishes them -- they are just not this
     viewer's."""
     visible = auth.visible_leagues(auth.DEFAULT_VIEWER, ALL_LEAGUES)
-    for key in ("big_red_fantasy_football", "fields_league", "john_atl_league",
+    for key in ("fields_league", "john_atl_league",
                 "john_pc_league", "twelve_dudes_one_cup"):
         assert key not in visible
 
@@ -63,18 +65,22 @@ def test_the_other_owners_leagues_are_not_offered():
 def test_a_disconnected_league_is_not_offered_even_though_its_data_remains():
     """The end state of removing a league without deleting its parquet.
 
-    ``weenieless_wanderers`` is out of ``config.yaml`` and out of the viewer's tuple,
-    so the pipeline does not fetch it and the app does not offer it -- but its store
-    prefix still exists, and :func:`store.list_leagues` reads prefixes rather than the
-    config, so it is still in ``ALL_LEAGUES``. This tuple is the only thing standing
-    between kept data and a picker entry, which is why it is worth a test of its own
-    rather than being folded into the other-owners case above: it is not somebody
-    else's league, it is a league nobody is meant to open.
+    ``weenieless_wanderers`` (2026-09-09) and ``big_red_fantasy_football``
+    (2026-09-15) are out of ``config.yaml``, so the pipeline does not fetch them and
+    the app does not offer them -- but their store prefixes still exist, and
+    :func:`store.list_leagues` reads prefixes rather than the config, so both are still
+    in ``ALL_LEAGUES``. The viewer's tuple is the only thing standing between kept data
+    and a picker entry, which is why this is worth a test of its own rather than being
+    folded into the other-owners case above: these are not somebody else's leagues,
+    they are leagues nobody is meant to open.
+
+    Big Red needed only the one edit -- it was never in ``DEFAULT_VIEWER.leagues`` --
+    which is exactly why the config edit alone cannot be trusted to have covered it.
     """
-    assert "weenieless_wanderers" in ALL_LEAGUES, "fixture should keep the store's view"
-    assert "weenieless_wanderers" not in auth.DEFAULT_VIEWER.leagues
-    assert "weenieless_wanderers" not in auth.visible_leagues(
-        auth.DEFAULT_VIEWER, ALL_LEAGUES)
+    for key in ("weenieless_wanderers", "big_red_fantasy_football"):
+        assert key in ALL_LEAGUES, "fixture should keep the store's view"
+        assert key not in auth.DEFAULT_VIEWER.leagues
+        assert key not in auth.visible_leagues(auth.DEFAULT_VIEWER, ALL_LEAGUES)
 
 
 def test_the_escape_hatch_still_reaches_a_disconnected_league():

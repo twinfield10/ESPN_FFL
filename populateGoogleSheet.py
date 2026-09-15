@@ -702,11 +702,10 @@ def write_to_google(df_dict, league_name, primary_owner):
                 # indistinguishable from a league simply having no kicker.
                 print(f"Skipped {sheet_name}: {type(e).__name__}: {e}")
 
-all = ['GOP_Degenerates', 'Knights_FFL', 'John_PC_League', 'John_ATL_League', "12 Dudes one Cup", 'Big Red Fantasy Football', 'Washed_Up_Fijians'] #, 'Winfield_Football'
+all = ['GOP_Degenerates', 'Knights_FFL', 'John_PC_League', 'John_ATL_League', "12 Dudes one Cup", 'Washed_Up_Fijians'] #, 'Winfield_Football'
 john = ['John_PC_League', 'John_ATL_League']
 tommy = ['Winfield_Football', 'Knights_FFL', 'GOP_Degenerates']
 will = ["12 Dudes one Cup"]
-cooleen = ['Big Red Fantasy Football']
 fields = ['Washed_Up_Fijians']
 
 

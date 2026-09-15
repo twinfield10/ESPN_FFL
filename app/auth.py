@@ -68,7 +68,12 @@ class Viewer(NamedTuple):
 #: **Removing a league is the same edit twice, and the store is not the third.**
 #: ``weenieless_wanderers`` came out of ``config.yaml`` and out of here on
 #: 2026-09-09. Dropping it from the config stops the *pipeline* fetching it;
-#: dropping it from this tuple stops the *app* offering it. Its parquet was
+#: dropping it from this tuple stops the *app* offering it.
+#:
+#: ``big_red_fantasy_football`` followed on 2026-09-15 and needed only the first
+#: edit, being somebody else's league and never in this tuple -- which is the case
+#: to watch, because "removing a league" then looks like a one-line change and the
+#: second edit is missed by simply not existing. Its parquet was
 #: deliberately left in S3, and because :func:`store.list_leagues` reads store
 #: prefixes rather than the config, that data is still listed there -- so it
 #: reappears under :data:`ALL_LEAGUES_ENV` and nowhere else. That is the intended
@@ -90,7 +95,7 @@ SESSION_KEY = "viewer"
 #: Set this to see every configured league regardless of who the viewer is.
 #:
 #: Not a backdoor -- see the module docstring on why this is not a security
-#: boundary. It exists because five of the nine configured leagues belong to other
+#: boundary. It exists because four of the eight configured leagues belong to other
 #: owners who read their numbers off the Google Sheet, and when one of those Sheets
 #: looks wrong the app is where you go to find out why. Scoping the picker must not
 #: cost the ability to answer that question.
