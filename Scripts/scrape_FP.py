@@ -278,7 +278,18 @@ def get_fp(wk, year=None):
     numeric = [c for c in out.columns if c not in identity]
     out[numeric] = out[numeric].fillna(0)
 
-    named = out["player_name"].apply(lambda v: isinstance(v, str) and v.strip() != "")
+    # `.astype(bool)` is load-bearing, and only on the empty frame. `.apply()` over
+    # **no rows** has nothing to infer a dtype from and hands back a float64 Series
+    # -- and pandas reads a non-boolean Series inside `out[...]` as a list of *column
+    # labels* rather than as a row mask. So an empty scrape selected zero columns and
+    # returned a 0x0 frame with no `player_name` in it at all: the guard against
+    # nameless rows deleting the very column it guards. That is how an empty upstream
+    # table reached the caller as `KeyError: 'player_name'` on 2026-09-15 06:01, when
+    # FantasyPros served week 2's tables with headers and no rows for an hour or so
+    # after the week rolled over. The predicate is unchanged -- a non-string is still
+    # not a name, which is what keeps an integer 0 out of the parquet write.
+    named = out["player_name"].apply(
+        lambda v: isinstance(v, str) and v.strip() != "").astype(bool)
     if not named.all():
         print(f"  dropped {int((~named).sum())} row(s) with no player name")
     return out[named].reset_index(drop=True)
@@ -370,6 +381,32 @@ def scrape_weekly(season=None, week=None, weeks=None, merge=True):
 
     parquet = season_dir("FantasyPros", season,
                          "FantasyPros_Projections_Week_All.parquet")
+
+    # An empty capture is written nowhere, and checked before the write rather than
+    # after it. FantasyPros serves these tables with headers and no rows while it
+    # regenerates them at the Tuesday rollover -- measured 2026-09-15, empty at 06:01
+    # and 595 players by 11:59 the same morning -- and the old order wrote the file at
+    # the top of this block and only looked at what it had scraped afterwards. With
+    # `merge=False` that writes an empty parquet over the cumulative file, which
+    # `clean_lineups` re-merges onto every week: every week already captured would go
+    # FantasyPros-less retroactively, on the strength of one bad hour.
+    #
+    # Non-fatal on purpose. The weekly blend renormalises around an absent source and
+    # says so, the file is cumulative so the next run captures the week -- and the
+    # alternative is what actually happened on 09-15, when this raised and took the
+    # whole nightly down with it, costing nine leagues their week 2 board over one
+    # transient table. Same shape as the Pinnacle weekly stage, which has always
+    # treated an empty book as a note.
+    if fetched.empty:
+        asked = ", ".join(str(w) for w in weeks)
+        print(f"  NOTE: FantasyPros returned no rows for week(s) {asked} -- the "
+              f"tables were served empty, which is what they are while FantasyPros "
+              f"regenerates them at the week rollover. Nothing written; the file "
+              f"still holds whatever it held, and the next run picks the week up. "
+              f"Not fatal. A dead session cookie looks different -- the fence serves "
+              f"the ~60-row teaser, not nothing.")
+        return pd.read_parquet(parquet) if parquet.is_file() else fetched
+
     df = fetched
     if merge and parquet.is_file():
         existing = pd.read_parquet(parquet)
@@ -411,6 +448,17 @@ def scrape_season_long(season=None):
     year = None if int(season) == int(SEASON) else int(season)
     df = get_fp(wk=DRAFT_WEEK, year=year)
     out = season_dir("FantasyPros", season, "FantasyPros_Projections_Season.parquet")
+
+    # Checked before the write for the same reason `scrape_weekly` is, and it matters
+    # more here: this file is a snapshot rather than a cumulative record, so it is
+    # rewritten every night with no merge to fall back on. An empty capture written
+    # here is the draft board's FantasyPros input gone until the next good scrape.
+    if df.empty:
+        print("  NOTE: FantasyPros returned no rows for the season-long table -- "
+              "served empty, as it is while FantasyPros regenerates. Nothing "
+              "written; the existing snapshot stands. Not fatal.")
+        return df
+
     df.to_parquet(out)
     df.to_csv(out.with_suffix(".csv"), index=False)
     print(f"FantasyPros season-long {season}: {len(df)} rows, "
