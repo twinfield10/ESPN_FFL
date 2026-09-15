@@ -401,7 +401,7 @@ COLUMNS: List[Column] = [
            how="One equal vote each to ESPN, FantasyPros, BetOnline, Pinnacle, The "
                "Athletic and the usage model, plus the D/ST model on team defences "
                "only — blended as a **stat line**, then scored through this league's "
-               "own rules, which is what lets one pipeline serve nine leagues. Only "
+               "own rules, which is what lets one pipeline serve eight leagues. Only "
                "the kicker model is weighted zero.",
            caveat="A source with no line for a player is dropped and the rest "
                   "reweighted, so the nominal share is almost never the realised one "
