@@ -153,6 +153,68 @@ note = weekly.missing_sources_note(selection.meta)
 if note:
     st.caption(note)
 
+# --- the week is over -----------------------------------------------------
+#
+# **Fantasy week N+1 begins when week N's last game ends, not when week N+1's
+# first game starts**, and waivers clear into that gap -- Tuesday morning, with
+# three days of it before Thursday kickoff. So this page is at its least useful
+# exactly when it is most used, and it used to fail silently: every pool row
+# locked, an empty grid, and a heading that said `Available · 0 of 283`.
+#
+# Measured on 2026-09-14 with one week-1 game left to play: 25 of GOP's 283 still
+# available, 7 of 124 on Jeff's, 3 of 36 on Big Red. After that game they go to 5,
+# 0 and 0.
+#
+# **Nothing can be built ahead to cover it.** ESPN will not serve a future week:
+# `box_scores(2)` while `current_week == 1` returns week 1 verbatim -- all 243
+# players, identical projections *and* identical opponents. Looping one week
+# further would write a copy of this week wearing next week's number, which is the
+# quietest way this repo knows to be wrong. So the honest move is to say the week
+# is done and when the next board lands.
+#
+# **And ESPN's counter does not move with the last whistle**, which is why the
+# message below does not say it does. Measured across the 2026 week 1 -> 2
+# rollover: DEN @ KC ended ~23:20 on the Monday, every league's stored
+# `current_week` still read 1 at **02:11**, and by the time waivers ran --
+# `waiverLastExecutionDate` 03:30:32 on Winfield, 03:39:26 on GOP, with
+# `standingsUpdateDate` ~300ms behind each -- it read 2. So the turnover is an
+# overnight batch in the small hours of Tuesday, shortly before waivers, and there
+# is a ~4-hour window where the games are over and ESPN is still on the old week.
+# The 06:00 nightly lands after all of it, which is what makes that promise safe.
+if pool.is_empty():
+    # A later week already in the store is the common case on a Tuesday, and the
+    # Week selector will not move you to it on its own: it is sticky, and it only
+    # falls back to the current week when nothing valid is remembered. A session
+    # left open across the rollover therefore sits on a settled week looking at an
+    # empty wire, which is precisely the morning waivers clear.
+    later = [w for w in session.available_weeks(
+        selection.season, selection.league_key, selection.meta) if w > selection.week]
+
+    settled = (f"**Week {selection.week} is settled.** Every one of the "
+               f"{everyone.height} unrostered players here has played, so there "
+               f"is no add that could change it.")
+    if later:
+        st.warning(
+            settled + f"\n\n**Week {later[0]} is built and waiting** — move the "
+            f"Week selector in the sidebar. It keeps the week you last looked at, "
+            f"so it will not follow the rollover for you."
+        )
+    else:
+        st.info(
+            settled + f"\n\nFantasy week {selection.week + 1} starts when the last "
+            f"game of this one ends, but **ESPN's own week counter does not move "
+            f"with it** — it turns over in the small hours of Tuesday, shortly "
+            f"before waivers run. It will not serve next week's board until it "
+            f"does, and nothing here can build ahead of that, so the week "
+            f"{selection.week + 1} board arrives with the first nightly build "
+            f"after the turnover — normally the 06:00 run on Tuesday."
+        )
+    st.caption(
+        "Deliberately not a table of zero rows. Those players would be this "
+        "week's projections wearing next week's date, which is worse than nothing."
+    )
+    st.stop()
+
 # --- rest of season -------------------------------------------------------
 #
 # A rank, never a level. `Scripts/ros` carries the argument: `r2p_pts` is a total
