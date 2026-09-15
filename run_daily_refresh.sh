@@ -333,7 +333,17 @@ else:
     print(df.filter(pl.col('week').cast(pl.Utf8) == '${WEEK}').height)
 " 2>/dev/null)" || FP_WK_ROWS=0
 log "FantasyPros weekly rows for week ${WEEK}: ${FP_WK_ROWS}"
-if [ "${FP_WK_ROWS}" -le 60 ]; then
+# Zero and sixty are different failures with different causes, and only one of them
+# is worth stopping the night for. The fence serves the ~60-row teaser: a real state,
+# fixed by replacing a cookie, and it will keep serving it until someone does -- so
+# that still fails. **Nothing at all** is the rollover: FantasyPros serves these
+# tables with headers and no rows while it regenerates them, measured 2026-09-15 at
+# 06:01 and full again by 11:59. Failing on that cost all ten leagues their rebuild
+# -- boards, lineups and the S3 push are all downstream of here -- over a table that
+# fixed itself before anyone was awake to read the alert.
+if [ "${FP_WK_ROWS}" -eq 0 ]; then
+  log "NOTE: FantasyPros weekly returned nothing for week ${WEEK}. Not fatal -- the tables are served empty while FantasyPros regenerates them at the rollover, the file is cumulative so tomorrow's run captures the week, and the weekly blend renormalises around an absent source and warns that it did. If this repeats tomorrow it is not the rollover any more: check the cookie."
+elif [ "${FP_WK_ROWS}" -le 60 ]; then
   fail "FantasyPros weekly returned ${FP_WK_ROWS} rows for week ${WEEK} against a teaser threshold of 60 -- the registration fence is back, which means the session cookie in config.yaml has expired. Log in again and replace it."
 fi
 

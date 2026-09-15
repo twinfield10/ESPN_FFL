@@ -258,3 +258,89 @@ def test_parse_weeks_is_empty_rather_than_zero_for_no_spec():
 def test_parse_weeks_refuses_a_backwards_range():
     with pytest.raises(ValueError, match="backwards"):
         fp.parse_weeks("5-2")
+
+
+# --- an empty table from upstream -----------------------------------------
+#
+# 2026-09-15 06:01. FantasyPros served week 2's projection tables with headers and no
+# rows -- it regenerates them at the Tuesday rollover, and the same call returned 595
+# players by 11:59 that morning. Two separate defects turned one transient hour into
+# a night with no boards at all, and both are pinned here.
+
+
+def _empty_like_a_served_table():
+    """What `get_fp` builds when every position's table parses to zero rows."""
+    import pandas as pd
+    return pd.DataFrame({"week": [], "player_name": [], "proj_rushingYards": []})
+
+
+def test_an_empty_scrape_keeps_its_columns(monkeypatch):
+    """The nameless-row guard must not delete the column it guards.
+
+    `.apply()` over no rows returns float64, not bool, and pandas reads a
+    non-boolean Series in `frame[...]` as a list of *column labels*. The guard
+    therefore selected zero columns and returned 0x0, so an empty upstream table
+    reached the caller as `KeyError: 'player_name'` rather than as no rows.
+    """
+    import pandas as pd
+    out = _empty_like_a_served_table()
+
+    named = out["player_name"].apply(
+        lambda v: isinstance(v, str) and v.strip() != "").astype(bool)
+    assert named.dtype == bool
+    kept = out[named].reset_index(drop=True)
+    assert list(kept.columns) == ["week", "player_name", "proj_rushingYards"]
+    assert kept.empty
+
+    # And the predicate still drops a non-string name, which is what keeps an
+    # integer 0 out of the parquet write.
+    rows = pd.DataFrame({"week": [1, 1], "player_name": ["A", 0],
+                         "proj_rushingYards": [10.0, 20.0]})
+    named = rows["player_name"].apply(
+        lambda v: isinstance(v, str) and v.strip() != "").astype(bool)
+    assert rows[named]["player_name"].tolist() == ["A"]
+
+
+def test_an_empty_capture_is_never_written(monkeypatch, fp_season_dir):
+    """A bad hour upstream must not blank a file that has to stay cumulative.
+
+    The write used to happen before anything looked at what had been scraped, so
+    `--no-merge` over an empty capture would rewrite the cumulative file as empty --
+    and `clean_lineups` re-merges that onto every week, turning stored history into
+    an ESPN-only board retroactively.
+    """
+    _recorder(monkeypatch)
+    fp.scrape_weekly(season=2026, weeks=[1])
+
+    monkeypatch.setattr(fp, "get_fp",
+                        lambda wk, year=None: _empty_like_a_served_table())
+    out = fp.scrape_weekly(season=2026, weeks=[2], merge=False)
+
+    # Week 1 survived a *rewrite* asked for on top of an empty scrape.
+    assert out["week"].unique().tolist() == [1]
+
+
+def test_an_empty_capture_is_not_fatal(monkeypatch, fp_season_dir, capsys):
+    """It returns and says so, rather than raising and taking the nightly with it."""
+    monkeypatch.setattr(fp, "get_fp",
+                        lambda wk, year=None: _empty_like_a_served_table())
+    out = fp.scrape_weekly(season=2026, weeks=[2])
+    assert out.empty
+    assert "returned no rows" in capsys.readouterr().out
+
+
+def test_an_empty_season_capture_leaves_the_snapshot_alone(monkeypatch,
+                                                           fp_season_dir):
+    """The season file is rewritten nightly with no merge to fall back on."""
+    import pandas as pd
+    monkeypatch.setattr(fp, "get_fp", lambda wk, year=None: pd.DataFrame(
+        {"week": ["draft"], "player_name": ["A"], "proj_rushingYards": [100.0]}))
+    fp.scrape_season_long(season=2026)
+    path = fp.season_dir("FantasyPros", 2026,
+                         "FantasyPros_Projections_Season.parquet")
+    assert len(pd.read_parquet(path)) == 1
+
+    monkeypatch.setattr(fp, "get_fp",
+                        lambda wk, year=None: _empty_like_a_served_table())
+    fp.scrape_season_long(season=2026)
+    assert len(pd.read_parquet(path)) == 1
