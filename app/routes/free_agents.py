@@ -171,6 +171,16 @@ if note:
 # further would write a copy of this week wearing next week's number, which is the
 # quietest way this repo knows to be wrong. So the honest move is to say the week
 # is done and when the next board lands.
+#
+# **And ESPN's counter does not move with the last whistle**, which is why the
+# message below does not say it does. Measured across the 2026 week 1 -> 2
+# rollover: DEN @ KC ended ~23:20 on the Monday, every league's stored
+# `current_week` still read 1 at **02:11**, and by the time waivers ran --
+# `waiverLastExecutionDate` 03:30:32 on Winfield, 03:39:26 on GOP, with
+# `standingsUpdateDate` ~300ms behind each -- it read 2. So the turnover is an
+# overnight batch in the small hours of Tuesday, shortly before waivers, and there
+# is a ~4-hour window where the games are over and ESPN is still on the old week.
+# The 06:00 nightly lands after all of it, which is what makes that promise safe.
 if pool.is_empty():
     # A later week already in the store is the common case on a Tuesday, and the
     # Week selector will not move you to it on its own: it is sticky, and it only
@@ -191,12 +201,13 @@ if pool.is_empty():
         )
     else:
         st.info(
-            settled + f"\n\nFantasy week {selection.week + 1} starts the moment "
-            f"the last game of this one ends, which is when waivers clear — but "
-            f"ESPN does not publish next week's board until it advances its own "
-            f"week counter, and nothing here can build ahead of that. The week "
+            settled + f"\n\nFantasy week {selection.week + 1} starts when the last "
+            f"game of this one ends, but **ESPN's own week counter does not move "
+            f"with it** — it turns over in the small hours of Tuesday, shortly "
+            f"before waivers run. It will not serve next week's board until it "
+            f"does, and nothing here can build ahead of that, so the week "
             f"{selection.week + 1} board arrives with the first nightly build "
-            f"after ESPN turns over, normally the 06:00 run on Tuesday."
+            f"after the turnover — normally the 06:00 run on Tuesday."
         )
     st.caption(
         "Deliberately not a table of zero rows. Those players would be this "
