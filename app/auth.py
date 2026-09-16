@@ -42,11 +42,29 @@ class Viewer(NamedTuple):
             applied.
         default_league: The league key to land on. Ignored when it is not among
             the ones actually built for the selected season.
+        owner_names: The ``team_owner`` spellings that mean *this viewer*, for the
+            one question :attr:`display_name` must never be asked: **which team in
+            a league is his**. They are different questions -- a display name is
+            how to greet somebody, and an owner name is a join key -- and
+            conflating them would work today and break on the first viewer ESPN
+            spells differently from their own greeting.
+
+            A tuple rather than a string because the same person is not always one
+            name. ``fetch_utils.set_owner_names`` builds it from ESPN's first and
+            last name and ``.title()``-cases the result, and ESPN is not
+            consistent across its own endpoints -- ``draft_view._franchise_key``
+            exists for exactly that, and ``knights_ffl``'s draft history carries
+            both ``"andrew blair"`` and ``"Andrew Blair"``. Verified as one
+            spelling for this viewer in all four 2026 stores; the tuple is where
+            the second one goes when it is not.
+
+            Defaulted, so every existing :class:`Viewer` construction still works.
     """
     user_id: str
     display_name: str
     leagues: Tuple[str, ...]
     default_league: str
+    owner_names: Tuple[str, ...] = ()
 
 
 #: The only account that exists until login lands: the repo's owner, scoped to the
@@ -84,6 +102,7 @@ DEFAULT_VIEWER = Viewer(
     leagues=("winfield_football", "knights_ffl", "gop_degenerates",
              "jeffs_league"),
     default_league="winfield_football",
+    owner_names=("Tommy Winfield",),
 )
 
 #: Where a signed-in viewer is kept. ``st.session_state`` rather than a module
@@ -178,6 +197,36 @@ def visible_leagues(viewer: Viewer, league_keys: Sequence[str]) -> List[str]:
         return list(league_keys)
     allowed = set(viewer.leagues)
     return [key for key in league_keys if key in allowed]
+
+
+def owner_for(viewer: Viewer, owners: Sequence[str]) -> Optional[str]:
+    """Which team in a league is this viewer's, by ``team_owner`` name.
+
+    The cross-league join, and it is a **name** join rather than an id join because
+    there is no id to join on: ``lineups`` and ``team_stats`` carry ``team_owner``
+    and nothing else. ``owner_id`` exists, on ``draft`` and ``tendencies`` only, and
+    it is not the shortcut it looks like -- this viewer has *two* ESPN SWIDs,
+    ``{DA9F7430-...}`` in ``winfield_football`` and ``{796FF49A-...}`` in the other
+    three, so an id join would need the union before it beat the name.
+
+    Falls back to :attr:`Viewer.display_name` when :attr:`Viewer.owner_names` is
+    empty, which is what every viewer built before that field existed looks like.
+
+    Args:
+        viewer: From :func:`current_viewer`.
+        owners: The league's real ``team_owner`` values, e.g.
+            ``session.team_owners(frame)``.
+
+    Returns:
+        str | None: The first of the viewer's names this league actually has. None
+        when he is not in it -- which is an ordinary answer, not an error: a viewer
+        can have a league in :attr:`Viewer.leagues` without playing in it.
+    """
+    known = set(owners)
+    for name in (viewer.owner_names or (viewer.display_name,)):
+        if name in known:
+            return name
+    return None
 
 
 def default_league(viewer: Viewer,

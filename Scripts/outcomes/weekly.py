@@ -366,6 +366,24 @@ def normal_cdf(x: float) -> float:
     return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
 
 
+def normal_pdf(x: float) -> float:
+    """Standard normal density, without pulling in scipy.
+
+    The companion to :func:`normal_cdf`, and here for the same reason. It prices
+    what **one point** of projection is worth: differentiating
+    :func:`win_probability` with respect to either mean gives
+    ``phi(d) / sqrt(sd_a^2 + sd_b^2)``, which is how ``app.player_shares`` turns a
+    fantasy point into win probability without re-evaluating the CDF twice.
+
+    Args:
+        x: Value.
+
+    Returns:
+        float: The density at ``x``.
+    """
+    return math.exp(-0.5 * x * x) / math.sqrt(2.0 * math.pi)
+
+
 def win_probability(mu_a: float, sd_a: float, mu_b: float, sd_b: float) -> float:
     """Probability team A outscores team B.
 
