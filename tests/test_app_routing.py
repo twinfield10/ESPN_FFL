@@ -84,11 +84,12 @@ def test_the_routes_directory_holds_nothing_unregistered():
     assert on_disk == registered
 
 
-@pytest.mark.parametrize("tab", ["home", "draft", "roster", "free_agents", "matchup"])
+@pytest.mark.parametrize("tab", ["home", "draft", "roster", "free_agents", "matchup",
+                                 "shares"])
 def test_every_tab_is_still_a_tab(tab):
     """The URL path Streamlit derives comes from the *file* name, not the directory,
     so renaming ``pages/`` to ``routes/`` left every bookmark working -- and adding
-    Home must not have moved any of the other four."""
+    a tab must not move any of the others."""
     assert f"routes/{tab}.py" in registered_routes()
 
 
@@ -104,6 +105,7 @@ def test_the_tabs_are_in_the_order_a_season_is_worked():
         "routes/home.py",
         "routes/roster.py",
         "routes/matchup.py",
+        "routes/shares.py",
         "routes/free_agents.py",
         "routes/draft.py",
     ]
@@ -120,8 +122,8 @@ def test_home_is_the_landing_page():
 def test_no_tab_carries_an_icon():
     """The tab bar is labels only.
 
-    Five emoji across the top read as five different kinds of thing rather than five
-    peers, and the label already says what the tab is. Icons still earn their place
+    A row of emoji across the top reads as that many different kinds of thing rather
+    than as peers, and the label already says what the tab is. Icons still earn their place
     inside a page, where they mark a severity -- see ``views.weekly.UPGRADE_CALLOUTS``.
     """
     carrying = {route for route, kwargs in page_calls() if kwargs.get("icon")}

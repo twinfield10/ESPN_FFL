@@ -205,13 +205,14 @@ differently across your ten. Josh Allen is VOR rank 9 in the 10-team superflex a
 21 in 14-team Knights_FFL, because a superflex `OP` slot pushes QB replacement from
 QB14 to QB20.
 
-### Five tabs
+### Six tabs
 
-**Home**, **Roster**, **Matchup**, **Free Agents**, **Draft** — Home first because it
-is the question you actually arrive with, then a single week in the order you work it,
-then Draft, which for all but one weekend of the year is history. The **League** and
-**Week** selectors sit in the sidebar, under the identity block, and govern the other
-four; they are *drawn from the entrypoint* rather than from the pages, which is what
+**Home**, **Roster**, **Matchup**, **Player Shares**, **Free Agents**, **Draft** —
+Home first because it is the question you actually arrive with, then a single week in
+the order you work it, then Draft, which for all but one weekend of the year is
+history. The **League** and **Week** selectors sit in the sidebar, under the identity
+block; **Week** governs every tab and **League** governs the four that are about one
+league — they are *drawn from the entrypoint* rather than from the pages, which is what
 removes a Streamlit behaviour that had twice rendered the wrong league silently. The
 season is **pinned, not selected**: every tab answers a question about the season in
 progress, and a control nobody moves is one that eventually gets moved by accident. See
@@ -222,7 +223,7 @@ It draws one card per league you are in — record and rank, who you play, the w
 probability, and the decisions each team needs — ordered worst first, so the page reads
 in the order you should act. A card's highlighted button opens the tab that can act on
 it *and* points the League selector at that league, which is the whole ergonomic gain:
-finding the league with a ruled-out starter in it used to mean opening all five. Every
+finding the league with a ruled-out starter in it used to mean opening every one. Every
 number on a card is computed by the same function the deep tab computes it with, so a
 card cannot disagree with the page it sends you to. Underneath, one standings table per
 league carries the record over **weeks that were actually played** — ESPN reports an
@@ -397,6 +398,57 @@ to, but **is no longer drawn on either table**. At nine numeric columns a side t
 disagreement *between* sources was competing with the number the table exists for.
 `tail` is still a parameter, so a caller can ask for the column and it arrives
 configured.
+
+### Player Shares
+
+Every other tab answers a question about one league. This one answers the question you
+actually have on the couch — **when Ja'Marr Chase catches a touchdown, is that good for
+me?** — and it is not rhetorical: on week 2 of 2026, eighteen players were started in
+more than one of the viewer's four leagues and **eight were on both sides**, owned in
+one and faced in another. No amount of opening the Matchup tab four times says so,
+because the answer is a sum and each tab holds one term.
+
+**The currency is expected wins, and that is load-bearing rather than cosmetic.** The
+data catalogue's rule — *never compare points across leagues* — is true inside this
+viewer's own four: Josh Allen projects **23.27** in three of them and **31.00** in
+GOP_Degenerates, which pays six for a passing touchdown. So nothing here adds a point
+in one league to a point in another. Each league's points become a *probability*,
+inside that league's own scoring, and probabilities are unitless. Week 2 opened at
+**2.35 expected wins of 4**.
+
+A player's **Δ Wins** is how far that total travels if he has a p90 week instead of a
+p10 one. It is computed by taking him out of his side's projection **and** its spread
+and putting him back at each end of his own interval — exact rather than a derivative,
+because `matchup_sim.swing` moves only the mean and a superflex quarterback takes a
+fifth of his lineup's variance with him. **The sign is never applied by hand**: the
+perturbation lands on whichever side he actually starts on, so a player owned twice and
+faced once arrives as one signed number. Beside it sits the rate, `φ(d)/σ`, which is
+the weighting the tab exists for — a point in Knights_FFL at 52.7% was worth 1.20pp
+and a point in Winfield_Football at 70.7% only 0.99pp.
+
+The page is **two charts and a table**: the ten biggest reasons to root for, the ten
+biggest to root against, and then the conflicts. Splitting by direction makes each
+chart a single series, so neither needs a legend and both plot magnitude — the bars
+compare by length and the signed value is in the tooltip. Ja'Marr Chase led week 2 at
+**+0.531**, James Cook III at **−0.527**.
+
+The Conflicts table is the part that exists nowhere else: the Seahawks defence netted
+**−0.181** (yours in Jeffs, against you in Knights *and* Winfield), while Josh Allen at
++0.007 and Omarion Hampton at +0.011 read **a wash** rather than a direction. The full
+ranking of all fifty-eight started players is one expander down. That
+threshold came off the distribution rather than off intuition — an ordinary starter in
+a single league carries 0.22 and the smallest of the 45 of them is 0.14, so 0.02 is a
+tenth of the quietest real rooting interest on the page.
+
+The summed per-point rate is the one number here that is an **index rather than a
+quantity**, and the page says so *from the data*: `scoring_divergence` finds the
+players whose own leagues disagree about what they project and names the worst. Δ Wins
+is immune, which is why it is the headline and the sort key. Bench players are absent
+by construction — they cannot score for anyone — lineups are taken as they stand, and
+players in the same NFL game are treated as independent, which plan 42 measured at
+*team* level and this tab does not test at its own. With no fitted dispersion it falls
+back to net projected points and says so. See
+[plan 50](docs/plans/50-player-shares.md).
 
 ### Whether the number is any good
 
