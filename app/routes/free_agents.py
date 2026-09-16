@@ -20,9 +20,11 @@ both of which were producing confident, illegal advice:
 * A player whose game has kicked off is neither available nor droppable. His points are banked either way, and on a finished game the number the ranking reads is a score rather than a projection -- so an unfiltered pool overstates what the wire is offering, and an unfiltered drop list ranks a settled zero as the most droppable man on the roster.
 * An **IR slot sits outside the roster count**, so dropping the man in it frees an IR slot rather than a bench place. Only an add ESPN would let *into* that slot can use it. See :func:`lineup.droppable_for`.
 
-``injury_status`` and ``percent_owned`` come from ``board.parquet``, joined on
-``player_id`` -- neither is on the weekly artifact, and the join is 1:1 on all ten
-2026 stores.
+``injury_status`` and ``percent_owned`` come from ``pool.parquet`` -- the nightly
+free-agent wire capture -- falling back to ``board.parquet`` where no pool has been
+built. Neither is on the weekly artifact, and both joins are 1:1 on all ten 2026
+stores. The fallback exists because the board stopped being rebuilt nightly on
+2026-09-16; ownership moves with every claim, so it needs the wire's grain.
 
 See ``docs/plans/08-frontend-weekly-views.md``,
 ``docs/plans/40-frontend-restructure.md`` and
@@ -85,35 +87,59 @@ if week.is_empty():
 
 # --- what the weekly artifact does not carry -----------------------------
 #
-# `injury_status` and `percent_owned` live on the season-grain board, not on
-# `lineups.parquet`, and the IR rule and the gettability filter both need them.
-# Measured on all ten 2026 stores before relying on it: no board has a duplicate
-# `player_id`, so this is 1:1; `percent_owned` reaches 100% of every pool; and all
-# 19 IR-slot rows across the nine leagues carry an `injury_status`. The 32 nulls
-# per league are D/ST, which has no injury designation by nature.
+# Neither `injury_status` nor `percent_owned` is on `lineups.parquet`, and the IR
+# rule and the gettability filter both need them. Measured on all ten 2026 stores
+# before relying on it: no board has a duplicate `player_id`, so the join is 1:1;
+# `percent_owned` reaches 100% of every pool; and all 19 IR-slot rows across the nine
+# leagues carry an `injury_status`. The 32 nulls per league are D/ST, which has no
+# injury designation by nature.
 #
-# **The board is rebuilt by the 06:00 nightly and `--what live` does not touch it**
-# (`Scripts/live.py` PATCH_COLUMNS covers the lineups frame only), so a designation
-# here can be a day old. That is right for an IR placement, which is not an
-# intraday event, and wrong for anything needing the hour.
-#: ``pts_p90``, ``p_top12``, ``games`` and ``usg_depth_rank`` ride along as
+# **Two artifacts, because they move at different speeds.** The board stage came out
+# of the nightly on 2026-09-16 -- it was 97s of a 539s run to rebuild a *draft* board
+# in week 2 -- so anything read from the board is now as old as the last manual
+# `--what board`. That is fine for a season-grain quantity and not fine for ownership,
+# which changes with every waiver claim in the league.
+#
+#: Season-grain, and slow enough that a board built weeks ago is still the right
+#: answer. ``pts_p90``, ``p_top12``, ``games`` and ``usg_depth_rank`` ride along as
 #: **context, never as a gate** -- see ``waivers.UPSIDE_IS_CONTEXT_NOT_A_GATE`` for
 #: the three measurements that decided that.
-BOARD_COLUMNS = ("injury_status", "percent_owned", "pts_p90", "p_top12", "games",
-                 "usg_depth_rank")
+BOARD_COLUMNS = ("pts_p90", "p_top12", "games", "usg_depth_rank")
+
+#: Volatile, and taken from ``pool.parquet`` -- the free-agent wire captured nightly
+#: at stage 4c for 2s, one row per available player per week. This is the pool the
+#: gettability filter actually filters, so a wire-grain source is not a compromise
+#: here: it is the right grain, and it was on the board only because that is where it
+#: happened to be first.
+#:
+#: Rostered players get nulls, which is correct -- ``percent_owned`` gates the *pool*
+#: (``max_owned``), and ``injury_status`` on a rostered row already arrives from
+#: ESPN on the weekly frame.
+POOL_COLUMNS = ("injury_status", "percent_owned")
+
+if store.has_artifact(selection.season, selection.league_key, "pool"):
+    wire = store.load_pool(selection.season, selection.league_key)
+    carry = [c for c in POOL_COLUMNS if c in wire.columns and c not in week.columns]
+    if carry:
+        week = week.join(
+            wire.filter(pl.col("week") == selection.week)
+                .select(["player_id", *carry])
+                .unique(subset=["player_id"]),
+            on="player_id", how="left")
 
 if store.has_artifact(selection.season, selection.league_key, "board"):
     board = store.load_board(selection.season, selection.league_key)
-    carry = [c for c in BOARD_COLUMNS if c in board.columns]
+    carry = [c for c in (*BOARD_COLUMNS, *POOL_COLUMNS)
+             if c in board.columns and c not in week.columns]
     if carry:
         week = week.join(
             board.select(["player_id", *carry]).unique(subset=["player_id"]),
             on="player_id", how="left")
 
-# A store with no board leaves both columns absent. `lineup.ir_eligible` reads that
-# as "not IR-eligible", which makes an IR-slotted player undroppable -- conservative,
-# and closer to true than ranking him as the best available drop.
-for column in BOARD_COLUMNS:
+# A store with neither artifact leaves the columns absent. `lineup.ir_eligible` reads
+# that as "not IR-eligible", which makes an IR-slotted player undroppable --
+# conservative, and closer to true than ranking him as the best available drop.
+for column in (*BOARD_COLUMNS, *POOL_COLUMNS):
     if column not in week.columns:
         week = week.with_columns(pl.lit(None).alias(column))
 

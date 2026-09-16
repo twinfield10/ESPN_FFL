@@ -69,6 +69,29 @@ WHAT_CHOICES = ("lineups", "team_stats", "board", "draft", "results", "live",
 #: bytes.
 DEFAULT_WHAT = ("lineups",)
 
+#: Which store artifacts each ``--what`` value actually writes, for ``--push``.
+#:
+#: A push scoped to what a run built is the difference between one object and eight.
+#: That matters more than it sounds: the bucket is versioned with a 90-day
+#: non-current expiry, so re-sending an unchanged artifact does not overwrite, it
+#: mints a retained version -- 156 copies of one frozen board, measured 2026-09-16.
+#: :func:`Scripts.s3_store.push_league_store` skips identical bytes as well, and the
+#: two guards are deliberately both present: this one avoids listing and hashing
+#: files the run never touched, and that one catches the case where it did touch
+#: them and produced the same bytes anyway.
+#:
+#: ``live`` maps to ``lineups`` because that is the file it rewrites; ``draft``
+#: writes two artifacts.
+PUSH_ARTIFACTS: Dict[str, Tuple[str, ...]] = {
+    "lineups": ("lineups",),
+    "live": ("lineups",),
+    "board": ("board",),
+    "draft": ("draft", "tendencies"),
+    "team_stats": ("team_stats",),
+    "results": ("results",),
+    "pool": ("pool",),
+}
+
 #: ``--what pool`` needs a lineups frame to snapshot from, and takes the one this
 #: run just built rather than re-reading the store. Requesting it alone reads the
 #: stored frame instead, which is right for a backfill and wrong for a nightly --
@@ -164,6 +187,30 @@ def refresh_league(
         timings["lineups"] = time.time() - start
         _log(f"  lineups     {lineups.shape[0]:>6} rows x {lineups.shape[1]:>3} cols "
              f"  {timings['lineups']:.2f}s")
+
+        # A projection stops being writable when its own game kicks off. Here rather
+        # than inside `clean_lineups`, which is the pure blend path the equivalence
+        # harness snapshots and `populateGoogleSheet` runs -- the freeze is about what
+        # gets published, so it belongs at the store boundary. See
+        # `Scripts/kickoff_freeze.py` for the measurement that motivated it.
+        #
+        # **Degrades rather than stops**, on the same reasoning `clean_lineups` uses
+        # for the live columns: a store that cannot be read is a reason to publish a
+        # rebuilt projection, not a reason to publish nothing. The warning is the
+        # record that a played week moved.
+        try:
+            from Scripts import kickoff_freeze
+            prior = None
+            if store.has_store(season, league_key):
+                try:
+                    prior = store.read_league_store(season, league_key, "lineups")
+                except FileNotFoundError:
+                    prior = None            # --what board built the store, no lineups
+            lineups, frozen = kickoff_freeze.apply(lineups, prior)
+            _log(f"  freeze      {kickoff_freeze.summary(frozen)}")
+        except Exception as e:              # noqa: BLE001 - reported, not hidden
+            _log(f"  freeze      FAILED ({type(e).__name__}: {e}) -- every "
+                 f"projection was rebuilt, including for games already played.")
 
     if "live" in what and "lineups" not in what:
         # Skipped when `lineups` is also requested: the full build resolves the same
@@ -403,11 +450,43 @@ def refresh_league(
     return timings
 
 
+def push_built(names: Sequence[str], season: int, what: Sequence[str]) -> int:
+    """Publish what this run built, for the leagues that succeeded.
+
+    **Only the artifacts named in ``what``, only these leagues, and never a dated
+    snapshot.** The snapshot prefix is the one part of the bucket with an unbounded
+    slope -- one board per league per night, no expiry rule -- and a dated board means
+    "the market as it stood on date D". An ad-hoc refresh has no business minting one:
+    the nightly already does it, and a second copy on the same date would silently
+    replace the morning's.
+
+    Args:
+        names: Display names or config keys that built successfully.
+        season: Season year.
+        what: The ``--what`` values that ran, mapped through
+            :data:`PUSH_ARTIFACTS`.
+
+    Returns:
+        int: Objects uploaded. Zero is the common and correct answer when nothing
+        moved -- see :func:`Scripts.s3_store.push_league_store`.
+    """
+    from Scripts import sync
+
+    artifacts = sorted({a for w in what for a in PUSH_ARTIFACTS.get(w, ())})
+    keys = [resolve_league(name)["key"] for name in names]
+    count, failures = sync.push(["store"], season, snapshot_date=None,
+                                leagues=keys, only=artifacts or None)
+    for detail in failures:
+        _log(f"  push        FAILED  {detail}")
+    return count
+
+
 def refresh(
     leagues: Optional[Sequence[str]] = None,
     season: Optional[int] = None,
     what: Sequence[str] = DEFAULT_WHAT,
     rebuild_history: bool = False,
+    push: bool = False,
 ) -> Tuple[Dict[str, str], Dict[str, Dict[str, float]]]:
     """Build stores for several leagues, isolating failures.
 
@@ -421,6 +500,11 @@ def refresh(
         season: Season year. Defaults to the configured season.
         what: Artifacts to build.
         rebuild_history: Passed to :func:`refresh_league`.
+        push: Publish the leagues that succeeded to S3. **Only those** -- a league
+            that raised has an untouched store on disk, and pushing it would send
+            the previous build's bytes wearing this run's intent. The dedup in
+            ``push_league_store`` would skip them anyway; excluding them is so the
+            log does not claim to have published a league that failed.
 
     Returns:
         tuple: ``({league: "ok" | error string}, {league: timings})``.
@@ -442,6 +526,12 @@ def refresh(
             _log("  previous store left in place")
 
     _summarise(results, timings, season)
+
+    if push:
+        built = [n for n, s in results.items() if s == "ok"]
+        if built:
+            _log(f"\n===== publish: {len(built)} league(s) =====")
+            _log(f"  push        {push_built(built, season, what)} objects uploaded")
     return results, timings
 
 
@@ -493,6 +583,10 @@ def main(argv: Optional[List[str]] = None) -> int:
                    help="team_stats: re-derive every season instead of only the "
                         "one in progress. Slow, and only needed after changing how "
                         "a past season is scraped.")
+    p.add_argument("--push", action="store_true",
+                   help="publish the leagues that succeeded to S3, scoped to the "
+                        "artifacts --what built. Never writes a dated board "
+                        "snapshot; unchanged bytes are skipped.")
     args = p.parse_args(argv)
 
     what = [w.strip() for w in args.what.split(",") if w.strip()]
@@ -505,6 +599,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         season=args.season,
         what=what,
         rebuild_history=args.rebuild_history,
+        push=args.push,
     )
     return 0 if all(v == "ok" for v in results.values()) else 1
 

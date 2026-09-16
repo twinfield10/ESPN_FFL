@@ -330,6 +330,35 @@ def load_tendencies(season: int, league_key: str) -> pl.DataFrame:
     return _artifact(season, league_key, "tendencies")
 
 
+def load_pool(season: int, league_key: str) -> pl.DataFrame:
+    """The free-agent wire, one row per available player per week.
+
+    Accumulates rather than being overwritten, which is the whole reason it exists:
+    ``league.free_agents()`` serves the pool only as it is now, so every ``--what
+    lineups`` rebuild replaces the wire's history with a current-week snapshot. The
+    2025 stores carry free-agent rows on week 17 alone, for all of 2025, and none of
+    it is recoverable.
+
+    Carries ``percent_owned`` and ``injury_status``, which is what
+    ``routes/free_agents.py`` reads it for now that the board is no longer rebuilt
+    nightly -- ownership moves with every claim in the league and a board from three
+    weeks ago cannot answer it.
+
+    Args:
+        season: Season year.
+        league_key: ``config.yaml`` league key.
+
+    Returns:
+        pl.DataFrame: ``Scripts.pool.capture`` output, every week captured so far.
+
+    Raises:
+        FileNotFoundError: When ``--what pool`` has not been run. Pre-dates the
+            artifact in the 2025 stores and in any league whose first build was a
+            ``--what board``, so callers should check :func:`has_artifact` first.
+    """
+    return _artifact(season, league_key, "pool")
+
+
 def load_meta(season: int, league_key: str) -> dict:
     """The store's metadata: build time, current week, coverage, versions.
 

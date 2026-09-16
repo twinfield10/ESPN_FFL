@@ -185,6 +185,41 @@ def _fmt(hours: Optional[float]) -> str:
     return f"{hours / 24:.1f} days ago"
 
 
+def _report_boards(season: int) -> None:
+    """How old the draft boards are, reported and never enforced.
+
+    **Advisory on purpose, and the reason is the point of the check.** The board stage
+    came out of ``run_daily_refresh.sh`` on 2026-09-16 -- it was 97s of a 539s run to
+    re-derive a *draft* board in week 2 -- so in-season a board that is weeks old is
+    the correct state, not a fault. A red line every day is a line nobody reads, which
+    is the same argument ``components/header.STALE_AFTER_MIN`` carries at length.
+
+    What it is for is the other half of the year. Through camp the board is the whole
+    point and ADP moves daily, and the failure mode there is silent: nobody notices a
+    board that stopped rebuilding, because a stale board and a fresh one are the same
+    file. This prints the age so the question can be asked at a glance.
+
+    Args:
+        season: Season year.
+    """
+    from datetime import datetime, timezone
+
+    ages = []
+    for display, meta_vars in sorted(build_lg_vars().items()):
+        path = store_dir(season, meta_vars["key"]) / "board.parquet"
+        if path.is_file():
+            ages.append((datetime.now(timezone.utc).timestamp()
+                         - path.stat().st_mtime) / 3600.0)
+
+    if not ages:
+        print("  boards     none built -- "
+              "`python -m Scripts.refresh --all --what board --push`")
+        return
+    print(f"  boards     advisory, {len(ages)} built {_fmt(min(ages))}"
+          + (f" to {_fmt(max(ages))}" if max(ages) - min(ages) > 1 else "")
+          + " (not nightly since 2026-09-16; rebuild before a draft or keeper deadline)")
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     """Command-line entry point. Returns 1 when anything is stale."""
     parser = argparse.ArgumentParser(
@@ -236,10 +271,17 @@ def main(argv: Optional[List[str]] = None) -> int:
         oldest = max((a for _, a in ages if a is not None), default=None)
         newest = min((a for _, a in ages if a is not None), default=None)
         flag = "STALE" if (oldest or 0) > args.max_age_hours else "ok"
-        print(f"  boards     {flag}, {len(ages)} leagues built "
+        # "stores", not "boards". `built_at` moves whenever any artifact is written,
+        # and since 2026-09-16 the nightly writes lineups, pool and team_stats but
+        # **not** board.parquet -- so this number stopped saying anything about the
+        # draft board on the day the board stage came out of the nightly. A label
+        # that names the wrong artifact is how a check quietly starts answering a
+        # different question than the one being asked of it.
+        print(f"  stores     {flag}, {len(ages)} leagues built "
               f"{_fmt(newest)}" + (f" to {_fmt(oldest)}"
                                    if oldest and newest and oldest - newest > 1
                                    else ""))
+        _report_boards(season)
 
     # --- each source the draft board votes on ------------------------------
     if _report_sources(season, args.max_age_hours):

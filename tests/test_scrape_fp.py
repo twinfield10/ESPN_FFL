@@ -204,28 +204,69 @@ def test_a_backfill_still_reaches_every_week(monkeypatch, fp_season_dir):
     assert asked == [1, 2, 3]
 
 
-def test_merging_never_overwrites_a_week_already_captured(monkeypatch, fp_season_dir):
-    """Each week freezes at first capture -- the rule `Scripts.freeze` uses.
+def test_merging_never_overwrites_a_game_already_played(monkeypatch, fp_season_dir):
+    """A *played game* freezes at its last pre-kickoff capture.
 
-    Re-scraping a played week would silently rewrite what the blend voted with, and
-    the file is the only record of that.
+    Re-scraping it would silently rewrite what the blend voted with, and the file is
+    the only record of that.
+
+    **Per game, not per week**, since 2026-09-16. The old rule froze the whole week at
+    first capture, which protected Thursday's opener and also froze Sunday's slate
+    four days early -- discarding every Friday practice report and Saturday inactive
+    in between. Both halves are asserted here: NE has kicked off and holds, KC has not
+    and takes the new number.
     """
     import pandas as pd
     _recorder(monkeypatch)
     monkeypatch.setattr(fp, "current_week", lambda: 1)
+    monkeypatch.setattr("Scripts.kickoff_freeze.started_teams",
+                        lambda season, weeks: {(1, "NE")})
+
     monkeypatch.setattr(fp, "get_fp", lambda wk, year=None: pd.DataFrame(
-        {"week": [1], "player_name": ["A"], "proj_rushingYards": [100.0]}))
+        {"week": [1, 1], "player_name": ["A", "B"], "playerTeam": ["NE", "KC"],
+         "proj_rushingYards": [100.0, 50.0]}))
     fp.scrape_weekly(season=2026)
 
     monkeypatch.setattr(fp, "get_fp", lambda wk, year=None: pd.DataFrame(
-        {"week": [1], "player_name": ["A"], "proj_rushingYards": [999.0]}))
-    out = fp.scrape_weekly(season=2026)
-    assert out["proj_rushingYards"].tolist() == [100.0]
+        {"week": [1, 1], "player_name": ["A", "B"], "playerTeam": ["NE", "KC"],
+         "proj_rushingYards": [999.0, 999.0]}))
+    out = fp.scrape_weekly(season=2026).sort_values("player_name")
+    assert out["proj_rushingYards"].tolist() == [100.0, 999.0]
 
     # And `--no-merge` is how to replace a bad capture on purpose -- which is what
-    # the authenticated re-scrape of week 1 had to do on 2026-09-08.
-    out = fp.scrape_weekly(season=2026, merge=False)
-    assert out["proj_rushingYards"].tolist() == [999.0]
+    # the authenticated re-scrape of week 1 had to do on 2026-09-08. It bypasses the
+    # kickoff rule entirely, which is the point: it is the deliberate override.
+    out = fp.scrape_weekly(season=2026, merge=False).sort_values("player_name")
+    assert out["proj_rushingYards"].tolist() == [999.0, 999.0]
+
+
+def test_an_unreadable_scoreboard_holds_every_week_rather_than_rewriting_one(
+        monkeypatch, fp_season_dir):
+    """The failure direction, and it is the opposite of `kickoff_freeze.apply`'s.
+
+    This file is the only record of what FantasyPros said before kickoff, so an
+    unknown clock must mean "change nothing", not "take everything fresh".
+    """
+    import pandas as pd
+    _recorder(monkeypatch)
+    monkeypatch.setattr(fp, "current_week", lambda: 1)
+
+    def explode(season, weeks):
+        raise RuntimeError("scoreboard down")
+
+    monkeypatch.setattr(fp, "get_fp", lambda wk, year=None: pd.DataFrame(
+        {"week": [1], "player_name": ["A"], "playerTeam": ["KC"],
+         "proj_rushingYards": [50.0]}))
+    monkeypatch.setattr("Scripts.kickoff_freeze.started_teams",
+                        lambda season, weeks: set())
+    fp.scrape_weekly(season=2026)
+
+    monkeypatch.setattr("Scripts.kickoff_freeze.started_teams", explode)
+    monkeypatch.setattr(fp, "get_fp", lambda wk, year=None: pd.DataFrame(
+        {"week": [1], "player_name": ["A"], "playerTeam": ["KC"],
+         "proj_rushingYards": [999.0]}))
+    out = fp.scrape_weekly(season=2026)
+    assert out["proj_rushingYards"].tolist() == [50.0]
 
 
 def test_merging_keeps_the_weeks_it_did_not_scrape(monkeypatch, fp_season_dir):

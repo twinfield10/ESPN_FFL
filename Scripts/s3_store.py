@@ -51,7 +51,7 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, NamedTuple, Optional, Tuple
 
 from Scripts import paths
 from Scripts.store import ARTIFACTS, META_FILENAME
@@ -271,6 +271,47 @@ def sha256_b64(path: Path) -> str:
     return base64.b64encode(digest.digest()).decode()
 
 
+def md5_hex(path: Path) -> str:
+    """The hex MD5 of a file, which is what S3 reports as a single-part ETag.
+
+    **Not a security hash and not the integrity check.** :func:`put_file` sends
+    ``ChecksumAlgorithm="SHA256"`` and S3 verifies the bytes against it; this exists
+    only to answer "does the object already hold these bytes" from a listing that has
+    already been paid for. Using the ETag rather than ``ChecksumSHA256`` is what makes
+    that free: :func:`list_objects` returns an ETag per key in **one**
+    ``ListObjectsV2``, where the SHA-256 would cost a ``HeadObject`` each.
+
+    Sound only because every upload here is single-part -- see the module docstring's
+    note on why ``put_object`` is used rather than ``upload_file``. A multipart ETag is
+    a hash of part hashes with a ``-N`` suffix and would never compare equal, so the
+    failure mode of that assumption breaking is an upload that should have been
+    skipped, never a skip that should have been an upload.
+
+    Args:
+        path: File to hash.
+
+    Returns:
+        str: Hex MD5 digest.
+    """
+    digest = hashlib.md5()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+class PushResult(NamedTuple):
+    """What :func:`push_league_store` did.
+
+    Attributes:
+        uploaded: ``(key, checksum)`` in upload order.
+        skipped: Keys whose object already held these exact bytes.
+    """
+
+    uploaded: List[Tuple[str, str]]
+    skipped: List[str]
+
+
 # --- writing --------------------------------------------------------------
 
 def put_file(local: Path, key: str, *, dry_run: bool = False) -> str:
@@ -302,55 +343,147 @@ def put_file(local: Path, key: str, *, dry_run: bool = False) -> str:
     return checksum
 
 
-def push_league_store(season: int, league_key: str,
-                      *, dry_run: bool = False) -> List[Tuple[str, str]]:
+def push_league_store(season: int, league_key: str, *,
+                      only: Optional[Iterable[str]] = None,
+                      skip_unchanged: bool = True,
+                      dry_run: bool = False) -> PushResult:
     """Upload one league-season's store, ``meta.json`` last.
 
     The ordering is the whole contract -- see the module docstring. Artifacts that
     do not exist locally are skipped rather than erroring, because ``--what board``
     builds a store that legitimately has no ``lineups.parquet``.
 
+    **Unchanged bytes are not re-uploaded, and that is not a bandwidth nicety.**
+    The bucket has versioning enabled with a 90-day non-current expiry, so a PUT of
+    identical bytes does not overwrite -- it mints a retained version. Measured
+    2026-09-16 on ``winfield_football`` alone: 207 versions of ``board.parquet``
+    holding 59 distinct boards, and **156 versions of ``board_frozen.parquet``
+    holding exactly one**, because a frozen board cannot change and was re-sent every
+    night and every ten minutes through a slate anyway. Across ten leagues that is
+    7.70 GB of non-current versions against 58 MB of current ones -- roughly 95% of
+    ``store/`` is bytes S3 already had.
+
+    ``Scripts.sync`` has skipped unchanged *mirror* files since the play-by-play
+    archive made it obvious; this applies the same rule to the tier that pushes far
+    more often. The comparison is one ``ListObjectsV2`` for the whole prefix against
+    :func:`md5_hex`, so it costs one request per league rather than one per artifact.
+
+    **Any doubt uploads.** A listing that fails returns no checksums, every artifact
+    compares unequal, and the push happens -- the same direction
+    ``Scripts.sync._unchanged`` chose, for the same reason.
+
     Args:
         season: Season year.
         league_key: ``config.yaml`` league key.
+        only: Artifact names to consider, from :data:`Scripts.store.ARTIFACTS`.
+            None means all of them. ``meta`` is always included: it is the
+            completeness sentinel and a store whose artifacts moved without it is a
+            store no reader will notice. Names not in ``ARTIFACTS`` raise, so a typo
+            cannot silently push nothing.
+        skip_unchanged: Skip an artifact whose object already holds these bytes.
         dry_run: Resolve keys and checksums without uploading.
 
     Returns:
-        list: ``(key, checksum)`` in upload order.
+        PushResult: What was uploaded and what was skipped.
+
+    Raises:
+        KeyError: When ``only`` names something that is not an artifact.
     """
     directory = paths.store_dir(season, league_key)
-    uploaded: List[Tuple[str, str]] = []
+    wanted = dict(ARTIFACTS)
+    if only is not None:
+        names = [w for w in only if w != "meta"]
+        unknown = [w for w in names if w not in ARTIFACTS]
+        if unknown:
+            raise KeyError(
+                f"Unknown store artifact(s) {unknown}. Known: {sorted(ARTIFACTS)}.")
+        wanted = {w: ARTIFACTS[w] for w in names}
 
-    for what, filename in ARTIFACTS.items():
+    remote: Dict[str, Dict[str, object]] = {}
+    if skip_unchanged:
+        try:
+            remote = list_objects(store_prefix(season, league_key))
+        except Exception:                                   # noqa: BLE001
+            remote = {}
+
+    uploaded: List[Tuple[str, str]] = []
+    skipped: List[str] = []
+
+    def _send(local: Path, key: str) -> None:
+        if skip_unchanged and remote.get(key, {}).get("etag") == md5_hex(local):
+            skipped.append(key)
+            return
+        uploaded.append((key, put_file(local, key, dry_run=dry_run)))
+
+    for what, filename in wanted.items():
         local = directory / filename
         if local.is_file():
-            key = store_key(season, league_key, what)
-            uploaded.append((key, put_file(local, key, dry_run=dry_run)))
+            _send(local, store_key(season, league_key, what))
 
+    # `meta.json` last, and skipped on identical bytes like anything else. In
+    # practice it almost never is: it carries `built_at`, so a real build moves it.
+    # When it genuinely has not changed, the store's declared state has not changed
+    # either, and there is nothing for a reader to notice. Nothing keys change
+    # detection on this object alone -- `app/store._version` uses the whole prefix's
+    # fingerprint, so a changed artifact invalidates the app's cache whether or not
+    # meta moved with it.
     meta_local = directory / META_FILENAME
     if meta_local.is_file():
-        key = store_key(season, league_key, "meta")
-        uploaded.append((key, put_file(meta_local, key, dry_run=dry_run)))
-    return uploaded
+        _send(meta_local, store_key(season, league_key, "meta"))
+    return PushResult(uploaded, skipped)
 
 
 def snapshot_board(season: int, league_key: str, date: str,
-                   *, dry_run: bool = False) -> Optional[Tuple[str, str]]:
+                   *, dry_run: bool = False,
+                   skip_unchanged: bool = True) -> Optional[Tuple[str, str]]:
     """Preserve today's board under a dated key.
+
+    **A snapshot of a board that has not moved is not a data point.** The whole
+    purpose of this prefix is to make ADP drift measurable through camp -- a board is
+    gone the moment it stops being current, and `Data/G2/` had to be built by hand
+    because that history did not exist. A second dated copy of bytes already stored
+    under yesterday's date records nothing and is not free: this prefix has no
+    non-current expiry rule and grows ~21 MB a night.
+
+    That became the normal case on 2026-09-16, when the board stage came out of
+    `run_daily_refresh.sh`. The nightly still runs `sync --push`, so without this
+    check it would mint an identical board under a new date every night for the rest
+    of the season -- roughly 4 GB by January, all of it one distinct board.
+
+    The comparison is against the most recent *existing* snapshot rather than
+    yesterday's key specifically, so a gap in the dates (a missed nightly) does not
+    cause a spurious write.
 
     Args:
         season: Season year.
         league_key: ``config.yaml`` league key.
         date: ``YYYY-MM-DD``.
         dry_run: Resolve the key and checksum without uploading.
+        skip_unchanged: Skip when the newest stored snapshot already holds these
+            bytes. False forces the write, for deliberately re-dating a board.
 
     Returns:
-        tuple | None: ``(key, checksum)``, or None when this league has no board.
+        tuple | None: ``(key, checksum)``, or None when this league has no board or
+        the newest snapshot already holds it.
     """
     local = paths.store_dir(season, league_key) / ARTIFACTS["board"]
     if not local.is_file():
         return None
     key = snapshot_key(season, league_key, "board", date)
+
+    if skip_unchanged:
+        try:
+            prefix = key.rsplit("date=", 1)[0]
+            existing = list_objects(prefix)
+            if existing:
+                # Keys sort lexicographically by `date=YYYY-MM-DD`, which is also
+                # chronological. The newest is what "has the board moved" compares to.
+                newest = existing[max(existing)]
+                if newest.get("etag") == md5_hex(local):
+                    return None
+        except Exception:                               # noqa: BLE001
+            pass                                        # any doubt writes
+
     return key, put_file(local, key, dry_run=dry_run)
 
 
