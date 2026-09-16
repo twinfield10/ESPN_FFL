@@ -286,3 +286,132 @@ def test_a_finished_starter_is_not_counted_as_unpriced():
     side = sim.side("A", [played(), midway(remaining=100.0)], fitted=MODEL)
     assert side.starters == 2
     assert side.priced == 1
+
+
+# --- commissioner point adjustments --------------------------------------
+#
+# ESPN lets a league manager add or remove flat points from a team's week. It arrives
+# as `schedule[].home.adjustment`, `espn_api` exposes it under no name, and -- the
+# fact everything here turns on -- it is **already inside `totalPoints`**. So
+# `team_stats`' `team_score`, the recorded win and the standings have always been
+# right, and the half of the app that totals a *lineup* has always been wrong by
+# exactly the adjustment.
+#
+# Measured 2026-09-16, the two leagues that have ever carried one: Jeffs_League week
+# 1 (Car Wash Beers -50.00, Big Dave #stayhard -20.00) and GOP_Degenerates 2023 week
+# 2 (+117.40). Week 1 of Jeffs is the case that makes this worth fixing rather than
+# noting -- the lineups make it 131.06-123.30 to Jeff Wilhelm and ESPN's standings
+# record an 81.06-103.30 loss, so the page and the box score named different winners.
+
+def test_adjustment_is_added_to_the_total():
+    plain = sim.side("A", [starter(points=100.0)], fitted=MODEL)
+    docked = sim.side("A", [starter(points=100.0)], fitted=MODEL, adjustment=-50.0)
+    assert docked.projected == pytest.approx(plain.projected - 50.0)
+    assert docked.adjustment == -50.0
+
+
+def test_adjustment_adds_no_variance():
+    """It is a decision already made, not an outcome still to come."""
+    plain = sim.side("A", [starter(points=100.0)] * 9, fitted=MODEL)
+    docked = sim.side("A", [starter(points=100.0)] * 9, fitted=MODEL,
+                      adjustment=-50.0)
+    assert docked.sd == pytest.approx(plain.sd)
+    assert docked.priced == plain.priced
+
+
+def test_adjustment_flips_the_winner_when_it_is_large_enough():
+    """Jeffs_League week 1, to the point. Without the adjustment this page called a
+    loss a win."""
+    home = sim.side("Jeff", [starter(points=131.06)], fitted=MODEL, adjustment=-50.0)
+    away = sim.side("Sam", [starter(points=123.30)], fitted=MODEL, adjustment=-20.0)
+    result = sim.outcome(home, away)
+    assert result.margin == pytest.approx(81.06 - 103.30)
+    assert result.win < 0.5
+
+
+def test_no_adjustment_reproduces_the_shipped_numbers_exactly():
+    """The regression guard: a league that has never used the feature must be
+    untouched, byte for byte."""
+    before = sim.side("A", [starter(points=100.0)] * 9, fitted=MODEL)
+    assert before.adjustment == 0.0
+    assert before.projected == pytest.approx(900.0)
+    assert before.band() == (pytest.approx(900.0 - sim.wk.Z_P90 * before.sd),
+                             pytest.approx(900.0 + sim.wk.Z_P90 * before.sd))
+
+
+def test_band_floors_at_the_adjustment_not_at_zero():
+    """A lineup cannot score negative points, so a negative low end is an artefact --
+    unless the commissioner took points off, in which case it is the scoreboard."""
+    docked = sim.side("A", [starter(points=1.0)], fitted=MODEL, adjustment=-20.0)
+    assert docked.band()[0] == pytest.approx(-20.0)
+    assert sim.side("A", [starter(points=1.0)], fitted=MODEL).band()[0] == 0.0
+
+
+def test_adjustment_survives_the_unmodelled_path():
+    side = sim.side("A", [starter(points=100.0)], fitted=None, adjustment=16.0)
+    assert side.projected == pytest.approx(116.0)
+    assert side.adjustment == 16.0
+    assert side.modelled is False
+
+
+def test_swing_reads_the_same_on_an_adjusted_side():
+    """The start/sit swing is a difference of two probabilities, so a flat shift on
+    one side must not change what two points of projection are worth -- except
+    through the margin, which is the whole point."""
+    home = sim.side("A", [starter(points=100.0)] * 9, fitted=MODEL, adjustment=-50.0)
+    away = sim.side("B", [starter(points=100.0)] * 9, fitted=MODEL, adjustment=-50.0)
+    level = sim.side("A", [starter(points=100.0)] * 9, fitted=MODEL)
+    other = sim.side("B", [starter(points=100.0)] * 9, fitted=MODEL)
+    assert sim.swing(home, away, 10.0) == pytest.approx(sim.swing(level, other, 10.0))
+
+
+# --- adjustments(), and the identity it shares with opponent_map ----------
+
+def _fixtures(**adjust):
+    rows = [{"team_owner": "A", "team_name": "AA", "opp_owner": "B",
+             "opp_name": "BB"},
+            {"team_owner": "B", "team_name": "BB", "opp_owner": "A",
+             "opp_name": "AA"}]
+    for row in rows:
+        row["adjustment"] = adjust.get(row["team_owner"], 0.0)
+        row["opp_adjustment"] = adjust.get(row["opp_owner"], 0.0)
+    return rows
+
+
+def test_adjustments_are_read_by_owner():
+    assert sim.adjustments(_fixtures(A=-50.0), [("A", "AA"), ("B", "BB")]) == {
+        "A": -50.0}
+
+
+def test_zero_adjustments_are_absent_rather_than_stored():
+    """An empty dict is the honest statement that nothing was adjusted, and makes
+    "is there one" a membership test rather than a float comparison."""
+    assert sim.adjustments(_fixtures(), [("A", "AA"), ("B", "BB")]) == {}
+
+
+def test_a_store_without_the_column_reads_as_no_adjustment():
+    """Every store written before 2026-09-16 has no such column. That is a fact about
+    the store, not about the league, and it must not raise."""
+    rows = [{"team_owner": "A", "team_name": "AA", "opp_owner": "B",
+             "opp_name": "BB"}]
+    assert sim.adjustments(rows, [("A", "AA"), ("B", "BB")]) == {}
+
+
+def test_adjustments_follow_the_same_alias_as_the_pairing():
+    """The Weenieless_Wanderers case. If the fixture list calls a team something the
+    rosters do not, its adjustment has to travel with the team -- an adjustment
+    attached to the wrong owner is worse than none at all."""
+    rows = [{"team_owner": "Unknown Owner", "team_name": "Sandusky Shower Pals",
+             "opp_owner": "Tommy Winfield", "opp_name": "Boobs 3: Tokyo Drift",
+             "adjustment": -20.0, "opp_adjustment": 0.0}]
+    rosters = [("Stephen Touchstone", "Sandusky Shower Pals"),
+               ("Tommy Winfield", "Boobs 3: Tokyo Drift")]
+    assert sim.adjustments(rows, rosters) == {"Stephen Touchstone": -20.0}
+
+
+def test_a_team_on_a_bye_is_read_off_the_opposing_row():
+    """A bye appears only as somebody's opponent, which is why both sides of every
+    fixture are read rather than `team_owner` alone."""
+    rows = [{"team_owner": "A", "team_name": "AA", "opp_owner": "B",
+             "opp_name": "BB", "adjustment": 0.0, "opp_adjustment": 16.0}]
+    assert sim.adjustments(rows, [("A", "AA"), ("B", "BB")]) == {"B": 16.0}

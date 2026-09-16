@@ -200,6 +200,11 @@ def lineup_projections(rostered: pl.DataFrame,
     Using the optimal lineup here would rank the league on lineups nobody has
     submitted.
 
+    **A commissioner point adjustment is not in here**, and cannot be: it is a
+    team-week fact that lives on the fixture and this function has only rosters.
+    :func:`summarise` adds it to the returned dict as soon as it has resolved the
+    fixture, which is what keeps the sentence above true.
+
     Args:
         rostered: One week of one league's rows, free agents already excluded.
         points_column: Which points column to total. None resolves to the live
@@ -237,6 +242,8 @@ def banked_points(rostered: pl.DataFrame) -> Dict[str, float]:
 
     Returns:
         dict: ``{team_owner: points}``. Empty when the frame carries no actuals.
+        Carries no point adjustment for the same reason as
+        :func:`lineup_projections`, and gets one from the same place.
     """
     if rostered.is_empty() or "points" not in rostered.columns:
         return {}
@@ -533,6 +540,44 @@ def summarise(league_key: str, display_name: str, week: int, meta: dict,
         season = int(meta.get("season") or 0)
         year = (team_stats.filter(pl.col("year") == season)
                 if season and "year" in team_stats.columns else team_stats)
+
+        # The fixture is resolved **before** the table is built, because a
+        # commissioner point adjustment belongs in both and only the fixture row
+        # carries it. See `matchup_sim.adjustments`: ESPN folds it into the team
+        # score it publishes, so `records` and `team_score` have it already and
+        # every number computed by summing a lineup does not.
+        fixtures = year.filter(pl.col("week") == week)
+        pairs: Dict[str, str] = {}
+        adjusted: Dict[str, float] = {}
+        if fixtures.is_empty():
+            notes.append(f"Week {week} is not in `team_stats` yet.")
+        else:
+            identities = list(
+                rostered.select(["team_owner", "team_name"]).unique().iter_rows()
+                if "team_name" in rostered.columns
+                else [(o, None) for o in projections])
+            fixture_rows = fixtures.select(
+                ["team_owner", "team_name", "opp_owner", "opp_name"]
+                + [c for c in sim.ADJUSTMENT_COLUMNS
+                   if c in fixtures.columns]).to_dicts()
+            pairs, identity_notes = sim.opponent_map(fixture_rows, identities)
+            adjusted = sim.adjustments(fixture_rows, identities)
+            notes.extend(identity_notes)
+
+        # Into every lineup-derived total on the card, so the headline, the
+        # standings' `Projected` and `This Week`, and the win probability cannot
+        # disagree with each other or with ESPN's scoreboard. Applied to the whole
+        # league because the table ranks the whole league; *said out loud* only for
+        # the two teams on this card, below, once the opponent is known -- a note
+        # about a fixture you are not in is noise on a card whose whole job is to be
+        # skimmed.
+        for name, points in adjusted.items():
+            if name in projections:
+                projections[name] = projections[name] + points
+            if name in banked:
+                banked[name] = banked[name] + points
+        projected = projections.get(owner, projected)
+
         table = standings(year, projections, week, banked=banked)
 
         if not table.is_empty():
@@ -544,28 +589,25 @@ def summarise(league_key: str, display_name: str, week: int, meta: dict,
                 record = (int(counts["wins"][0]), int(counts["losses"][0]),
                           int(counts["ties"][0]))
 
-        fixtures = year.filter(pl.col("week") == week)
-        if fixtures.is_empty():
-            notes.append(f"Week {week} is not in `team_stats` yet.")
-        else:
-            identities = (rostered.select(["team_owner", "team_name"]).unique()
-                          .iter_rows() if "team_name" in rostered.columns
-                          else [(o, None) for o in projections])
-            pairs, identity_notes = sim.opponent_map(
-                fixtures.select(["team_owner", "team_name", "opp_owner", "opp_name"])
-                .to_dicts(), list(identities))
-            notes.extend(identity_notes)
-
+        if not fixtures.is_empty():
             opponent = pairs.get(owner)
             if opponent and opponent in projections:
                 opponent_rows = (rostered.filter(pl.col("team_owner") == opponent)
                                  .to_dicts())
                 theirs, _ = lu.current_lineup(opponent_rows, points_column)
-                result = sim.outcome(sim.side(owner, current, points_column, fitted),
-                                     sim.side(opponent, theirs, points_column,
-                                              fitted))
+                result = sim.outcome(
+                    sim.side(owner, current, points_column, fitted,
+                             adjustment=adjusted.get(owner, 0.0)),
+                    sim.side(opponent, theirs, points_column, fitted,
+                             adjustment=adjusted.get(opponent, 0.0)))
                 opponent_projected = projections[opponent]
                 win, margin = result.win, result.margin
+                for name in (owner, opponent):
+                    if adjusted.get(name):
+                        notes.append(
+                            f"**{name}** carries a commissioner point adjustment of "
+                            f"`{adjusted[name]:+.1f}`, counted in every total here "
+                            f"as ESPN counts it in the score it publishes.")
             elif opponent:
                 notes.append(f"**{opponent}** has no stored roster this week.")
             else:
