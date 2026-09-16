@@ -549,6 +549,31 @@ log "capturing the free-agent pool"
   || log "NOTE: pool capture failed -- this week's wire is lost and cannot be
         refetched. Nothing downstream depends on it yet, so the run continues."
 
+# --- 4d. Advance the fixtures -------------------------------------------
+# `team_stats` is what the Matchup tab reads for who plays whom, and what Home reads
+# for standings. It was **not on any schedule until 2026-09-16** because it used to
+# re-derive every season a league has ever played -- 218.91s across eight leagues,
+# 58.87s of it Winfield's 2016-2026 -- and rebuilding 2019 nightly is waste.
+#
+# The consequence was a page that broke every Tuesday. `scrape_team_stats` bounds
+# both its loops by `currentMatchupPeriod`, so next week's fixture does not exist to
+# be fetched until ESPN's counter turns over -- and once it had, nothing went to
+# fetch it. On 2026-09-15 the counter moved around 03:30 and week 2 was still
+# missing from all ten stores twelve hours later, with the app saying "Week 2 is not
+# in `team_stats` yet."
+#
+# It now rebuilds the season in progress and carries the stored seasons forward, so
+# this is ~16s rather than ~219s. **Non-fatal, like the pool capture above.** It is
+# a display artifact and it sits after everything expensive, so a failure here must
+# not withhold the S3 push of boards and lineups that are already correct -- and
+# unlike the wire, nothing about it is lost by waiting: the fixture is still there
+# tomorrow, so the next run picks it up.
+log "advancing fixtures and standings (team_stats)"
+"${PYTHON}" -m Scripts.refresh --all --what team_stats >>"${LOG}" 2>&1 \
+  || log "NOTE: team_stats refresh failed -- the Matchup tab and Home standings will
+        read the last good fixtures until the next run. Nothing is lost by the wait;
+        the run continues."
+
 # --- 5. Verify the data actually moved ----------------------------------
 # Exit code 0 means the commands ran. It does not mean upstream served anything new.
 # This is the check that tells the two apart.
