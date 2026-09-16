@@ -127,3 +127,84 @@ def test_the_per_slot_override_bug_is_still_upstream():
         "espn_api's per-slot override handling changed. Re-check whether "
         "Scripts.scrape_player_stats.fetch_scoring_overrides is still needed."
     )
+
+
+# --- commissioner point adjustments --------------------------------------
+#
+# ESPN lets a league manager add or remove flat points from a team's week. The field
+# is `schedule[].home.adjustment`; `espn_api` parses none of it, which is why
+# `fetch_utils.read_point_adjustments` reads it by hand off a payload the pipeline
+# already fetches. The tests below pin the two facts that design rests on.
+
+def test_espn_api_still_exposes_no_point_adjustment():
+    """If a release starts parsing it, `read_point_adjustments` can go.
+
+    Checked across the three classes that could plausibly carry it: ``Matchup`` and
+    ``BoxScore`` read one side of a fixture, ``Team`` reads the whole schedule.
+    """
+    import inspect
+
+    from espn_api.football import box_score, matchup, team
+
+    for module in (matchup, box_score, team):
+        assert "adjustment" not in inspect.getsource(module), (
+            f"espn_api.football.{module.__name__.rsplit('.', 1)[-1]} now reads the "
+            f"commissioner point adjustment. Re-check whether "
+            f"Scripts.fetch_utils.read_point_adjustments is still needed."
+        )
+
+
+def test_the_pipeline_reads_total_points_and_does_not_re_add_the_adjustment():
+    """The fact the whole design turns on: ``totalPoints`` **already includes** it.
+
+    Verified against live ESPN on 2026-09-16 -- Jeffs_League week 1 serves Car Wash
+    Beers a ``pointsByScoringPeriod`` sum of 131.06, an ``adjustment`` of -50.00 and
+    a ``totalPoints`` of 81.06; GOP_Degenerates 2023 week 2 reads 139.20 / +117.40 /
+    256.60. ``totalPointsLive`` behaves the same way mid-week.
+
+    So every team score in the pipeline has always been right, and adding the
+    adjustment to one would double it. This pins the two call sites that read the
+    score, so an edit that "fixes" them fails here instead of in the standings.
+    """
+    import inspect
+
+    from espn_api.football import box_score, matchup
+
+    assert "data[team]['totalPoints']" in inspect.getsource(matchup)
+    assert "data[team]['totalPointsLive']" in inspect.getsource(box_score)
+
+    from Scripts import scrape_team_stats
+
+    src = inspect.getsource(scrape_team_stats)
+    for score in ('"team_score"] = matchup.home_score',
+                  '"opp_score"] = matchup.away_score'):
+        assert score in src, (
+            "team_score must stay ESPN's own totalPoints. The adjustment is inside "
+            "it; team_stats carries the adjustment as its own column so a lineup "
+            "sum can be reconciled against the score, not so the score can be "
+            "rebuilt from parts."
+        )
+
+
+@pytest.mark.parametrize("payload,expected", [
+    ({}, {}),
+    ({"schedule": []}, {}),
+    # The ordinary case: a league that has never adjusted a score.
+    ({"schedule": [{"matchupPeriodId": 1,
+                    "home": {"teamId": 1, "adjustment": 0.0},
+                    "away": {"teamId": 2, "adjustment": 0.0}}]}, {}),
+    # Jeffs_League week 1, both halves of it.
+    ({"schedule": [{"matchupPeriodId": 1,
+                    "home": {"teamId": 3, "adjustment": -50.0},
+                    "away": {"teamId": 5, "adjustment": -20.0}}]},
+     {(1, 3): -50.0, (1, 5): -20.0}),
+    # A bye: ESPN omits the opposing side entirely rather than emptying it.
+    ({"schedule": [{"matchupPeriodId": 2,
+                    "home": {"teamId": 3, "adjustment": 16.0}}]}, {(2, 3): 16.0}),
+    # Absent key, which is what a matchup period ESPN has not populated looks like.
+    ({"schedule": [{"matchupPeriodId": 2, "home": {"teamId": 3}}]}, {}),
+])
+def test_read_point_adjustments_parses_the_schedule(payload, expected):
+    from Scripts.fetch_utils import read_point_adjustments
+
+    assert read_point_adjustments(payload) == expected

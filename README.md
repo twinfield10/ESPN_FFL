@@ -438,6 +438,32 @@ Matchup needs the `team_stats` artifact for the fixture list, which is opt-in:
 python -m Scripts.refresh --all --what lineups,team_stats
 ```
 
+**Commissioner point adjustments.** A league manager can add or remove flat points
+from a team's week — a penalty for an illegal lineup, a side bet, a scoring
+correction. ESPN serves it as `schedule[].home.adjustment`, `espn_api` exposes it
+under no name, and **it is already inside the `totalPoints` every team score in this
+repo is read from**. So the standings, `team_score` and the recorded win have always
+had it; what did not was every number computed by *summing a lineup*, which is the
+whole Matchup tab. In Jeffs_League week 1 the two disagreed about who won — the
+lineups make it 131.06–123.30 to Jeff Wilhelm and ESPN records an 81.06–103.30 loss.
+
+The adjustment now rides on `team_stats` as its own column and is added to the total,
+the margin and the win probability, and to nothing else: it carries no variance,
+because a manager's decision is not an outcome still to come. Both the headline and
+the slot-by-slot table say so out loud rather than folding it in silently. Jeffs_League
+is the league this happens in; the other seven have never used the feature and are
+untouched.
+
+One caveat, and it is only about history. The nightly rebuilds the season in progress
+and carries stored seasons forward, so a past season reads `0.0` whether or not it was
+adjusted — GOP_Degenerates 2023 week 2 really did carry +117.40. Nothing reads the
+column for a finished week, and `team_score` was right the whole time, but a full
+sweep is what makes the column true everywhere:
+
+```bash
+python -m Scripts.refresh --all --what team_stats --rebuild-history
+```
+
 ### Who the app is for
 
 The picker offers **your** leagues, not all eight. `config.yaml` holds eight across

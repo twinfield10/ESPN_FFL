@@ -68,6 +68,31 @@ def opponent_map(fixtures: Sequence[dict], rosters: Sequence[tuple]
         fixture list's spelling. ``notes`` are sentences about any team matched by
         something other than its owner.
     """
+    alias, notes = _alias(fixtures, rosters)
+    pairs: Dict[str, str] = {}
+    for row in fixtures:
+        home = alias.get(row.get("team_owner"))
+        away = alias.get(row.get("opp_owner"))
+        if home and away:
+            pairs[home] = away
+    return pairs, notes
+
+
+def _alias(fixtures: Sequence[dict], rosters: Sequence[tuple]) -> tuple:
+    """The fixture list's vocabulary translated into the rosters'.
+
+    The three passes :func:`opponent_map` documents, factored out because
+    :func:`adjustments` needs the same translation and must not re-derive it: a
+    point adjustment attached to the wrong team is worse than none at all.
+
+    Args:
+        fixtures: ``team_stats`` rows for one week.
+        rosters: ``(owner, team_name)`` for every team with a stored roster.
+
+    Returns:
+        tuple: ``(alias, notes)``, where ``alias`` maps a fixture-list owner to the
+        roster owner who is the same person.
+    """
     by_owner = {owner: owner for owner, _ in rosters if owner}
     by_name = {name: owner for owner, name in rosters if name and owner}
 
@@ -109,13 +134,53 @@ def opponent_map(fixtures: Sequence[dict], rosters: Sequence[tuple]
             f"roster views different answers, and whichever was built more recently "
             f"tends to have the real name.")
 
-    pairs: Dict[str, str] = {}
+    return alias, notes
+
+
+#: Where a commissioner's point adjustment sits on a ``team_stats`` row, and what it
+#: is called on the opposing one.
+#:
+#: Absent from any store written before 2026-09-16, which is why every read of it is
+#: guarded rather than assumed. A store without the column is not a league without
+#: adjustments; it is a store built before the column existed.
+ADJUSTMENT_COLUMNS = ("adjustment", "opp_adjustment")
+
+
+def adjustments(fixtures: Sequence[dict], rosters: Sequence[tuple]) -> Dict[str, float]:
+    """Each team's commissioner point adjustment this week, by roster owner.
+
+    **A flat number a league manager added to or took off a week**, for an illegal
+    lineup, a side bet, or a scoring correction. ESPN folds it into the team score it
+    serves -- so ``team_stats``' ``team_score``, the recorded win and the standings
+    have always had it -- but a total computed by *summing a lineup* has nowhere to
+    get it from, and that is every number on this page. See
+    ``Scripts.fetch_utils.read_point_adjustments``.
+
+    Read off both sides of every fixture rather than off ``team_owner`` alone,
+    because a team on a bye appears only as somebody's opponent, and translated
+    through :func:`_alias` for the same reason :func:`opponent_map` is.
+
+    Args:
+        fixtures: ``team_stats`` rows for one week. Rows from a store built before
+            the column existed simply carry no adjustment, which reads as zero.
+        rosters: ``(owner, team_name)`` for every team with a stored roster.
+
+    Returns:
+        dict: ``{roster_owner: points}``, holding only the non-zero ones.
+    """
+    alias, _ = _alias(fixtures, rosters)
+
+    out: Dict[str, float] = {}
     for row in fixtures:
-        home = alias.get(row.get("team_owner"))
-        away = alias.get(row.get("opp_owner"))
-        if home and away:
-            pairs[home] = away
-    return pairs, notes
+        for owner_key, adjustment_key in (("team_owner", ADJUSTMENT_COLUMNS[0]),
+                                          ("opp_owner", ADJUSTMENT_COLUMNS[1])):
+            owner = alias.get(row.get(owner_key))
+            if not owner:
+                continue
+            points = float(row.get(adjustment_key) or 0.0)
+            if points:
+                out[owner] = points
+    return out
 
 
 class Side(NamedTuple):
@@ -123,8 +188,12 @@ class Side(NamedTuple):
 
     Attributes:
         owner: Whose team.
-        projected: Summed projection of the starting lineup.
-        sd: Standard deviation of that total.
+        projected: Summed projection of the starting lineup, **plus any commissioner
+            point adjustment**. That is the quantity ESPN puts on the scoreboard, and
+            keeping the two apart here would leave this page disagreeing with the box
+            score about who won.
+        sd: Standard deviation of that total. An adjustment adds nothing to it: it is
+            a decision that has already been made, not an outcome still to come.
         starters: How many starters it holds.
         priced: How many of them carry a fitted spread. Below ``starters`` when the
             lineup includes a kicker or a defence, which have none -- and, since live
@@ -137,6 +206,9 @@ class Side(NamedTuple):
             also means "every game is final, so the outcome is certain" -- opposite
             readings from the same number. :func:`outcome` needs to tell them apart,
             and nothing else on the frame can.
+        adjustment: The commissioner's flat points, already inside ``projected``.
+            Kept as its own field because a total that moved by 50 points for a
+            reason the page never states is indistinguishable from a bug.
     """
     owner: str
     projected: float
@@ -144,6 +216,7 @@ class Side(NamedTuple):
     starters: int
     priced: int
     modelled: bool = True
+    adjustment: float = 0.0
 
     def band(self, z: float = wk.Z_P90) -> tuple:
         """An 80% interval on the total.
@@ -152,11 +225,15 @@ class Side(NamedTuple):
             z: Normal quantile. Defaults to the p10/p90 pair plan 28 publishes.
 
         Returns:
-            tuple: ``(low, high)``, floored at zero -- a lineup cannot score
-            negative points in any league here, and a negative floor reads as a
-            modelling artefact because it is one.
+            tuple: ``(low, high)``, floored at **the adjustment** rather than at
+            zero. A lineup cannot score negative points in any league here, so a
+            negative low end is a modelling artefact -- unless a commissioner has
+            taken points off the week, in which case it is the scoreboard. Two teams
+            in Jeffs_League are sitting on -20.0 as this is written.
         """
-        return max(0.0, self.projected - z * self.sd), self.projected + z * self.sd
+        floor = min(0.0, self.adjustment)
+        return (max(floor, self.projected - z * self.sd),
+                self.projected + z * self.sd)
 
 
 @st.cache_resource(show_spinner=False)
@@ -178,8 +255,16 @@ def model() -> Optional[dict]:
 
 def side(owner: str, starters: Sequence[dict], points_column: str = "TRUE_Points",
          fitted: Optional[dict] = None,
-         variance_column: str = LIVE_REMAINING) -> Side:
+         variance_column: str = LIVE_REMAINING,
+         adjustment: float = 0.0) -> Side:
     """Total, spread and counts for one starting lineup.
+
+    **A commissioner point adjustment is part of the total and no part of the
+    spread.** ESPN folds it into the score it publishes, so a page that left it out
+    would disagree with the box score -- by 50 points in Jeffs_League week 1, enough
+    to flip which team it says won. It carries no variance because it is not an
+    outcome: the manager has already decided it, and the only uncertainty left in the
+    week is which players score what.
 
     **The spread is computed from what is still to come, not from the total.** Once a
     player's game is over his points are a fact with no uncertainty left, and
@@ -205,15 +290,20 @@ def side(owner: str, starters: Sequence[dict], points_column: str = "TRUE_Points
         variance_column: What the spread is computed from. Falls back to
             ``points_column`` per row when absent, which is what a store written
             before live scoring carries.
+        adjustment: The commissioner's flat points for this team-week, from
+            :func:`adjustments`. Added to the total and **not** to the spread -- see
+            the note on :attr:`Side.sd`.
 
     Returns:
         Side: With ``sd`` of 0.0 when there is no fitted model, which
         :func:`outcome` reads as "no probability available".
     """
-    projected = sum(float(row.get(points_column) or 0.0) for row in starters)
+    projected = (sum(float(row.get(points_column) or 0.0) for row in starters)
+                 + adjustment)
 
     if fitted is None:
-        return Side(owner, projected, 0.0, len(starters), 0, modelled=False)
+        return Side(owner, projected, 0.0, len(starters), 0, modelled=False,
+                    adjustment=adjustment)
 
     variance, priced = 0.0, 0
     for row in starters:
@@ -225,7 +315,7 @@ def side(owner: str, starters: Sequence[dict], points_column: str = "TRUE_Points
             priced += 1
         variance += deviation ** 2
     return Side(owner, projected, variance ** 0.5, len(starters), priced,
-                modelled=True)
+                modelled=True, adjustment=adjustment)
 
 
 class Outcome(NamedTuple):

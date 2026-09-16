@@ -107,12 +107,18 @@ points_col = lu.live_points_column(week_rows.columns)
 
 # The fixture list and the rosters are two artifacts that do not always spell a team
 # the same way -- see `matchup_sim.opponent_map`, which is where that is reconciled.
-identities = (rostered.select(["team_owner", "team_name"]).unique()
-              .iter_rows() if "team_name" in rostered.columns
-              else [(o, None) for o in session.team_owners(week_rows)])
-pairs, identity_notes = sim.opponent_map(
-    fixtures.select(["team_owner", "team_name", "opp_owner", "opp_name"]).to_dicts(),
-    list(identities))
+identities = list(rostered.select(["team_owner", "team_name"]).unique().iter_rows()
+                  if "team_name" in rostered.columns
+                  else [(o, None) for o in session.team_owners(week_rows)])
+
+# The adjustment columns are guarded rather than assumed: a store written before
+# 2026-09-16 has no such column, and that is a fact about the store rather than
+# about the league.
+fixture_rows = fixtures.select(
+    ["team_owner", "team_name", "opp_owner", "opp_name"]
+    + [c for c in sim.ADJUSTMENT_COLUMNS if c in fixtures.columns]).to_dicts()
+pairs, identity_notes = sim.opponent_map(fixture_rows, identities)
+adjusted = sim.adjustments(fixture_rows, identities)
 owners = [o for o in session.team_owners(week_rows) if o in pairs]
 
 if not owners:
@@ -149,7 +155,8 @@ for name in (owner, opponent):
         rostered.filter(pl.col("team_owner") == name), selection.meta).to_dicts()
     current, _ = lu.current_lineup(rows, points_col)
     lineups_by_owner[name] = (rows, current)
-    sides[name] = sim.side(name, current, points_col, fitted)
+    sides[name] = sim.side(name, current, points_col, fitted,
+                           adjustment=adjusted.get(name, 0.0))
 
 home, away = sides[owner], sides[opponent]
 result = sim.outcome(home, away)
@@ -169,6 +176,21 @@ else:
     top[2].metric("Win Probability", f"{result.win * 100:.0f}%",
                   f"{result.margin:+.1f} projected margin",
                   delta_color="normal")
+
+# A flat number a league manager has added to or taken off the week -- a penalty for
+# an illegal lineup, a side bet, a scoring correction. It is inside ESPN's own team
+# score, so leaving it out of a lineup sum is what makes this page disagree with the
+# box score: Jeffs_League week 1 reads 131.06-123.30 on the lineups and 81.06-103.30
+# on the scoreboard, which is not a rounding difference but a different winner. Said
+# out loud rather than folded in silently, because a total 50 points from where the
+# players put it looks like a bug until you know why.
+for adjusted_side in (home, away):
+    if adjusted_side.adjustment:
+        st.caption(
+            f"⚖️ **{adjusted_side.owner}** carries a commissioner point adjustment "
+            f"of **{adjusted_side.adjustment:+.1f}**, which is in the total above "
+            f"and in the margin. ESPN counts it in the score it publishes, so this "
+            f"is the number the standings will record.")
 
 note = sim.gate_note(fitted)
 (st.caption if note["kind"] == "ok" else st.warning)(note["text"])
@@ -240,8 +262,8 @@ st.caption(
     f"outward from the right, and the two meet at the slot they are both filling. "
     f"Rows are in ESPN's slot order — QB, RB, WR, TE, FLEX, OP, DP, D/ST, K — and "
     f"paired best against best within a slot. **ADV** is that side's points at that "
-    f"slot minus the other side's, so the column sums to the projected margin, and "
-    f"**Δ** is our blend against ESPN's own number."
+    f"slot minus the other side's, so the column sums to the margin **the players "
+    f"account for**, and **Δ** is our blend against ESPN's own number."
 )
 
 missing = weekly.missing_sources_note(selection.meta)
@@ -268,10 +290,21 @@ weekly.render_matchup(
                       slots),
     info_columns, points_columns, home_label=owner, away_label=opponent,
     scales=scales)
+# `TOTAL` is the sum of the column above it and nothing else. An adjustment is not a
+# player and has no slot, so folding it into that row would make the table not add
+# up -- it is reconciled in prose instead, which is also how ESPN's own box score
+# presents it.
+lineup_totals = {name: sides[name].projected - sides[name].adjustment
+                 for name in (owner, opponent)}
+reconciliation = "".join(
+    f" Add **{owner_name}**'s `{sides[owner_name].adjustment:+.1f}` adjustment and "
+    f"the headline reads **{sides[owner_name].projected:.1f}**."
+    for owner_name in (owner, opponent) if sides[owner_name].adjustment)
 st.caption(
     f"`TOTAL` adds the points columns down each side — {owner} "
-    f"{sides[owner].projected:.1f}, {opponent} {sides[opponent].projected:.1f} — "
-    f"and the two `ADV` cells carry the same margin from each side's point of view. "
+    f"{lineup_totals[owner]:.1f}, {opponent} {lineup_totals[opponent]:.1f} — "
+    f"and the two `ADV` cells carry the same margin from each side's point of view."
+    f"{reconciliation} "
     f"How well corroborated each projection is lives on the Roster tab: it is a "
     f"question about your own bench, and it does not help you read a fixture."
 )

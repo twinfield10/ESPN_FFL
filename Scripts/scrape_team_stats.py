@@ -85,6 +85,14 @@ def get_stats_by_week(
     # Fetch league for year
     league = fetch_league(league_id=league_id, year=year, swid=swid, espn_s2=espn_s2)
 
+    # Commissioner point adjustments, keyed `(matchup_period, team_id)`. Read off the
+    # settings payload `fetch_league` already parsed -- see
+    # `fetch_utils.read_point_adjustments`, which is also where the reason this is
+    # *not* added to `team_score` is written down: ESPN's `totalPoints` carries it
+    # already. It is recorded here so the half of the app that sums a lineup can find
+    # it, and empty for every league that has never used the feature.
+    adjustments = getattr(league, "point_adjustments", None) or {}
+
     # Instantiate data frame
     df = pd.DataFrame()
 
@@ -114,6 +122,13 @@ def get_stats_by_week(
             df_week.loc[i, "opp_name"] = team.schedule[week].team_name
             df_week.loc[i, "opp_division"] = team.schedule[week].division_name
             df_week.loc[i, "opp_score"] = team.schedule[week].scores[week]
+
+            # Already inside both scores above; carried as its own column so a
+            # lineup sum can be reconciled against them.
+            df_week.loc[i, "adjustment"] = adjustments.get(
+                (week + 1, team.team_id), 0.0)
+            df_week.loc[i, "opp_adjustment"] = adjustments.get(
+                (week + 1, team.schedule[week].team_id), 0.0)
 
             # Is the game in the regular season?
             df_week.loc[i, "is_regular_season"] = (
@@ -185,6 +200,9 @@ def get_stats_by_matchup(
     # Fetch league for year
     league = fetch_league(league_id=league_id, year=year, swid=swid, espn_s2=espn_s2)
 
+    # See the note on the same line in `get_stats_by_week`.
+    adjustments = getattr(league, "point_adjustments", None) or {}
+
     # Instantiate data frame
     df = pd.DataFrame()
 
@@ -222,6 +240,10 @@ def get_stats_by_matchup(
             df_week.loc[i * 2, "opp_name"] = matchup.away_team.team_name
             df_week.loc[i * 2, "opp_division"] = matchup.away_team.division_name
             df_week.loc[i * 2, "opp_score"] = matchup.away_score
+            df_week.loc[i * 2, "adjustment"] = adjustments.get(
+                (week + 1, matchup.home_team.team_id), 0.0)
+            df_week.loc[i * 2, "opp_adjustment"] = adjustments.get(
+                (week + 1, matchup.away_team.team_id), 0.0)
             df_week.loc[i * 2, "is_regular_season"] = (
                 week < league.settings.reg_season_count
             )
@@ -281,6 +303,10 @@ def get_stats_by_matchup(
             df_week.loc[i * 2 + 1, "opp_name"] = matchup.home_team.team_name
             df_week.loc[i * 2 + 1, "opp_division"] = matchup.home_team.division_name
             df_week.loc[i * 2 + 1, "opp_score"] = matchup.home_score
+            df_week.loc[i * 2 + 1, "adjustment"] = adjustments.get(
+                (week + 1, matchup.away_team.team_id), 0.0)
+            df_week.loc[i * 2 + 1, "opp_adjustment"] = adjustments.get(
+                (week + 1, matchup.home_team.team_id), 0.0)
             df_week.loc[i * 2 + 1, "is_regular_season"] = (
                 week < league.settings.reg_season_count
             )
@@ -462,6 +488,17 @@ def scrape_team_stats(
 
         # Concatenate week's data
         df = pd.concat([df, df_year])
+
+    # A season carried in through `df_prev` was written before this column existed,
+    # so the concat above leaves it NaN rather than absent. Resolved to 0.0 so the
+    # column has one dtype and one meaning, with the caveat that **a carried season
+    # says "no adjustment" whether or not that is true** -- GOP_Degenerates 2023 week
+    # 2 really did carry +117.40. Only `--rebuild-history` can recover those, and
+    # nothing reads the column for a finished season: `team_score` has been right all
+    # along, because ESPN's `totalPoints` already included the adjustment.
+    for column in ("adjustment", "opp_adjustment"):
+        if column in df.columns:
+            df[column] = df[column].fillna(0.0).astype(float)
 
     # Get adjusted score
     # The score multiplier is defined as the median score of the league in a given year

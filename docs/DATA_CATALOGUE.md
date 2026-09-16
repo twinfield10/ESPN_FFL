@@ -398,5 +398,17 @@ Team D/ST units match no id in any provider and join on name alone.
 - **`team_stats` is opt-in and generally not built.** Points-over-expectation per
   manager needs past seasons scored in each league's rules, which is exactly what it
   would supply — that is the missing input in [plan 23](plans/23-owner-tendencies.md).
+- **`team_score` is not the sum of a lineup, and `adjustment` is why.** ESPN lets a
+  commissioner add or remove flat points from a team's week, and it folds that into
+  the `totalPoints` every score here is read from — so `team_score`, `outcome`, the
+  standings and `weekly_finish` have always been right, and **adding `adjustment` to
+  one of them would double it**. The column exists for the opposite reader: anything
+  that totals a *lineup* (`matchup_sim.side`, and the win probability built on it)
+  has no other way to find it, and without it the Matchup tab and the box score named
+  different winners in Jeffs_League week 1 — 131.06–123.30 against 81.06–103.30.
+  Two leagues have ever carried one: Jeffs_League 2026 (five, weeks 1–2) and
+  GOP_Degenerates 2023 week 2 (+117.40). **A season carried in by the incremental
+  nightly reads 0.0 whether or not that is true** — only `--rebuild-history` recovers
+  a past season's, and nothing reads the column for a finished week.
 - **A season in progress has no play-by-play-derived data**, so most of the nflverse
   tier lags by one season until week 1 is played.

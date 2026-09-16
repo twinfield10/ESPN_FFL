@@ -5,7 +5,7 @@ import os
 import re
 import requests
 import warnings
-from typing import Optional
+from typing import Dict, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -71,6 +71,58 @@ DRAFT_SETTING_KEYS = {
     "auctionBudget": "auction_budget",
     "date": "date",
 }
+
+
+def read_point_adjustments(payload: dict) -> Dict[Tuple[int, int], float]:
+    """A commissioner's flat point adjustments, by ``(matchup_period, team_id)``.
+
+    ESPN lets a league manager add or remove points from a team's week -- a penalty
+    for an illegal lineup, a prize for a side bet, a correction for a scoring
+    dispute. It arrives as ``schedule[].home.adjustment`` on any ``mMatchupScore``
+    view and ``espn_api`` exposes it under no name at all, which is the only reason
+    this is read by hand.
+
+    **It is already inside ``totalPoints``, so nothing that reads a team score needs
+    it.** Measured 2026-09-16 against the two leagues that have ever carried one:
+    Jeffs_League week 1 has Car Wash Beers at a ``pointsByScoringPeriod`` sum of
+    131.06 and a ``totalPoints`` of 81.06 against an ``adjustment`` of -50.00, and
+    GOP_Degenerates 2023 week 2 reads 139.20 / 256.60 against +117.40. The same
+    holds for ``totalPointsLive`` mid-week. So ``Team.scores``, ``Matchup.home_score``
+    and ``BoxScore`` have always carried it and **adding it to one of those would
+    double it**.
+
+    What needs it is the other half of the app: every number computed by *summing a
+    lineup* -- :func:`matchup_sim.side`, and the win probability and margin built on
+    it -- where a flat team-level number has nowhere to come from. Without this the
+    Matchup tab and the box score disagree, and in Jeffs_League week 1 they disagreed
+    about who won: the lineups make Jeff Wilhelm 131.06 to 123.30 and ESPN's
+    standings record the game as an 81.06-103.30 loss.
+
+    Args:
+        payload: A parsed league response carrying ``schedule`` -- any of the
+            ``mMatchupScore`` views, on either the current-season or the
+            ``leagueHistory`` endpoint.
+
+    Returns:
+        dict: ``{(matchup_period, team_id): points}``, holding **only the non-zero
+        ones**. An empty dict is the ordinary case and is the honest statement that
+        the league has never adjusted a score; the read is ``.get(key, 0.0)``.
+    """
+    out: Dict[Tuple[int, int], float] = {}
+    for matchup in payload.get("schedule") or []:
+        period = matchup.get("matchupPeriodId")
+        if period is None:
+            continue
+        for team_of in ("home", "away"):
+            # A bye has no opposing side at all, and ESPN writes it as an absent key
+            # rather than an empty one.
+            side = matchup.get(team_of) or {}
+            if "teamId" not in side:
+                continue
+            points = float(side.get("adjustment") or 0.0)
+            if points:
+                out[(int(period), int(side["teamId"]))] = points
+    return out
 
 
 def get_roster_settings(league: League) -> None:
@@ -170,6 +222,14 @@ def get_roster_settings(league: League) -> None:
     league.draft_settings = {
         name: draft[key] for key, name in DRAFT_SETTING_KEYS.items() if key in draft
     }
+
+    # Commissioner point adjustments, for the third time from the same payload and
+    # for the same reason as the two blocks above: `view=mMatchupScore` is already in
+    # the request, and its `schedule` was being parsed for the settings and thrown
+    # away. A separate fetch for a field sitting in a response we have in hand would
+    # be a round-trip for nothing. See :func:`read_point_adjustments` for why this is
+    # read at all when `totalPoints` already carries it.
+    league.point_adjustments = read_point_adjustments(r)
     return
 
 
