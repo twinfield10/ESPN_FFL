@@ -330,6 +330,86 @@ def parse_weeks(spec):
     return sorted(weeks)
 
 
+#: Where the fetched frame carries the NFL team, in ESPN's spelling. Verified
+#: 2026-09-16 against the scoreboard's ``team.abbreviation``: ``SF``, ``NE``, ``SEA``
+#: and so on, in both directions, so the join to the game state is direct. D/ST rows
+#: carry it too -- ``"49ers D/ST"`` is ``SF``.
+TEAM_COLUMN = "playerTeam"
+
+
+def _already_captured(fetched, existing):
+    """Rows of ``fetched`` that the file already holds, on :data:`WEEKLY_KEYS`.
+
+    This is the old blanket ``keep="first"`` expressed as a mask, and it is what
+    :func:`_hold_mask` falls back to. Crucially it is **narrower than "hold
+    everything"**: a week the file has never seen still lands. The file must stay
+    cumulative -- ``clean_lineups`` re-merges it onto every week in the lineup frame
+    -- so a fallback that discarded the whole fetch would blank FantasyPros for the
+    new week rather than protecting the old one.
+
+    Args:
+        fetched: The freshly scraped frame.
+        existing: What the file already holds.
+
+    Returns:
+        pd.Series: Boolean, indexed like ``fetched``.
+    """
+    keys = set(map(tuple, existing[list(WEEKLY_KEYS)].to_numpy().tolist()))
+    return pd.Series(
+        [tuple(row) in keys
+         for row in fetched[list(WEEKLY_KEYS)].to_numpy().tolist()],
+        index=fetched.index)
+
+
+def _hold_mask(season, fetched, existing):
+    """Which fetched rows must be discarded in favour of the stored capture.
+
+    **The failure direction is the whole point, and it is the opposite of
+    ``kickoff_freeze.apply``'s.** That one freezes nothing when the clock is unknown,
+    because pinning a *store* to a stale frame is worse than rebuilding it. This one
+    falls back to "hold whatever the file already has", because the file it guards is
+    the only record of what FantasyPros said before kickoff. Over-freezing for one
+    night is recoverable; a rewritten pre-game opinion is not.
+
+    On the normal path the rule is stricter than the fallback in one way worth
+    stating: a player in a started game who is **not** already in the file is dropped
+    rather than added. His fetched number is a post-kickoff projection, and the blend
+    imputing an absent source and flagging it is honest where a contaminated number
+    wearing a pre-game label is not.
+
+    Args:
+        season: Season year.
+        fetched: The freshly scraped frame, carrying ``week`` and
+            :data:`TEAM_COLUMN`.
+        existing: What the file already holds, for the fallback.
+
+    Returns:
+        pd.Series: Boolean, indexed like ``fetched``. True means hold the stored row.
+    """
+    from Scripts.kickoff_freeze import started_teams
+
+    if TEAM_COLUMN not in fetched.columns:
+        # Pre-2026-08-24 captures and hand-built frames have no team column, so they
+        # cannot be resolved per game. Same safe direction as a failed read.
+        print(f"  NOTE: no `{TEAM_COLUMN}` column, so this merge cannot tell which "
+              f"games have kicked off. Holding every row the file already has, which "
+              f"is the pre-2026-09-16 rule.")
+        return _already_captured(fetched, existing)
+
+    try:
+        locked = started_teams(season, pd.unique(fetched["week"]))
+    except Exception as e:                              # noqa: BLE001
+        print(f"  NOTE: could not read the NFL scoreboard ({type(e).__name__}: {e}), "
+              f"so every row already in the file is held at its stored capture -- "
+              f"the pre-2026-09-16 rule. Games that have not kicked off will not pick "
+              f"up today's news until this resolves. Check "
+              f"`python -m Scripts.game_state`.")
+        return _already_captured(fetched, existing)
+
+    keys = zip(fetched["week"].astype(int), fetched[TEAM_COLUMN].astype(str))
+    return pd.Series([k in locked for k in keys], index=fetched.index)
+
+
 def scrape_weekly(season=None, week=None, weeks=None, merge=True):
     """Scrape the current week's projections and merge them into the season file.
 
@@ -343,9 +423,16 @@ def scrape_weekly(season=None, week=None, weeks=None, merge=True):
     Worse, it re-requests a *projections* page for weeks already played. What
     FantasyPros serves for a completed week is not necessarily the number it served
     before kickoff, so re-scraping quietly rewrites history -- and the whole point of
-    this file is to be the pre-game opinion the blend voted with. Merging with
-    ``keep="first"`` on the existing rows freezes each week at first capture, the
-    same rule ``Scripts.freeze`` applies to the draft board.
+    this file is to be the pre-game opinion the blend voted with.
+
+    **Frozen per game, not per week.** This used to merge with a blanket
+    ``keep="first"``, which pinned a whole week to its first capture -- in practice
+    the Tuesday or Wednesday 06:00 run. That is wrong in both directions at once: it
+    protects Thursday's opener, and it also freezes Sunday's slate four days early,
+    throwing away every Friday practice report and Saturday inactive. The grain at
+    which a projection stops being writable is the game, so that is the grain the
+    merge now uses -- see :func:`_locked_pairs` and
+    :mod:`Scripts.kickoff_freeze`.
 
     The file **must stay cumulative** whichever way it is written:
     :func:`Scripts.projection_utils.clean_lineups` re-merges it onto every week in
@@ -408,10 +495,24 @@ def scrape_weekly(season=None, week=None, weeks=None, merge=True):
         return pd.read_parquet(parquet) if parquet.is_file() else fetched
 
     df = fetched
+    held = 0
     if merge and parquet.is_file():
         existing = pd.read_parquet(parquet)
-        # Existing first, so `keep="first"` preserves a week already captured.
-        df = pd.concat([existing, fetched], ignore_index=True)
+        # **Per game, not per week.** The old rule was `keep="first"` over the whole
+        # file, which froze a week at its first capture -- in practice the Tuesday or
+        # Wednesday 06:00 run. That protected Thursday's opener and it also froze
+        # Sunday's slate four days before kickoff, discarding every Friday practice
+        # report and every Saturday inactive in between. Both failures are the same
+        # missing distinction: the grain at which a projection stops being writable is
+        # the *game*, not the week.
+        #
+        # So: a row whose team has kicked off keeps whatever was captured before
+        # kickoff; every other row takes the fresh scrape. Fetched-first concat with
+        # `keep="first"` is what makes the new number win where it is allowed to.
+        hold = _hold_mask(season, fetched, existing)
+        allowed = fetched[~hold]
+        held = int(hold.sum())
+        df = pd.concat([allowed, existing], ignore_index=True)
         df = df.drop_duplicates(subset=WEEKLY_KEYS, keep="first")
         df = df.sort_values(WEEKLY_KEYS).reset_index(drop=True)
 
@@ -423,6 +524,12 @@ def scrape_weekly(season=None, week=None, weeks=None, merge=True):
           f"{', '.join(str(w) for w in weeks)} -- {len(fetched)} rows, "
           f"{scraped} players; file now holds {len(df)} rows over weeks "
           f"{sorted(pd.unique(df['week']))}")
+    if held:
+        print(f"  {held} row(s) discarded: their game had already kicked off, so the "
+              f"pre-game capture stands. A player in a started game who was not "
+              f"already in the file gets no FantasyPros row at all -- the blend "
+              f"imputes it and flags it, which is honest where a post-kickoff "
+              f"projection wearing a pre-game label is not.")
     if scraped <= 60:
         print("  NOTE: FantasyPros caps its public tables at 10 rows per position. "
               "This is a top-10 teaser, not full coverage -- check the "

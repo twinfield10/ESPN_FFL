@@ -503,12 +503,33 @@ log "re-projecting the usage model"
 "${PYTHON}" -m Scripts.usage.project --season "${SEASON}" >>"${LOG}" 2>&1 \
   || fail "Scripts.usage.project"
 
-# --- 4. Rebuild the boards ----------------------------------------------
-# Only reached if every pull above succeeded. A board rebuilt on a failed pull is
-# worse than no rebuild: it is stale data wearing a fresh timestamp.
-log "rebuilding draft boards for all leagues"
-"${PYTHON}" -m Scripts.refresh --all --what board >>"${LOG}" 2>&1 \
-  || fail "Scripts.refresh --what board"
+# --- 4. The draft boards are NOT rebuilt here ----------------------------
+# Removed 2026-09-16. `--what board` was 97s of a 539s run -- the single most
+# expensive stage after BetOnline's weekly props -- and it rebuilt a *draft* board
+# every night of a season whose drafts all finished on 2026-09-08. Nothing about
+# week 9 changes your draft, which is the same reasoning that has always kept
+# `board` out of `DEFAULT_WHAT`.
+#
+# **What it also did, and what had to move first.** The board is not only draft
+# arithmetic: roughly 90% of that 97s is plan 28's Monte Carlo outcome distribution,
+# and the Free Agents page reads six of its columns as waiver context. Two of those
+# six are volatile -- `percent_owned` moves every time somebody makes a claim, and
+# `injury_status` moves daily -- so freezing the board would have quietly degraded
+# the waiver wire while looking like a pure saving.
+#
+# Both of those already live on `pool.parquet`, which is captured nightly at stage 4c
+# below for 2s, so `app/routes/free_agents.py` now takes them from there. What stays
+# on the frozen board is `pts_p90`, `p_top12`, `games` and `usg_depth_rank` -- all
+# season-grain quantities that move slowly and are explicitly context rather than a
+# gate (see `waivers.UPSIDE_IS_CONTEXT_NOT_A_GATE`).
+#
+# Rebuild it by hand when it is wanted -- before a keeper deadline, or after a
+# projection change worth re-grading against:
+#
+#   python -m Scripts.refresh --all --what board --push
+#
+# Pre-season this belongs back in the nightly. `docs/SEASON_ROLLOVER.md` carries it
+# as a dated step; the rest of the year it is waste.
 
 # --- 4b. Rebuild the weekly lineups -------------------------------------
 # `lineups.parquet` is the artifact the entire in-season app reads -- Roster, Free
@@ -518,13 +539,17 @@ log "rebuilding draft boards for all leagues"
 # someone last ran the command by hand. A refreshed FantasyPros feed would have
 # reached nobody.
 #
-# **After the board stage, not combined with it.** If `clean_lineups` raises on any
-# one of ten leagues, `refresh` returns non-zero and `fail()` fires -- but the boards
-# are already written and correct by then, and the only thing withheld is the S3
-# push. That is this script's own rule (S3 never receives stale data wearing a fresh
-# timestamp) without making the boards hostage to the longer, less-exercised path.
-# `write_league_store` carries forward the meta entries for artifacts a run did not
-# touch, so the second pass cannot make the boards invisible.
+# This is now the first artifact stage rather than the second -- the board stage
+# above it was removed on 2026-09-16. `write_league_store` carries forward the meta
+# entries for artifacts a run did not touch, which is what lets a lineups-only pass
+# leave the stored board and its meta entry intact rather than making them invisible.
+#
+# **A projection whose game has kicked off is carried forward, not rebuilt.**
+# `Scripts.refresh` reads the stored frame and holds every `ESPN_`/`FP_`/`PINNY_`/
+# `BOL_`/`ATH_`/`USG_`/`TRUE_` column, plus `projPoints`, for any player whose team is
+# `in` or `post` on ESPN's scoreboard. That is why this stage can keep running at
+# 06:00 through a Sunday without rewriting Thursday's opener. See
+# `Scripts/kickoff_freeze.py`; the log line is `freeze`.
 log "rebuilding weekly lineups for all leagues"
 "${PYTHON}" -m Scripts.refresh --all --what lineups >>"${LOG}" 2>&1 \
   || fail "Scripts.refresh --what lineups"

@@ -349,8 +349,9 @@ def test_the_rebuild_history_flag_reaches_refresh_league(monkeypatch):
     """CLI wiring, which is the half that silently does nothing when it is missed."""
     seen = {}
 
-    def fake_refresh(*, leagues, season, what, rebuild_history):
-        seen.update(leagues=leagues, what=what, rebuild_history=rebuild_history)
+    def fake_refresh(*, leagues, season, what, rebuild_history, push):
+        seen.update(leagues=leagues, what=what, rebuild_history=rebuild_history,
+            push=push)
         return {"X": "ok"}, {}
 
     monkeypatch.setattr(refresh, "refresh", fake_refresh)

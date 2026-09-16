@@ -1,0 +1,1274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Refresh Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+<style>
+  :root {
+    --ground:#FBFAF7; --panel:#FFFFFF; --sunk:#F3F1EB;
+    --ink:#14181F; --ink-soft:#4A5260; --ink-mute:#7A8494;
+    --rule:#E3E0D8; --rule-firm:#CFCBC0;
+    --brass:#9A6A16; --brass-bg:#F6EEDC;
+    --live:#10645F; --live-bg:#E4EFEC;
+    --stop:#8E2F3A; --stop-bg:#F7E6E7;
+    --dormant:#79818F;
+    --bar:#B98A2E;
+    --shadow:0 1px 2px rgba(20,24,31,.05), 0 8px 24px -16px rgba(20,24,31,.22);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:#0E1216; --panel:#161B21; --sunk:#1B212A;
+      --ink:#E9E6DF; --ink-soft:#AEB6C2; --ink-mute:#7D8794;
+      --rule:#262D36; --rule-firm:#39424D;
+      --brass:#D9A24A; --brass-bg:#2A2115;
+      --live:#4FB3A5; --live-bg:#122A28;
+      --stop:#E0808C; --stop-bg:#2D171A;
+      --dormant:#7D8794;
+      --bar:#C79338;
+      --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:#0E1216; --panel:#161B21; --sunk:#1B212A;
+    --ink:#E9E6DF; --ink-soft:#AEB6C2; --ink-mute:#7D8794;
+    --rule:#262D36; --rule-firm:#39424D;
+    --brass:#D9A24A; --brass-bg:#2A2115;
+    --live:#4FB3A5; --live-bg:#122A28;
+    --stop:#E0808C; --stop-bg:#2D171A;
+    --dormant:#7D8794;
+    --bar:#C79338;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.7);
+  }
+
+  * { box-sizing:border-box; }
+  html { -webkit-text-size-adjust:100%; }
+  body {
+    background:var(--ground); color:var(--ink);
+    font-family:"Source Serif 4", Georgia, "Times New Roman", serif;
+    font-size:17px; line-height:1.62; margin:0; padding:0 24px 96px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap { max-width:1080px; margin:0 auto; }
+  .measure { max-width:63ch; }
+
+  header.top { padding:72px 0 40px; border-bottom:2px solid var(--ink); }
+  .eyebrow {
+    font-family:"JetBrains Mono", ui-monospace, Menlo, monospace;
+    font-size:11px; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--brass); margin:0 0 20px;
+  }
+  h1 {
+    font-family:"Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+    font-weight:800; font-size:clamp(38px, 6vw, 64px); line-height:1.02;
+    letter-spacing:-.02em; margin:0 0 20px; text-wrap:balance;
+  }
+  .standfirst { font-size:20px; line-height:1.55; color:var(--ink-soft); margin:0; }
+  .provenance {
+    font-family:"JetBrains Mono", ui-monospace, Menlo, monospace;
+    font-size:11.5px; line-height:1.9; color:var(--ink-mute);
+    margin:28px 0 0; padding-top:20px; border-top:1px solid var(--rule);
+  }
+  .provenance b { color:var(--ink-soft); font-weight:500; }
+
+  h2 {
+    font-family:"Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+    font-weight:700; font-size:clamp(25px, 3.4vw, 33px); line-height:1.12;
+    letter-spacing:-.015em; margin:0 0 8px; text-wrap:balance;
+  }
+  h3 {
+    font-family:"Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+    font-weight:700; font-size:19.5px; line-height:1.25; letter-spacing:-.008em;
+    margin:40px 0 10px; text-wrap:balance;
+  }
+  section { padding:56px 0 8px; border-bottom:1px solid var(--rule); }
+  section:last-of-type { border-bottom:none; }
+  .sec-no {
+    font-family:"JetBrains Mono", ui-monospace, Menlo, monospace;
+    font-size:11px; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--ink-mute); margin:0 0 14px;
+  }
+  p { margin:0 0 17px; }
+  a { color:var(--brass); text-decoration:underline; text-underline-offset:2px; }
+  a:focus-visible, button:focus-visible { outline:2px solid var(--brass); outline-offset:2px; }
+  strong { font-weight:600; }
+  code, .mono {
+    font-family:"JetBrains Mono", ui-monospace, Menlo, monospace;
+    font-size:.86em;
+  }
+  code { background:var(--sunk); padding:1px 5px; border-radius:3px; }
+
+  .scroll { overflow-x:auto; margin:26px 0; -webkit-overflow-scrolling:touch; }
+  table {
+    border-collapse:collapse; width:100%; min-width:560px;
+    font-family:"JetBrains Mono", ui-monospace, Menlo, monospace;
+    font-size:12.5px; font-variant-numeric:tabular-nums;
+  }
+  th {
+    text-align:left; font-weight:700; font-size:10.5px; letter-spacing:.09em;
+    text-transform:uppercase; color:var(--ink-mute);
+    padding:0 14px 8px 0; border-bottom:1.5px solid var(--rule-firm); white-space:nowrap;
+  }
+  td { padding:8px 14px 8px 0; border-bottom:1px solid var(--rule); vertical-align:top; }
+  tr:last-child td { border-bottom:none; }
+  td.n, th.n { text-align:right; padding-right:22px; }
+  tbody tr.total td { border-top:1.5px solid var(--rule-firm); font-weight:700; border-bottom:none; }
+  .dim { color:var(--ink-mute); }
+  .note { font-family:"Source Serif 4",Georgia,serif; font-size:13.5px;
+          color:var(--ink-mute); line-height:1.5; margin:-8px 0 26px; max-width:70ch; }
+
+  .pill {
+    display:inline-block; font-family:"JetBrains Mono",monospace; font-size:10px;
+    font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+    padding:2px 7px; border-radius:3px; white-space:nowrap;
+  }
+  .p-ok   { background:var(--live-bg);  color:var(--live); }
+  .p-warn { background:var(--brass-bg); color:var(--brass); }
+  .p-bad  { background:var(--stop-bg);  color:var(--stop); }
+  .p-none { background:var(--sunk);     color:var(--ink-mute); }
+
+  .callout {
+    background:var(--panel); border:1px solid var(--rule-firm);
+    border-left:3px solid var(--brass); border-radius:4px;
+    padding:20px 24px; margin:26px 0; box-shadow:var(--shadow);
+  }
+  .callout.stop { border-left-color:var(--stop); }
+  .callout.ok   { border-left-color:var(--live); }
+  .callout h4 {
+    font-family:"Bricolage Grotesque",sans-serif; font-weight:700;
+    font-size:15px; margin:0 0 8px; letter-spacing:-.005em;
+  }
+  .callout p:last-child { margin-bottom:0; }
+  .callout p { font-size:15.5px; }
+
+  pre {
+    background:var(--sunk); border:1px solid var(--rule); border-radius:4px;
+    padding:14px 16px; overflow-x:auto; margin:20px 0;
+    font-family:"JetBrains Mono",monospace; font-size:12.5px; line-height:1.65;
+  }
+  pre .c { color:var(--ink-mute); }
+
+  figure { margin:32px 0; }
+  figure svg { display:block; width:100%; height:auto; min-width:820px; color:var(--ink); }
+  figcaption {
+    font-size:13.5px; color:var(--ink-mute); line-height:1.5;
+    margin-top:14px; max-width:72ch;
+  }
+
+  .grid2 { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:24px; margin:26px 0; }
+  .stat {
+    background:var(--panel); border:1px solid var(--rule); border-radius:4px; padding:18px 20px;
+  }
+  .stat .k {
+    font-family:"JetBrains Mono",monospace; font-size:10.5px; letter-spacing:.1em;
+    text-transform:uppercase; color:var(--ink-mute); margin:0 0 6px;
+  }
+  .stat .v {
+    font-family:"Bricolage Grotesque",sans-serif; font-weight:700; font-size:30px;
+    line-height:1; letter-spacing:-.02em; margin:0 0 6px; font-variant-numeric:tabular-nums;
+  }
+  .stat .d { font-size:13.5px; color:var(--ink-soft); line-height:1.45; margin:0; }
+
+  ul, ol { margin:0 0 17px; padding-left:22px; }
+  li { margin-bottom:9px; }
+
+  .bar { display:inline-block; height:8px; background:var(--bar); border-radius:1px; vertical-align:middle; }
+  .bar-rest { display:inline-block; height:8px; background:var(--rule-firm); border-radius:1px; vertical-align:middle; }
+
+  @media (prefers-reduced-motion:reduce) { * { animation:none !important; transition:none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <p class="eyebrow">Deployment sweep · report 01</p>
+  <h1>The Refresh Ledger</h1>
+  <p class="standfirst measure">Every byte the app stores, every job that moves one, and the
+  hole where a projection for a game that has already kicked off gets quietly rewritten.</p>
+  <p class="provenance">
+    <b>Measured</b> 2026-09-16, season 2026, week 2 · <b>revision</b> 9bb63592 (origin/main)<br>
+    <b>Sources</b> Data/ on disk · s3://espn-ffl-data (us-east-2) · ~/logs/espn_ffl_refresh.log ·
+    ~/logs/espn_ffl_live.log · Data/.s3cache version history<br>
+    <b>Method</b> every figure below is read off the artifacts, the bucket or the run logs.
+    Nothing is quoted from a docstring without checking it.<br>
+    <b>Status</b> §05, §06 and §10 describe the state <em>before</em> 2026-09-16. Three
+    of the findings were fixed the same day and are marked <span class="pill p-ok">fixed</span>
+    where they appear; see <a href="../plans/01-writing-to-s3.md">deploy plan 01</a>.
+  </p>
+</header>
+
+<!-- ───────────────────────────────── 1 ───────────────────────────────── -->
+<section id="shape">
+  <p class="sec-no">01 — The shape of it</p>
+  <h2>Two gigabytes, and 58 megabytes of it is the app</h2>
+
+  <div class="grid2">
+    <div class="stat">
+      <p class="k">Local · Data/</p>
+      <p class="v">999 MB</p>
+      <p class="d">Working tree. 5.8% of it is what the app reads.</p>
+    </div>
+    <div class="stat">
+      <p class="k">S3 · espn-ffl-data</p>
+      <p class="v">10.6 GB</p>
+      <p class="d">1.29 GB current, the rest retained versions.</p>
+    </div>
+    <div class="stat">
+      <p class="k">The read set</p>
+      <p class="v">58 MB</p>
+      <p class="d">Data/Store — 105 parquet files across 8 seasons.</p>
+    </div>
+    <div class="stat">
+      <p class="k">Leagues stored</p>
+      <p class="v">10</p>
+      <p class="d">8 in config.yaml. 4 visible to the only viewer.</p>
+    </div>
+  </div>
+
+  <p class="measure">The store is small. Everything around it is not — and almost all of the
+  weight is history, cache and debris rather than anything a page renders.</p>
+
+  <h3>Local disk, by directory</h3>
+  <div class="scroll">
+  <table>
+    <thead><tr>
+      <th>Directory</th><th class="n">Size</th><th class="n">Files</th>
+      <th>What it is</th><th>Read by the app?</th>
+    </tr></thead>
+    <tbody>
+      <tr><td>Data/NFL/</td><td class="n">544 MB</td><td class="n">247</td>
+          <td>nflverse play-by-play, 1999–2026, plus depth charts and rosters</td>
+          <td><span class="pill p-warn">model only</span></td></tr>
+      <tr><td>Data/.s3cache/</td><td class="n">311 MB</td><td class="n">496</td>
+          <td>ETag-keyed download cache</td>
+          <td><span class="pill p-ok">yes</span></td></tr>
+      <tr><td>Data/Equivalence/</td><td class="n">74 MB</td><td class="n">42</td>
+          <td>Six harness snapshot dirs, all written 3–5 Aug 2026</td>
+          <td><span class="pill p-none">no</span></td></tr>
+      <tr><td>Data/Store/</td><td class="n">58 MB</td><td class="n">107</td>
+          <td>The league artifacts every page reads</td>
+          <td><span class="pill p-ok">yes</span></td></tr>
+      <tr><td>Data/Projections/</td><td class="n">7.0 MB</td><td class="n">91</td>
+          <td>The five projection feeds, raw and cleaned</td>
+          <td><span class="pill p-warn">build only</span></td></tr>
+      <tr><td>Data/G2/</td><td class="n">1.6 MB</td><td class="n">10</td>
+          <td>Hand-built pre-season board archive</td>
+          <td><span class="pill p-warn">lab only</span></td></tr>
+      <tr><td>Data/Injuries/</td><td class="n">1.4 MB</td><td class="n">30</td>
+          <td>ESPN injury report captures</td>
+          <td><span class="pill p-warn">build only</span></td></tr>
+      <tr><td>Data/Odds/</td><td class="n">1.2 MB</td><td class="n">28</td>
+          <td>Game lines, append-only, partitioned by game date</td>
+          <td><span class="pill p-warn">build only</span></td></tr>
+      <tr><td>Data/Scoring/, Data/exports/, loose files</td><td class="n">0.6 MB</td><td class="n">5</td>
+          <td>Scoring registry, schedule CSV, run status</td>
+          <td><span class="pill p-ok">yes</span></td></tr>
+      <tr class="total"><td>Total</td><td class="n">999 MB</td><td class="n">1,056</td><td></td><td></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>The bucket, by prefix</h3>
+  <p class="measure">The bucket is <strong>versioned</strong>, which changes the arithmetic
+  entirely: an overwrite does not replace, it retains. <code>aws s3 ls --summarize</code>
+  counts only current versions, so the honest total is eight times what it reports.</p>
+  <div class="scroll">
+  <table style="min-width:760px">
+    <thead><tr><th>Prefix</th><th class="n">Current</th><th class="n">Non-current</th>
+      <th class="n">Billed</th><th>Expiry rule</th></tr></thead>
+    <tbody>
+      <tr style="background:var(--stop-bg)"><td><strong>store/</strong></td>
+          <td class="n">58 MB · 105</td><td class="n"><strong>7,699 MB · 12,928</strong></td>
+          <td class="n"><strong>7.76 GB</strong></td><td>90 days</td></tr>
+      <tr><td>snapshots/</td><td class="n">651 MB · 321</td><td class="n">724 MB · 341</td>
+          <td class="n">1.38 GB</td><td><span class="pill p-bad">none</span></td></tr>
+      <tr><td>nfl/</td><td class="n">570 MB · 249</td><td class="n">764 MB · 2,480</td>
+          <td class="n">1.33 GB</td><td>90 days</td></tr>
+      <tr><td>projections/</td><td class="n">7 MB · 91</td><td class="n">47 MB · 1,358</td>
+          <td class="n">54 MB</td><td><span class="pill p-bad">none</span></td></tr>
+      <tr><td>archive/</td><td class="n">1.6 MB · 10</td><td class="n">28 MB · 170</td>
+          <td class="n">30 MB</td><td><span class="pill p-bad">none</span></td></tr>
+      <tr><td>injuries/</td><td class="n">1.4 MB · 30</td><td class="n">5 MB · 102</td>
+          <td class="n">6 MB</td><td><span class="pill p-bad">none</span></td></tr>
+      <tr class="total"><td>Total</td><td class="n">1.29 GB</td><td class="n">9.27 GB</td>
+          <td class="n">10.6 GB</td><td></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="callout stop">
+    <h4>95% of <code>store/</code> is bytes S3 already had</h4>
+    <p><code>push_league_store</code> uploaded all eight artifacts unconditionally — from
+    the nightly, and from the live loop's 74-object push every ten minutes through a
+    slate. On a versioned bucket an identical PUT is not a no-op; it is a retained
+    version. One league, one season:</p>
+    <div class="scroll">
+    <table style="min-width:520px">
+      <thead><tr><th>Artifact</th><th class="n">Versions</th><th class="n">MB</th>
+        <th class="n">Distinct contents</th><th class="n">Redundant</th></tr></thead>
+      <tbody>
+        <tr><td>board.parquet</td><td class="n">207</td><td class="n">442</td><td class="n">59</td><td class="n">148</td></tr>
+        <tr style="background:var(--stop-bg)"><td><strong>board_frozen.parquet</strong></td>
+          <td class="n">156</td><td class="n">344</td><td class="n"><strong>1</strong></td><td class="n"><strong>155</strong></td></tr>
+        <tr><td>lineups.parquet</td><td class="n">207</td><td class="n">118</td><td class="n">99</td><td class="n">108</td></tr>
+        <tr><td>team_stats.parquet</td><td class="n">162</td><td class="n">15</td><td class="n">5</td><td class="n">157</td></tr>
+        <tr><td>draft.parquet</td><td class="n">207</td><td class="n">5</td><td class="n">2</td><td class="n">205</td></tr>
+        <tr><td>tendencies.parquet</td><td class="n">207</td><td class="n">3</td><td class="n">4</td><td class="n">203</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p><code>board_frozen.parquet</code> is the clearest case: frozen by definition, one
+    content in its life, re-uploaded 156 times. That is ~743 MB for one league; ten
+    leagues account for essentially the whole 7.7 GB.</p>
+    <p><strong>Fixed 2026-09-16.</strong> The push now compares the local MD5 against the
+    object's ETag — free, because the listing is the same call the app's cache fingerprint
+    already pays for — and skips what matches. A full <code>sync --push --what store</code>
+    against the current bucket now uploads 0 of 24 objects. See
+    <a href="../plans/01-writing-to-s3.md">deploy plan 01</a>.</p>
+  </div>
+
+  <p class="note">Four prefixes have no non-current expiry rule at all, holding 804 MB of
+  versions retained forever. <code>snapshots/</code> also grows ~21 MB a night in
+  <em>current</em> objects, which is the one genuinely unbounded line here: at that rate
+  it passes 3 GB by the January playoffs.</p>
+</section>
+
+<!-- ───────────────────────────────── 2 ───────────────────────────────── -->
+<section id="store">
+  <p class="sec-no">02 — Per season, per league, per viewer</p>
+  <h2>What is actually shown, and to whom</h2>
+
+  <h3>Eight seasons, and six of them hold one file each</h3>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Season</th><th class="n">Leagues</th><th class="n">Artifacts</th>
+      <th class="n">Rows</th><th class="n">Size</th><th>Contents</th></tr></thead>
+    <tbody>
+      <tr><td>2019</td><td class="n">1</td><td class="n">1</td><td class="n">1,632</td><td class="n">&lt;0.1 MB</td><td class="dim">results only · winfield_football</td></tr>
+      <tr><td>2020</td><td class="n">1</td><td class="n">1</td><td class="n">1,632</td><td class="n">&lt;0.1 MB</td><td class="dim">results only · winfield_football</td></tr>
+      <tr><td>2021</td><td class="n">1</td><td class="n">1</td><td class="n">1,632</td><td class="n">&lt;0.1 MB</td><td class="dim">results only · winfield_football</td></tr>
+      <tr><td>2022</td><td class="n">1</td><td class="n">1</td><td class="n">1,632</td><td class="n">&lt;0.1 MB</td><td class="dim">results only · winfield_football</td></tr>
+      <tr><td>2023</td><td class="n">1</td><td class="n">1</td><td class="n">1,632</td><td class="n">&lt;0.1 MB</td><td class="dim">results only · winfield_football</td></tr>
+      <tr><td>2024</td><td class="n">1</td><td class="n">1</td><td class="n">1,631</td><td class="n">&lt;0.1 MB</td><td class="dim">results only · winfield_football</td></tr>
+      <tr><td>2025</td><td class="n">9</td><td class="n">10</td><td class="n">30,607</td><td class="n">18.8 MB</td><td>full season, all artifacts</td></tr>
+      <tr><td>2026</td><td class="n">10</td><td class="n">64</td><td class="n">37,496</td><td class="n">42.0 MB</td><td>live season</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>Artifacts, ranked by what they cost</h3>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Artifact</th><th class="n">Copies</th><th class="n">Rows</th>
+      <th class="n">Cols</th><th class="n">Size</th><th></th><th>Rebuilt</th></tr></thead>
+    <tbody>
+      <tr><td>lineups</td><td class="n">19</td><td class="n">33,230</td><td class="n">711</td><td class="n">26.1 MB</td>
+        <td><span class="bar" style="width:120px"></span></td><td>nightly + live loop</td></tr>
+      <tr><td>board</td><td class="n">10</td><td class="n">11,693</td><td class="n">1,699</td><td class="n">21.3 MB</td>
+        <td><span class="bar" style="width:98px"></span></td><td>nightly</td></tr>
+      <tr><td>board_frozen</td><td class="n">5</td><td class="n">6,542</td><td class="n">1,663</td><td class="n">11.7 MB</td>
+        <td><span class="bar" style="width:54px"></span></td><td>once, on draft night</td></tr>
+      <tr><td>team_stats</td><td class="n">10</td><td class="n">5,856</td><td class="n">57</td><td class="n">0.9 MB</td>
+        <td><span class="bar" style="width:4px"></span></td><td>nightly</td></tr>
+      <tr><td>pool</td><td class="n">9</td><td class="n">2,453</td><td class="n">27</td><td class="n">0.4 MB</td>
+        <td><span class="bar" style="width:2px"></span></td><td>nightly, accumulates</td></tr>
+      <tr><td>draft</td><td class="n">10</td><td class="n">6,576</td><td class="n">21</td><td class="n">0.2 MB</td>
+        <td><span class="bar" style="width:1px"></span></td><td>never — a draft is final</td></tr>
+      <tr><td>tendencies</td><td class="n">10</td><td class="n">121</td><td class="n">21</td><td class="n">0.2 MB</td>
+        <td><span class="bar" style="width:1px"></span></td><td>with draft</td></tr>
+      <tr><td>results</td><td class="n">7</td><td class="n">11,423</td><td class="n">8</td><td class="n">0.1 MB</td>
+        <td><span class="bar" style="width:1px"></span></td><td>backfill only</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="callout">
+    <h4>The width is real, not rot</h4>
+    <p>A board is up to 1,699 columns because five sources each carry a full stat line —
+    BOL 282, FP 281, PINNY 281, ATH 281, ESPN 144, plus USG 138, MEAN 138 and TRUE 56.
+    The obvious slimming move is to drop dead columns, so I checked: <strong>5 of 1,699
+    board columns are all-null or all-zero (0.3%)</strong>, and 51 of 711 on lineups (7.2%).
+    There is no fat to trim there. Narrowing the store means deciding a source's stat line
+    does not need to be queryable after the blend — a modelling decision, not a cleanup.</p>
+  </div>
+
+  <h3>The 2026 season, league by league</h3>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>League</th><th class="n">Teams</th><th class="n">Players</th>
+      <th class="n">Weeks</th><th class="n">Store</th><th>In config?</th><th>Viewer sees it?</th></tr></thead>
+    <tbody>
+      <tr><td>winfield_football</td><td class="n">7</td><td class="n">242</td><td class="n">2</td><td class="n">5.2 MB</td>
+        <td><span class="pill p-ok">yes</span></td><td><span class="pill p-ok">yes</span></td></tr>
+      <tr><td>knights_ffl</td><td class="n">15</td><td class="n">336</td><td class="n">2</td><td class="n">5.3 MB</td>
+        <td><span class="pill p-ok">yes</span></td><td><span class="pill p-ok">yes</span></td></tr>
+      <tr><td>gop_degenerates</td><td class="n">17</td><td class="n">526</td><td class="n">2</td><td class="n">6.5 MB</td>
+        <td><span class="pill p-ok">yes</span></td><td><span class="pill p-ok">yes</span></td></tr>
+      <tr><td>jeffs_league</td><td class="n">9</td><td class="n">206</td><td class="n">2</td><td class="n">4.7 MB</td>
+        <td><span class="pill p-ok">yes</span></td><td><span class="pill p-ok">yes</span></td></tr>
+      <tr><td>john_pc_league</td><td class="n">13</td><td class="n">310</td><td class="n">2</td><td class="n">3.2 MB</td>
+        <td><span class="pill p-ok">yes</span></td><td><span class="pill p-none">no</span></td></tr>
+      <tr><td>john_atl_league</td><td class="n">13</td><td class="n">311</td><td class="n">2</td><td class="n">3.2 MB</td>
+        <td><span class="pill p-ok">yes</span></td><td><span class="pill p-none">no</span></td></tr>
+      <tr><td>fields_league</td><td class="n">13</td><td class="n">293</td><td class="n">2</td><td class="n">4.8 MB</td>
+        <td><span class="pill p-ok">yes</span></td><td><span class="pill p-none">no</span></td></tr>
+      <tr><td>twelve_dudes_one_cup</td><td class="n">13</td><td class="n">291</td><td class="n">2</td><td class="n">2.7 MB</td>
+        <td><span class="pill p-ok">yes</span></td><td><span class="pill p-none">no</span></td></tr>
+      <tr><td>big_red_fantasy_football</td><td class="n">13</td><td class="n">234</td><td class="n">1</td><td class="n">2.7 MB</td>
+        <td><span class="pill p-bad">no</span></td><td><span class="pill p-none">no</span></td></tr>
+      <tr><td>weenieless_wanderers</td><td class="n">11</td><td class="n">206</td><td class="n">1</td><td class="n">2.6 MB</td>
+        <td><span class="pill p-bad">no</span></td><td><span class="pill p-none">no</span></td></tr>
+      <tr class="total"><td>10 leagues</td><td class="n">124</td><td class="n">2,955</td><td class="n"></td><td class="n">42.0 MB</td><td></td><td></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note">Player counts are per league and overlap heavily — the same 2,955 rows
+  describe roughly 900 distinct NFL players. "Viewer sees it" is <code>auth.DEFAULT_VIEWER</code>,
+  which is the only viewer there is until login lands.</p>
+
+  <div class="callout stop">
+    <h4>Two leagues are being built and published that nothing knows about</h4>
+    <p><code>big_red_fantasy_football</code> and <code>weenieless_wanderers</code> are in
+    <code>Data/Store</code> and in the bucket, and both stopped at week 1 — but neither is in
+    <code>config.yaml</code>. They are not refreshed by the nightly (which iterates the config)
+    and they are not reachable in the app. They are 5.3 MB of local disk, 14 S3 objects, and a
+    permanently stale row in every <code>sync --verify</code> listing. Either add them to the
+    config or delete them; the current state is the worst of both.</p>
+  </div>
+</section>
+
+<!-- ───────────────────────────────── 3 ───────────────────────────────── -->
+<section id="slim">
+  <p class="sec-no">03 — Slimming</p>
+  <h2>Where the space actually is</h2>
+
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Candidate</th><th class="n">Reclaims</th><th>Risk</th><th>Verdict</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Data/Equivalence/</strong> — six harness snapshot dirs<br>
+          <span class="dim">before, after, before_espn046, after_espn046, after2_espn046, fixed_espn046 — all 3–5 Aug</span></td>
+        <td class="n">74 MB</td>
+        <td><span class="pill p-ok">none</span></td>
+        <td>Delete. They are the output of one debugging session six weeks old and the harness
+          regenerates them on demand.</td>
+      </tr>
+      <tr>
+        <td><strong>Data/.s3cache/</strong> — ETag-keyed, never evicted<br>
+          <span class="dim">108 versions of one board, 107 of one lineups, 191 meta.json</span></td>
+        <td class="n">~290 MB</td>
+        <td><span class="pill p-ok">none</span></td>
+        <td>Add eviction. Every nightly push mints a new ETag and therefore a new cache file;
+          the old one is never removed. Keeping the newest 2 per key is enough.</td>
+      </tr>
+      <tr>
+        <td><strong>s3://…/snapshots/</strong> — dated boards<br>
+          <span class="dim">34 dates × 10 leagues, growing 21 MB/night</span></td>
+        <td class="n">~400 MB now,<br>3 GB by Jan</td>
+        <td><span class="pill p-warn">low</span></td>
+        <td>Thin the cadence. Daily boards are load-bearing during camp and ADP movement;
+          in-season one a week answers the same questions. Or set a lifecycle rule to
+          Glacier Instant past 60 days.</td>
+      </tr>
+      <tr>
+        <td><strong>Data/NFL/1999–2015</strong> — play-by-play only<br>
+          <span class="dim">~250 MB, no participation, no snaps, no depth charts</span></td>
+        <td class="n">~250 MB</td>
+        <td><span class="pill p-warn">medium</span></td>
+        <td>Keep, but stop mirroring. The usage model reads recent seasons; the deep archive is
+          for fits that are run by hand. It does not need to live in the bucket <em>and</em> on disk.</td>
+      </tr>
+      <tr>
+        <td><strong>Orphan leagues</strong> — big_red, weenieless</td>
+        <td class="n">5.3 MB + 14 objects</td>
+        <td><span class="pill p-ok">none</span></td>
+        <td>Decide. See above.</td>
+      </tr>
+      <tr>
+        <td><strong>board_frozen</strong> — 5 copies, 11.7 MB</td>
+        <td class="n">—</td>
+        <td><span class="pill p-bad">high</span></td>
+        <td>Keep all of it. It is the only record of what each roster was drafted against, and
+          it cannot be rebuilt. This is the one duplicate on the list that is doing a job.</td>
+      </tr>
+      <tr>
+        <td><strong>2019–2024 <code>results</code></strong> — 6 files, &lt;0.5 MB</td>
+        <td class="n">—</td>
+        <td><span class="pill p-ok">none</span></td>
+        <td>Not worth touching. Six files, half a megabyte, and they are the acquisition
+          history. Cutting them buys nothing.</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p class="measure">Taken together the first two lines are <strong>364 MB — 36% of the local
+  tree — with no behavioural change at all</strong>. Everything below them is a judgement call
+  about what history is worth. Nothing on this list is in the 58 MB the app actually serves.</p>
+</section>
+
+<!-- ───────────────────────────────── 4 ───────────────────────────────── -->
+<section id="map">
+  <p class="sec-no">04 — The map</p>
+  <h2>How data moves, and on what clock</h2>
+
+  <figure>
+    <svg viewBox="0 0 1000 620" role="img"
+      aria-label="Data flow map. Eight external sources feed files on disk at stated cadences. A nightly 06:00 job blends them into board and lineups artifacts per league, which are pushed to S3. A separate live job every ten minutes patches actual scores onto the lineups artifact and pushes again. The Streamlit app reads S3. A manual Refresh button in the app rebuilds the local store only, which the app does not read under its default configuration.">
+      <defs>
+        <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+        </marker>
+        <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--live)"/>
+        </marker>
+        <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--stop)"/>
+        </marker>
+      </defs>
+      <g font-family="JetBrains Mono, monospace" fill="currentColor">
+
+        <!-- column headers -->
+        <text x="8"   y="20" font-size="10" fill="var(--ink-mute)" letter-spacing="1.5">EXTERNAL SOURCES</text>
+        <text x="290" y="20" font-size="10" fill="var(--ink-mute)" letter-spacing="1.5">FILES ON DISK</text>
+        <text x="540" y="20" font-size="10" fill="var(--ink-mute)" letter-spacing="1.5">BUILD · 06:00 DAILY</text>
+        <text x="790" y="20" font-size="10" fill="var(--ink-mute)" letter-spacing="1.5">PUBLISHED</text>
+
+        <!-- sources -->
+        <g stroke="currentColor" stroke-width="1" fill="none">
+          <rect x="8" y="34"  width="192" height="30" rx="3"/>
+          <rect x="8" y="70"  width="192" height="30" rx="3"/>
+          <rect x="8" y="106" width="192" height="30" rx="3"/>
+          <rect x="8" y="142" width="192" height="30" rx="3"/>
+          <rect x="8" y="178" width="192" height="30" rx="3"/>
+          <rect x="8" y="214" width="192" height="30" rx="3"/>
+          <rect x="8" y="250" width="192" height="30" rx="3"/>
+        </g>
+        <rect x="8" y="286" width="192" height="30" rx="3" fill="var(--brass-bg)" stroke="var(--brass)" stroke-width="1.3"/>
+
+        <text x="18" y="48"  font-size="11">ESPN box scores</text>   <text x="192" y="48"  text-anchor="end" font-size="9.5" fill="var(--ink-mute)">per build</text>
+        <text x="18" y="60"  font-size="8.5" fill="var(--ink-mute)">weeks 1..current, every run</text>
+        <text x="18" y="84"  font-size="11">FantasyPros ×3</text>    <text x="192" y="84"  text-anchor="end" font-size="9.5" fill="var(--ink-mute)">06:00</text>
+        <text x="18" y="96"  font-size="8.5" fill="var(--ink-mute)">season · weekly · ROS ranks</text>
+        <text x="18" y="120" font-size="11">BetOnline props</text>   <text x="192" y="120" text-anchor="end" font-size="9.5" fill="var(--ink-mute)">06:00</text>
+        <text x="18" y="132" font-size="8.5" fill="var(--ink-mute)">headless Chromium · ~350 clicks</text>
+        <text x="18" y="156" font-size="11">Pinnacle props</text>    <text x="192" y="156" text-anchor="end" font-size="9.5" fill="var(--ink-mute)">06:00</text>
+        <text x="18" y="168" font-size="8.5" fill="var(--ink-mute)">Selenium · season + weekly</text>
+        <text x="18" y="192" font-size="11">The Athletic</text>      <text x="192" y="192" text-anchor="end" font-size="9.5" fill="var(--stop)">manual</text>
+        <text x="18" y="204" font-size="8.5" fill="var(--ink-mute)">hand-dropped .xlsx · last: 09-09</text>
+        <text x="18" y="228" font-size="11">nflverse (R)</text>      <text x="192" y="228" text-anchor="end" font-size="9.5" fill="var(--ink-mute)">06:00</text>
+        <text x="18" y="240" font-size="8.5" fill="var(--ink-mute)">schedule · depth · rosters · pbp</text>
+        <text x="18" y="264" font-size="11">Game lines ×3</text>     <text x="192" y="264" text-anchor="end" font-size="9.5" fill="var(--ink-mute)">06:45</text>
+        <text x="18" y="276" font-size="8.5" fill="var(--ink-mute)">Pinnacle · BetOnline · 4Casters</text>
+        <text x="18" y="300" font-size="11" fill="var(--brass)" font-weight="700">TOMCAT usage model</text>
+        <text x="192" y="300" text-anchor="end" font-size="9.5" fill="var(--brass)">06:00</text>
+        <text x="18" y="312" font-size="8.5" fill="var(--ink-mute)">ours · refit only when stale</text>
+
+        <!-- arrows sources -> files -->
+        <g stroke="currentColor" stroke-width="1" fill="none" marker-end="url(#a1)" opacity=".5">
+          <path d="M 204 49  C 236 49,  236 175, 268 175"/>
+          <path d="M 204 85  C 236 85,  236 175, 268 175"/>
+          <path d="M 204 121 C 236 121, 236 175, 268 175"/>
+          <path d="M 204 157 C 236 157, 236 175, 268 175"/>
+          <path d="M 204 193 C 236 193, 236 175, 268 175"/>
+          <path d="M 204 229 C 236 229, 236 175, 268 175"/>
+          <path d="M 204 265 C 236 265, 236 175, 268 175"/>
+        </g>
+        <path d="M 204 301 C 236 301, 236 175, 268 175" stroke="var(--brass)" stroke-width="1.2"
+              fill="none" marker-end="url(#a1)" opacity=".8"/>
+
+        <!-- files on disk -->
+        <rect x="272" y="120" width="196" height="110" rx="3" fill="var(--sunk)" stroke="currentColor"/>
+        <text x="370" y="144" text-anchor="middle" font-size="12" font-weight="700">Data/Projections/</text>
+        <text x="370" y="162" text-anchor="middle" font-size="9.5" fill="var(--ink-mute)">7.0 MB · 91 files</text>
+        <text x="284" y="184" font-size="9.5" fill="var(--ink-soft)">FP weekly · frozen at 1st capture</text>
+        <text x="284" y="199" font-size="9.5" fill="var(--ink-soft)">BOL / PINNY · newest stamp wins</text>
+        <text x="284" y="214" font-size="9.5" fill="var(--ink-soft)">ATH · whole week replaced</text>
+
+        <rect x="272" y="244" width="196" height="54" rx="3" fill="var(--sunk)" stroke="currentColor"/>
+        <text x="370" y="266" text-anchor="middle" font-size="12" font-weight="700">Data/NFL/ · Data/Odds/</text>
+        <text x="370" y="284" text-anchor="middle" font-size="9.5" fill="var(--ink-mute)">545 MB · odds are append-only</text>
+
+        <!-- arrow files -> blend -->
+        <path d="M 472 175 L 524 175" stroke="currentColor" stroke-width="1.2" fill="none" marker-end="url(#a1)"/>
+        <path d="M 472 271 C 500 271, 500 200, 524 190" stroke="currentColor" stroke-width="1" fill="none" marker-end="url(#a1)" opacity=".5"/>
+
+        <!-- blend -->
+        <rect x="528" y="110" width="196" height="132" rx="3" fill="var(--panel)" stroke="currentColor" stroke-width="1.5"/>
+        <text x="626" y="134" text-anchor="middle" font-size="12.5" font-weight="700">clean_lineups</text>
+        <text x="626" y="150" text-anchor="middle" font-size="9.5" fill="var(--ink-mute)">impute → flag → renormalise</text>
+        <line x1="542" y1="160" x2="710" y2="160" stroke="var(--rule-firm)" stroke-width=".8"/>
+        <text x="542" y="178" font-size="10" fill="var(--ink-soft)">rebuilds weeks 1..current</text>
+        <text x="542" y="194" font-size="10" fill="var(--ink-soft)">every single run</text>
+        <text x="542" y="214" font-size="10" fill="var(--stop)" font-weight="700">no kickoff guard here</text>
+        <text x="542" y="230" font-size="9.5" fill="var(--ink-mute)">85s · 10 leagues</text>
+
+        <rect x="528" y="254" width="196" height="46" rx="3" fill="var(--panel)" stroke="currentColor"/>
+        <text x="626" y="274" text-anchor="middle" font-size="12" font-weight="700">build_board</text>
+        <text x="626" y="290" text-anchor="middle" font-size="9.5" fill="var(--ink-mute)">97s · 10 leagues · season-long</text>
+
+        <!-- arrows blend -> store -->
+        <path d="M 728 176 L 780 176" stroke="currentColor" stroke-width="1.2" fill="none" marker-end="url(#a1)"/>
+        <path d="M 728 277 C 756 277, 756 200, 780 192" stroke="currentColor" stroke-width="1" fill="none" marker-end="url(#a1)" opacity=".5"/>
+
+        <!-- store + s3 -->
+        <rect x="784" y="120" width="200" height="60" rx="3" fill="var(--sunk)" stroke="currentColor"/>
+        <text x="884" y="142" text-anchor="middle" font-size="12" font-weight="700">Data/Store/</text>
+        <text x="884" y="160" text-anchor="middle" font-size="9.5" fill="var(--ink-mute)">58 MB · 8 artifacts × league</text>
+        <text x="884" y="173" text-anchor="middle" font-size="9" fill="var(--ink-mute)">written atomically</text>
+
+        <path d="M 884 184 L 884 212" stroke="currentColor" stroke-width="1.2" fill="none" marker-end="url(#a1)"/>
+        <text x="892" y="203" font-size="9" fill="var(--ink-mute)">sync --push · 30s</text>
+
+        <rect x="784" y="216" width="200" height="72" rx="3" fill="var(--panel)" stroke="currentColor" stroke-width="1.5"/>
+        <text x="884" y="240" text-anchor="middle" font-size="12.5" font-weight="700">s3://espn-ffl-data</text>
+        <text x="884" y="257" text-anchor="middle" font-size="9.5" fill="var(--ink-mute)">1.29 GB current · 10.6 GB billed</text>
+        <text x="884" y="274" text-anchor="middle" font-size="9.5" fill="var(--live)">the app's default source</text>
+
+        <path d="M 884 292 L 884 322" stroke="var(--live)" stroke-width="1.5" fill="none" marker-end="url(#a2)"/>
+
+        <rect x="784" y="326" width="200" height="54" rx="3" fill="var(--live-bg)" stroke="var(--live)" stroke-width="1.5"/>
+        <text x="884" y="348" text-anchor="middle" font-size="12.5" font-weight="700" fill="var(--live)">Streamlit app</text>
+        <text x="884" y="365" text-anchor="middle" font-size="9.5" fill="var(--ink-soft)">ETag cache · 300s TTL</text>
+
+        <!-- ── lower band: the live loop ── -->
+        <line x1="8" y1="410" x2="984" y2="410" stroke="var(--rule-firm)" stroke-width="1" stroke-dasharray="3 3"/>
+        <text x="8" y="432" font-size="10" fill="var(--ink-mute)" letter-spacing="1.5">THE LIVE LOOP · EVERY 10 MINUTES, SELF-GATED</text>
+
+        <rect x="8" y="446" width="180" height="64" rx="3" fill="var(--live-bg)" stroke="var(--live)" stroke-width="1.3"/>
+        <text x="98" y="468" text-anchor="middle" font-size="11.5" font-weight="700" fill="var(--live)">ESPN scoreboard</text>
+        <text x="98" y="484" text-anchor="middle" font-size="9.5" fill="var(--ink-soft)">game_state --if-live</text>
+        <text x="98" y="499" text-anchor="middle" font-size="9" fill="var(--ink-mute)">pre · in · post · bye</text>
+
+        <path d="M 192 478 L 240 478" stroke="var(--live)" stroke-width="1.3" fill="none" marker-end="url(#a2)"/>
+        <text x="200" y="470" font-size="8.5" fill="var(--ink-mute)">exit 3 = quiet day</text>
+
+        <rect x="244" y="446" width="200" height="64" rx="3" fill="var(--panel)" stroke="var(--live)" stroke-width="1.3"/>
+        <text x="344" y="468" text-anchor="middle" font-size="11.5" font-weight="700">refresh --what live</text>
+        <text x="344" y="484" text-anchor="middle" font-size="9.5" fill="var(--ink-soft)">patches actuals + rosters</text>
+        <text x="344" y="499" text-anchor="middle" font-size="9" fill="var(--ink-mute)">90s · 9 leagues · 47× on Sun</text>
+
+        <path d="M 448 478 L 496 478" stroke="var(--live)" stroke-width="1.3" fill="none" marker-end="url(#a2)"/>
+
+        <rect x="500" y="446" width="200" height="64" rx="3" fill="var(--sunk)" stroke="var(--live)" stroke-width="1.3"/>
+        <text x="600" y="468" text-anchor="middle" font-size="11.5" font-weight="700">lineups.parquet</text>
+        <text x="600" y="484" text-anchor="middle" font-size="9.5" fill="var(--ink-soft)">points · projPoints · roster</text>
+        <text x="600" y="499" text-anchor="middle" font-size="9" fill="var(--stop)">projPoints is overwritten</text>
+
+        <path d="M 704 478 C 740 478, 760 320, 800 292" stroke="var(--live)" stroke-width="1.3" fill="none" marker-end="url(#a2)"/>
+        <text x="730" y="440" font-size="8.5" fill="var(--ink-mute)">push --no-snapshot</text>
+
+        <!-- ── the button ── -->
+        <line x1="8" y1="536" x2="984" y2="536" stroke="var(--rule-firm)" stroke-width="1" stroke-dasharray="3 3"/>
+        <text x="8" y="558" font-size="10" fill="var(--stop)" letter-spacing="1.5">THE BUTTON · ANY HOUR, NO GATE</text>
+
+        <rect x="8" y="570" width="180" height="42" rx="3" fill="var(--stop-bg)" stroke="var(--stop)" stroke-width="1.3"/>
+        <text x="98" y="588" text-anchor="middle" font-size="11.5" font-weight="700" fill="var(--stop)">Refresh This League</text>
+        <text x="98" y="603" text-anchor="middle" font-size="9" fill="var(--ink-soft)">sidebar · Streamlit</text>
+
+        <path d="M 192 591 C 300 591, 420 300, 524 190" stroke="var(--stop)" stroke-width="1.4"
+              fill="none" marker-end="url(#a3)" stroke-dasharray="5 3"/>
+        <text x="300" y="584" font-size="9.5" fill="var(--stop)">re-runs the whole blend for weeks 1..current</text>
+
+        <path d="M 192 591 C 500 591, 700 560, 800 200" stroke="var(--stop)" stroke-width="1"
+              fill="none" opacity=".45" stroke-dasharray="2 4"/>
+        <text x="420" y="608" font-size="9" fill="var(--stop)" opacity=".8">writes Data/Store only — never pushes, so the app (reading S3) shows the old numbers</text>
+      </g>
+    </svg>
+    <figcaption><strong>Three writers, one artifact.</strong> The 06:00 nightly rebuilds the blend
+    from scratch; the ten-minute live loop patches actuals onto whatever the nightly left; the
+    sidebar button re-runs the nightly's blend path on demand. Only the first two publish. The
+    red paths are where a game that has already kicked off can have its pre-game projection
+    rewritten — there is no kickoff guard anywhere on them.</figcaption>
+  </figure>
+</section>
+
+<!-- ───────────────────────────────── 5 ───────────────────────────────── -->
+<section id="button">
+  <p class="sec-no">05 — The button</p>
+  <h2>What "Refresh This League" actually refreshes</h2>
+
+  <p class="measure">It shells out to one command, with no <code>--what</code>:</p>
+  <pre>python -m Scripts.refresh --league &lt;display_name&gt; --season 2026
+<span class="c"># no --what, so DEFAULT_WHAT = ("lineups",)</span></pre>
+
+  <p class="measure">That is the <code>lineups</code> artifact and nothing else. Concretely,
+  pressing it:</p>
+
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Does it refresh…</th><th>Answer</th><th>Detail</th></tr></thead>
+    <tbody>
+      <tr><td>Current lineups / starters</td><td><span class="pill p-ok">yes</span></td>
+        <td>Re-fetches every matchup's box score from ESPN, so who is in which slot is current.</td></tr>
+      <tr><td>Rosters and waiver adds</td><td><span class="pill p-ok">yes</span></td>
+        <td>Same call. A player added an hour ago appears.</td></tr>
+      <tr><td>Live and final scores</td><td><span class="pill p-ok">yes</span></td>
+        <td><code>points</code> comes straight off the box score.</td></tr>
+      <tr><td>Free-agent pool</td><td><span class="pill p-ok">yes</span></td>
+        <td><code>build_fa_market</code> re-samples the wire, stamped with the current week.</td></tr>
+      <tr><td>The blended projection</td><td><span class="pill p-warn">recomputed</span></td>
+        <td>Re-blends from the source files already on disk — <strong>for every week from 1
+          to now</strong>, not just this one.</td></tr>
+      <tr><td>The projection <em>sources</em></td><td><span class="pill p-none">no</span></td>
+        <td>No scraping. FantasyPros, the books and The Athletic are whatever the 06:00 job left.</td></tr>
+      <tr><td>The draft board</td><td><span class="pill p-none">no</span></td>
+        <td><code>--what board</code> is nightly-only.</td></tr>
+      <tr><td>Matchups / standings</td><td><span class="pill p-none">no</span></td>
+        <td><code>--what team_stats</code> is nightly-only. This is why the Matchup tab used to
+          lag on a Tuesday.</td></tr>
+      <tr><td>Injuries, depth charts, NFL data</td><td><span class="pill p-none">no</span></td>
+        <td>All R-side, nightly.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note">Cost: ~8.5s per league measured in the 2026-09-16 nightly (85s for ten).
+  It grows with the season — the build loops weeks 1..current — toward roughly 23s by week 18.</p>
+
+  <div class="callout stop">
+    <h4>Under the default configuration, the button changes nothing the user can see</h4>
+    <p><code>app/store.DEFAULT_SOURCE</code> is <code>"s3"</code>. <code>Scripts.refresh</code>
+    contains no reference to S3 and never pushes. So the button spends 8–23 seconds of ESPN
+    round-trips, writes <code>Data/Store/</code>, and calls <code>st.rerun()</code> — and the
+    rerun reads the bucket, whose fingerprint has not moved, and re-renders identical numbers.
+    The in-code comment ("store_mtime changed, so the cached readers miss") is true only under
+    <code>ESPN_FFL_STORE_SOURCE=local</code>.</p>
+    <p>Two fixes, and they point in opposite directions. If the button is for the operator on
+    this laptop, have it push after a clean build. If it is for a deployed app, it should not
+    exist in that form at all — a web viewer cannot be allowed to trigger nine ESPN round-trips
+    from a render path.</p>
+    <p><span class="pill p-ok">fixed 2026-09-16</span> The first one. The button now runs
+    <code>Scripts.refresh --league X --push</code>, publishing only the artifacts it built and
+    skipping bytes S3 already holds, and greys out for five minutes after a successful run.
+    <strong>The second is still open</strong>: a session-scoped cooldown is right for one
+    operator on one laptop and is not a rate limit.</p>
+  </div>
+</section>
+
+<!-- ───────────────────────────────── 6 ───────────────────────────────── -->
+<section id="jobs">
+  <p class="sec-no">06 — The scheduled jobs</p>
+  <h2>Three clocks</h2>
+
+  <h3>The nightly — 06:00 daily, measured 2026-09-16</h3>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Stage</th><th class="n">Seconds</th><th></th><th class="n">Writes</th>
+      <th>Fatal on failure?</th></tr></thead>
+    <tbody>
+      <tr><td>R/GetNFL.R — schedule, tackle dim</td><td class="n">4</td>
+        <td><span class="bar" style="width:3px"></span></td><td class="n">67 KB</td>
+        <td><span class="pill p-bad">yes</span></td></tr>
+      <tr><td>R/GetContext.R — rosters, depth, injuries</td><td class="n">2</td>
+        <td><span class="bar" style="width:2px"></span></td><td class="n">1.3 MB</td>
+        <td><span class="pill p-bad">yes</span></td></tr>
+      <tr><td>R/GetPBP.R — play-by-play, current season</td><td class="n">2</td>
+        <td><span class="bar" style="width:2px"></span></td><td class="n">1.3 MB</td>
+        <td><span class="pill p-bad">yes</span></td></tr>
+      <tr><td>ESPN injury report</td><td class="n">1</td>
+        <td><span class="bar" style="width:1px"></span></td><td class="n">47 KB</td>
+        <td><span class="pill p-bad">yes</span></td></tr>
+      <tr><td>FantasyPros season</td><td class="n">28</td>
+        <td><span class="bar" style="width:21px"></span></td><td class="n">39 KB</td>
+        <td><span class="pill p-bad">yes</span> — below 60 rows</td></tr>
+      <tr><td>FantasyPros weekly</td><td class="n">26</td>
+        <td><span class="bar" style="width:19px"></span></td><td class="n">43 KB</td>
+        <td><span class="pill p-warn">partly</span> — 0 rows is tolerated</td></tr>
+      <tr><td>FantasyPros ROS ranks</td><td class="n">27</td>
+        <td><span class="bar" style="width:20px"></span></td><td class="n">54 KB</td>
+        <td><span class="pill p-bad">yes</span></td></tr>
+      <tr><td>Pinnacle weekly props</td><td class="n">34</td>
+        <td><span class="bar" style="width:25px"></span></td><td class="n">13 KB</td>
+        <td><span class="pill p-ok">no</span></td></tr>
+      <tr><td>Pinnacle season props</td><td class="n">1</td>
+        <td><span class="bar" style="width:1px"></span></td><td class="n">—</td>
+        <td><span class="pill p-warn">pre-season only</span></td></tr>
+      <tr><td>BetOnline season props</td><td class="n">5</td>
+        <td><span class="bar" style="width:4px"></span></td><td class="n">—</td>
+        <td><span class="pill p-warn">pre-season only</span></td></tr>
+      <tr><td><strong>BetOnline weekly props</strong> — headless Chromium</td><td class="n">174</td>
+        <td><span class="bar" style="width:129px"></span></td><td class="n">44 KB</td>
+        <td><span class="pill p-ok">no</span></td></tr>
+      <tr><td>TOMCAT usage re-projection</td><td class="n">1</td>
+        <td><span class="bar" style="width:1px"></span></td><td class="n">143 KB</td>
+        <td><span class="pill p-bad">yes</span></td></tr>
+      <tr style="opacity:.6"><td><strong>Draft boards</strong> — 10 leagues
+        <span class="pill p-ok">removed 2026-09-16</span></td><td class="n">97</td>
+        <td><span class="bar" style="width:72px"></span></td><td class="n">21.3 MB</td>
+        <td><span class="pill p-bad">yes</span></td></tr>
+      <tr><td><strong>Weekly lineups</strong> — 10 leagues</td><td class="n">85</td>
+        <td><span class="bar" style="width:63px"></span></td><td class="n">26.1 MB</td>
+        <td><span class="pill p-bad">yes</span></td></tr>
+      <tr><td>Free-agent pool capture</td><td class="n">2</td>
+        <td><span class="bar" style="width:2px"></span></td><td class="n">0.4 MB</td>
+        <td><span class="pill p-ok">no</span></td></tr>
+      <tr><td>Fixtures + standings (team_stats)</td><td class="n">20</td>
+        <td><span class="bar" style="width:15px"></span></td><td class="n">0.9 MB</td>
+        <td><span class="pill p-ok">no</span></td></tr>
+      <tr><td>S3 push + dated snapshot</td><td class="n">30</td>
+        <td><span class="bar" style="width:22px"></span></td><td class="n">119 objects</td>
+        <td><span class="pill p-bad">yes</span></td></tr>
+      <tr class="total"><td>Total</td><td class="n">539</td>
+        <td><span class="bar-rest" style="width:160px"></span></td><td class="n">~50 MB</td><td>8 min 59 s</td></tr>
+      <tr class="total"><td>Total, after the board stage came out</td><td class="n">442</td>
+        <td><span class="bar-rest" style="width:131px"></span></td><td class="n">~29 MB</td><td>7 min 22 s</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note">One stage is a third of the run. BetOnline's weekly props drive a headless
+  Chromium through roughly 350 clicks for 44 KB of output — the worst size-to-time ratio in the
+  pipeline by three orders of magnitude, and the obvious target if the window ever needs to shrink.</p>
+
+  <h3>The live loop — every 10 minutes, self-gated</h3>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Property</th><th>Value</th></tr></thead>
+    <tbody>
+      <tr><td>Trigger</td><td><code>*/10 * * * *</code> → <code>~/bin/espn_ffl_live.sh</code></td></tr>
+      <tr><td>Gate</td><td><code>game_state --if-live</code> — one HTTP call. Open while any
+        game is in progress, and for 6 hours after each kickoff. Exit 3 = nothing to do.</td></tr>
+      <tr><td>Work when open</td><td><code>refresh --all --what live</code> → 90.25s for 9
+        leagues, then <code>sync --push --what store --no-snapshot</code> → 74 objects</td></tr>
+      <tr><td>Observed firings</td><td>47 on Sun 2026-09-13 · 36 on Mon 09-14 · 20 on Wed 09-10
+        · 0 on a Tuesday</td></tr>
+      <tr><td>What it writes</td><td><code>points</code>, <code>projPoints</code>, roster and slot
+        columns on the current week's rows only</td></tr>
+      <tr><td>What it leaves alone</td><td>every <code>ESPN_</code>/<code>FP_</code>/<code>PINNY_</code>/<code>BOL_</code>/<code>ATH_</code>/<code>MEAN_</code>/<code>TRUE_</code> cell</td></tr>
+      <tr><td>Concurrency</td><td>directory lock, taken loudly if older than 30 minutes</td></tr>
+      <tr><td>Code source</td><td>a second worktree pinned to <code>origin/main</code> by the 06:00 job</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>The odds pull — 06:45 daily</h3>
+  <p class="measure">Three books (Pinnacle, BetOnline, 4Casters) for game lines, ~5 seconds,
+  22,334 line-states stored in 1.2 MB. It is the best-behaved job in the repo and it is the
+  model the rest of section 08 argues from: <strong>append only what moved</strong>, partitioned
+  by game date, and 4Casters' live in-game prices are dropped before they are written.</p>
+</section>
+
+<!-- ───────────────────────────────── 7 ───────────────────────────────── -->
+<section id="sources">
+  <p class="sec-no">07 — Source by source</p>
+  <h2>Size, cadence, and what happens after kickoff</h2>
+
+  <div class="scroll">
+  <table style="min-width:900px">
+    <thead><tr>
+      <th>Source</th><th class="n">On disk</th><th class="n">Pull</th><th>Cadence</th>
+      <th>Write rule</th><th>After kickoff</th>
+    </tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>ESPN box scores</strong><br><span class="dim">weeks 1..current</span></td>
+        <td class="n">in-store</td><td class="n">~8.5s/lg</td><td>every build</td>
+        <td>full re-read, rows replaced</td>
+        <td><span class="pill p-bad">rewrites</span></td>
+      </tr>
+      <tr>
+        <td><strong>FantasyPros weekly</strong></td>
+        <td class="n">43 KB</td><td class="n">26s</td><td>06:00</td>
+        <td><code>merge keep="first"</code></td>
+        <td><span class="pill p-ok">frozen</span> — at first capture of the week</td>
+      </tr>
+      <tr>
+        <td><strong>FantasyPros season</strong></td>
+        <td class="n">39 KB</td><td class="n">28s</td><td>06:00</td>
+        <td>overwritten</td>
+        <td><span class="pill p-none">n/a</span> — season-long</td>
+      </tr>
+      <tr>
+        <td><strong>FantasyPros ROS</strong></td>
+        <td class="n">54 KB</td><td class="n">27s</td><td>06:00</td>
+        <td>appended with <code>captured_date</code></td>
+        <td><span class="pill p-ok">full history</span></td>
+      </tr>
+      <tr>
+        <td><strong>BetOnline weekly props</strong></td>
+        <td class="n">44 KB</td><td class="n">174s</td><td>06:00</td>
+        <td>newest <code>BetTimeStamp</code> wins</td>
+        <td><span class="pill p-warn">rewrites if offered</span></td>
+      </tr>
+      <tr>
+        <td><strong>Pinnacle weekly props</strong></td>
+        <td class="n">13 KB</td><td class="n">34s</td><td>06:00</td>
+        <td>newest <code>BetTimeStamp</code> wins</td>
+        <td><span class="pill p-warn">rewrites if offered</span></td>
+      </tr>
+      <tr>
+        <td><strong>The Athletic weekly</strong></td>
+        <td class="n">16 KB</td><td class="n">manual</td><td>on import</td>
+        <td>whole week deleted and replaced</td>
+        <td><span class="pill p-bad">rewrites</span></td>
+      </tr>
+      <tr>
+        <td><strong>TOMCAT usage</strong></td>
+        <td class="n">143 KB</td><td class="n">1s</td><td>06:00</td>
+        <td>re-projected season-wide</td>
+        <td><span class="pill p-bad">rewrites</span></td>
+      </tr>
+      <tr>
+        <td><strong>nflverse depth / rosters</strong></td>
+        <td class="n">1.3 MB</td><td class="n">2s</td><td>06:00</td>
+        <td>overwritten</td>
+        <td><span class="pill p-none">n/a</span></td>
+      </tr>
+      <tr>
+        <td><strong>Game lines ×3</strong></td>
+        <td class="n">1.2 MB</td><td class="n">5s</td><td>06:45</td>
+        <td>append only what moved</td>
+        <td><span class="pill p-ok">live dropped</span></td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="callout">
+    <h4>Two sources are thinner than they look this week</h4>
+    <p>Real (non-imputed) coverage on <code>john_pc_league</code>'s 2026 frame, counted off the
+    <code>_is_imputed</code> flags rather than off non-zero values:</p>
+    <div class="scroll">
+    <table style="min-width:420px">
+      <thead><tr><th>Week</th><th class="n">FP</th><th class="n">PINNY</th><th class="n">BOL</th><th class="n">ATH</th></tr></thead>
+      <tbody>
+        <tr><td>1 · 170 rows</td><td class="n">99%</td><td class="n">77%</td><td class="n">84%</td><td class="n">82%</td></tr>
+        <tr><td>2 · 310 rows</td><td class="n">97%</td><td class="n" style="color:var(--stop)">4%</td><td class="n">66%</td><td class="n" style="color:var(--stop)">0%</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>The Athletic is at zero because the last workbook imported was <code>Week_1_Proj_0909.xlsx</code>
+    — nobody has dropped a week-2 file. Pinnacle is at 4% because the book posted 15 prop rows
+    instead of 202. Neither is a bug: the blend imputes the missing columns from the
+    ESPN/FantasyPros mean, drops the imputed weight and renormalises, which is honest. But it
+    means week 2's <code>TRUE_Points</code> is close to a two-source number where week 1 was a
+    five-source one, and nothing on screen says so.</p>
+  </div>
+</section>
+
+<!-- ───────────────────────────────── 8 ───────────────────────────────── -->
+<section id="guards">
+  <p class="sec-no">08 — Temporal guards</p>
+  <h2>What already stops the clock, and what doesn't</h2>
+
+  <p class="measure">The repo has more kickoff-awareness than it looks like from the outside. It
+  is just wired into the display layer rather than the ingest layer.</p>
+
+  <div class="scroll">
+  <table style="min-width:760px">
+    <thead><tr><th>Guard</th><th>Grain</th><th>Where it acts</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>Scripts.game_state</code> — ESPN scoreboard → <code>pre</code>/<code>in</code>/<code>post</code>/<code>bye</code>,
+          plus <code>game_elapsed</code> and <code>game_locked</code></td>
+        <td>per team, per week</td><td>read into the frame at blend step 6b</td>
+        <td><span class="pill p-ok">built</span></td>
+      </tr>
+      <tr>
+        <td><code>Scripts.live.resolve</code> — <code>LIVE_Points</code> = banked + remaining×(1−elapsed)</td>
+        <td>per player</td><td>display only</td>
+        <td><span class="pill p-ok">built</span></td>
+      </tr>
+      <tr>
+        <td><code>game_state --if-live</code> — the cron gate</td>
+        <td>whole slate</td><td>whether the live job runs at all</td>
+        <td><span class="pill p-ok">built</span></td>
+      </tr>
+      <tr>
+        <td><code>Scripts.freeze</code> — <code>board_frozen.parquet</code></td>
+        <td>per league, once</td><td>draft night</td>
+        <td><span class="pill p-ok">built · 5 of 10 frozen</span></td>
+      </tr>
+      <tr>
+        <td>FantasyPros <code>keep="first"</code></td>
+        <td>per week</td><td>the scrape</td>
+        <td><span class="pill p-warn">too coarse</span></td>
+      </tr>
+      <tr>
+        <td>4Casters <code>if not g["live"]</code></td>
+        <td>per game</td><td>the pull</td>
+        <td><span class="pill p-ok">the right shape</span></td>
+      </tr>
+      <tr>
+        <td>Odds store — append only what moved, partitioned by game date</td>
+        <td>per game, per price</td><td>the write</td>
+        <td><span class="pill p-ok">the right shape</span></td>
+      </tr>
+      <tr>
+        <td><strong>A kickoff guard on the projection blend</strong></td>
+        <td>—</td><td>—</td>
+        <td><span class="pill p-bad">does not exist</span></td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="callout">
+    <h4>The FantasyPros freeze is wrong in both directions at once</h4>
+    <p><code>keep="first"</code> freezes a whole week at its first capture, which in practice is
+    the Tuesday or Wednesday 06:00 run. So Thursday's opener is protected — and so is Sunday's
+    1 pm slate, four days before it kicks off. Every injury designation, every Friday practice
+    report, every Saturday inactive between that first capture and kickoff is discarded. Week
+    2's FantasyPros numbers were captured 2026-09-16 and will not move again, whatever happens
+    between now and Sunday.</p>
+    <p>That is the argument for making the guard per-game rather than per-week: <em>both</em>
+    failures are the same missing distinction.</p>
+  </div>
+</section>
+
+<!-- ───────────────────────────────── 9 ───────────────────────────────── -->
+<section id="evidence">
+  <p class="sec-no">09 — Measured</p>
+  <h2>Week 1's projections did move after week 1 was played</h2>
+
+  <p class="measure">This is not inferred from the code. <code>Data/.s3cache</code> keeps every
+  version of every artifact it has ever downloaded, keyed by ETag — 19 distinct copies of
+  <code>winfield_football/lineups.parquet</code> between 17 Aug and 16 Sep. Joining consecutive
+  versions on <code>(week, player_id)</code> and restricting to week 1 says exactly what changed,
+  and when.</p>
+
+  <div class="scroll">
+  <table style="min-width:780px">
+    <thead><tr><th>Window</th><th>NFL events inside it</th>
+      <th class="n">projPoints</th><th class="n">ESPN_</th><th class="n">FP_</th>
+      <th class="n">BOL_</th><th class="n">TRUE_Points</th></tr></thead>
+    <tbody>
+      <tr><td>09-09 08:56 → 15:07</td><td class="dim">nothing yet</td>
+        <td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">3</td><td class="n">69</td></tr>
+      <tr style="background:var(--stop-bg)"><td><strong>09-09 15:07 → 09-10 08:01</strong></td>
+        <td><strong>NE @ SEA played</strong> (Wed 20:20)</td>
+        <td class="n">34</td><td class="n">40</td><td class="n">6</td><td class="n">147</td>
+        <td class="n"><strong>132 / 241</strong></td></tr>
+      <tr><td>09-10 08:01 → 11:48</td><td class="dim">pre-slate</td>
+        <td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">168</td></tr>
+      <tr><td>09-10 12:23 → 09-11 07:44</td><td>SF @ LA played (Thu 20:35)</td>
+        <td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">128</td><td class="n">95</td></tr>
+      <tr style="background:var(--stop-bg)"><td><strong>09-11 07:44 → 09-14 10:58</strong></td>
+        <td><strong>the 13-game Sunday slate played</strong></td>
+        <td class="n">104</td><td class="n">100</td><td class="n">30</td><td class="n">165</td>
+        <td class="n"><strong>154 / 242</strong></td></tr>
+      <tr><td>09-14 10:58 → 09-15 11:49</td><td>DEN @ KC played (Mon 20:15)</td>
+        <td class="n">1</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td></tr>
+      <tr><td>09-15 → 09-16 (4 windows)</td><td class="dim">week 2 is current</td>
+        <td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">0</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note">Cells are the number of week-1 rows whose value changed by more than 0.01.
+  Week 1 stops moving entirely once the matchup period rolls over, because
+  <code>get_ply_stats_by_matchup</code> bounds its loop by <code>currentMatchupPeriod</code> and
+  stops fetching the week. <strong>The exposure window is precisely: first kickoff of a week
+  until the following Tuesday's rollover.</strong></p>
+
+  <h3>How big is it, really</h3>
+  <p class="measure">Restricting to the 187 players whose game was played inside the Friday →
+  Monday window:</p>
+  <div class="scroll">
+  <table style="min-width:520px">
+    <thead><tr><th>Column</th><th class="n">Rows rewritten</th><th class="n">Mean |Δ|</th><th class="n">Max |Δ|</th></tr></thead>
+    <tbody>
+      <tr><td>BOL_Points</td><td class="n">141 / 187</td><td class="n">0.225</td><td class="n">2.728</td></tr>
+      <tr><td>TRUE_Points</td><td class="n">128 / 187</td><td class="n">0.078</td><td class="n">1.680</td></tr>
+      <tr><td>projPoints</td><td class="n">84 / 187</td><td class="n">0.129</td><td class="n">8.160</td></tr>
+      <tr><td>ESPN_Points</td><td class="n">81 / 187</td><td class="n">0.129</td><td class="n">8.118</td></tr>
+      <tr><td>MEAN_Points</td><td class="n">56 / 187</td><td class="n">0.067</td><td class="n">4.035</td></tr>
+      <tr><td>PINNY_Points</td><td class="n">44 / 187</td><td class="n">0.029</td><td class="n">0.781</td></tr>
+      <tr><td>FP_Points</td><td class="n">24 / 187</td><td class="n">0.010</td><td class="n">0.254</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="callout ok">
+    <h4>Be honest about the magnitude: today it is small, and that is luck</h4>
+    <p>The largest single move on an already-played game was Jalen McMillan's week-1
+    <code>TRUE_Points</code> going 8.05 → 6.37 <em>after</em> he had finished the game on 0.0.
+    Most rows moved by hundredths. The reason it is not worse is that <strong>no NFL game kicks
+    off before 06:00</strong>, so the nightly's one daily write always lands pre-kickoff for that
+    day's games, and books retire a market once its game starts, so there is usually nothing new
+    to overwrite with.</p>
+    <p>None of that is enforced anywhere. It holds because of the cron slot and because of how
+    sportsbooks behave. <strong>Move the nightly to 18:00, add a second daily run, or press the
+    sidebar button at 4 pm on a Sunday, and every number in the table above gets larger with no
+    warning and no log line.</strong> The guard is worth building while the cost of not having
+    it is still two decimal places.</p>
+  </div>
+
+  <h3>And one column the live loop does rewrite, 144 times a day</h3>
+  <p class="measure"><code>Scripts.live.PATCH_COLUMNS</code> includes <code>projPoints</code> —
+  ESPN's own weekly projection, which moves continuously during a game. Every ten minutes
+  through a slate, the live job overwrites it with ESPN's in-game number. The
+  <code>ESPN_</code>-prefixed columns are correctly left alone, so between one nightly and the
+  next, <code>espn_unpriced = projPoints − ESPN_Points</code> drifts from a real audit residual
+  into the gap between a live projection and a pre-game one. It is the one place the live job's
+  "touches no projection column" contract does not hold, and it holds for every column that
+  carries a source prefix — which is why it was easy to miss.</p>
+</section>
+
+<!-- ───────────────────────────────── 10 ───────────────────────────────── -->
+<section id="proposal">
+  <p class="sec-no">10 — Proposal</p>
+  <h2>Freeze a projection at its own kickoff</h2>
+
+  <p class="measure">The rule, stated once: <strong>a projection column for player P in week W
+  is writable while P's team's week-W game is <code>pre</code>, and immutable from the moment it
+  is anything else.</strong> Not per week, not per slate — per game, because that is the grain
+  at which the fact "this is now history" becomes true.</p>
+
+  <p class="measure">Everything needed to enforce it already exists.
+  <code>Scripts.game_state.states(season, week)</code> returns one row per NFL team per week with
+  <code>state</code>, <code>game_elapsed</code>, <code>game_locked</code> and the kickoff time,
+  cached for 300 seconds and refreshed on demand. It is read at blend step 6b to compute
+  <code>LIVE_Points</code>. The proposal is to read it one step earlier and let it gate the
+  write, not just the display.</p>
+
+  <h3>What to freeze, and when</h3>
+  <div class="scroll">
+  <table style="min-width:820px">
+    <thead><tr><th>Column family</th><th>Freeze at</th><th>Why that moment</th><th>Work</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>ESPN_*</code>, <code>FP_*</code>, <code>PINNY_*</code>, <code>BOL_*</code>,
+          <code>ATH_*</code>, <code>USG_*</code>, <code>MEAN_*</code>, <code>TRUE_*</code>
+          <span class="dim">— every projection stat and point column</span></td>
+        <td><span class="pill p-bad">kickoff</span></td>
+        <td>These are the pre-game opinion. Once the game starts they can only be
+          contaminated, never improved.</td>
+        <td>S</td>
+      </tr>
+      <tr>
+        <td><code>projPoints</code> <span class="dim">— ESPN's own weekly number</span></td>
+        <td><span class="pill p-bad">kickoff</span></td>
+        <td>Same reason, and it is the one the live loop currently overwrites every ten minutes.</td>
+        <td>XS</td>
+      </tr>
+      <tr>
+        <td><code>points</code>, <code>ACT_*</code>, <code>LIVE_*</code>, slot and roster columns</td>
+        <td><span class="pill p-ok">never</span></td>
+        <td>These are the actual. They are <em>supposed</em> to move during a game and settle
+          at the final whistle.</td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td><code>board.parquet</code> <span class="dim">— season-long</span></td>
+        <td><span class="pill p-warn">already handled</span></td>
+        <td><code>board_frozen</code> covers the one question a season-long board must answer
+          about a moment in the past. The live board is meant to be a rest-of-season instrument.</td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td>Game lines and props in <code>Data/Odds/</code></td>
+        <td><span class="pill p-ok">already handled</span></td>
+        <td>Append-only with a snapshot stamp; live prices are dropped at the pull. Nothing to do.</td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td>Weekly source files <span class="dim">— FP, BOL, PINNY, ATH</span></td>
+        <td><span class="pill p-bad">kickoff, per game</span></td>
+        <td>Replaces FantasyPros' per-week <code>keep="first"</code> with a per-game rule, which
+          fixes the over-freeze at the same time.</td>
+        <td>M</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>The worked example</h3>
+  <div class="callout">
+    <h4>NE @ SEA, Wednesday 20:20</h4>
+    <p>At Thursday 06:00 the nightly runs. <code>game_state.states(2026, 1)</code> reports
+    <code>NE=post</code>, <code>SEA=post</code>, and <code>pre</code> for the other 30 teams.</p>
+    <ul>
+      <li>Every NE and SEA player's <code>*_Points</code> and <code>*_&lt;stat&gt;</code> cells
+        for week 1 are carried forward byte-for-byte from the stored frame.</li>
+      <li>Their <code>points</code>, <code>ACT_*</code> and <code>LIVE_*</code> are written
+        normally — the game is final and the actual is the answer.</li>
+      <li>Every other team's week-1 projection rebuilds exactly as it does today, with
+        Thursday's injury news in it.</li>
+      <li>On Sunday at 06:00, the 26 teams playing at 13:00 are still <code>pre</code>, so
+        Saturday's inactives reach them. The two Thursday teams stay frozen.</li>
+    </ul>
+    <p>Same command, same cadence, same cost. The only thing that changes is that a cell whose
+    game has started is copied rather than recomputed.</p>
+  </div>
+
+  <h3>Implementation order</h3>
+  <p class="measure"><span class="pill p-ok">steps 1–4 built 2026-09-16</span>
+  <code>Scripts/kickoff_freeze.py</code>, applied at the store boundary in
+  <code>Scripts.refresh</code>, with <code>Scripts.scrape_FP</code> moved from a per-week
+  freeze to a per-game one. Step 5 rides on the button decision in §05.</p>
+  <ol class="measure">
+    <li><strong>Stamp, before gating.</strong> Add <code>projection_frozen_at</code> to the
+      lineups frame, written at the moment a row first goes <code>pre</code> → not-<code>pre</code>.
+      A week of that data alone says how much movement the gate would have prevented, per source,
+      and it costs one column.</li>
+    <li><strong>Gate the blend.</strong> In <code>clean_lineups</code>, after the existing
+      <code>gs.board(...)</code> call at step 6b, carry forward the projection columns for any
+      <code>(week, player)</code> whose team is not <code>pre</code>. The frame and the board are
+      already both in hand at that point — this is a merge, not a new fetch.</li>
+    <li><strong>Drop <code>projPoints</code> from <code>PATCH_COLUMNS</code></strong> for locked
+      rows, so the live loop stops moving it mid-game.</li>
+    <li><strong>Gate the source scrapes</strong> — generalise 4Casters' <code>if not g["live"]</code>
+      into the shared helper and apply it to BOL, Pinnacle and The Athletic. Replace FantasyPros'
+      per-week <code>keep="first"</code> with the same per-game rule.</li>
+    <li><strong>Gate the button.</strong> Whatever is decided in section 05, the manual path must
+      go through the same freeze — it is the only writer with no timing protection at all.</li>
+  </ol>
+
+  <p class="measure">Steps 1–3 are small, sit inside code paths that already have the game-state
+  board loaded, and close the whole in-store exposure. Step 4 is the larger one and can wait;
+  it closes the source files, which are currently protected by market behaviour rather than by
+  us.</p>
+
+  <div class="callout stop">
+    <h4>The one thing to check before building any of it</h4>
+    <p>This report establishes that projection columns for played games <em>do</em> change. It
+    does not establish that they change <em>wrongly</em> in every case — some of the movement in
+    the 09-11 → 09-14 window is legitimate pre-kickoff line movement on Sunday morning, captured
+    before 13:00. Step 1's stamp is what separates the two, and it is deliberately first for
+    that reason. Build the measurement before the guard; the plans directory is full of cases
+    where the opposite order shipped a fix for the wrong thing.</p>
+  </div>
+</section>
+
+<!-- ───────────────────────────────── appendix ───────────────────────────────── -->
+<section id="appendix">
+  <p class="sec-no">Appendix</p>
+  <h2>Reproducing every figure here</h2>
+
+  <pre><span class="c"># storage, local and remote</span>
+du -sh Data/* Data/.s3cache
+aws s3 ls s3://espn-ffl-data/ --recursive --summarize | tail -2
+
+<span class="c"># the store: seasons, leagues, artifacts, rows, widths</span>
+python -c "import polars as pl, json, pathlib as p; [print(f, pl.scan_parquet(f).select(pl.len()).collect().item()) for f in sorted(p.Path('Data/Store').rglob('*.parquet'))]"
+
+<span class="c"># nightly stage timings — the last run</span>
+awk '/=== daily refresh starting ===/{n=NR} {a[NR]=$0} END{for(i=n;i&lt;=NR;i++) if(a[i]~/^\[2026/) print a[i]}' ~/logs/espn_ffl_refresh.log
+
+<span class="c"># live loop: how often it actually fired</span>
+grep "live window open" ~/logs/espn_ffl_live.log | awk '{print $1}' | sort | uniq -c
+
+<span class="c"># game state right now — the primitive the freeze would use</span>
+python -m Scripts.game_state
+python -m Scripts.game_state --if-live; echo "exit $?"   <span class="c"># 0 = live, 3 = quiet</span>
+
+<span class="c"># source freshness and whether the 06:00 job ran</span>
+python -m Scripts.refresh_status
+
+<span class="c"># the drift measurement in section 09 — every cached version of one artifact</span>
+ls -lt Data/.s3cache/store/season=2026/league=winfield_football/*lineups.parquet</pre>
+
+  <p class="measure dim" style="font-size:14px; margin-top:32px;">The ad-hoc scripts behind
+  sections 02, 07 and 09 were written to the session scratchpad rather than the repo; the
+  commands above regenerate everything they produced. Nothing in this report modified the
+  store, the bucket, or any scheduled job.</p>
+</section>
+
+</div>
+</body>
+</html>

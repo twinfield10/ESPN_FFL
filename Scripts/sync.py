@@ -109,7 +109,9 @@ def _unchanged(local, key: str) -> bool:
 
 def push(what: Sequence[str], season: int, *, dry_run: bool = False,
          snapshot_date: Optional[str] = None,
-         skip_unchanged: bool = True) -> Tuple[int, List[str]]:
+         skip_unchanged: bool = True,
+         leagues: Optional[Sequence[str]] = None,
+         only: Optional[Sequence[str]] = None) -> Tuple[int, List[str]]:
     """Upload the requested tiers.
 
     Args:
@@ -118,8 +120,14 @@ def push(what: Sequence[str], season: int, *, dry_run: bool = False,
         dry_run: Resolve keys and checksums without writing anything.
         snapshot_date: ``YYYY-MM-DD`` to preserve today's boards under. None skips
             the snapshot entirely.
-        skip_unchanged: Skip mirror files whose object in S3 already has the same
-            SHA-256. See :func:`_unchanged`.
+        skip_unchanged: Skip files whose object in S3 already holds the same bytes.
+            Applies to the mirror tiers via :func:`_unchanged` and to the store tier
+            via :func:`Scripts.s3_store.push_league_store`.
+        leagues: Restrict the store tier to these ``config.yaml`` keys. None means
+            every league with a local store. This is what lets one league publish
+            without the other nine being re-listed behind it.
+        only: Restrict the store tier to these artifacts. None means all of them.
+            A refresh that built one artifact has no business re-sending eight.
 
     Returns:
         tuple: ``(objects_uploaded, failures)``. Failures are human-readable and
@@ -131,14 +139,31 @@ def push(what: Sequence[str], season: int, *, dry_run: bool = False,
 
     if "store" in what:
         pairs = _league_seasons(season)
+        if leagues is not None:
+            wanted = set(leagues)
+            missing = wanted - {key for _, key in pairs}
+            if missing:
+                failures.append(
+                    f"no local store for {sorted(missing)} in {season} -- run "
+                    f"`python -m Scripts.refresh --league <name>` first")
+            pairs = [(yr, key) for yr, key in pairs if key in wanted]
         if not pairs:
             failures.append(
                 f"no local store for {season} -- run `python -m Scripts.refresh --all`")
         for yr, league in pairs:
             try:
-                objects = s3_store.push_league_store(yr, league, dry_run=dry_run)
-                uploaded += len(objects)
-                _log(f"  store      {league:<24} {prefix} {len(objects)} objects")
+                result = s3_store.push_league_store(
+                    yr, league, only=only, skip_unchanged=skip_unchanged,
+                    dry_run=dry_run)
+                uploaded += len(result.uploaded)
+                # The skip count is reported rather than absorbed for the reason the
+                # mirror's has always been: on a live-scoring push it is 6 of 8 every
+                # ten minutes, and a line that says so is what makes the saving
+                # visible instead of looking like a push that did not happen.
+                tail = (f"  ({len(result.skipped)} unchanged)"
+                        if result.skipped else "")
+                _log(f"  store      {league:<24} {prefix} "
+                     f"{len(result.uploaded)} objects{tail}")
             except Exception as e:                          # noqa: BLE001
                 failures.append(f"store/{league}: {type(e).__name__}: {e}")
                 _log(f"  store      {league:<24} FAILED  {type(e).__name__}: {e}")
@@ -333,6 +358,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--no-snapshot", action="store_true",
                         help="--push only: skip the dated board snapshot")
     parser.add_argument("--date", help="snapshot date, YYYY-MM-DD (default: today)")
+    parser.add_argument("--league", action="append", dest="leagues", metavar="NAME",
+                        help="--push only: restrict the store tier to this league; "
+                             "repeatable. Default is every league with a store.")
+    parser.add_argument("--only", metavar="ARTIFACTS",
+                        help="--push only: comma-separated artifacts to send, e.g. "
+                             "`lineups`. meta.json always rides along.")
     args = parser.parse_args(argv)
 
     what = [w.strip() for w in args.what.split(",") if w.strip()]
@@ -348,8 +379,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.push:
         date = None if args.no_snapshot else (
             args.date or datetime.date.today().isoformat())
+        # Resolved here rather than inside `push` so a typo'd league name is a parse
+        # error naming the valid keys, not a silent no-op push of zero leagues.
+        keys = None
+        if args.leagues:
+            from Scripts.config_utils import resolve_league
+            try:
+                keys = [resolve_league(name)["key"] for name in args.leagues]
+            except Exception as e:                          # noqa: BLE001
+                parser.error(f"--league: {e}")
+        only = ([a.strip() for a in args.only.split(",") if a.strip()]
+                if args.only else None)
         count, failures = push(what, season, dry_run=args.dry_run,
-                               snapshot_date=date)
+                               snapshot_date=date, leagues=keys, only=only)
         verb = "would upload" if args.dry_run else "uploaded"
         _log(f"  TOTAL      {verb} {count} objects")
     elif args.pull:

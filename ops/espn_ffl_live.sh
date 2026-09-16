@@ -96,15 +96,22 @@ elif [ "${GATE}" -ne 0 ]; then
   exit 1
 fi
 
+# The app reads S3 by default, so a patch that is not pushed is a patch nobody sees.
+# `--push` rather than a second `Scripts.sync` call, because it publishes **only the
+# artifact this run built** -- `--what live` rewrites `lineups.parquet` and nothing
+# else, and the old `sync --push --what store` sent all eight every ten minutes.
+#
+# That was the single largest source of waste in the bucket. Versioning is on with a
+# 90-day non-current expiry, so an identical PUT does not overwrite -- it mints a
+# retained version. Measured 2026-09-16: `store/` held 58 MB of current objects
+# against **7.70 GB of non-current ones**, including 156 versions of one league's
+# `board_frozen.parquet`, a file that by definition has never changed. Forty-seven
+# firings on a Sunday times nine leagues times eight artifacts is where they came
+# from. Scoped, and with `push_league_store` skipping bytes S3 already holds, a
+# firing that changed nothing now uploads nothing.
 log "live window open at ${REV}; refreshing"
-if "${PYTHON}" -m Scripts.refresh --all --what live >>"${LOG}" 2>&1; then
-  # The app reads S3 by default, so a patch that is not pushed is a patch nobody
-  # sees. `--what store` only: nothing else moved.
-  if "${PYTHON}" -m Scripts.sync --push --what store --no-snapshot >>"${LOG}" 2>&1; then
-    log "pushed"
-  else
-    log "FAILED: Scripts.sync --push"
-  fi
+if "${PYTHON}" -m Scripts.refresh --all --what live --push >>"${LOG}" 2>&1; then
+  log "refreshed and published"
 else
-  log "FAILED: Scripts.refresh --all --what live"
+  log "FAILED: Scripts.refresh --all --what live --push"
 fi

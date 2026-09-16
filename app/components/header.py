@@ -28,8 +28,9 @@ import _bootstrap  # noqa: F401  -- must precede the Scripts imports
 
 import subprocess
 import sys
+import time
 from datetime import date
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import streamlit as st
 
@@ -177,19 +178,72 @@ def no_visible_league_message(viewer: auth.Viewer, season: int,
     st.stop()
 
 
+#: How long the refresh button stays disabled after a successful run, in seconds.
+#:
+#: Five minutes, matching :data:`store.CACHE_TTL` -- the interval the app's own
+#: readers hold a frame for -- and the ten-minute live loop's own cadence at half its
+#: period, so a press between two live refreshes is never wasted but a second press
+#: ten seconds later is.
+#:
+#: **What this is for, and what it is not.** It stops the honest double-press: a run
+#: is 8-23s of ESPN round-trips with no visible progress until the status box opens,
+#: and the instinct on a page that has not changed yet is to click again. It is *not*
+#: a rate limit. It lives in ``st.session_state``, so it is per browser session and a
+#: reload clears it. The day this app has more than one viewer, the enforcement
+#: belongs server-side next to the one :mod:`auth` describes -- and for the same
+#: reason: a control the client owns is a statement about what is sensible, not about
+#: what is possible.
+REFRESH_COOLDOWN_SECONDS = 300
+
+#: Session key holding ``{(league, season): monotonic_seconds}`` of the last
+#: successful refresh. ``time.monotonic`` rather than wall time because the only
+#: question asked of it is "how long ago", and that must survive a clock change.
+_LAST_REFRESH = "_last_refresh_at"
+
+
+def _cooldown_remaining(display_name: str, season: int) -> float:
+    """Seconds left before this league may be refreshed again.
+
+    Args:
+        display_name: League display name.
+        season: Season year.
+
+    Returns:
+        float: Remaining seconds, or 0.0 when the button is available.
+    """
+    last = st.session_state.get(_LAST_REFRESH, {}).get((display_name, season))
+    if last is None:
+        return 0.0
+    return max(0.0, REFRESH_COOLDOWN_SECONDS - (time.monotonic() - last))
+
+
 def _run_refresh(display_name: str, season: int) -> None:
-    """Shell out to the refresh CLI, streaming its output.
+    """Shell out to the refresh CLI, streaming its output, and publish the result.
 
     A subprocess on purpose: the ingest path is seconds of blocking ESPN calls,
     and running it inside a Streamlit rerun would freeze the whole session.
     ``cwd`` is the repo root because modules import as ``Scripts.*``.
+
+    **``--push``, because without it this button did nothing a viewer could see.**
+    :data:`store.DEFAULT_SOURCE` is ``"s3"`` and ``Scripts.refresh`` writes only
+    ``Data/Store``, so until 2026-09-16 a press spent 8-23s of ESPN round-trips,
+    rewrote local parquet, and called ``st.rerun()`` -- which re-read the bucket,
+    whose fingerprint had not moved, and rendered identical numbers. The comment
+    below about ``store_mtime`` was true only under
+    ``ESPN_FFL_STORE_SOURCE=local``.
+
+    The push is scoped to the one artifact a default refresh builds and skips bytes
+    S3 already holds, so a press that changes nothing uploads nothing -- which
+    matters on a versioned bucket, where an identical PUT is a retained version
+    rather than a no-op. It never writes a dated board snapshot. See
+    :func:`Scripts.refresh.push_built`.
 
     Args:
         display_name: League to refresh.
         season: Season year.
     """
     cmd = [sys.executable, "-m", "Scripts.refresh",
-           "--league", display_name, "--season", str(season)]
+           "--league", display_name, "--season", str(season), "--push"]
     with st.status(f"Refreshing {display_name} {season}…", expanded=True) as status:
         st.caption(" ".join(cmd))
         output = st.empty()
@@ -212,8 +266,15 @@ def _run_refresh(display_name: str, season: int) -> None:
             status.update(label=f"Refresh failed (exit {code})", state="error")
 
     if code == 0:
-        # store_mtime changed, so the cached readers miss and re-read on the
-        # rerun. No cache_data.clear() needed.
+        # The cache key moved on both backends -- `store_mtime` locally, and the
+        # prefix fingerprint in S3 now that the run pushes -- so the cached readers
+        # miss and re-read on the rerun. No cache_data.clear() needed.
+        #
+        # The cooldown is stamped on success only. A failed run has published
+        # nothing and left the previous store in place, so making the user wait
+        # before trying again would punish them for an expired cookie.
+        st.session_state.setdefault(_LAST_REFRESH, {})[
+            (display_name, season)] = time.monotonic()
         st.rerun()
 
 
@@ -334,9 +395,21 @@ def _render_freshness(meta: dict, season: int, display_name: str) -> None:
     else:
         st.caption(f"Store {when}, and refreshed nightly at 6am.")
 
-    if st.button("Refresh This League", width="stretch",
-                 help="Runs Scripts.refresh in a subprocess. Seconds of ESPN "
-                      "round-trips, which is why it is not automatic."):
+    waiting = _cooldown_remaining(display_name, season)
+    if waiting:
+        # Disabled with the remaining time *on the label*, not in a caption below it.
+        # A greyed button with no reason next to it reads as broken, and the first
+        # thing a user does with a button that looks broken is reload the page --
+        # which clears the session state this cooldown lives in.
+        st.button(f"Refreshed — wait {int(waiting) // 60}:{int(waiting) % 60:02d}",
+                  width="stretch", disabled=True,
+                  help=f"This league was refreshed less than "
+                       f"{REFRESH_COOLDOWN_SECONDS // 60} minutes ago and published "
+                       f"to S3. The store is already current.")
+    elif st.button("Refresh This League", width="stretch",
+                   help="Runs Scripts.refresh in a subprocess and publishes the "
+                        "result to S3. Seconds of ESPN round-trips, which is why "
+                        "it is not automatic."):
         _run_refresh(display_name, season)
 
 

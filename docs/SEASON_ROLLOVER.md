@@ -171,12 +171,24 @@ D/ST units never matching.
 ### 7. Build the draft boards
 
 ```bash
-python -m Scripts.refresh --all --what board
+python -m Scripts.refresh --all --what board --push
 ```
 
-~16s for nine leagues. Re-run it in the days before each draft — ADP moves, and the
-board is a snapshot of the market at build time, which the app's freshness badge
-reports. See [plan 15](plans/15-draft-board.md).
+**And put the stage back in the nightly for the pre-season.** `run_daily_refresh.sh`
+stopped rebuilding boards on 2026-09-16: it was 97s of a 539s run to re-derive a
+*draft* board in week 2, and nothing about week 9 changes your draft. Through camp
+that reasoning inverts — ADP moves daily and the board is the whole point — so the
+stage is wanted back between the usage re-projection and the lineups rebuild, and
+wanted out again once the last draft is done.
+
+Re-run it by hand in the days before each draft in any case; the board is a snapshot
+of the market at build time, which the app's freshness badge reports.
+
+**In-season the Free Agents page still reads four of its columns** — `pts_p90`,
+`p_top12`, `games`, `usg_depth_rank` — as waiver context. They are season-grain and
+degrade gracefully, so a board a few weeks old is fine; `percent_owned` and
+`injury_status` were moved to `pool.parquet` precisely so that staleness could not
+reach the wire. See [plan 15](plans/15-draft-board.md).
 
 ### 8. Dry-run one league
 

@@ -109,14 +109,14 @@ def test_meta_json_is_uploaded_last(s3_stub, tmp_path):
 def test_absent_artifacts_are_skipped_not_errors(s3_stub, tmp_path):
     """`--what board` builds a store with no lineups.parquet, legitimately."""
     _write_store(tmp_path, artifacts=("board",))
-    uploaded = s3_store.push_league_store(2026, "knights_ffl")
+    uploaded = s3_store.push_league_store(2026, "knights_ffl").uploaded
     assert [k.rsplit("/", 1)[1] for k in dict(uploaded)] == ["board.parquet",
                                                             "meta.json"]
 
 
 def test_a_dry_run_writes_nothing(s3_stub, tmp_path):
     _write_store(tmp_path, artifacts=("board",))
-    uploaded = s3_store.push_league_store(2026, "knights_ffl", dry_run=True)
+    uploaded = s3_store.push_league_store(2026, "knights_ffl", dry_run=True).uploaded
     assert len(uploaded) == 2
     assert s3_stub.put_order == []
 
@@ -270,3 +270,131 @@ def test_a_missing_store_names_the_command_that_builds_one(s3_stub):
 
 def test_read_meta_can_be_asked_not_to_raise(s3_stub):
     assert s3_store.read_meta(2026, "knights_ffl", missing_ok=True) is None
+
+
+# --- the dedup, which is why store/ was 7.7 GB ---------------------------
+
+def test_identical_bytes_are_not_re_uploaded(s3_stub, tmp_path):
+    """The bucket is versioned with a 90-day non-current expiry, so an identical PUT
+    does not overwrite -- it mints a retained version.
+
+    Measured 2026-09-16 on `winfield_football` alone: 207 versions of `board.parquet`
+    holding 59 distinct boards, and 156 versions of `board_frozen.parquet` holding
+    exactly one, because a frozen board cannot change and was re-sent every night and
+    every ten minutes through a slate anyway. Across ten leagues that was 7.70 GB of
+    non-current versions against 58 MB of current ones.
+    """
+    _write_store(tmp_path, artifacts=("board", "lineups"))
+    first = s3_store.push_league_store(2026, "knights_ffl")
+    assert len(first.uploaded) == 3 and not first.skipped
+
+    second = s3_store.push_league_store(2026, "knights_ffl")
+    assert not second.uploaded
+    assert len(second.skipped) == 3
+
+
+def test_a_changed_artifact_still_uploads_while_its_neighbours_are_skipped(
+        s3_stub, tmp_path):
+    """The live loop's shape: `--what live` rewrites one file of eight."""
+    directory = _write_store(tmp_path, artifacts=("board", "lineups"))
+    s3_store.push_league_store(2026, "knights_ffl")
+
+    from Scripts.store import ARTIFACTS
+    (directory / ARTIFACTS["lineups"]).write_bytes(b"new-lineups-bytes")
+
+    result = s3_store.push_league_store(2026, "knights_ffl")
+    assert [k.rsplit("/", 1)[1] for k, _ in result.uploaded] == ["lineups.parquet"]
+    # `board.parquet` and `meta.json` both skipped. Meta is skipped here only because
+    # this fixture rewrites identical bytes; a real build moves `built_at`, so it
+    # moves too. Nothing keys change detection on meta alone -- `app/store._version`
+    # fingerprints the whole prefix -- so an unchanged meta beside a changed artifact
+    # still invalidates the app's cache.
+    assert [k.rsplit("/", 1)[1] for k in result.skipped] == ["board.parquet",
+                                                            "meta.json"]
+
+
+def test_only_restricts_what_is_considered(s3_stub, tmp_path):
+    """A refresh that built one artifact has no business listing and hashing eight."""
+    _write_store(tmp_path, artifacts=("board", "lineups"))
+    result = s3_store.push_league_store(2026, "knights_ffl", only=["lineups"],
+                                        skip_unchanged=False)
+    assert [k.rsplit("/", 1)[1] for k, _ in result.uploaded] == ["lineups.parquet",
+                                                                "meta.json"]
+
+
+def test_only_always_carries_meta(s3_stub, tmp_path):
+    """`meta.json` is the completeness sentinel. A store whose artifacts moved
+    without it is a store no reader notices has changed."""
+    _write_store(tmp_path, artifacts=("board",))
+    result = s3_store.push_league_store(2026, "knights_ffl", only=["board"],
+                                        skip_unchanged=False)
+    assert result.uploaded[-1][0].endswith("meta.json")
+
+
+def test_an_unknown_only_value_raises_rather_than_pushing_nothing(s3_stub, tmp_path):
+    """A typo that silently published zero objects would look exactly like a store
+    that had not changed."""
+    _write_store(tmp_path, artifacts=("board",))
+    with pytest.raises(KeyError, match="lineup"):
+        s3_store.push_league_store(2026, "knights_ffl", only=["lineup"])
+
+
+def test_a_failed_listing_uploads_rather_than_skipping(s3_stub, tmp_path,
+                                                       monkeypatch):
+    """Any doubt uploads. A "nothing to do" that really means "could not tell" is
+    this repo's recurring failure mode wearing a different hat."""
+    _write_store(tmp_path, artifacts=("board",))
+    s3_store.push_league_store(2026, "knights_ffl")
+
+    def explode(prefix):
+        raise RuntimeError("no network")
+
+    monkeypatch.setattr(s3_store, "list_objects", explode)
+    result = s3_store.push_league_store(2026, "knights_ffl")
+    assert len(result.uploaded) == 2 and not result.skipped
+
+
+def test_the_etag_is_the_local_md5_for_a_single_part_object(s3_stub, tmp_path):
+    """What the whole dedup rests on. Verified against the live bucket 2026-09-16:
+    `lineups.parquet`'s ETag equalled its local MD5 exactly."""
+    directory = _write_store(tmp_path, artifacts=("board",))
+    s3_store.push_league_store(2026, "knights_ffl")
+    key = s3_store.store_key(2026, "knights_ffl", "board")
+    from Scripts.store import ARTIFACTS
+    assert (s3_store.list_objects(s3_store.store_prefix(2026, "knights_ffl"))[key]
+            ["etag"] == s3_store.md5_hex(directory / ARTIFACTS["board"]))
+
+
+def test_a_snapshot_of_an_unmoved_board_is_not_written(s3_stub, tmp_path):
+    """A second dated copy of yesterday's bytes records nothing, and `snapshots/` has
+    no non-current expiry rule and grows ~21 MB a night.
+
+    This became the normal case when the board stage left the nightly on 2026-09-16:
+    without the check, `sync --push` would mint an identical board under a new date
+    every night for the rest of the season.
+    """
+    _write_store(tmp_path, artifacts=("board",))
+    first = s3_store.snapshot_board(2026, "knights_ffl", "2026-09-16")
+    assert first is not None
+
+    assert s3_store.snapshot_board(2026, "knights_ffl", "2026-09-17") is None
+    assert not any("date=2026-09-17" in k for k in s3_stub.objects)
+
+
+def test_a_moved_board_still_snapshots(s3_stub, tmp_path):
+    directory = _write_store(tmp_path, artifacts=("board",))
+    s3_store.snapshot_board(2026, "knights_ffl", "2026-09-16")
+
+    from Scripts.store import ARTIFACTS
+    (directory / ARTIFACTS["board"]).write_bytes(b"adp-moved")
+
+    assert s3_store.snapshot_board(2026, "knights_ffl", "2026-09-17") is not None
+    assert any("date=2026-09-17" in k for k in s3_stub.objects)
+
+
+def test_a_gap_in_the_dates_does_not_force_a_spurious_snapshot(s3_stub, tmp_path):
+    """Compared against the newest existing snapshot, not against yesterday's key --
+    so a missed nightly does not look like a board that moved."""
+    _write_store(tmp_path, artifacts=("board",))
+    s3_store.snapshot_board(2026, "knights_ffl", "2026-09-10")
+    assert s3_store.snapshot_board(2026, "knights_ffl", "2026-09-16") is None
