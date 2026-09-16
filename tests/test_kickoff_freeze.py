@@ -275,3 +275,91 @@ def test_a_dtype_mismatch_on_the_join_keys_is_detectable(monkeypatch):
     _, counts = kf.apply(fresh, stored)
     assert counts["locked"] == 2
     assert "NOTHING HELD" in kf.summary(counts) or counts["frozen"] == 2
+
+
+# --- the live loop, which runs between the freezes --------------------------
+
+def test_the_live_patch_holds_projpoints_once_the_game_has_started():
+    """`projPoints` is ESPN's own weekly projection and it moves during a game.
+
+    It is the one projection column `kickoff_freeze.apply` cannot protect, because the
+    freeze runs on the nightly's build path and this runs 144 times a day between
+    them. It was easy to miss for a structural reason: every other projection column
+    carries a source prefix, so "touches no `ESPN_`/`FP_`/`TRUE_` cell" reads as
+    "touches no projection" until you notice this one has no prefix.
+    """
+    from Scripts import live
+
+    stored = pd.DataFrame({
+        "week": [2, 2, 2], "player_id": [10, 11, 12],
+        "player_name": ["A", "B", "C"],
+        "game_state": ["post", "in", "pre"],
+        "projPoints": [9.5, 14.0, 20.0],
+        "points": [0.0, 0.0, 0.0], "passingYards": [0.0, 0.0, 0.0],
+        "slotPosition": ["QB", "WR", "RB"], "team_owner": ["X", "X", "X"],
+    })
+    box = pd.DataFrame({
+        "player_id": [10, 11, 12], "player_name": ["A", "B", "C"],
+        "projPoints": [26.2, 18.0, 21.0],
+        "points": [26.2, 7.0, 0.0], "passingYards": [317.0, 0.0, 0.0],
+        "slotPosition": ["QB", "WR", "RB"], "team_owner": ["X", "X", "X"],
+    })
+
+    out, _ = live.patch(stored, box, 2, stats=["passingYards"])
+
+    assert out.loc[0, "projPoints"] == 9.5, "post -- held"
+    assert out.loc[1, "projPoints"] == 14.0, "in -- held"
+    assert out.loc[2, "projPoints"] == 21.0, "pre -- ESPN's number is a real opinion"
+
+
+def test_the_live_patch_still_writes_actuals_and_roster_on_a_locked_row():
+    """The half that must not regress. A lineup is still legal to *inspect* after
+    kickoff even when it is no longer legal to change, and the score is the point."""
+    from Scripts import live
+
+    stored = pd.DataFrame({
+        "week": [2], "player_id": [10], "player_name": ["A"],
+        "game_state": ["post"], "projPoints": [9.5], "points": [0.0],
+        "passingYards": [0.0], "slotPosition": ["BE"], "team_owner": ["X"],
+    })
+    box = pd.DataFrame({
+        "player_id": [10], "player_name": ["A"], "projPoints": [26.2],
+        "points": [26.2], "passingYards": [317.0], "slotPosition": ["QB"],
+        "team_owner": ["X"],
+    })
+
+    out, _ = live.patch(stored, box, 2, stats=["passingYards"])
+
+    assert out.loc[0, "points"] == 26.2
+    assert out.loc[0, "passingYards"] == 317.0
+    assert out.loc[0, "slotPosition"] == "QB"
+
+
+def test_a_store_with_no_game_state_patches_exactly_as_before():
+    """Every 2025 store, and `winfield_football`'s early 2026 one, carry no
+    `game_state`. An unknown clock must not start withholding columns."""
+    from Scripts import live
+
+    stored = pd.DataFrame({
+        "week": [2], "player_id": [10], "player_name": ["A"],
+        "projPoints": [9.5], "points": [0.0], "slotPosition": ["QB"],
+    })
+    box = pd.DataFrame({
+        "player_id": [10], "player_name": ["A"], "projPoints": [26.2],
+        "points": [26.2], "slotPosition": ["QB"],
+    })
+
+    out, _ = live.patch(stored, box, 2, stats=[])
+    assert out.loc[0, "projPoints"] == 26.2
+
+
+def test_the_two_frozen_column_lists_agree():
+    """`live.FROZEN_AFTER_KICKOFF` is duplicated rather than imported, to avoid an
+    import cycle. This is what stops the copies drifting apart."""
+    from Scripts import live
+
+    assert set(live.FROZEN_AFTER_KICKOFF) <= set(kf.FROZEN_COLUMNS)
+    for column in live.FROZEN_AFTER_KICKOFF:
+        assert column in live.PATCH_COLUMNS, (
+            f"{column} is guarded but no longer patched -- drop it from "
+            f"FROZEN_AFTER_KICKOFF")

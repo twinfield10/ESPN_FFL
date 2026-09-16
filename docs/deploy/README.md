@@ -37,7 +37,10 @@ Carried out of report 01, in the order they block a deploy.
    run. See [plan 01](plans/01-writing-to-s3.md).
 2. ~~**The kickoff freeze.**~~ `Scripts/kickoff_freeze.py` holds every projection
    column for a player whose game is `in` or `post`, applied at the store boundary in
-   `Scripts.refresh`. `Scripts.scrape_FP` freezes per game rather than per week.
+   `Scripts.refresh`; `live.FROZEN_AFTER_KICKOFF` stops the ten-minute loop rewriting
+   `projPoints` on those rows; `Scripts.scrape_FP` freezes per game rather than per
+   week. **Partial:** the BetOnline, Pinnacle and Athletic *source files* are still
+   ungated — see (8).
 3. ~~**Draft boards rebuilt nightly.**~~ Out of `run_daily_refresh.sh` — 97s of a 539s
    run. `percent_owned` and `injury_status` moved to `pool.parquet` so the waiver wire
    did not go stale with it.
@@ -52,7 +55,11 @@ Carried out of report 01, in the order they block a deploy.
    the store and the bucket but not in `config.yaml`. Adopt or delete.
 6. **Auth is a seam, not a boundary.** `app/auth.py` says so itself. Enforcement has to
    move to the store read.
-7. **Lifecycle gaps.** Four S3 prefixes have no non-current expiry rule, holding 804 MB
+7. **Three source scrapes have no kickoff gate.** BetOnline, Pinnacle and The
+   Athletic overwrite a week's props on the newest capture, protected only by books
+   retiring a market once its game starts. Real today, not enforced. Generalise
+   4Casters' `if not g["live"]` into a shared helper.
+8. **Lifecycle gaps.** Four S3 prefixes have no non-current expiry rule, holding 804 MB
    of versions retained forever; `Data/.s3cache/` has no eviction at all (311 MB).
    Both are described in [plan 01 §5](plans/01-writing-to-s3.md); neither is applied,
    because deleting versions has no undo.

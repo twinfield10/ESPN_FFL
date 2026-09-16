@@ -364,6 +364,18 @@ PATCH_COLUMNS = ("player_name", "points", "projPoints", "slotPosition",
                  "team_owner", "team_name", "team_division", "current_team_id",
                  "pro_team", "player_position")
 
+#: Of :data:`PATCH_COLUMNS`, the ones that stop being writable at kickoff.
+#:
+#: Exactly the projection-shaped members of that tuple. Everything else there is an
+#: actual (``points``) or a roster fact (``slotPosition``, ``team_owner``) that is
+#: *supposed* to keep moving during a game -- a lineup is still legal to inspect after
+#: kickoff even when it is no longer legal to change.
+#:
+#: Kept here rather than imported from :mod:`Scripts.kickoff_freeze` to avoid a cycle:
+#: that module imports this one for :data:`STATE_COLUMN`. Its
+#: ``FROZEN_COLUMNS`` is the same idea one layer up, and a test pins the two together.
+FROZEN_AFTER_KICKOFF = ("projPoints",)
+
 #: Marks a row the live refresh added because the box score had a player the stored
 #: frame did not -- someone added mid-week, after the nightly built the blend.
 #:
@@ -466,11 +478,39 @@ def patch(stored: pd.DataFrame, box: pd.DataFrame, week: int, *,
     ids = out.loc[target, "player_id"]
     known = ids.isin(incoming.index)
 
+    # `projPoints` is ESPN's own weekly projection, and it moves continuously during a
+    # game -- so patching it on a row whose game has kicked off is the one place this
+    # function writes a *projection* rather than an actual. It ran 144 times a day
+    # through a slate, which made it the fastest writer of a post-kickoff projection
+    # in the repo and the one column `Scripts.kickoff_freeze` could not protect,
+    # because the freeze runs on the nightly's build path and this runs between them.
+    #
+    # It is easy to miss for a structural reason worth naming: every *other*
+    # projection column carries a source prefix, so "touches no `ESPN_`/`FP_`/`TRUE_`
+    # cell" reads as "touches no projection" right up until you notice this one has no
+    # prefix at all. `espn_unpriced = projPoints - ESPN_Points` is computed from it,
+    # so leaving it live also drifts that residual from an audit number into the gap
+    # between a live projection and a pre-game one.
+    #
+    # Held only where the game has started. Before kickoff ESPN's number is a real
+    # pre-game opinion and the freshest one available, which is exactly what this job
+    # exists to carry.
+    locked = pd.Series(False, index=out.index)
+    if STATE_COLUMN in out.columns:
+        locked = out[STATE_COLUMN].isin((IN, POST)).fillna(False)
+
     for column in columns:
         if column not in out.columns:
             out[column] = pd.NA
-        values = ids[known].map(incoming[column])
-        out.loc[target[known.to_numpy()], column] = values.to_numpy()
+        rows = target[known.to_numpy()]
+        if column in FROZEN_AFTER_KICKOFF:
+            rows = rows[~locked.loc[rows].to_numpy()]
+            if not len(rows):
+                continue
+            values = out.loc[rows, "player_id"].map(incoming[column])
+        else:
+            values = ids[known].map(incoming[column])
+        out.loc[rows, column] = values.to_numpy()
 
     added = incoming.index.difference(set(ids.tolist()))
     if len(added):
