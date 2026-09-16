@@ -251,3 +251,112 @@ def test_the_live_stage_refuses_a_week_the_store_does_not_hold(monkeypatch,
     monkeypatch.setattr("Scripts.live.refresh_live", _explode)
     with pytest.raises(live.LiveRefreshError, match="holds weeks"):
         refresh.refresh_league("Jeffs_League", 2026, what=["live"])
+
+
+# --- team_stats rebuilds the season in progress, not the archive ---------
+#
+# Added 2026-09-16. `team_stats` re-derived every season a league had ever played on
+# every call -- 218.91s across eight leagues, 58.87s of it Winfield's 2016-2026 -- so
+# it was kept off every schedule, and then only advanced when somebody ran it by
+# hand. `scrape_team_stats` bounds its loops by `currentMatchupPeriod`, so week N+1's
+# fixture cannot be fetched before ESPN's counter turns over; on 2026-09-15 the
+# counter moved ~03:30 and week 2 was still missing from all ten stores twelve hours
+# later, with the Matchup tab saying "Week 2 is not in `team_stats` yet."
+
+
+def _team_stats_frame(years):
+    """A stored-shaped frame spanning ``years``."""
+    return pd.DataFrame({
+        "year": [float(y) for y in years],
+        "week": [1.0] * len(years),
+        "team_owner": ["Tommy Winfield"] * len(years),
+        "team_score": [100.0] * len(years),
+        "opp_score": [90.0] * len(years),
+    })
+
+
+def _recording_scrape(monkeypatch, frame):
+    """Stub ``scrape_team_stats``, recording how each call was scoped."""
+    calls = []
+
+    def fake_scrape(*, league_id, start_year, end_year, swid, espn_s2,
+                    df_prev=None):
+        calls.append({"start_year": start_year, "end_year": end_year,
+                      "df_prev": df_prev})
+        return frame
+
+    import Scripts.scrape_team_stats as sts
+    monkeypatch.setattr(sts, "scrape_team_stats", fake_scrape)
+    return calls
+
+
+def test_team_stats_rebuilds_only_the_season_in_progress(monkeypatch, fake_ingest):
+    """The whole point: prior seasons are carried, not re-fetched."""
+    seeded = _recording_scrape(monkeypatch, _team_stats_frame([2024, 2025, 2026]))
+    refresh.refresh_league("Winfield_Football", 2026, what=["team_stats"])
+    assert (seeded[0]["start_year"], seeded[0]["end_year"]) == (2016, 2026), (
+        "first build of a league with no store is the full sweep")
+
+    calls = _recording_scrape(monkeypatch, _team_stats_frame([2024, 2025, 2026]))
+    refresh.refresh_league("Winfield_Football", 2026, what=["team_stats"])
+
+    assert len(calls) == 1
+    assert (calls[0]["start_year"], calls[0]["end_year"]) == (2026, 2026)
+
+    # And the stored prior seasons go in, which is the correctness half rather than
+    # the speed half: `scrape_team_stats` reads its `end_year - 1` baseline off the
+    # frame it is handed, so without them `team_score_adj` changes meaning.
+    carried = calls[0]["df_prev"]
+    assert carried is not None, "prior seasons must be passed, not dropped"
+    assert sorted(int(y) for y in carried["year"].unique()) == [2024, 2025]
+    assert 2026 not in [int(y) for y in carried["year"].unique()], (
+        "the season being rebuilt must not also be carried in")
+
+
+def test_a_store_with_no_prior_seasons_falls_back_to_the_full_sweep(
+        monkeypatch, fake_ingest):
+    """A first-season league has nothing to be incremental about.
+
+    This is how ``jeffs_league`` (2026-only) bootstraps, and how any new league
+    joins. Carrying an empty frame would hand ``scrape_team_stats`` no baseline at
+    all, which is the failure the 2026-08-06 skip was wrongly added against.
+    """
+    _recording_scrape(monkeypatch, _team_stats_frame([2026]))
+    refresh.refresh_league("Jeffs_League", 2026, what=["team_stats"])
+
+    calls = _recording_scrape(monkeypatch, _team_stats_frame([2026]))
+    refresh.refresh_league("Jeffs_League", 2026, what=["team_stats"])
+
+    assert (calls[0]["start_year"], calls[0]["end_year"]) == (2026, 2026)
+    assert calls[0]["df_prev"] is None, (
+        "a store holding only the season being rebuilt has no history to carry")
+
+
+def test_rebuild_history_forces_the_full_sweep(monkeypatch, fake_ingest):
+    """The escape hatch, for when a past season's scrape itself changes."""
+    _recording_scrape(monkeypatch, _team_stats_frame([2024, 2025, 2026]))
+    refresh.refresh_league("Winfield_Football", 2026, what=["team_stats"])
+
+    calls = _recording_scrape(monkeypatch, _team_stats_frame([2024, 2025, 2026]))
+    refresh.refresh_league("Winfield_Football", 2026, what=["team_stats"],
+                           rebuild_history=True)
+
+    assert (calls[0]["start_year"], calls[0]["end_year"]) == (2016, 2026)
+    assert calls[0]["df_prev"] is None
+
+
+def test_the_rebuild_history_flag_reaches_refresh_league(monkeypatch):
+    """CLI wiring, which is the half that silently does nothing when it is missed."""
+    seen = {}
+
+    def fake_refresh(*, leagues, season, what, rebuild_history):
+        seen.update(leagues=leagues, what=what, rebuild_history=rebuild_history)
+        return {"X": "ok"}, {}
+
+    monkeypatch.setattr(refresh, "refresh", fake_refresh)
+
+    refresh.main(["--all", "--what", "team_stats"])
+    assert seen["rebuild_history"] is False, "incremental is the default"
+
+    refresh.main(["--all", "--what", "team_stats", "--rebuild-history"])
+    assert seen["rebuild_history"] is True

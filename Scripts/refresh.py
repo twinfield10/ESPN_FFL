@@ -18,11 +18,21 @@ Ingest is not reimplemented here. :func:`Scripts.equivalence.build_league_frame`
 is the single path from ESPN to a blended frame, and it is what the equivalence
 harness snapshots -- so the store cannot drift from what that harness verifies.
 
-``team_stats`` is opt-in because it re-derives a league's entire history: for
-Winfield_Football that is 2016-2026, eleven seasons of box scores. Nothing about
-the current week changes 2019, so it does not belong in a weekly refresh. It scales
-with that history rather than being flatly expensive, though -- a league in its first
-season is 1.5s, not the ~40s an eleven-season one costs.
+``team_stats`` **rebuilds the season in progress and carries the stored seasons
+forward**, which is what lets the nightly run it at all. It used to re-derive a
+league's whole history on every call -- for Winfield_Football that is 2016-2026,
+eleven seasons of box scores -- so it was kept out of any schedule, and the artifact
+then only advanced when somebody remembered to run it by hand. That cost the Matchup
+tab its fixture every Tuesday: ESPN caps the scrape at ``currentMatchupPeriod``, so
+next week's fixture is unreachable until the counter turns over, and once it had
+turned over nothing went to fetch it. Measured 2026-09-16 -- full sweep 218.91s
+across eight leagues (Winfield alone 58.87s), current season only ~16s.
+
+``--rebuild-history`` forces the old behaviour. It is the right call after changing
+how a past season is scraped and the wrong one otherwise, because the prior seasons
+are not merely cached -- ``scrape_team_stats`` normalises each season against the
+median of ``end_year - 1`` and reads that baseline off the frame it is handed, so
+they have to be passed in for ``team_score_adj`` to keep its meaning.
 """
 
 import argparse
@@ -49,11 +59,14 @@ from Scripts.paths import REPO_ROOT
 WHAT_CHOICES = ("lineups", "team_stats", "board", "draft", "results", "live",
                 "pool")
 
-#: Built unless ``--what`` says otherwise. ``team_stats`` is excluded on purpose --
-#: see the module docstring. ``board`` is excluded because it is a pre-season
-#: artifact: nothing about week 9 changes your draft. ``draft`` is excluded for a
-#: stronger version of the same reason: a finished draft never changes at all, so
-#: rebuilding it weekly re-reads ten seasons to write the same bytes.
+#: Built unless ``--what`` says otherwise. ``team_stats`` stays out even now that it
+#: is cheap, because this default is what a bare ``--league X`` builds and that is
+#: most often someone after the weekly frame; the nightly names its stages
+#: explicitly and asks for it there. ``board`` is excluded because it is a
+#: pre-season artifact: nothing about week 9 changes your draft. ``draft`` is
+#: excluded for a stronger version of the same reason: a finished draft never
+#: changes at all, so rebuilding it weekly re-reads ten seasons to write the same
+#: bytes.
 DEFAULT_WHAT = ("lineups",)
 
 #: ``--what pool`` needs a lineups frame to snapshot from, and takes the one this
@@ -88,12 +101,18 @@ def refresh_league(
     name: str,
     season: int,
     what: Sequence[str] = DEFAULT_WHAT,
+    rebuild_history: bool = False,
 ) -> Dict[str, float]:
     """Build one league-season's store.
 
     Args:
         name: League display name or config key.
         season: Season year.
+        rebuild_history: Re-derive every season of ``team_stats`` rather than only
+            the one in progress. The default carries the stored prior seasons
+            forward, which is both far cheaper and what keeps ``team_score_adj``
+            comparable; force this after changing how a past season is scraped.
+            Ignored when the store has no prior seasons to carry.
         what: Artifacts to build, from :data:`WHAT_CHOICES`.
 
     Returns:
@@ -247,16 +266,62 @@ def refresh_league(
         #
         # Standings never needed the adjustment at all: `home.records` reads raw
         # `team_score`/`opp_score`, so the normalisation is not on that path.
+        # **Only the season in progress is re-scraped, and that is what makes this
+        # affordable to run nightly.** The full sweep is priced by history rather
+        # than by league size and grows every year: measured 2026-09-16, Winfield
+        # (2016-2026) 58.87s, Knights (2022-) 40.84s, GOP (2023-) 33.35s, the three
+        # 2024- leagues ~21s each, and Jeffs -- 2026 alone -- **1.95s**. 218.91s for
+        # eight leagues, against ~16s if each rebuilds only the current season.
+        #
+        # That cost is the whole reason `team_stats` sat outside the nightly, and
+        # the whole reason the Matchup tab broke every Tuesday: ESPN caps the scrape
+        # at `currentMatchupPeriod`, so week N+1's fixture is unreachable until the
+        # counter turns over and then nothing goes to fetch it. Week 2 of 2026 was
+        # available from ~03:30 and still missing twelve hours later.
+        #
+        # `df_prev` is not an optimisation, it is the correctness condition.
+        # `scrape_team_stats` normalises each season against the median of
+        # `end_year - 1`, and it reads that baseline off the frame it is handed --
+        # so the stored prior seasons must go in, or `team_score_adj` silently
+        # changes meaning. Passing the year explicitly rather than inferring it from
+        # `df.year.max()` is what makes January work: at a season rollover the
+        # stored max is still last season, and inferring would re-scrape that one
+        # instead of starting the new one.
         start_year = int(cfg["start"])
+        previous = None
+        if not rebuild_history:
+            try:
+                stored = store.read_league_store(season, league_key, "team_stats")
+            except FileNotFoundError:
+                stored = None
+            # A league with no store, or one whose store holds only the season we
+            # are about to rebuild, has no history to carry -- so there is nothing
+            # to be incremental about and the full sweep is the only correct answer.
+            # This is how a first-season league bootstraps (`jeffs_league`, 2026)
+            # and how a new league joins.
+            if stored is not None and "year" in stored.columns:
+                kept = stored[stored["year"].astype(int) != int(season)]
+                if not kept.empty:
+                    previous = kept
+
         start = time.time()
-        team_stats = scrape_team_stats(
-            league_id=cfg["ID"], start_year=start_year, end_year=season,
-            swid=cfg["SWID"], espn_s2=cfg["ESPN_S2"],
-        )
+        if previous is None:
+            team_stats = scrape_team_stats(
+                league_id=cfg["ID"], start_year=start_year, end_year=season,
+                swid=cfg["SWID"], espn_s2=cfg["ESPN_S2"],
+            )
+            span = f"{start_year}-{season}, full"
+        else:
+            team_stats = scrape_team_stats(
+                league_id=cfg["ID"], start_year=season, end_year=season,
+                swid=cfg["SWID"], espn_s2=cfg["ESPN_S2"], df_prev=previous,
+            )
+            span = (f"{season} only, {int(previous['year'].min())}-"
+                    f"{int(previous['year'].max())} carried")
         timings["team_stats"] = time.time() - start
         _log(f"  team_stats  {team_stats.shape[0]:>6} rows x "
              f"{team_stats.shape[1]:>3} cols   {timings['team_stats']:.2f}s "
-             f"({start_year}-{season})")
+             f"({span})")
 
     if "pool" in what:
         from Scripts import pool as pool_mod
@@ -342,6 +407,7 @@ def refresh(
     leagues: Optional[Sequence[str]] = None,
     season: Optional[int] = None,
     what: Sequence[str] = DEFAULT_WHAT,
+    rebuild_history: bool = False,
 ) -> Tuple[Dict[str, str], Dict[str, Dict[str, float]]]:
     """Build stores for several leagues, isolating failures.
 
@@ -354,6 +420,7 @@ def refresh(
         leagues: Display names or config keys. Defaults to every configured league.
         season: Season year. Defaults to the configured season.
         what: Artifacts to build.
+        rebuild_history: Passed to :func:`refresh_league`.
 
     Returns:
         tuple: ``({league: "ok" | error string}, {league: timings})``.
@@ -366,7 +433,8 @@ def refresh(
 
     for name in targets:
         try:
-            timings[name] = refresh_league(name, season, what)
+            timings[name] = refresh_league(name, season, what,
+                                           rebuild_history=rebuild_history)
             results[name] = "ok"
         except Exception as e:                      # noqa: BLE001 - reported, not hidden
             results[name] = f"{type(e).__name__}: {e}"
@@ -418,9 +486,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--season", type=int, help="defaults to config.yaml season")
     p.add_argument("--what", default=",".join(DEFAULT_WHAT),
                    help=f"comma-separated, from {list(WHAT_CHOICES)} "
-                        f"(default: {','.join(DEFAULT_WHAT)}). team_stats "
-                        f"re-derives a league's whole history and is slow; board "
-                        f"is the pre-season draft board.")
+                        f"(default: {','.join(DEFAULT_WHAT)}). team_stats rebuilds "
+                        f"the season in progress and carries stored seasons "
+                        f"forward; board is the pre-season draft board.")
+    p.add_argument("--rebuild-history", action="store_true",
+                   help="team_stats: re-derive every season instead of only the "
+                        "one in progress. Slow, and only needed after changing how "
+                        "a past season is scraped.")
     args = p.parse_args(argv)
 
     what = [w.strip() for w in args.what.split(",") if w.strip()]
@@ -432,6 +504,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         leagues=None if args.all else args.leagues,
         season=args.season,
         what=what,
+        rebuild_history=args.rebuild_history,
     )
     return 0 if all(v == "ok" for v in results.values()) else 1
 
