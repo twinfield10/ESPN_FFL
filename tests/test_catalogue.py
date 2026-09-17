@@ -55,6 +55,34 @@ def test_an_empty_bucket_names_the_command_that_fills_it(empty_data, monkeypatch
     assert "Scripts.sync --push" in capsys.readouterr().out
 
 
+def test_the_board_snapshot_dates_ignore_the_injury_snapshot_dates(empty_data,
+                                                                  monkeypatch,
+                                                                  capsys):
+    """Two tiers carry a `date=` partition and only one of them is the board.
+
+    `injuries/season=/snapshots/date=/` is captured every night unconditionally;
+    `snapshots/board/` is written only when the board actually moved. Pooling the two
+    made the board tier look like it was still growing on a morning it wrote nothing
+    -- which is the one thing this line exists to show.
+    """
+    from Scripts import s3_store
+    monkeypatch.setattr(s3_store, "list_objects", lambda prefix: {
+        "snapshots/board/season=2026/league=knights_ffl/date=2026-09-16/board.parquet":
+            {"etag": "a", "size": 10},
+        "injuries/season=2026/snapshots/date=2026-09-17/espn_injuries.parquet":
+            {"etag": "b", "size": 10},
+    })
+    monkeypatch.setattr(catalogue, "_version_report", list)
+
+    catalogue.main(["--s3"])
+    out = capsys.readouterr().out
+
+    assert "board snapshots: 1 date(s), 2026-09-16" in out
+    assert "injury snapshots: 1 date(s), 2026-09-17" in out
+    # The failure this replaced: the board line borrowing the injury tier's date.
+    assert "board snapshots: 2 date(s)" not in out
+
+
 # --- reading files -------------------------------------------------------
 
 def test_an_unreadable_file_does_not_abort_the_walk(empty_data):

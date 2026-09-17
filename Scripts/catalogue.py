@@ -216,11 +216,24 @@ def s3_report() -> List[str]:
                  f"{_human(sum(sum(s) for s in tiers.values())):>9}")
 
     # Snapshots are a time series, so the interesting fact is which dates exist.
-    dates = sorted({part.split("=", 1)[1] for key in objects
-                    for part in key.split("/") if part.startswith("date=")})
-    if dates:
+    #
+    # **Scoped by prefix, because two tiers carry a `date=` partition and this line
+    # used to count both.** `injuries/season=/snapshots/date=/` is captured nightly
+    # and unconditionally; `snapshots/board/` is only written when the board moved.
+    # Pooling them made the board tier look like it was still growing on a morning it
+    # wrote nothing -- it reported "36 date(s) ... to 2026-09-17" on 2026-09-17, when
+    # the newest board snapshot was 09-16 and the dedup had correctly skipped all
+    # eight. A line whose whole job is to show a tier stopped growing must not borrow
+    # a date from a tier that did not.
+    for label, prefix in (("board snapshots", "snapshots/board/"),
+                          ("injury snapshots", "injuries/")):
+        dates = sorted({part.split("=", 1)[1]
+                        for key in objects if key.startswith(prefix)
+                        for part in key.split("/") if part.startswith("date=")})
+        if not dates:
+            continue
         span = f"{dates[0]} to {dates[-1]}" if len(dates) > 1 else dates[0]
-        lines.append(f"\n  board snapshots: {len(dates)} date(s), {span}")
+        lines.append(f"\n  {label}: {len(dates)} date(s), {span}")
 
     lines.extend(_version_report())
     return lines
