@@ -351,10 +351,15 @@ def write_to_google(df_dict, league_name, primary_owner):
 
                 # A league that carries no players at a position gives that group an
                 # all-NaN frame, so `.max().max()` is NaN and `str(NaN)` sends the
-                # literal string "nan" as a gradient stop. The FA tab for that
-                # position is skipped by the rename's ValueError, but this tab still
-                # looks the same group up for any row matching it -- a `K` row in a
-                # league whose kicker frame came back empty. Better unpainted.
+                # literal string "nan" as a gradient stop. Better unpainted.
+                #
+                # This used to add "the FA tab for that position is skipped by the
+                # rename's ValueError", and that was wrong: an empty group still
+                # arrives with all 17 columns, so the rename succeeds and the tab
+                # goes on to `format_free_agents` unguarded. Believing it was
+                # covered is why only this formatter got the check, and on
+                # 2026-09-17 an empty `FA_IDP` took the whole publish down with
+                # `Invalid InterpolationPoint.value: nan`. Both formatters guard now.
                 if any(v != v for v in (max_value, median_value, min_value)):
                     print(f"  no {scale_key} scale ({position_value} rows unpainted)")
                     continue
@@ -635,6 +640,20 @@ def write_to_google(df_dict, league_name, primary_owner):
             median_value = scale_dict["MEDIAN"][position]
             min_value = scale_dict["MIN"][position]
 
+            # Same NaN as `format_lineup_rows` guards, reached a different way: a
+            # league with no IDP at all yields an empty `FA_IDP`, and an empty
+            # frame's `.max().max()` is NaN. Five of the six leagues are in that
+            # position, plus an empty `FA_DST` and `FA_KCK` besides -- the only
+            # reason it read as a one-league fault is that the single league with
+            # every tab populated sorts first in `all`.
+            #
+            # The header and number formats still go up; it is only the gradient
+            # that has no scale to work from.
+            if any(v != v for v in (max_value, median_value, min_value)):
+                print(f"  no {position} scale (FA_{position} unpainted)")
+                worksheet.spreadsheet.batch_update({"requests": requests})
+                return
+
             # Create gradient rule for columns E:I (rows 2 onwards)
             rule = {
                 "addConditionalFormatRule": {
@@ -702,6 +721,9 @@ def write_to_google(df_dict, league_name, primary_owner):
                 # indistinguishable from a league simply having no kicker.
                 print(f"Skipped {sheet_name}: {type(e).__name__}: {e}")
 
+# Shadows the builtin `all` for every line below this one, so code down here
+# reaches for `any(...)` instead. The name is the documented interface
+# (`p.run(p.all)`), so the builtin is the one that gives way.
 all = ['GOP_Degenerates', 'Knights_FFL', 'John_PC_League', 'John_ATL_League', "12 Dudes one Cup", 'Washed_Up_Fijians'] #, 'Winfield_Football'
 john = ['John_PC_League', 'John_ATL_League']
 tommy = ['Winfield_Football', 'Knights_FFL', 'GOP_Degenerates']
@@ -784,14 +806,29 @@ def run(leagues=None, season=None):
         age_note = "unknown age" if age is None else f"built {age:.0f} min ago"
         print(f"\n===== {select_league}: week {curr_week}, {age_note} =====")
 
-        df_dict = build_tables(LINEUPS, curr_week, primary_own)
-        _publish(df_dict, select_league, primary_own)
-        results[select_league] = "ok"
+        # Publishing is the half that talks to Google, so it is the half that
+        # fails: a rejected format request, a rate limit, a renamed spreadsheet.
+        # The docstring above has always promised a failed league is skipped
+        # rather than aborting the run, but the guard only ever covered the store
+        # read -- so on 2026-09-17 one empty tab on the second league cost the
+        # four after it, and the run reported nothing at all.
+        try:
+            df_dict = build_tables(LINEUPS, curr_week, primary_own)
+            _publish(df_dict, select_league, primary_own)
+            results[select_league] = "ok"
+        except Exception as e:  # noqa: BLE001 -- one Sheet must not cost the rest
+            print(f"  FAILED {select_league}: {type(e).__name__}: {e}")
+            results[select_league] = f"{type(e).__name__}: {e}"
 
     failed = {k: v for k, v in results.items() if v != "ok"}
     if failed:
         print(f"\n{len(failed)} league(s) not published: {failed}")
-        print("Build their stores with `python -m Scripts.refresh --all`.")
+        # Two faults land here now. `no store:` is the one this hint was written
+        # for; anything else came out of the publish and is already named above,
+        # so pointing a reader at `refresh` would send them the wrong way.
+        if any(v.startswith("no store:") for v in failed.values()):
+            print("Build their stores with `python -m Scripts.refresh --all`.")
+        print(f"Republish just those: p.run({list(failed)})")
     return results
 
 

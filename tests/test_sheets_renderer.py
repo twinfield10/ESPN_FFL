@@ -153,11 +153,34 @@ def test_the_gradients_use_the_same_span_as_the_number_formats():
     assert used <= spans, f"gradient uses names no points_span produced: {used - spans}"
 
 
-def test_a_missing_position_scale_is_skipped_rather_than_sent_as_nan():
-    """``str(float("nan"))`` is ``"nan"``, and the Sheets API is handed it as a
-    gradient stop for any Lineup row whose position group came back empty."""
+#: The NaN check every formatter that reads a scale must carry.
+NAN_GUARD = "v != v for v in (max_value, median_value, min_value)"
+
+
+def _function_source(name):
+    """The source of one top-level or nested function in the driver."""
     body = DRIVER.read_text()
-    assert "v != v for v in (max_value, median_value, min_value)" in body
+    for node in ast.walk(ast.parse(body)):
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return ast.get_source_segment(body, node)
+    raise AssertionError(f"{name} not found in {DRIVER.name}")
+
+
+@pytest.mark.parametrize("formatter",
+                         ["format_lineup_rows", "format_free_agents"])
+def test_a_missing_position_scale_is_skipped_rather_than_sent_as_nan(formatter):
+    """``str(float("nan"))`` is ``"nan"``, and the Sheets API is handed it as a
+    gradient stop for any group that came back empty -- which it rejects outright
+    with ``Invalid InterpolationPoint.value``.
+
+    Asserted per formatter rather than over the whole file, which is how this
+    passed on 2026-09-17 while ``format_free_agents`` had no guard at all: the
+    string was present, in the other function. ``format_lineup_rows`` had it
+    because its own comment claimed the FA tab was already covered by the
+    rename's ``ValueError`` -- and an empty group arrives with all 17 columns, so
+    that rename succeeds and the tab sails through to the gradient.
+    """
+    assert NAN_GUARD in _function_source(formatter)
 
 
 # --- table building ------------------------------------------------------
@@ -200,6 +223,28 @@ def test_run_skips_a_league_with_no_store(driver, lineups):
     assert results["Knights_FFL"] == "ok"
     assert "no store" in results["GOP_Degenerates"]
     assert driver.published == ["Knights_FFL"]
+
+
+def test_run_survives_a_league_whose_publish_fails(driver, lineups):
+    """The docstring on ``run()`` has always promised this; only the store read
+    delivered it. One empty ``FA_IDP`` on the second league of six therefore cost
+    the four behind it, and the traceback named neither them nor the tab."""
+    for key in ("knights_ffl", "gop_degenerates"):
+        store.write_league_store(2026, key, lineups=lineups,
+                                 meta_extra={"current_week": 1})
+
+    def one_bad_sheet(**kw):
+        if kw["league_name"] == "Knights_FFL":
+            raise RuntimeError("Invalid InterpolationPoint.value: nan")
+        driver.published.append(kw["league_name"])
+
+    driver.write_to_google = one_bad_sheet
+    results = driver.run(["Knights_FFL", "GOP_Degenerates"], season=2026)
+
+    assert "InterpolationPoint" in results["Knights_FFL"]
+    assert results["GOP_Degenerates"] == "ok"
+    assert driver.published == ["GOP_Degenerates"], (
+        "the league behind the failure must still publish")
 
 
 def test_run_takes_the_week_from_the_store(driver, lineups):
