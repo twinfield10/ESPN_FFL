@@ -566,7 +566,85 @@ def test_one_candidate_is_not_reported_at_every_slot_he_fits():
     pool = [free_agent("Star QB", "QB", 22.0)]
     found = lu.upgrades(pool, roster, SUPERFLEX_SLOTS, "TRUE_Points")
     assert len(found) == 1
-    assert found[0].slot == "OP"           # where the gap is widest
+    # `QB`, not `OP`. He is measured against QB1 at both, because QB1 is the only
+    # starter whose slot he could fill, so the margins tie at 7.0 and the specific
+    # slot wins on `slot_rank`. This asserted `OP` until 2026-09-17 "where the gap is
+    # widest" -- a gap of 15.0 measured against a starting running back he cannot
+    # replace. That was the bug, not the tie-break.
+    assert found[0].slot == "QB"
+    assert found[0].over["player_name"] == "QB1"
+    assert found[0].margin == pytest.approx(7.0)
+
+
+# --- a starter can only be replaced by someone who can fill his slot -----
+
+def test_a_quarterback_does_not_displace_a_starting_running_back():
+    """Jeffs_League 2026 week 2, and the reason this guard exists.
+
+    `OP` was held by Stafford at 17.4 with Jordan Love available at 16.4 -- Love
+    could not improve the slot at all. But every back, receiver and end is also
+    `OP`-eligible, so the weakest `OP`-eligible man on the roster was Bucky Irving at
+    14.5, *starting at RB*. It reported as a critical upgrade: drop a starting
+    running back for a quarterback who cannot play running back, to fill a slot
+    already held by someone better.
+    """
+    roster = [player("Stafford", "QB", 17.4, slot="OP"),
+              player("Maye", "QB", 17.4, slot="QB"),
+              player("Hampton", "RB", 15.4, slot="RB"),
+              player("Irving", "RB", 14.5, slot="RB")]
+    pool = [free_agent("Jordan Love", "QB", 16.4)]
+
+    found = lu.upgrades(pool, roster, SUPERFLEX_SLOTS, "TRUE_Points")
+
+    assert [u.over["player_name"] for u in found] == []
+    # And specifically not the shape that was reported.
+    assert not any(u.over["player_name"] == "Irving" for u in found)
+
+
+def test_a_starter_is_replaceable_by_someone_who_can_fill_his_slot():
+    """The guard must not swallow the real case it sits next to."""
+    roster = [player("Weak QB", "QB", 9.0, slot="OP"),
+              player("Maye", "QB", 17.4, slot="QB"),
+              player("Irving", "RB", 14.5, slot="RB")]
+    pool = [free_agent("Jordan Love", "QB", 16.4)]
+
+    upgrade, = lu.upgrades(pool, roster, SUPERFLEX_SLOTS, "TRUE_Points")
+
+    assert upgrade.severity == lu.UPGRADE_CRITICAL
+    assert upgrade.over["player_name"] == "Weak QB"
+    assert upgrade.margin == pytest.approx(7.4)
+
+
+def test_a_benched_man_needs_no_shared_slot_because_he_holds_none():
+    """Dropping a bench player vacates nothing, so the swap is legal whatever the two
+    of them play. This is why the guard applies to starters only -- and it is what
+    Jordan Love correctly became once he stopped displacing a starting back."""
+    roster = [player("Stafford", "QB", 17.4, slot="OP"),
+              player("Maye", "QB", 17.4, slot="QB"),
+              player("Scrub RB", "RB", 4.0, slot="BE")]
+    pool = [free_agent("Jordan Love", "QB", 16.4)]
+
+    upgrade, = lu.upgrades(pool, roster, SUPERFLEX_SLOTS, "TRUE_Points")
+
+    assert upgrade.severity == lu.UPGRADE_DEPTH
+    assert upgrade.over["player_name"] == "Scrub RB"
+
+
+def test_better_counts_only_candidates_who_could_take_the_place():
+    """The column says how many available players beat this man. In a superflex
+    league every available back and receiver out-projects a bad starting kicker
+    without being able to kick, and counting them answers a different question."""
+    roster = [player("Bad K", "K", 3.0, slot="K"),
+              player("Maye", "QB", 17.4, slot="QB")]
+    pool = [free_agent("Good K", "K", 9.0),
+            free_agent("Star RB", "RB", 25.0),
+            free_agent("Star WR", "WR", 24.0)]
+    slots = dict(SUPERFLEX_SLOTS, K=1)
+
+    kicker = [u for u in lu.upgrades(pool, roster, slots, "TRUE_Points")
+              if u.slot == "K"]
+    assert len(kicker) == 1
+    assert kicker[0].better == 1          # the other kicker, not the backs
 
 
 def test_the_weakest_man_beaten_is_the_one_named():
