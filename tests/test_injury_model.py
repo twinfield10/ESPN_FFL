@@ -411,15 +411,66 @@ def test_the_artifact_records_what_it_was_trained_on():
     assert not model.is_stale(max(model.train_seasons))
 
 
+#: How far two fits of the same data may disagree on ``a_sd``.
+#:
+#: Measured over twelve fits rather than chosen, and the separation is the point:
+#:
+#: * **Float noise: 6.1e-11.** ``fit_control``'s pooled group-by sums ~2,000 rows into
+#:   six groups, so polars splits the sum across threads and the addition order varies
+#:   between calls. One ULP (~2e-16) in the control curve -- the denominator every
+#:   multiplier is measured against -- amplified through least squares. Only
+#:   ``POLARS_MAX_THREADS=1`` removes it, because polars guarantees no ordering for a
+#:   parallel reduction.
+#: * **A different bootstrap sample: 7.8e-4.** The defect this test exists for.
+#:
+#: Twelve million times apart, so this sits far above the noise and far below the
+#: signal. Exact equality bought no extra protection and failed on thread scheduling.
+FIT_REPRODUCIBLE_TO = 1e-8
+
+
 def test_two_fits_of_the_same_data_agree():
     """``unique()`` is unordered, so a seeded RNG indexing into it drew a different bootstrap
     sample every run -- which moved the standard errors, which moved the abstention
     decisions, which moved the walk-forward's chosen shrinkage. A fitted artifact has to be
-    reproducible or its provenance means nothing."""
+    reproducible or its provenance means nothing.
+
+    **Reproducible to :data:`FIT_REPRODUCIBLE_TO`, not bit-exact.** The original
+    assertion was exact and failed intermittently on float summation order, which is a
+    property of running polars on more than one thread rather than of this code.
+
+    **``a_sd`` and not ``a``, which is not an oversight.** Measured over twelve fits,
+    the point estimate's own thread noise is 3.1e-9 while a different bootstrap sample
+    moves it by only 8.2e-10 -- the noise is *larger than the signal*, so no tolerance
+    on ``a`` can tell the two apart. ``tau`` does not move at all. The bootstrap
+    standard error is the one field where this defect is visible, which is why it is
+    the one asserted.
+    """
     post = cohort(lambda w: 0.85, episodes=60, seed=41)
     ctl = controls(rows=2000, seed=42)
     table = episode_table(episodes=60)
     first = im.fit(post, ctl, table, draws=30)
     second = im.fit(post, ctl, table, draws=30)
-    assert ([c.a_sd for c in first.cells.values()]
-            == [c.a_sd for c in second.cells.values()])
+
+    assert list(first.cells) == list(second.cells)
+    for key in first.cells:
+        assert first.cells[key].a_sd == pytest.approx(
+            second.cells[key].a_sd, abs=FIT_REPRODUCIBLE_TO, nan_ok=True)
+
+
+def test_a_different_bootstrap_sample_still_moves_the_standard_errors():
+    """The guard on the guard: proof :data:`FIT_REPRODUCIBLE_TO` is not so loose that
+    the defect it was written for slips through.
+
+    A different seed draws a different bootstrap sample, which is what the ``unique()``
+    ordering bug did by accident. It has to land far outside the tolerance or the test
+    above is decoration.
+    """
+    post = cohort(lambda w: 0.85, episodes=60, seed=41)
+    ctl = controls(rows=2000, seed=42)
+    table = episode_table(episodes=60)
+    first = im.fit(post, ctl, table, draws=30, seed=0)
+    second = im.fit(post, ctl, table, draws=30, seed=7)
+
+    key = next(iter(first.cells))
+    moved = abs(first.cells[key].a_sd - second.cells[key].a_sd)
+    assert moved > FIT_REPRODUCIBLE_TO * 1000
