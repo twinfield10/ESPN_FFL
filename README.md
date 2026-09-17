@@ -688,18 +688,31 @@ pipeline, which must match the Google Sheet name exactly. Six are published to
 Google Sheets and four are the app viewer's own — the three counts differ on purpose,
 and `populateGoogleSheet.py` and `app/auth.py` are where the other two live.
 
-Two others have been **disconnected**, by the same edits and with the same deliberate
-omission — the store is never the third edit:
+Two others have been **disconnected and then purged**:
 
-| League | Disconnected | Out of `DEFAULT_VIEWER` | Sheet cohorts |
-|---|---|---|---|
-| `Weenieless_Wanderers` | 2026-09-09 | yes, it was in it | `all` |
-| `Big_Red_Fantasy_Football` | 2026-09-15 | not needed, never in it | `all`, `cooleen` |
+| League | Disconnected | Out of `DEFAULT_VIEWER` | Sheet cohorts | Data purged |
+|---|---|---|---|---|
+| `Weenieless_Wanderers` | 2026-09-09 | yes, it was in it | `all` | 2026-09-16 |
+| `Big_Red_Fantasy_Football` | 2026-09-15 | not needed, never in it | `all`, `cooleen` | 2026-09-16 |
 
-Both came out of `config.yaml` and off their Google Sheet cohorts, with their 2025 and
-2026 parquet deliberately left in S3. The pipeline no longer fetches either and the app
-no longer offers them; existing Sheet tabs stop being refreshed but are not deleted.
-`ESPN_FFL_ALL_LEAGUES=1` is the only way back to the kept data.
+Both came out of `config.yaml` and off their Google Sheet cohorts, and their parquet was
+at first deliberately left in S3 on the reasoning that kept data you cannot read is data
+you cannot check. **That turned out to be the expensive choice, and for a reason nothing
+about the league list would have shown you.** `Scripts.sync` fanned out over *store
+prefixes* rather than the config, so both leagues went on being published every night —
+and went on minting a dated board snapshot from a board nothing rebuilt. Seven of
+Weenieless's snapshots are byte-identical copies of 2026-09-09's. Between them they held
+**2,583 object versions and 1.26 GB**.
+
+So the store *is* the third edit, and `Scripts.sync._league_seasons` now filters the
+prefix scan against `config.yaml` so a fourth league cannot repeat it. Reads are
+deliberately still a scan: `app/auth.py` scopes the app by filtering one, and
+`--verify` has to see everything on disk to do its job.
+
+**What survives is their `archive/g2/` parquet**, with every version, exempt from the
+purge and from every lifecycle rule. It is the pre-season counterfactual behind the
+published fit in `Scripts/lab/results.json` and cannot be rebuilt at any price.
+Existing Sheet tabs stop being refreshed but are not deleted.
 
 Big Red was disconnected while **playing**: it has a real week 1 in the store, 10 owners
 and 2105 live points. What it does not have is a week 2 — ESPN reports it at

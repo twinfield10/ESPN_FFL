@@ -16,15 +16,28 @@ draft against a December board measures who got lucky, not who drafted well.
 **There is a deadline, and it is narrow.** The freeze belongs after the last draft and
 before the first game. The trap is the nightly: freezing "Wednesday morning" freezes a
 board that already rebuilt at 06:00 with Wednesday's news in it. So the window is the
-night the last draft finishes, and ``--allow-stale`` is the escape hatch for having
-missed it, not the normal path.
+night the last draft finishes.
 
-**Not the S3 snapshot.** ``Scripts.sync`` already publishes a dated board snapshot
-each night (plan 24), and it was tempting to read the right date back out of it
-instead. Two reasons not to: the app must keep working under
+**Having missed it used to be unrecoverable, and is not any more.** This docstring
+named ``--allow-stale`` as the escape hatch for months; no such flag was ever
+implemented, and the only thing it could have done is freeze a board that had already
+moved on -- which is not a repair, it is the damage. The actual repair is
+``--from-snapshot YYYY-MM-DD``: ``snapshots/board/season=/league=/date=/`` keeps one
+board per league per night, so the board as it stood on draft night is still there
+even though the live one is a rest-of-season instrument now. Used on 2026-09-16 to
+backfill the three leagues whose drafts finished on 2026-09-08 and were never frozen,
+from ``date=2026-09-07`` -- the same vintage the other five were frozen from.
+
+**Not the S3 snapshot -- as the stored artifact.** ``Scripts.sync`` already publishes
+a dated board snapshot each night (plan 24), and it was tempting to make the frozen
+board *be* that snapshot. Two reasons not to: the app must keep working under
 ``ESPN_FFL_STORE_SOURCE=local``, and a page that has to know a snapshot key layout is
 a page coupled to the bucket. A frozen board is a store artifact like any other, so
 ``sync --push`` carries it and ``sync --verify`` checks it with no new code.
+
+That argument is about the *read* path and does not extend to ``--from-snapshot``,
+which is a one-off CLI backfill: it reads the bucket once, writes an ordinary store
+artifact, and nothing downstream learns a key layout.
 
 Idempotent by refusal: a league already frozen is left alone unless ``--refreeze``
 says otherwise. Freezing twice is almost always a mistake -- the second one would
@@ -36,13 +49,14 @@ See ``docs/plans/41-projection-freeze.md``.
 from __future__ import annotations
 
 import argparse
+import io
 import sys
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Sequence
 
 import pandas as pd
 
-from Scripts import paths, store
+from Scripts import nfl_utils, paths, store
 from Scripts.config_utils import build_lg_vars, get_season, resolve_league
 
 
@@ -81,8 +95,49 @@ def drafted_picks(season: int, league_key: str) -> int:
     return int((picks["season"] == season).sum())
 
 
+def board_is_cold(season: int) -> bool:
+    """Whether the draft board has stopped being a live instrument for ``season``.
+
+    **This is the gate that keeps the 97-second board stage out of the nightly
+    without anyone having to remember it.** The board is a pre-season artifact --
+    nothing about week 9 changes your draft -- but "pre-season" is not the same
+    question as "has the season started", and using the latter alone would have been
+    wrong in the direction that costs a draft: the 2026 drafts finished on 09-08,
+    five days *after* week 1 kicked off. A gate of ``is_preseason()`` would have
+    frozen the boards mid-draft-season.
+
+    So the board stays warm while either is true:
+
+    - the season has not started, or
+    - some league that **has drafted** has not been frozen yet.
+
+    ``board_frozen.parquet`` is a positive declaration that a league's draft is over
+    and its board has been preserved, which makes it the right thing to wait on.
+    Leagues with no recorded picks for the season are ignored deliberately: three of
+    the eight carry no 2026 draft at all, and letting them hold the gate open would
+    mean the board never went cold.
+
+    Args:
+        season: Season year.
+
+    Returns:
+        bool: True when nothing is waiting on a board rebuild.
+    """
+    if nfl_utils.is_preseason():
+        return False
+    for config in build_lg_vars().values():
+        key = config["key"]
+        if not drafted_picks(season, key):
+            continue
+        frozen = paths.store_dir(season, key) / store.ARTIFACTS["board_frozen"]
+        if not frozen.is_file():
+            return False
+    return True
+
+
 def freeze_league(season: int, league_key: str, *, refreeze: bool = False,
-                  allow_undrafted: bool = False) -> str:
+                  allow_undrafted: bool = False,
+                  from_snapshot: Optional[str] = None) -> str:
     """Freeze one league's board.
 
     Args:
@@ -90,6 +145,8 @@ def freeze_league(season: int, league_key: str, *, refreeze: bool = False,
         league_key: ``config.yaml`` league key.
         refreeze: Overwrite an existing frozen board.
         allow_undrafted: Freeze even with no recorded picks.
+        from_snapshot: ``YYYY-MM-DD`` of a dated board snapshot to freeze instead of
+            the live ``board.parquet``. The repair for a missed window -- see below.
 
     Returns:
         str: ``"frozen"``, or a sentence saying why it was skipped. Skips are a
@@ -100,7 +157,7 @@ def freeze_league(season: int, league_key: str, *, refreeze: bool = False,
     board_path = directory / store.ARTIFACTS["board"]
     frozen_path = directory / store.ARTIFACTS["board_frozen"]
 
-    if not board_path.is_file():
+    if from_snapshot is None and not board_path.is_file():
         return "skipped: no board.parquet to freeze"
 
     if frozen_path.is_file() and not refreeze:
@@ -113,22 +170,39 @@ def freeze_league(season: int, league_key: str, *, refreeze: bool = False,
         return ("skipped: no 2026 picks, so there is no drafted roster to grade "
                 "(--allow-undrafted to freeze anyway)")
 
-    board = pd.read_parquet(board_path)
-    store.write_league_store(
-        season, league_key,
-        board_frozen=board,
-        meta_extra={
-            "frozen_at": datetime.now(timezone.utc).astimezone().isoformat(),
-            "frozen_git_sha": store._git_sha(),
-            "frozen_picks": picks,
-        },
-    )
-    return f"frozen: {board.shape[0]} rows x {board.shape[1]} cols, {picks} picks"
+    meta_extra = {
+        "frozen_at": datetime.now(timezone.utc).astimezone().isoformat(),
+        "frozen_git_sha": store._git_sha(),
+        "frozen_picks": picks,
+    }
+
+    if from_snapshot is None:
+        board = pd.read_parquet(board_path)
+        source = "the live board"
+    else:
+        from Scripts import s3_store
+        key = s3_store.snapshot_key(season, league_key, "board", from_snapshot)
+        try:
+            raw = s3_store.get_bytes(key)
+        except Exception as e:                              # noqa: BLE001
+            return (f"skipped: no board snapshot at date={from_snapshot} "
+                    f"({type(e).__name__})")
+        board = pd.read_parquet(io.BytesIO(raw))
+        source = f"snapshot date={from_snapshot}"
+        # Recorded separately from `frozen_at`, which stays the wall clock of this
+        # run. Conflating them would claim the board is as of today, which is the
+        # exact misstatement this path exists to avoid.
+        meta_extra["frozen_board_date"] = from_snapshot
+
+    store.write_league_store(season, league_key, board_frozen=board,
+                             meta_extra=meta_extra)
+    return (f"frozen: {board.shape[0]} rows x {board.shape[1]} cols, "
+            f"{picks} picks, from {source}")
 
 
 def freeze(leagues: Optional[Sequence[str]] = None, season: Optional[int] = None,
-           *, refreeze: bool = False, allow_undrafted: bool = False
-           ) -> Dict[str, str]:
+           *, refreeze: bool = False, allow_undrafted: bool = False,
+           from_snapshot: Optional[str] = None) -> Dict[str, str]:
     """Freeze several leagues, isolating failures.
 
     One league failing must not abort the rest, for the reason
@@ -140,6 +214,7 @@ def freeze(leagues: Optional[Sequence[str]] = None, season: Optional[int] = None
         season: Season year. Defaults to the configured season.
         refreeze: Overwrite existing frozen boards.
         allow_undrafted: Freeze leagues with no recorded picks.
+        from_snapshot: ``YYYY-MM-DD`` of a dated board snapshot to freeze from.
 
     Returns:
         dict: League key to outcome.
@@ -159,7 +234,8 @@ def freeze(leagues: Optional[Sequence[str]] = None, season: Optional[int] = None
             continue
         try:
             results[key] = freeze_league(
-                season, key, refreeze=refreeze, allow_undrafted=allow_undrafted)
+                season, key, refreeze=refreeze, allow_undrafted=allow_undrafted,
+                from_snapshot=from_snapshot)
         except Exception as e:                              # noqa: BLE001
             results[key] = f"{type(e).__name__}: {e}"
         _log(f"  {config['display_name']:<30} {results[key]}")
@@ -206,11 +282,16 @@ def main(argv: Optional[List[str]] = None) -> int:
                              "protecting.")
     parser.add_argument("--allow-undrafted", action="store_true",
                         help="freeze a league with no recorded picks")
+    parser.add_argument("--from-snapshot", metavar="YYYY-MM-DD", default=None,
+                        help="freeze the dated board snapshot for this date rather "
+                             "than the live board. The repair for a missed window: "
+                             "the live board has moved on, the snapshot has not.")
     args = parser.parse_args(argv)
 
     results = freeze(None if args.all else args.league, args.season,
                      refreeze=args.refreeze,
-                     allow_undrafted=args.allow_undrafted)
+                     allow_undrafted=args.allow_undrafted,
+                     from_snapshot=args.from_snapshot)
 
     if not results:
         return 1

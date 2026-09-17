@@ -25,7 +25,22 @@ refresh to invalidate the cache. Locally that is the newest mtime; against S3 it
 league's prefix, which costs **one** ``ListObjectsV2`` rather than a ``HeadObject``
 per artifact. Same architecture either way -- the public functions take
 ``(season, league_key)`` and pass the version through to a private cached
-implementation -- so a refresh is picked up with no manual cache clear anywhere.
+implementation.
+
+**The fingerprint itself is memoised, and that is a real trade.** It used to be read
+fresh on every call, which made "a refresh is picked up with no manual cache clear
+anywhere" literally true and cost more than the caching saved: one Home render issued
+**37 ``ListObjectsV2`` calls and spent 1.57s of a 4.17s render inside them**, because
+every ``load_*`` independently resolved a version, for every visible league, on every
+rerun -- so the 300s frame cache was paying a network round-trip to discover it could
+be used. :data:`VERSION_TTL` is 60s, strictly tighter than :data:`CACHE_TTL`, so no
+frame can be staler than it already could be.
+
+What the memo does break is the sidebar button: a successful refresh moves the
+fingerprint, but a cached fingerprint would not notice for up to a minute and the
+page would re-render identical numbers. :func:`invalidate` is the other half of this
+change and ``header._run_refresh`` must call it. That is the same failure -- a
+refresh that visibly does nothing -- that pushing from the button was added to fix.
 """
 
 import _bootstrap  # noqa: F401  -- must precede the Scripts imports
@@ -43,6 +58,18 @@ from Scripts import store as _store
 #: How long a cached frame survives without a version change. Short, because the cost
 #: of a miss is one parquet read.
 CACHE_TTL = 300
+
+#: How long a store's version string is reused before S3 is listed again.
+#:
+#: Deliberately shorter than :data:`CACHE_TTL`: the version is the frame cache's key,
+#: so a stale version can only ever extend a frame's life to what that cache already
+#: permits. The cost of it being *too* long is a live score up to a minute late; the
+#: cost of it being zero is 37 listings a render, which is what it was.
+VERSION_TTL = 60
+
+#: How long the league and season lists are reused. Longer because they change when a
+#: league is added to ``config.yaml``, which is a deploy, not a refresh.
+LISTING_TTL = 600
 
 #: Read when the environment says nothing.
 DEFAULT_SOURCE = "s3"
@@ -64,6 +91,33 @@ def source() -> str:
     return configured if configured in VALID_SOURCES else DEFAULT_SOURCE
 
 
+@st.cache_data(ttl=VERSION_TTL, show_spinner=False)
+def _fingerprint(prefix: str) -> str:
+    """:func:`Scripts.s3_store.prefix_fingerprint`, memoised for :data:`VERSION_TTL`.
+
+    Args:
+        prefix: Key prefix, normally ``s3_store.store_prefix(...)``.
+
+    Returns:
+        str: The digest, or ``""`` when the prefix holds nothing.
+    """
+    return _s3.prefix_fingerprint(prefix)
+
+
+def invalidate() -> None:
+    """Forget every memoised version, so the next read re-lists S3.
+
+    **Call this after anything that writes to the bucket from inside the app.** The
+    frame caches key on the version string and do not need clearing -- a moved
+    fingerprint misses them by itself -- but a memoised fingerprint will not move for
+    up to :data:`VERSION_TTL`, and a refresh button that renders the same numbers it
+    just replaced is worse than a slow one.
+    """
+    _fingerprint.clear()
+    _list_leagues.clear()
+    _list_seasons.clear()
+
+
 def _resolve(season: int, league_key: str) -> str:
     """Which backend actually serves this league-season: ``"s3"`` or ``"local"``.
 
@@ -79,7 +133,7 @@ def _resolve(season: int, league_key: str) -> str:
         return configured
     prefix = _s3.store_prefix(season, league_key)
     try:
-        return "s3" if _s3.prefix_fingerprint(prefix) else "local"
+        return "s3" if _fingerprint(prefix) else "local"
     except Exception:                                       # noqa: BLE001
         # auto exists precisely to survive this: no credentials, no network, no
         # bucket. Falling back is the whole contract.
@@ -98,7 +152,7 @@ def _version(season: int, league_key: str, backend: str) -> str:
         str: The cache-key component.
     """
     if backend == "s3":
-        return "s3:" + _s3.prefix_fingerprint(_s3.store_prefix(season, league_key))
+        return "s3:" + _fingerprint(_s3.store_prefix(season, league_key))
     return f"local:{_store.store_mtime(season, league_key)}"
 
 
@@ -450,13 +504,23 @@ def has_store(season: int, league_key: str) -> bool:
 def list_leagues(season: int) -> list:
     """League keys with a complete store for ``season``.
 
+    Cached for :data:`LISTING_TTL`. Worth caching even though it is one call: the
+    router asks once, the sidebar health badge asks again, and Home and Player Shares
+    each ask a third time, so an uncached listing is four round-trips per rerun for an
+    answer that changes when a league is added to ``config.yaml``.
+
     Args:
         season: Season year.
 
     Returns:
         list: Sorted league keys.
     """
-    configured = source()
+    return _list_leagues(season, source())
+
+
+@st.cache_data(ttl=LISTING_TTL, show_spinner=False)
+def _list_leagues(season: int, configured: str) -> list:
+    """``configured`` is part of the cache key, so switching source re-lists."""
     if configured == "local":
         return _store.list_leagues(season)
     try:
@@ -473,10 +537,18 @@ def list_leagues(season: int) -> list:
 def list_seasons() -> list:
     """Seasons that have at least one complete league store.
 
+    Cached for :data:`LISTING_TTL`. On S3 this is one ``ListObjectsV2`` per season
+    present, so it was the single most expensive uncached call in a cold render.
+
     Returns:
         list: Season years, newest first.
     """
-    configured = source()
+    return _list_seasons(source())
+
+
+@st.cache_data(ttl=LISTING_TTL, show_spinner=False)
+def _list_seasons(configured: str) -> list:
+    """``configured`` is part of the cache key, so switching source re-lists."""
     if configured == "local":
         return _store.list_seasons()
     try:

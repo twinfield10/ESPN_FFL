@@ -57,17 +57,60 @@ def _tier_dirs(what: Sequence[str]) -> List[str]:
     return dirs
 
 
+def _configured_keys() -> set:
+    """League keys currently in ``config.yaml``.
+
+    Split out from :func:`_league_seasons` so a test can replace it without
+    standing up a config file.
+
+    Returns:
+        set: ``config.yaml`` league keys.
+    """
+    from Scripts.config_utils import build_lg_vars
+    return {lg["key"] for lg in build_lg_vars().values()}
+
+
 def _league_seasons(season: int) -> List[Tuple[int, str]]:
-    """Local league-seasons with a complete store, for ``season``.
+    """Configured league-seasons with a complete store, for ``season``.
+
+    **The store scan alone is not the league list, and that is what let two dead
+    leagues keep publishing.** ``Scripts.store.list_leagues`` answers "which
+    directories hold a ``meta.json``", which is the right question for a reader and
+    the wrong one for a writer: a league removed from ``config.yaml`` stops being
+    fetched and carries on being pushed -- and, worse, carries on minting a dated
+    board snapshot every night from a board nothing rebuilds.
+    ``weenieless_wanderers`` did exactly that for seven nights, seven byte-identical
+    copies, after it was disconnected on 2026-09-09.
+
+    So the config is the authority for **writes**. It is deliberately not the
+    authority for reads: ``app/auth.py`` scopes the app with ``visible_leagues``
+    over a prefix scan, and ``ESPN_FFL_ALL_LEAGUES`` is the documented way to reach
+    a league whose config block is gone. Filtering ``Scripts.store.list_leagues``
+    itself would break that, and would hide data from ``--verify``, the one command
+    whose job is to prove local and S3 agree.
+
+    **This is the one place in the module that does not fail open.** :func:`_unchanged`
+    uploads on any doubt, because a skipped upload that really meant "could not tell"
+    is this repo's recurring failure mode. Here the direction reverses: an unreadable
+    ``config.yaml`` raises rather than defaulting to publishing everything on disk,
+    because the failure being guarded against is publishing something that should not
+    exist. Dropped leagues are logged rather than silently filtered, for the same
+    reason the skip counts are printed.
 
     Args:
         season: Season year.
 
     Returns:
-        list: ``(season, league_key)`` pairs.
+        list: ``(season, league_key)`` pairs, restricted to configured leagues.
     """
     from Scripts import store
-    return [(season, key) for key in store.list_leagues(season)]
+    configured = _configured_keys()
+    found = store.list_leagues(season)
+    dropped = [key for key in found if key not in configured]
+    if dropped:
+        _log(f"  store      {'':<22} not in config.yaml, not pushed: "
+             f"{', '.join(dropped)}")
+    return [(season, key) for key in found if key in configured]
 
 
 # --- push ----------------------------------------------------------------

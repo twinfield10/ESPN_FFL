@@ -240,3 +240,56 @@ def test_the_commands_it_tells_you_to_run_are_actually_runnable(
             assert not unknown, (
                 f"{line!r} passes --what {unknown}, which sync rejects; "
                 f"known values are {list(sync.WHAT_CHOICES)}")
+
+
+# --- the cold gate -------------------------------------------------------
+#
+# `board_is_cold` is what keeps the 97-second board stage out of the nightly, so
+# what these pin is the two ways it could be wrong in a way nobody would notice: a
+# board that stays warm all year (the waste this replaced), and a board that goes
+# cold mid-draft-season (which would cost a draft).
+
+def _cold(monkeypatch, leagues, *, preseason):
+    """Run ``board_is_cold`` against a fabricated config and schedule."""
+    monkeypatch.setattr(freeze.nfl_utils, "is_preseason", lambda: preseason)
+    monkeypatch.setattr(
+        freeze, "build_lg_vars",
+        lambda *a, **k: {key: {"key": key} for key in leagues})
+    return freeze.board_is_cold(2026)
+
+
+def test_the_board_is_never_cold_before_the_season_starts(scratch, monkeypatch):
+    """The whole point of a draft board is the weeks before week 1."""
+    _write(2026, "alpha", picks=[2026] * 4)
+    freeze.freeze_league(2026, "alpha")
+    assert _cold(monkeypatch, ["alpha"], preseason=True) is False
+
+
+def test_a_drafted_but_unfrozen_league_keeps_the_board_warm(scratch, monkeypatch):
+    """The clause that stops this going cold mid-draft-season.
+
+    The 2026 drafts finished on 09-08, five days *after* week 1 kicked off. A gate of
+    "has the season started" alone would have stopped rebuilding the boards those
+    leagues were still drafting off.
+    """
+    _write(2026, "alpha", picks=[2026] * 4)      # drafted, not frozen
+    assert _cold(monkeypatch, ["alpha"], preseason=False) is False
+
+
+def test_the_board_goes_cold_once_every_drafted_league_is_frozen(scratch, monkeypatch):
+    _write(2026, "alpha", picks=[2026] * 4)
+    freeze.freeze_league(2026, "alpha")
+    assert _cold(monkeypatch, ["alpha"], preseason=False) is True
+
+
+def test_a_league_that_never_drafted_cannot_hold_the_gate_open(scratch, monkeypatch):
+    """Three of the eight configured leagues carry no 2026 draft at all.
+
+    They are other owners' leagues and nothing records their picks. If an undrafted
+    league could hold the gate open the board would never go cold, which is the exact
+    waste this gate exists to end -- so "has drafted" is the qualifier, not "exists".
+    """
+    _write(2026, "alpha", picks=[2026] * 4)
+    freeze.freeze_league(2026, "alpha")
+    _write(2026, "never_drafted", picks=[2024, 2025])   # rows, none for 2026
+    assert _cold(monkeypatch, ["alpha", "never_drafted"], preseason=False) is True

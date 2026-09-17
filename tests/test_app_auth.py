@@ -5,14 +5,21 @@ will hand its answer to. The point of the module is that the leagues the store h
 narrow to one viewer's four in exactly one place, so these tests are the ones that
 would fail if a page went back to reading ``store.list_leagues`` directly.
 
-**The store list and ``config.yaml`` are not the same list, and since 2026-09-15 they
-disagree by two.** ``weenieless_wanderers`` and ``big_red_fantasy_football`` were
-disconnected -- removed from the config, and from :data:`auth.DEFAULT_VIEWER` where they
-were in it -- but their parquet was deliberately kept, and
-:func:`store.list_leagues` reads store prefixes rather than the config. So both are still
-in :data:`ALL_LEAGUES` below, which is the honest fixture, and
-``test_a_disconnected_league_is_not_offered_even_though_its_data_remains`` is what
-makes sure that data cannot come back through the picker.
+**The store list and ``config.yaml`` used to disagree by two, and no longer do.**
+``weenieless_wanderers`` and ``big_red_fantasy_football`` were disconnected from the
+config on 2026-09-09 and 2026-09-15 with their parquet deliberately kept, on the
+reasoning that :func:`store.list_leagues` reads prefixes rather than the config so the
+data stayed reachable through :data:`auth.ALL_LEAGUES_ENV`. That end state turned out
+to be the expensive one: ``Scripts.sync`` fanned out over the same prefixes, so both
+leagues kept being published and kept minting a dated board snapshot nightly from a
+board nothing rebuilt. Their data was purged on 2026-09-16 and the config is now the
+authority for what gets published.
+
+So :data:`ALL_LEAGUES` below is eight, not ten, and the tests that pinned the
+kept-but-unreachable contract are gone with it. **They would have gone on passing** --
+the fixture is hard-coded, so nothing in them reads the store -- which is the reason
+to delete them in the same change rather than later: a green test asserting a fiction
+is this repo's stated worst failure mode wearing a tick.
 """
 
 import sys
@@ -28,13 +35,11 @@ import auth  # noqa: E402
 
 #: Every league **the store holds**, in the order it lists them (sorted).
 #:
-#: Two more than ``config.yaml`` has: ``weenieless_wanderers`` (2026-09-09) and
-#: ``big_red_fantasy_football`` (2026-09-15) were disconnected and their data left in
-#: place. See the module docstring.
+#: Now the same eight ``config.yaml`` has. See the module docstring for why it was
+#: ten until 2026-09-16.
 ALL_LEAGUES = [
-    "big_red_fantasy_football", "fields_league", "gop_degenerates",
-    "jeffs_league", "john_atl_league", "john_pc_league", "knights_ffl",
-    "twelve_dudes_one_cup", "weenieless_wanderers", "winfield_football",
+    "fields_league", "gop_degenerates", "jeffs_league", "john_atl_league",
+    "john_pc_league", "knights_ffl", "twelve_dudes_one_cup", "winfield_football",
 ]
 
 
@@ -60,39 +65,6 @@ def test_the_other_owners_leagues_are_not_offered():
     for key in ("fields_league", "john_atl_league",
                 "john_pc_league", "twelve_dudes_one_cup"):
         assert key not in visible
-
-
-def test_a_disconnected_league_is_not_offered_even_though_its_data_remains():
-    """The end state of removing a league without deleting its parquet.
-
-    ``weenieless_wanderers`` (2026-09-09) and ``big_red_fantasy_football``
-    (2026-09-15) are out of ``config.yaml``, so the pipeline does not fetch them and
-    the app does not offer them -- but their store prefixes still exist, and
-    :func:`store.list_leagues` reads prefixes rather than the config, so both are still
-    in ``ALL_LEAGUES``. The viewer's tuple is the only thing standing between kept data
-    and a picker entry, which is why this is worth a test of its own rather than being
-    folded into the other-owners case above: these are not somebody else's leagues,
-    they are leagues nobody is meant to open.
-
-    Big Red needed only the one edit -- it was never in ``DEFAULT_VIEWER.leagues`` --
-    which is exactly why the config edit alone cannot be trusted to have covered it.
-    """
-    for key in ("weenieless_wanderers", "big_red_fantasy_football"):
-        assert key in ALL_LEAGUES, "fixture should keep the store's view"
-        assert key not in auth.DEFAULT_VIEWER.leagues
-        assert key not in auth.visible_leagues(auth.DEFAULT_VIEWER, ALL_LEAGUES)
-
-
-def test_the_escape_hatch_still_reaches_a_disconnected_league():
-    """Deliberately, and it is the only route left to one.
-
-    Kept data you cannot look at is data you cannot check, and the reason the parquet
-    was left in place was to keep 2025 and 2026 readable. So the unrestricted viewer
-    must still see it -- otherwise "keep the data" and "delete the data" would be the
-    same outcome from the app's point of view.
-    """
-    everyone = auth.DEFAULT_VIEWER._replace(leagues=())
-    assert "weenieless_wanderers" in auth.visible_leagues(everyone, ALL_LEAGUES)
 
 
 def test_the_stores_order_is_kept_not_the_viewers():

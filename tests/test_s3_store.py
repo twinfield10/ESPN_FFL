@@ -398,3 +398,38 @@ def test_a_gap_in_the_dates_does_not_force_a_spurious_snapshot(s3_stub, tmp_path
     _write_store(tmp_path, artifacts=("board",))
     s3_store.snapshot_board(2026, "knights_ffl", "2026-09-10")
     assert s3_store.snapshot_board(2026, "knights_ffl", "2026-09-16") is None
+
+
+# --- the read cache has a bound now --------------------------------------
+
+def test_the_etag_cache_keeps_only_the_newest_copies(s3_stub, tmp_path):
+    """Without this the cache grows a file per version, for ever.
+
+    The ETag is in the filename, so a new version is a new file and nothing ever asks
+    for the old one again. Measured before the bound: 311 MB across 496 files against
+    a 58 MB store, with 108 cached copies of a single board.
+    """
+    key = "store/season=2026/league=knights_ffl/board.parquet"
+    local = tmp_path / "board.parquet"
+
+    for n in range(5):
+        local.write_bytes(f"board-v{n}".encode())
+        s3_store.put_file(local, key)
+        s3_store.get_bytes(key)
+
+    cached = sorted(s3_store.CACHE_DIR.rglob("*board.parquet"))
+    assert len(cached) == s3_store.CACHE_KEEP
+
+    # And the newest must be the survivor -- evicting the copy every reader wants
+    # would turn a size bound into a cache that never hits.
+    assert any(p.read_bytes() == b"board-v4" for p in cached)
+
+
+def test_eviction_leaves_a_cache_under_the_limit_alone(s3_stub, tmp_path):
+    """The common case is one or two versions; it must not churn the disk."""
+    key = "store/season=2026/league=knights_ffl/board.parquet"
+    local = tmp_path / "board.parquet"
+    local.write_bytes(b"only-version")
+    s3_store.put_file(local, key)
+    s3_store.get_bytes(key)
+    assert len(list(s3_store.CACHE_DIR.rglob("*board.parquet"))) == 1

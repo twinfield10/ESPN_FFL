@@ -47,6 +47,27 @@ STATUS="${NIGHTLY}/Data/refresh_status.json"
 mkdir -p "$(dirname "${LOG}")"
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "${LOG}"; }
 
+# Keep the log from growing without bound. Rotate at 8 MB, one generation kept.
+#
+# Not cosmetic: this is the only record of what the pipeline did, and every stage of a
+# ~540s run appends to it nightly for ever -- 2.7 MB by week 2 of the first season.
+# `logrotate` is not a thing on macOS by default and `newsyslog` wants a root-owned
+# config, so the check lives here -- three lines, and it runs before anything writes.
+#
+# One generation, not five: the question these answer is "what happened last night",
+# and the S3 store is the durable record of what was actually produced.
+rotate_log() {
+  local f="$1" max=$((8 * 1024 * 1024))
+  [ -f "${f}" ] || return 0
+  local size
+  size=$(wc -c <"${f}" 2>/dev/null || echo 0)
+  if [ "${size}" -gt "${max}" ]; then
+    mv -f "${f}" "${f}.1" 2>/dev/null || true
+  fi
+}
+rotate_log "${LOG}"
+
+
 refuse() {
   local msg="$1"
   log "REFUSED: ${msg}"

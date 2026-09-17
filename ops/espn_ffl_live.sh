@@ -50,6 +50,27 @@ LOG="${HOME}/logs/espn_ffl_live.log"
 mkdir -p "$(dirname "${LOG}")"
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >>"${LOG}"; }
 
+# Keep the log from growing without bound. Rotate at 8 MB, one generation kept.
+#
+# Not cosmetic: these are the only record of what the pipeline did, and the live log
+# is appended to by a job that fires 144 times a day for ever. `logrotate` is not a
+# thing on macOS by default and `newsyslog` wants a root-owned config, so the check
+# lives here -- three lines, and it runs before anything else writes.
+#
+# One generation, not five: the question these answer is "what happened last night",
+# and the S3 store is the durable record of what was actually produced.
+rotate_log() {
+  local f="$1" max=$((8 * 1024 * 1024))
+  [ -f "${f}" ] || return 0
+  local size
+  size=$(wc -c <"${f}" 2>/dev/null || echo 0)
+  if [ "${size}" -gt "${max}" ]; then
+    mv -f "${f}" "${f}.1" 2>/dev/null || true
+  fi
+}
+rotate_log "${LOG}"
+
+
 # One instance at a time. A ten-minute cron against a run that can take a minute is
 # usually fine, but a slow ESPN turns "usually" into two processes writing the same
 # parquet -- and `_write_parquet_atomic` makes each write atomic without making two

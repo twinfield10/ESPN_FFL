@@ -267,8 +267,16 @@ def _run_refresh(display_name: str, season: int) -> None:
 
     if code == 0:
         # The cache key moved on both backends -- `store_mtime` locally, and the
-        # prefix fingerprint in S3 now that the run pushes -- so the cached readers
-        # miss and re-read on the rerun. No cache_data.clear() needed.
+        # prefix fingerprint in S3 now that the run pushes -- so the frame caches miss
+        # and re-read on the rerun without being cleared.
+        #
+        # **But the version itself is memoised now** (`store.VERSION_TTL`, 60s), and a
+        # cache key nobody re-reads is a cache key that did not move. Without this the
+        # button would push correctly and then render the numbers it just replaced,
+        # for up to a minute -- the same do-nothing button that pushing was added to
+        # fix, reintroduced one layer down. `invalidate` clears only the version and
+        # listing memos; the frames still key on the version, as they always did.
+        store.invalidate()
         #
         # The cooldown is stamped on success only. A failed run has published
         # nothing and left the previous store in place, so making the user wait

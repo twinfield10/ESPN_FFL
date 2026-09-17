@@ -8,8 +8,8 @@ open, so the day a real identity provider lands, the change is
 instead of :data:`DEFAULT_VIEWER`. Nothing else moves.
 
 The distinction matters because the alternative -- pages reading
-``store.list_leagues()`` directly -- is what makes retrofitting auth a rewrite. Nine
-leagues live in ``config.yaml``, five of them belong to other owners, and every page
+``store.list_leagues()`` directly -- is what makes retrofitting auth a rewrite. Eight
+leagues live in ``config.yaml``, four of them belong to other owners, and every page
 that reaches past this module is a page that would have to be found and changed
 later.
 
@@ -83,19 +83,22 @@ class Viewer(NamedTuple):
 #: league is missing from the app but present in ``store.list_leagues``, this is
 #: why.
 #:
-#: **Removing a league is the same edit twice, and the store is not the third.**
+#: **Removing a league is three edits, and leaving the data behind was the bug.**
 #: ``weenieless_wanderers`` came out of ``config.yaml`` and out of here on
-#: 2026-09-09. Dropping it from the config stops the *pipeline* fetching it;
-#: dropping it from this tuple stops the *app* offering it.
+#: 2026-09-09, ``big_red_fantasy_football`` on 2026-09-15. Dropping a league from
+#: the config stops the *pipeline* fetching it; dropping it from this tuple stops
+#: the *app* offering it. Neither stops it being **published**, and for six weeks
+#: nothing did: ``Scripts.sync`` fanned out over store prefixes rather than the
+#: config, so both leagues kept getting pushed and kept minting a dated board
+#: snapshot every night from a board nothing rebuilt. Seven of Weenieless's
+#: snapshots are byte-identical copies of 2026-09-09's. That hole is closed in
+#: ``Scripts.sync._league_seasons``, and both leagues' data was purged on
+#: 2026-09-16 -- 1.26 GB across 2,583 object versions.
 #:
-#: ``big_red_fantasy_football`` followed on 2026-09-15 and needed only the first
-#: edit, being somebody else's league and never in this tuple -- which is the case
-#: to watch, because "removing a league" then looks like a one-line change and the
-#: second edit is missed by simply not existing. Its parquet was
-#: deliberately left in S3, and because :func:`store.list_leagues` reads store
-#: prefixes rather than the config, that data is still listed there -- so it
-#: reappears under :data:`ALL_LEAGUES_ENV` and nowhere else. That is the intended
-#: end state, not an oversight.
+#: **What survives is their G2 archive**, at ``archive/g2/season=2026/``. It is the
+#: pre-season counterfactual behind the published fit in ``Scripts/lab/results.json``
+#: and cannot be rebuilt at any price, so it is exempt from the purge and from every
+#: lifecycle rule. Nothing in the app reads it.
 DEFAULT_VIEWER = Viewer(
     user_id="tommy",
     display_name="Tommy Winfield",
@@ -119,8 +122,11 @@ SESSION_KEY = "viewer"
 #: looks wrong the app is where you go to find out why. Scoping the picker must not
 #: cost the ability to answer that question.
 #:
-#: It is also the only way to reach a league whose config block has been removed but
-#: whose store data was kept -- ``weenieless_wanderers`` since 2026-09-09.
+#: It reaches every league the *store* holds, which since the 2026-09-16 purge is
+#: every league the config holds. It is no longer a way to reach a disconnected
+#: league, because disconnected leagues no longer have data to reach: the config is
+#: now the authority for what gets published, so a league that leaves the config
+#: stops accumulating a store rather than quietly keeping one.
 ALL_LEAGUES_ENV = "ESPN_FFL_ALL_LEAGUES"
 
 #: The unrestricted viewer :data:`ALL_LEAGUES_ENV` resolves to. Empty ``leagues``

@@ -221,6 +221,61 @@ def s3_report() -> List[str]:
     if dates:
         span = f"{dates[0]} to {dates[-1]}" if len(dates) > 1 else dates[0]
         lines.append(f"\n  board snapshots: {len(dates)} date(s), {span}")
+
+    lines.extend(_version_report())
+    return lines
+
+
+def _version_report() -> List[str]:
+    """Non-current versions, which are billed and which nothing else here counts.
+
+    **The totals above are what the bucket serves, not what it costs.** Versioning is
+    on, so an identical PUT mints a retained version rather than overwriting, and
+    ``ListObjectsV2`` -- which is what every other line of this report and every
+    ``aws s3 ls --summarize`` reads -- returns current versions only. Measured
+    2026-09-16: 1.23 GB current against **8.85 GB total**, because the live loop had
+    been re-uploading eight artifacts per league every ten minutes through a slate.
+    A report that is 8x low on the one number that appears on a bill is worse than no
+    report, and this file is what ``docs/DATA_CATALOGUE.md`` points at for "the live
+    answer".
+
+    Best-effort: ``ListObjectVersions`` is a different permission from
+    ``ListBucket``, so an account that can read the bucket may not be able to read
+    this. Saying so beats failing the whole catalogue.
+
+    Returns:
+        list: Report lines, or a one-line note when versions cannot be listed.
+    """
+    from Scripts import s3_store
+
+    current: Dict[str, List[int]] = {}
+    noncurrent: Dict[str, List[int]] = {}
+    markers = 0
+    try:
+        paginator = s3_store.client().get_paginator("list_object_versions")
+        for page in paginator.paginate(Bucket=s3_store.BUCKET):
+            for obj in page.get("Versions", []):
+                bucket = current if obj["IsLatest"] else noncurrent
+                bucket.setdefault(obj["Key"].split("/")[0], []).append(obj["Size"])
+            markers += len(page.get("DeleteMarkers", []))
+    except Exception as e:                                  # noqa: BLE001
+        return ["", f"  versions: unreadable ({type(e).__name__}) -- the totals "
+                    f"above are current versions only"]
+
+    if not noncurrent:
+        return ["", "  non-current versions: none"]
+
+    total_non = sum(sum(v) for v in noncurrent.values())
+    total_cur = sum(sum(v) for v in current.values())
+    lines = ["", "  non-current versions (retained, billed, invisible above):"]
+    for tier in sorted(noncurrent, key=lambda t: -sum(noncurrent[t])):
+        sizes = noncurrent[tier]
+        lines.append(f"    {tier:<12} {len(sizes):>6} versions  "
+                     f"{_human(sum(sizes)):>9}")
+    lines.append(f"    {'BILLED':<12} {'':>6}            "
+                 f"{_human(total_cur + total_non):>9}")
+    if markers:
+        lines.append(f"    delete markers: {markers}")
     return lines
 
 

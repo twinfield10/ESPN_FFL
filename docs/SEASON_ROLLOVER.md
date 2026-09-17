@@ -174,12 +174,18 @@ D/ST units never matching.
 python -m Scripts.refresh --all --what board --push
 ```
 
-**And put the stage back in the nightly for the pre-season.** `run_daily_refresh.sh`
-stopped rebuilding boards on 2026-09-16: it was 97s of a 539s run to re-derive a
-*draft* board in week 2, and nothing about week 9 changes your draft. Through camp
-that reasoning inverts — ADP moves daily and the board is the whole point — so the
-stage is wanted back between the usage re-projection and the lineups rebuild, and
-wanted out again once the last draft is done.
+**The nightly puts this stage back on its own, and that is deliberate.** It was
+removed outright on 2026-09-16 — 97s of a 539s run to re-derive a *draft* board in
+week 2 — with a comment saying it belonged back in August, which made an annual
+correctness step depend on someone reading a comment. `Scripts.freeze.board_is_cold`
+decides now: the board stays warm while the season has not started, **or** while a
+league that has drafted has not been frozen. That second clause is not decoration —
+the 2026 drafts finished on 09-08, five days *after* week 1 kicked off, so a gate of
+"has the season started" alone would have gone cold mid-draft-season.
+
+So there is nothing to re-add here. The stage reappears at the first nightly after the
+schedule shows no games played, and goes quiet again at step 9 below when the last
+league is frozen.
 
 Re-run it by hand in the days before each draft in any case; the board is a snapshot
 of the market at build time, which the app's freshness badge reports.
@@ -220,6 +226,18 @@ basis on which a draft can be graded. The Draft tab's Rundown reads
 rebuilt at 06:00 with that morning's news in it. Run it the night the last draft ends.
 `--refreeze` exists for having missed the window, not as the normal path — freezing
 twice overwrites the thing the first freeze was protecting.
+
+**Having missed it is recoverable, which it was not until 2026-09-16.**
+`snapshots/board/season=/league=/date=/` keeps one board per league per night, so the
+board as it stood on draft night survives even though the live one has moved on:
+
+```bash
+python -m Scripts.freeze --league <name> --from-snapshot 2026-09-07
+```
+
+Use the date the *other* leagues were frozen from, not today's — the point is that all
+of them are pinned to the same vintage. It stamps `frozen_board_date` beside
+`frozen_at` so the artifact says which board it is rather than implying it is today's.
 
 `--what draft` comes first because a finished draft is deliberately **not** part of the
 nightly (a finished draft never changes), so a league that drafted last night has no
