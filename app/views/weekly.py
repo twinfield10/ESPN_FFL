@@ -463,12 +463,14 @@ UPGRADE_CONFIG: Dict[str, object] = {
     "Add Proj": st.column_config.NumberColumn(
         format="%.1f", help="His projection on our blend, in this league's scoring."),
     "Instead Of": st.column_config.TextColumn(
-        help="The weakest of your players eligible for that slot who he out-projects "
-             "— the one you would actually replace."),
+        help="The weakest of your players he out-projects **and could actually "
+             "replace** — the one you would drop. A starter counts only if the "
+             "newcomer can fill the slot he is standing in, since dropping him "
+             "empties it; a bench player counts always, since he holds none."),
     "Now": st.column_config.TextColumn(
-        help="Where ESPN has your player at the moment. Not always the same slot: in "
-             "a superflex league a receiver is eligible for `OP` while starting at "
-             "`WR`."),
+        help="Where ESPN has your player at the moment. Not always the same slot: a "
+             "receiver starting at `WR` can be beaten at `RB/WR/TE` by another "
+             "receiver, who could take either."),
     "Their Proj": st.column_config.NumberColumn(format="%.1f"),
     "Margin": st.column_config.NumberColumn(
         format="%+.1f",
@@ -477,11 +479,12 @@ UPGRADE_CONFIG: Dict[str, object] = {
              "a median of 0.43 points and an edge smaller than that is noise."),
     "Yours Beaten": st.column_config.NumberColumn(
         format="%.0f",
-        help="How many of your players eligible for this slot he out-projects. One "
-             "is a decision; five is a position you have not addressed."),
+        help="How many of your players he out-projects and could replace at this "
+             "slot. One is a decision; five is a position you have not addressed."),
     "Better Available": st.column_config.NumberColumn(
         format="%.0f",
-        help="How many available players out-project the man in `Instead Of`. A "
+        help="How many available players out-project the man in `Instead Of` and "
+             "could take his place. A "
              "large number is the story: it means the position is thin on your "
              "roster and deep on the wire."),
 }

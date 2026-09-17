@@ -898,10 +898,13 @@ class Upgrade(NamedTuple):
             out-projected, :data:`UPGRADE_DEPTH` when only a bench player is. One or
             the other, never both -- critical wins and the depth row is suppressed.
         best: The highest-projecting available player eligible for the slot.
-        over: The weakest of your players at this slot that he out-projects -- the
-            one you would actually replace. Carries his own ``slotPosition``, which
-            is not always ``slot``: in a superflex league a receiver is eligible for
-            ``OP`` while starting at ``WR``.
+        over: The weakest of your players at this slot that he out-projects **and
+            could actually replace** -- see :func:`_can_replace`. A starter qualifies
+            only if ``best`` can fill the slot he is standing in, because dropping
+            him vacates it; a benched man qualifies always, because he holds none.
+            He carries his own ``slotPosition``, which is not always ``slot``: a
+            receiver starting at ``WR`` can be beaten at ``RB/WR/TE`` by another
+            receiver, who could take either.
         margin: ``best`` minus ``over``. At least :data:`UPGRADE_MIN_MARGIN`.
         beaten: How many of your players at this slot he out-projects. One is a
             decision; five means a position you have not addressed.
@@ -941,6 +944,27 @@ def competing_slots(row: dict, slots: Dict[str, int]) -> set:
     return set(_eligible(row)) & set(slots)
 
 
+def _can_replace(candidate: dict, victim: dict, slots: Dict[str, int]) -> bool:
+    """Whether ``candidate`` could take ``victim``'s place in the lineup.
+
+    Dropping a **starter** vacates the slot he was filling, so the newcomer has to be
+    able to fill that slot or the move leaves it empty. Dropping a **bench** player
+    vacates nothing, so any candidate qualifies.
+
+    Args:
+        candidate: An available player's row.
+        victim: A rostered player's row, carrying his current ``slotPosition``.
+        slots: From :func:`slot_counts`.
+
+    Returns:
+        bool: True when the swap is a move this league would allow.
+    """
+    held = victim.get("slotPosition") or ""
+    if held in NON_STARTING_SLOTS:
+        return True
+    return held in competing_slots(candidate, slots)
+
+
 def upgrades(pool: Sequence[dict], roster: Sequence[dict], slots: Dict[str, int],
              points_column: str, *,
              min_margin: float = UPGRADE_MIN_MARGIN) -> List[Upgrade]:
@@ -956,6 +980,12 @@ def upgrades(pool: Sequence[dict], roster: Sequence[dict], slots: Dict[str, int]
     :func:`competing_slots`. That is what puts a free-agent quarterback up against a
     receiver in a superflex league's ``OP``, a back up against a receiver in the
     flex, and five defensive positions up against each other in ``DP``.
+
+    **Replacing a starter needs the stronger test**, :func:`_can_replace`: sharing a
+    slot says two men compete for it, but dropping a starter vacates the slot he was
+    filling, so the newcomer has to be able to fill *that* one too. Without it a
+    superflex league reports a quarterback displacing a starting running back, which
+    is not a move the league would allow.
 
     Args:
         pool: The free-agent rows. Pass the **whole** pool rather than a filtered
@@ -1006,9 +1036,29 @@ def upgrades(pool: Sequence[dict], roster: Sequence[dict], slots: Dict[str, int]
         if not candidates or not mine:
             continue
         best = max(candidates, key=points)
+        best_slots = competing_slots(best, slots)
 
+        # **A starter can only be beaten by someone who can fill the slot he is
+        # standing in**, which is not the same test as sharing `slot` above.
+        #
+        # Sharing `slot` says the two men compete for it. Replacing a starter says
+        # something stronger: you drop him, so the slot he was filling has to be one
+        # the newcomer can fill too, or the move empties it. Jeffs_League 2026 week 2
+        # is the case -- `OP` was held by Stafford at 17.4 and Jordan Love was
+        # available at 16.4, so Love could not improve the slot at all. But every
+        # back, receiver and end on the roster is also `OP`-eligible, so `mine` held
+        # nine men and the weakest of them was Bucky Irving at 14.5, starting at
+        # `RB`. That reported as a critical upgrade: drop a starting running back for
+        # a quarterback who cannot play running back, to fill a slot already held by
+        # someone better.
+        #
+        # The bench needs no such test. A benched man occupies no starting slot, so
+        # dropping him for anyone is a legal move whatever either of them plays --
+        # which is also why this is the one tier where "weakest eligible" was always
+        # the right victim.
         starting = [r for r in mine
-                    if r.get("slotPosition") not in NON_STARTING_SLOTS]
+                    if r.get("slotPosition") not in NON_STARTING_SLOTS
+                    and (r.get("slotPosition") or "") in best_slots]
         benched = [r for r in mine if r.get("slotPosition") in NON_STARTING_SLOTS]
         for severity, group in ((UPGRADE_CRITICAL, starting),
                                 (UPGRADE_DEPTH, benched)):
@@ -1023,8 +1073,14 @@ def upgrades(pool: Sequence[dict], roster: Sequence[dict], slots: Dict[str, int]
                 slot=slot, severity=severity, best=best, over=over,
                 margin=points(best) - points(over),
                 beaten=len(beaten),
+                # Counted over the candidates who could actually take `over`'s
+                # place, on the same rule that chose him. Counting the rest would
+                # answer a different question than the column claims -- "57
+                # available defenders beat this linebacker" has to mean 57 who
+                # could replace him.
                 better=sum(1 for c in candidates
-                           if points(c) - points(over) >= min_margin),
+                           if points(c) - points(over) >= min_margin
+                           and _can_replace(c, over, slots)),
             ))
             break  # critical wins; the two tiers are mutually exclusive
 
