@@ -551,6 +551,51 @@ def _cache_path(key: str, etag: str) -> Path:
     return CACHE_DIR / key_path.parent / f"{etag}__{key_path.name}"
 
 
+#: How many cached copies of one object to keep. The newest is the one every reader
+#: wants; the one behind it is what a rollback or an in-flight reader needs.
+CACHE_KEEP = 2
+
+
+def _evict(cached: Path, keep: int = CACHE_KEEP) -> int:
+    """Drop all but the newest ``keep`` cached copies of one object.
+
+    **The cache had no bound at all, and a bound is not optional on this one.** The
+    ETag is in the filename, so every distinct version of an object becomes a new
+    file and nothing ever names the old one again -- ``_cache_path`` called that "a
+    file nobody asks for", which is true and is also why nothing deleted it. Measured
+    2026-09-16: 311 MB across 496 files, **five times the size of the 58 MB store it
+    was caching**, including 108 cached copies of one league's board.
+
+    Newest wins by mtime rather than by parsing the ETag, because an ETag carries no
+    ordering. Best-effort throughout: this runs inside a read, and a cache that
+    cannot be tidied must never fail the read that warmed it.
+
+    Args:
+        cached: The file just written. Its siblings are the other versions.
+        keep: How many to keep, newest first.
+
+    Returns:
+        int: Files removed.
+    """
+    suffix = "__" + Path(cached.name).name.split("__", 1)[1]
+    try:
+        siblings = [p for p in cached.parent.iterdir()
+                    if p.is_file() and p.name.endswith(suffix)]
+    except OSError:
+        return 0
+    if len(siblings) <= keep:
+        return 0
+    removed = 0
+    for stale in sorted(siblings, key=lambda p: p.stat().st_mtime,
+                        reverse=True)[keep:]:
+        try:
+            stale.unlink()
+            removed += 1
+        except OSError:
+            pass
+    return removed
+
+
 def get_bytes(key: str, *, etag: Optional[str] = None, cache: bool = True) -> bytes:
     """Read one object, using the local ETag cache when it is warm.
 
@@ -597,6 +642,7 @@ def get_bytes(key: str, *, etag: Optional[str] = None, cache: bool = True) -> by
         tmp = cached.with_suffix(cached.suffix + ".tmp")
         tmp.write_bytes(body)
         os.replace(tmp, cached)
+        _evict(cached)
     return body
 
 

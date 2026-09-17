@@ -27,6 +27,18 @@ def _store(season=2026, league="knights_ffl", artifacts=("board",)):
     return directory
 
 
+@pytest.fixture(autouse=True)
+def _configured(monkeypatch):
+    """Pin the configured-league set so these tests do not read the real config.
+
+    ``sync._league_seasons`` filters the store scan against ``config.yaml``, so
+    without this every push test here would quietly depend on a gitignored file
+    still containing ``knights_ffl``.
+    """
+    monkeypatch.setattr(sync, "_configured_keys",
+                        lambda: {"knights_ffl", "winfield_football", "gop_degenerates"})
+
+
 def _mirror_file(relative, data=b"payload"):
     """A file in a mirrored tier, e.g. ``G2/2026/manifest.json``."""
     path = paths.DATA_DIR / relative
@@ -126,6 +138,33 @@ def test_the_snapshot_lands_under_a_dated_partition(s3_env):
 def test_no_snapshot_means_no_dated_key(s3_env):
     _store(artifacts=("board",))
     sync.push(["store"], 2026, snapshot_date=None)
+    assert not any(k.startswith("snapshots/") for k in s3_env.objects)
+
+
+def test_a_league_with_no_config_block_is_not_pushed(s3_env):
+    """The bug this guard exists for: a disconnected league kept publishing.
+
+    ``Scripts.store.list_leagues`` scans for directories holding a ``meta.json``,
+    which is the right question for a reader and the wrong one for a writer. Two
+    leagues were removed from ``config.yaml`` and went on being pushed nightly.
+    """
+    _store(league="knights_ffl")
+    _store(league="weenieless_wanderers")
+    sync.push(["store"], 2026, snapshot_date=None)
+
+    assert any("league=knights_ffl" in k for k in s3_env.objects)
+    assert not any("weenieless_wanderers" in k for k in s3_env.objects)
+
+
+def test_a_league_with_no_config_block_mints_no_dated_snapshot(s3_env):
+    """The expensive half of the same bug.
+
+    A store push of a disconnected league is 8 objects of bytes S3 already has.
+    A *snapshot* of one is a new dated key every night holding a board that nothing
+    rebuilds -- 1.9 MB a night, none of it a data point.
+    """
+    _store(league="weenieless_wanderers", artifacts=("board",))
+    sync.push(["store"], 2026, snapshot_date="2026-09-16")
     assert not any(k.startswith("snapshots/") for k in s3_env.objects)
 
 

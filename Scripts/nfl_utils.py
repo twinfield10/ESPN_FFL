@@ -126,6 +126,40 @@ def current_week() -> int:
     return int(played.max()) if played.len() else 1
 
 
+def is_preseason() -> bool:
+    """Whether the season has yet to start -- no game in the schedule has a score.
+
+    **This is the repo's notion of "cold", and until now it existed only as shell.**
+    ``run_daily_refresh.sh`` derived exactly this predicate inline as ``SEASON_STARTED``
+    and used it for one thing: deciding whether an empty sportsbook market is a failure
+    or a book winding down a season-long line. Nothing in Python could ask the question,
+    so every other phase-dependent decision was carried as prose -- most expensively the
+    draft board, which is a pre-season artifact rebuilt nightly all year because the only
+    thing that knew otherwise was a comment.
+
+    Same evidence, opposite meaning, which is why the predicate is worth naming once:
+    an empty market pre-season is broken, and in-season is expected.
+
+    **Deliberately derived from the schedule rather than a date.** A hard-coded
+    cutoff drifts a week every year and is wrong in both directions during camp. The
+    schedule is the same file :func:`current_week` and :func:`current_season` read, so
+    the pipeline and the app cannot disagree about what phase it is.
+
+    **The failure direction is "in-season".** A frozen or truncated
+    ``NFL_Schedules.csv`` reads as no games played and would report pre-season
+    forever -- so callers that spend real money on being wrong should treat this as
+    necessary, not sufficient. The board gate pairs it with the freeze, which is a
+    positive declaration that a league's draft is over.
+
+    Returns:
+        bool: True when no game has been played.
+    """
+    sched = load_schedule()
+    played = sched.filter(
+        pl.col("away_score").cast(pl.Utf8, strict=False) != "NA")
+    return played.height == 0
+
+
 def date_week() -> pl.DataFrame:
     """Distinct gameday-to-week mapping.
 

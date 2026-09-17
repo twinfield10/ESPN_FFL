@@ -1,0 +1,58 @@
+{
+  "Rules": [
+    {
+      "ID": "store-keep-3-noncurrent-7d",
+      "Filter": {"Prefix": "store/"},
+      "Status": "Enabled",
+      "NoncurrentVersionExpiration": {"NoncurrentDays": 7, "NewerNoncurrentVersions": 3},
+      "Expiration": {"ExpiredObjectDeleteMarker": true},
+      "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 7}
+    },
+    {
+      "ID": "nfl-noncurrent-90d",
+      "Filter": {"Prefix": "nfl/"},
+      "Status": "Enabled",
+      "NoncurrentVersionExpiration": {"NoncurrentDays": 90},
+      "Expiration": {"ExpiredObjectDeleteMarker": true},
+      "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 7}
+    },
+    {
+      "ID": "snapshots-noncurrent-30d",
+      "Filter": {"Prefix": "snapshots/"},
+      "Status": "Enabled",
+      "NoncurrentVersionExpiration": {"NoncurrentDays": 30},
+      "Expiration": {"ExpiredObjectDeleteMarker": true},
+      "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 7}
+    },
+    {
+      "ID": "projections-noncurrent-30d",
+      "Filter": {"Prefix": "projections/"},
+      "Status": "Enabled",
+      "NoncurrentVersionExpiration": {"NoncurrentDays": 30},
+      "Expiration": {"ExpiredObjectDeleteMarker": true},
+      "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 7}
+    },
+    {
+      "ID": "injuries-noncurrent-30d",
+      "Filter": {"Prefix": "injuries/"},
+      "Status": "Enabled",
+      "NoncurrentVersionExpiration": {"NoncurrentDays": 30},
+      "Expiration": {"ExpiredObjectDeleteMarker": true},
+      "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 7}
+    },
+    {
+      "ID": "scoring-noncurrent-30d",
+      "Filter": {"Prefix": "scoring/"},
+      "Status": "Enabled",
+      "NoncurrentVersionExpiration": {"NoncurrentDays": 30},
+      "Expiration": {"ExpiredObjectDeleteMarker": true},
+      "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 7}
+    },
+    {
+      "ID": "archive-no-expiry-ever",
+      "Filter": {"Prefix": "archive/"},
+      "Status": "Enabled",
+      "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 7}
+    }
+  ]
+}

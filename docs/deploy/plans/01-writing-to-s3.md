@@ -2,9 +2,10 @@
 
 **Status:** BUILT 2026-09-16
 
-**Priority:** High (blocks deploy) · **Effort:** S · **Where it stands:** The dedup and
-the scoped push are in. The lifecycle gaps in §5 are **not** applied — they are a
-bucket-level change and want a decision, not a commit.
+**Priority:** High (blocks deploy) · **Effort:** S · **Where it stands:** Done. The
+dedup and the scoped push landed first; the lifecycle rules, the orphan-league purge
+and the cache eviction landed later the same day, once they had a decision behind
+them.
 **Answers:** report [01 — The Refresh Ledger](../reports/01-data-and-refresh-sweep.html) §05
 
 ---
@@ -120,29 +121,83 @@ store  winfield_football  uploaded 0 objects  (2 unchanged)
 A full `sync --push --what store` against the current bucket now uploads **0 of 24**
 objects for the three leagues checked, because they were already in sync.
 
+## What the lifecycle and the purge actually did (2026-09-16, later the same day)
+
+The section below was written as a decision to be taken rather than a commit. It was
+taken. `ops/s3-lifecycle.json` exists now and is the **complete** rule set, which is
+the one thing worth knowing before editing it: `put-bucket-lifecycle-configuration`
+replaces the whole configuration rather than merging, so omitting the `nfl/` rule from
+that file deletes it.
+
+| Prefix | Rule | Why |
+|---|---|---|
+| `store/` | newest **3** non-current, expire at **7 days** | Derived state with a deterministic nightly rebuild. It held 6.2 GB. |
+| `nfl/` | 90 days, unchanged | Play-by-play is minutes to re-pull, not seconds. |
+| `snapshots/`, `projections/`, `injuries/`, `scoring/` | 30 days | Regenerable. |
+| `archive/` | **nothing expires, ever** | The one irreproducible tier, and now explicitly so rather than by omission. |
+
+`NewerNoncurrentVersions` and `NoncurrentDays` compose as **AND**: a version goes only
+when it is both outside the newest three *and* seven days old. So `store/` does not
+floor at its current 47 MB, it floors at current plus three supersessions per key —
+which is small now that `push_league_store` skips unchanged bytes, and would not have
+been before.
+
+**`snapshots/` gets a non-current rule and must never get an `Expiration.Days`.** A
+dated key is written once, so its *current* version is the board for that date and the
+whole ADP time series this plan calls the unplanned win. Only same-day rewrites are
+non-current. The two are one JSON key apart and one of them is unrecoverable.
+
+**The two orphan leagues were purged rather than adopted**, closing the oldest open
+question in `docs/deploy/README.md`: 2,583 object versions and 1.26 GB across `store/`
+and `snapshots/`, plus 8.8 MB local. Three things made it safe rather than merely
+final:
+
+- **`aws s3 rm` would have reclaimed nothing.** On a versioned bucket it writes a
+  delete marker, so the objects vanish from `ListObjectsV2` -- and therefore from
+  `Scripts.catalogue --s3` -- while every byte stays billed. The purge deleted by
+  `VersionId`, in batches of 1,000, checking `.Errors` on each response because
+  `delete-objects` exits 0 on partial failure.
+- **`meta.json` versions went first.** `push_league_store` uploads it last because it
+  is the completeness sentinel; deleting it first is the same invariant run backwards.
+  The moment it was gone both leagues disappeared from `s3_store.list_leagues`, so an
+  interrupted purge could leave orphan bytes but never a half-visible league.
+- **Their `archive/g2/` parquet was kept**, with every non-current version, and so
+  were the local `Data/G2/` copies -- those are the only thing `sync --verify --what
+  archive` can compare the kept objects against, so deleting them would have made the
+  preserved tier unverifiable by any command in this repo.
+
+The hole that kept those leagues alive for six weeks was not the data, it was
+`Scripts.sync._league_seasons` fanning out over store prefixes rather than
+`config.yaml`. **The config is now the authority for writes and deliberately not for
+reads** -- `app/auth.py` scopes the app by filtering a prefix scan, and filtering the
+scan itself would have broken that and hidden data from `--verify`.
+
+`Data/.s3cache/` evicts to the newest two copies per key. It was 311 MB across 496
+files against the 58 MB store it caches, with 108 cached boards for one league,
+because the ETag is in the filename and nothing ever asks for an old one again.
+
+And `Scripts.catalogue` now reports non-current versions beside current ones. It had
+been answering **1.2 GB for a bucket that billed 10.6 GB** -- `ListObjectsV2` returns
+current versions only -- which is worse than not answering, since `DATA_CATALOGUE.md`
+points at it for the live number.
+
 ## What is left, and is deliberately not done here
 
-**Four prefixes have no non-current expiry rule at all** — `snapshots/`,
-`projections/`, `injuries/`, `archive/` — holding 804 MB of versions retained
-forever. Changing bucket lifecycle is an infrastructure decision with no undo for
-what it deletes, so it wants a call rather than a commit. The shape, if wanted:
+Nothing from this plan. Both items that stood here — the lifecycle gaps and the
+`.s3cache` eviction — were applied on 2026-09-16 and are recorded in the section
+above.
 
-```bash
-# adds NoncurrentVersionExpiration to the four unruled prefixes.
-# READ THIS FIRST: it permanently deletes non-current versions older than N days.
-aws s3api put-bucket-lifecycle-configuration --bucket espn-ffl-data \
-  --lifecycle-configuration file://ops/s3-lifecycle.json
-```
+What the measurements turned up and this plan does **not** address:
 
-Two judgement calls inside it:
-
-- **`snapshots/` non-current versions are safe to expire** — a dated board key is
-  written once per date, so a second version only exists where a date was rewritten.
-  The *current* versions are the archive and must never expire.
-- **`archive/g2/` should arguably keep everything.** It is the one tier the module
-  docstring calls irreproducible.
-
-Separately, and cheaper: **`Data/.s3cache/` has no eviction** (311 MB, 496 files, 108
-versions of one board). `_cache_path` keys on ETag and says a stale entry "is simply a
-file nobody asks for" — which is true and also means nothing ever deletes it. Keeping
-the newest two per key reclaims ~290 MB with no behaviour change.
+- **Compression is not a lever on the board.** `board.parquet` is 2.009 MB and zstd-9
+  gives 1.944 MB, because 0.898 MB of it is incompressible parquet footer for 1,662
+  columns. Writing it less often was the only thing that was ever going to work.
+- **A slim board snapshot would be 25x smaller** — 26 draft-relevant columns measure
+  80.9 KB against 2,057 KB — but it would break comparability with the 35 full
+  snapshots already stored, and `snapshot_board`'s dedup already drives the tier to
+  roughly zero bytes a night while the board is frozen. Worth revisiting before next
+  pre-season, not during one.
+- **The mirror push still does a `HeadObject` per file**, ~370 a night, which is most
+  of the 30-second push stage. Hashing all 542 MB locally takes 0.3s, so the cost is
+  entirely round-trips: one `list_objects` per tier prefix plus the `md5_hex`
+  comparison `push_league_store` already uses would collapse it.

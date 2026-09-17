@@ -175,11 +175,8 @@ log "week ${WEEK}"
 # expected, and failing the run on it would take the boards down every night for the
 # rest of the year. Same evidence, opposite meaning, so the stages ask this first.
 SEASON_STARTED="$("${PYTHON}" -c "
-from Scripts.nfl_utils import load_schedule
-import polars as pl
-sched = load_schedule()
-played = sched.filter(pl.col('away_score').cast(pl.Utf8, strict=False) != 'NA')
-print(1 if played.height else 0)
+from Scripts.nfl_utils import is_preseason
+print(0 if is_preseason() else 1)
 " 2>/dev/null)" || SEASON_STARTED=0
 log "season started: ${SEASON_STARTED}"
 
@@ -503,33 +500,46 @@ log "re-projecting the usage model"
 "${PYTHON}" -m Scripts.usage.project --season "${SEASON}" >>"${LOG}" 2>&1 \
   || fail "Scripts.usage.project"
 
-# --- 4. The draft boards are NOT rebuilt here ----------------------------
-# Removed 2026-09-16. `--what board` was 97s of a 539s run -- the single most
-# expensive stage after BetOnline's weekly props -- and it rebuilt a *draft* board
-# every night of a season whose drafts all finished on 2026-09-08. Nothing about
-# week 9 changes your draft, which is the same reasoning that has always kept
-# `board` out of `DEFAULT_WHAT`.
+# --- 4. Rebuild the draft boards, but only while they are still live --------
+# `--what board` is 97s of a ~540s run -- the most expensive stage after BetOnline's
+# weekly props -- and roughly 90% of it is plan 28's Monte Carlo outcome distribution
+# rather than draft arithmetic. Rebuilding that every night of a season whose drafts
+# are over is pure waste, which is why `board` has never been in `DEFAULT_WHAT`.
 #
-# **What it also did, and what had to move first.** The board is not only draft
-# arithmetic: roughly 90% of that 97s is plan 28's Monte Carlo outcome distribution,
-# and the Free Agents page reads six of its columns as waiver context. Two of those
-# six are volatile -- `percent_owned` moves every time somebody makes a claim, and
-# `injury_status` moves daily -- so freezing the board would have quietly degraded
-# the waiver wire while looking like a pure saving.
+# **It was removed outright on 2026-09-16 and is back on a gate on the same day.**
+# Removing it was right for this week and wrong for next August: the only thing that
+# would have restored it was a human reading a comment, and `docs/SEASON_ROLLOVER.md`
+# enforcing it by reminder is the same shape as every other silent-staleness bug in
+# this repo. `Scripts.freeze.board_is_cold` decides instead. The board stays warm
+# while the season has not started, or while a league that has drafted has not been
+# frozen -- the second clause because the 2026 drafts finished on 09-08, five days
+# *after* week 1 kicked off, so "has the season started" alone would have gone cold
+# mid-draft-season.
 #
-# Both of those already live on `pool.parquet`, which is captured nightly at stage 4c
-# below for 2s, so `app/routes/free_agents.py` now takes them from there. What stays
-# on the frozen board is `pts_p90`, `p_top12`, `games` and `usg_depth_rank` -- all
-# season-grain quantities that move slowly and are explicitly context rather than a
-# gate (see `waivers.UPSIDE_IS_CONTEXT_NOT_A_GATE`).
+# **What moved first, and had to.** The Free Agents page read six board columns as
+# waiver context, two of which are volatile -- `percent_owned` moves on every claim
+# and `injury_status` moves daily -- so gating the board would have quietly degraded
+# the waiver wire while looking like a pure saving. Both now come off `pool.parquet`,
+# captured at 4c below for ~2s. What still comes off the board is `pts_p90`,
+# `p_top12`, `games` and `usg_depth_rank`: season-grain, slow-moving, and explicitly
+# context rather than a gate (`waivers.UPSIDE_IS_CONTEXT_NOT_A_GATE`).
 #
-# Rebuild it by hand when it is wanted -- before a keeper deadline, or after a
-# projection change worth re-grading against:
+# Force a rebuild by hand when one is wanted anyway -- before a keeper deadline, or
+# after a projection change worth re-grading against:
 #
 #   python -m Scripts.refresh --all --what board --push
 #
-# Pre-season this belongs back in the nightly. `docs/SEASON_ROLLOVER.md` carries it
-# as a dated step; the rest of the year it is waste.
+BOARD_COLD="$("${PYTHON}" -c "
+from Scripts.freeze import board_is_cold
+print(1 if board_is_cold(${SEASON}) else 0)
+" 2>/dev/null)" || BOARD_COLD=0
+if [ "${BOARD_COLD}" = "1" ]; then
+  log "draft boards are cold (season under way, every drafted league frozen) -- skipping the board rebuild"
+else
+  log "rebuilding draft boards for all leagues"
+  "${PYTHON}" -m Scripts.refresh --all --what board >>"${LOG}" 2>&1 \
+    || fail "Scripts.refresh --what board"
+fi
 
 # --- 4b. Rebuild the weekly lineups -------------------------------------
 # `lineups.parquet` is the artifact the entire in-season app reads -- Roster, Free

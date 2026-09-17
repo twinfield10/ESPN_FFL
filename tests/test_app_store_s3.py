@@ -134,8 +134,8 @@ def test_auto_falls_back_when_s3_raises(local_store, monkeypatch):
 # --- the cache key, which is what makes a refresh visible ----------------
 
 def test_the_version_moves_when_the_bucket_changes(local_store, monkeypatch):
-    """If this stopped moving, a nightly refresh would be invisible for the TTL and
-    the app would look entirely normal while showing yesterday's board."""
+    """If this stopped moving, a nightly refresh would be invisible and the app would
+    look entirely normal while showing yesterday's board."""
     monkeypatch.setenv("ESPN_FFL_STORE_SOURCE", "s3")
     s3_store.push_league_store(2026, "knights_ffl")
     before = app_store._version(2026, "knights_ffl", "s3")
@@ -144,6 +144,7 @@ def test_the_version_moves_when_the_bucket_changes(local_store, monkeypatch):
         paths.store_dir(2026, "knights_ffl") / ARTIFACTS["board"])
     s3_store.push_league_store(2026, "knights_ffl")
 
+    app_store.invalidate()
     assert app_store._version(2026, "knights_ffl", "s3") != before
 
 
@@ -157,7 +158,42 @@ def test_a_refreshed_board_is_actually_re_read(local_store, monkeypatch):
         paths.store_dir(2026, "knights_ffl") / ARTIFACTS["board"])
     s3_store.push_league_store(2026, "knights_ffl")
 
+    app_store.invalidate()
     assert app_store.load_board(2026, "knights_ffl").shape == (1, 2)
+
+
+def test_a_write_the_app_did_not_make_is_seen_within_the_version_ttl(local_store,
+                                                                    monkeypatch):
+    """The trade the version memo makes, stated rather than assumed.
+
+    The fingerprint is read once per :data:`store.VERSION_TTL` rather than once per
+    call, because reading it per call cost 37 ``ListObjectsV2`` and 1.57s on a single
+    Home render. The price is that a push from *outside* this process -- the nightly,
+    or the ten-minute live loop -- is invisible until the memo expires.
+
+    That is bounded by construction and the bound is what matters: ``VERSION_TTL``
+    must stay below ``CACHE_TTL``, because the version is the frame cache's key, so a
+    stale version can only extend a frame's life to what the frame cache already
+    allowed. Widening it past that would make the memo, not the frame cache, the
+    thing deciding how stale the app can be.
+    """
+    assert app_store.VERSION_TTL < app_store.CACHE_TTL
+
+    monkeypatch.setenv("ESPN_FFL_STORE_SOURCE", "s3")
+    s3_store.push_league_store(2026, "knights_ffl")
+    before = app_store._version(2026, "knights_ffl", "s3")
+
+    pl.DataFrame({"player": ["Bijan"], "VOR": [44.0]}).write_parquet(
+        paths.store_dir(2026, "knights_ffl") / ARTIFACTS["board"])
+    s3_store.push_league_store(2026, "knights_ffl")
+
+    # Inside the window, deliberately: nothing in-process knows S3 moved.
+    assert app_store._version(2026, "knights_ffl", "s3") == before
+    # And `invalidate` is the in-app writer's way out of it -- the refresh button
+    # calls exactly this, which is what stops a successful push rendering as a
+    # no-op.
+    app_store.invalidate()
+    assert app_store._version(2026, "knights_ffl", "s3") != before
 
 
 def test_the_two_backends_do_not_share_a_cache_entry(local_store, monkeypatch):
@@ -192,6 +228,7 @@ def test_listing_leagues_and_seasons_routes_to_the_backend(local_store, monkeypa
     monkeypatch.setenv("ESPN_FFL_STORE_SOURCE", "s3")
     assert app_store.list_leagues(2026) == []
     s3_store.push_league_store(2026, "knights_ffl")
+    app_store.invalidate()          # the listing is memoised for LISTING_TTL too
     assert app_store.list_leagues(2026) == ["knights_ffl"]
     assert app_store.list_seasons() == [2026]
 

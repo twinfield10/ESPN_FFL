@@ -64,7 +64,7 @@ def fake_st(monkeypatch):
     return fake
 
 
-LEAGUES = ["gop_degenerates", "knights_ffl", "weenieless_wanderers",
+LEAGUES = ["gop_degenerates", "knights_ffl", "twelve_dudes_one_cup",
            "winfield_football"]
 
 

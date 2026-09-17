@@ -21,6 +21,14 @@ locally is a writer's scratch pad plus a read cache, is not tracked in git, and 
 safe to delete — `python -m Scripts.sync --pull` rebuilds it. See
 [plan 24](plans/24-s3-data-flow.md).
 
+**The bucket is versioned, so what it serves and what it costs are different
+numbers.** `ListObjectsV2` — and therefore `aws s3 ls --summarize` and the first half
+of `Scripts.catalogue --s3` — returns current versions only. On 2026-09-16 that was
+1.2 GB against 10.6 GB billed, because an identical PUT on a versioned bucket mints a
+retained version rather than overwriting. `--s3` now reports both, and
+[deploy plan 01](deploy/plans/01-writing-to-s3.md) carries the lifecycle rules that
+bound it.
+
 | Tier | Local | S3 prefix |
 |---|---|---|
 | The store | `Data/Store/<season>/<league>/` | `store/season=/league=/` |
@@ -37,7 +45,7 @@ the espn-api 0.46.0 migration — evidence about a bug that is fixed, not live d
 
 ## 1. The store — league-scored data, and what the app reads
 
-One directory per league-season, nine leagues. Written by `python -m Scripts.refresh`,
+One directory per league-season, eight leagues. Written by `python -m Scripts.refresh`,
 read by the app and by `populateGoogleSheet.py`. The defining property: **every number
 in here is already scored in that league's own rules**, so a point in the IDP league
 and a point in the superflex league mean what they say. Nothing downstream re-scores.
@@ -205,7 +213,19 @@ This exists because a board cannot be reconstructed after the fact: FantasyPros 
 no season parameter, so the moment a board stops being current it is gone. Every
 nightly build is now kept, which makes **ADP drift through camp** answerable —
 position battles resolving, a rookie's price moving, the market reacting to news — at
-daily resolution across all nine leagues.
+daily resolution.
+
+**A snapshot is only written when the board actually moved**, and in-season the board
+does not move at all: `Scripts.freeze.board_is_cold` keeps the rebuild out of the
+nightly once every league that has drafted is frozen. Without that check `sync --push`
+would mint an identical 2 MB board under a new date every night — roughly 4 GB by
+January, all of it one distinct board.
+
+It is also the only tier that has ever been needed as a *repair*. Three leagues missed
+their freeze window on 2026-09-07; `Scripts.freeze --from-snapshot 2026-09-07` can
+recover the board as it stood that night, which the live board cannot. That is why
+`snapshots/` current versions are exempt from expiry and only same-day rewrites age
+out.
 
 ---
 
