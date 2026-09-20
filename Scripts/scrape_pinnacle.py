@@ -565,7 +565,24 @@ def scrape_weekly_props(season: int = None, write: bool = True) -> pl.DataFrame:
     driver = webdriver.Chrome(options=chrome_options())
     try:
         driver.get(MATCHUPS_URL)
-        WebDriverWait(driver, 5).until(
+        # **Thirty seconds, and the number is load-bearing.** This is the gate for the
+        # whole run -- nothing below it executes until the matchup list paints -- so it
+        # is the one wait paying for a cold Chrome launch *and* the first page load,
+        # while the two inside the scrape loop run against a warm browser. At five it
+        # was the shortest timeout in the file and the deeper two were already ten,
+        # which had it backwards.
+        #
+        # It failed four nightlies running, 2026-09-17 to 09-20, on a TimeoutException
+        # here and not on an empty board: run by hand at 10:31 the same morning the
+        # identical code took 32s and pulled 213 rows over 15 games. 06:02 is simply
+        # the worst moment on this machine -- `espn_ffl_live.sh` (*/10), rebirtha-nfl's
+        # `pinnacle_refresh.sh` (*/30) and the nightly's own pipeline all land there.
+        #
+        # The stage is non-fatal in `run_daily_refresh.sh`, so this cost nothing louder
+        # than a `StaleProjectionSourceWarning` for four days. A wait that is generous
+        # is free when the page is up: `visibility_of_element_located` returns the
+        # moment it paints and only a genuine outage pays the full thirty.
+        WebDriverWait(driver, 30).until(
             EC.visibility_of_element_located(
                 (By.CSS_SELECTOR, 'div[class*="matchupMetadata"]')))
         print("Link Element Located")
