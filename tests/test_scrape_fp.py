@@ -13,6 +13,7 @@ agreement. So the loud paths matter more than the happy one.
 
 import re
 
+import pandas as pd
 import pytest
 
 from Scripts import scrape_FP as fp
@@ -385,3 +386,62 @@ def test_an_empty_season_capture_leaves_the_snapshot_alone(monkeypatch,
                         lambda wk, year=None: _empty_like_a_served_table())
     fp.scrape_season_long(season=2026)
     assert len(pd.read_parquet(path)) == 1
+
+
+# ---------------------------------------------------------------------------
+# Column selection is by header, not by position. The headers below are what
+# FantasyPros served on 2026-09-23: the season-long (`week=draft`) tables carry a
+# BYE column after Player and the weekly ones do not -- the shift that failed the
+# nightly with "Length mismatch: Expected axis has 12 elements, new values have 11".
+# ---------------------------------------------------------------------------
+
+def _qb_table(with_bye, rows=1):
+    """A QB table shaped the way `pd.read_html` returns it."""
+    cols = [("Unnamed: 0_level_0", "Player")]
+    if with_bye:
+        cols.append(("Unnamed: 1_level_0", "BYE"))
+    cols += [("PASSING", s) for s in ("ATT", "CMP", "YDS", "TDS", "INTS")]
+    cols += [("RUSHING", s) for s in ("ATT", "YDS", "TDS")]
+    cols += [("MISC", "FL"), ("MISC", "FPTS")]
+    row = ["Josh Allen BUF"] + ([7] if with_bye else []) + [
+        504.5, 341.7, 3889.0, 26.8, 11.7, 115.5, 577.8, 11.1, 4.1, 367.1]
+    return pd.DataFrame([row] * rows, columns=pd.MultiIndex.from_tuples(cols))
+
+
+@pytest.mark.parametrize("with_bye", [True, False], ids=["season", "weekly"])
+def test_a_qb_table_reads_the_same_with_or_without_a_bye_column(with_bye):
+    out = fp._select_stat_columns(_qb_table(with_bye), "qb")
+    assert list(out.columns) == ["player_name", *fp.STAT_COLUMNS["qb"].values()]
+    assert out.loc[0, "player_name"] == "Josh Allen BUF"
+    # Rushing and passing yards share the header YDS; the group keeps them apart.
+    assert out.loc[0, "proj_passingYards"] == 3889.0
+    assert out.loc[0, "proj_rushingYards"] == 577.8
+    assert out.loc[0, "STD_FantasyPoints"] == 367.1
+
+
+def test_an_empty_table_still_has_its_columns():
+    out = fp._select_stat_columns(_qb_table(False, rows=0), "qb")
+    assert out.empty
+    assert "player_name" in out.columns
+
+
+def test_the_single_row_dst_header_ignores_columns_it_does_not_use():
+    df = pd.DataFrame([["Denver Broncos", 12, 45.1, 13.0, 8.2, 9.9, 1.9, 0.4,
+                        330.0, 5400.0, 120.0]],
+                      columns=["Player", "BYE", "SACK", "INT", "FR", "FF", "TD",
+                               "SAFETY", "PA", "YDS AGN", "FPTS"])
+    out = fp._select_stat_columns(df, "dst")
+    assert out.loc[0, "proj_defensiveFumbles"] == 8.2  # FR, not FF
+    assert out.loc[0, "STD_FantasyPoints"] == 120.0
+
+
+def test_a_renamed_stat_header_fails_loudly_rather_than_publishing_zeros():
+    df = _qb_table(False)
+    df.columns = pd.MultiIndex.from_tuples(
+        [("MISC", "FUM") if c == ("MISC", "FL") else c for c in df.columns])
+    with pytest.raises(ValueError, match="MISC FL"):
+        fp._select_stat_columns(df, "qb")
+
+
+def test_every_scraped_position_has_a_column_map():
+    assert set(fp.STAT_COLUMNS) >= set(fp.pos_list)
