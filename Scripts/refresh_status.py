@@ -99,6 +99,40 @@ PROJECTION_SOURCES = (
      "python -m Scripts.scrape_FP --what ros"),
 )
 
+#: Sources in :data:`PROJECTION_SOURCES` that are draft input and nothing else.
+#:
+#: The season blend is read by the board stage alone, so once
+#: :func:`Scripts.freeze.board_is_cold` says the boards are done, these files have no
+#: reader -- and the nightly stops refreshing the two books at the same moment (stages
+#: 2c/2d of ``run_daily_refresh.sh``, gated on the same predicate). Judging them against
+#: a 25-hour window after that would be red every night for the rest of the season,
+#: which is a check nobody reads. They are still printed, with their age, so a board
+#: forced warm by hand shows what it would be blending. The Athletic here is the
+#: season-long workbook; its weekly slate is ``ATH weekly`` below and keeps its clock.
+DRAFT_ONLY_SOURCES = frozenset({"Pinnacle", "BetOnline", "The Athletic"})
+
+
+def _board_cold(season: int) -> bool:
+    """:func:`Scripts.freeze.board_is_cold`, failing towards *warm*.
+
+    A schedule or store that cannot be read should leave every source watched rather
+    than silence three of them.
+
+    Args:
+        season: Season year.
+
+    Returns:
+        bool: True only when the boards are positively known to be cold.
+    """
+    try:
+        from Scripts.freeze import board_is_cold
+        return bool(board_is_cold(season))
+    except Exception as exc:                                # noqa: BLE001
+        print(f"  (could not tell whether the boards are cold: {exc}; "
+              "watching every source)")
+        return False
+
+
 #: The **weekly** blend's sources, separate from :data:`PROJECTION_SOURCES`.
 #:
 #: Separate rather than appended, for three reasons. That tuple's docstring scopes it
@@ -284,7 +318,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         _report_boards(season)
 
     # --- each source the draft board votes on ------------------------------
-    if _report_sources(season, args.max_age_hours):
+    if _report_sources(season, args.max_age_hours,
+                       board_cold=_board_cold(season)):
         stale = True
 
     # --- and the weekly blend's own, which nothing watched before ----------
@@ -306,7 +341,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     return 1 if stale else 0
 
 
-def _report_sources(season: int, max_age_hours: float, sources=None) -> bool:
+def _report_sources(season: int, max_age_hours: float, sources=None,
+                    board_cold: bool = False) -> bool:
     """One line per projection source, with the command that refreshes it.
 
     Args:
@@ -322,6 +358,8 @@ def _report_sources(season: int, max_age_hours: float, sources=None) -> bool:
             return value, and ``max_age_hours``, which overrides the argument for a
             source on its own clock -- a hand-dropped weekly workbook is correctly
             days old and must not be judged against a nightly scrape's window.
+        board_cold: When True, a :data:`DRAFT_ONLY_SOURCES` entry is printed
+            with its age but never moves the return value.
 
     Returns:
         bool: True if any non-advisory source is missing or stale.
@@ -334,6 +372,11 @@ def _report_sources(season: int, max_age_hours: float, sources=None) -> bool:
         limit = entry[4] if len(entry) > 4 else max_age_hours
         note = "" if not advisory else "  (advisory)"
         path = resolve(season)
+        if board_cold and name in DRAFT_ONLY_SOURCES:
+            age = ((datetime.now(timezone.utc).timestamp() - path.stat().st_mtime)
+                   / 3600.0 if path.is_file() else None)
+            print(f"  {name:<13} draft-only, boards cold — last written {_fmt(age)}")
+            continue
         if not path.is_file():
             print(f"  {name:<13} MISSING — {fix.replace('<season>', str(season))}"
                   f"{note}")

@@ -180,6 +180,16 @@ print(0 if is_preseason() else 1)
 " 2>/dev/null)" || SEASON_STARTED=0
 log "season started: ${SEASON_STARTED}"
 
+# Is the draft board still a live instrument? Asked once, here, because two stages
+# answer to it: the season-long props pulls (2c, 2d), which are draft input and
+# nothing else, and the board rebuild (4). See `Scripts.freeze.board_is_cold` and
+# stage 4 for why this is not the same question as SEASON_STARTED.
+BOARD_COLD="$("${PYTHON}" -c "
+from Scripts.freeze import board_is_cold
+print(1 if board_is_cold(${SEASON}) else 0)
+" 2>/dev/null)" || BOARD_COLD=0
+log "board cold: ${BOARD_COLD}"
+
 # Run a book's season-props pull, fatal only while it is still the draft input.
 #
 # Deliberately *not* the bare `|| fail` every other stage gets. A book that has moved
@@ -422,38 +432,48 @@ fi
 # the boards rebuilding every night. Both now run as their own stages (2b'' and 2e) --
 # BetOnline answers again as of 2026-09-08, through a browser rather than the API --
 # and neither can fail the run. The `|| fail` reasoning above is why.
-log "pulling Pinnacle season-long player props"
-book_stage "Scripts.scrape_pinnacle_season" "${PYTHON}" -m Scripts.scrape_pinnacle_season
+# **Draft-only since 2026-09-23.** The season blend these two feed is read by the
+# board stage and nothing else, so once the boards are cold a pull here refreshes a
+# file no one opens -- and by then the books have wound the markets down anyway (2
+# Pinnacle rows and 33 BetOnline rows on 09-23, against 76 and 546 in August). Gated
+# on BOARD_COLD rather than SEASON_STARTED for the reason stage 4 gives: the 2026
+# drafts ran five days past kickoff. They come back on their own next pre-season.
+if [ "${BOARD_COLD}" = "1" ]; then
+  log "draft boards are cold -- skipping the season-long props pulls (Pinnacle, BetOnline)"
+else
+  log "pulling Pinnacle season-long player props"
+  book_stage "Scripts.scrape_pinnacle_season" "${PYTHON}" -m Scripts.scrape_pinnacle_season
 
-PINNY_ROWS="$("${PYTHON}" -c "
+  PINNY_ROWS="$("${PYTHON}" -c "
 import polars as pl
 from Scripts.paths import season_dir
 p = season_dir('Pinnacle', ${SEASON}, 'Pinnacle_SeasonProps.parquet', create=False)
 print(pl.read_parquet(p).height if p.is_file() else 0)
 " 2>/dev/null)" || PINNY_ROWS=0
-# 76 props over 76 players measured 2026-08-27. The floor catches a collapse, not the
-# ordinary trimming a book does to its board week to week.
-book_rows_guard "Pinnacle season props" "${PINNY_ROWS}" 40 \
-  "Check the guest API is still answering: python -m Scripts.scrape_pinnacle_season --dry-run"
+  # 76 props over 76 players measured 2026-08-27. The floor catches a collapse, not the
+  # ordinary trimming a book does to its board week to week.
+  book_rows_guard "Pinnacle season props" "${PINNY_ROWS}" 40 \
+    "Check the guest API is still answering: python -m Scripts.scrape_pinnacle_season --dry-run"
 
-# --- 2d. BetOnline season-long player props -----------------------------
-# The other half of the same gap, and still the R path -- `Scripts/season_projections.py`
-# names this exact command when the file is missing, so the two agree.
-#
-# This is the *season* endpoint, which answers. BetOnline's weekly props API is the one
-# returning 403 `invalid_security_headers`; see plan 02.
-log "pulling BetOnline season-long player props"
-book_stage "R/GetSeasonProps.R" "${RSCRIPT}" R/GetSeasonProps.R "${SEASON}"
+  # --- 2d. BetOnline season-long player props -----------------------------
+  # The other half of the same gap, and still the R path -- `Scripts/season_projections.py`
+  # names this exact command when the file is missing, so the two agree.
+  #
+  # This is the *season* endpoint, which answers. BetOnline's weekly props API is the one
+  # returning 403 `invalid_security_headers`; see plan 02.
+  log "pulling BetOnline season-long player props"
+  book_stage "R/GetSeasonProps.R" "${RSCRIPT}" R/GetSeasonProps.R "${SEASON}"
 
-BOL_ROWS="$("${PYTHON}" -c "
+  BOL_ROWS="$("${PYTHON}" -c "
 import polars as pl
 from Scripts.paths import season_dir
 p = season_dir('BetOnline', ${SEASON}, 'BetOnline_SeasonProps_All.csv', create=False)
 print(pl.read_csv(p).height if p.is_file() else 0)
 " 2>/dev/null)" || BOL_ROWS=0
-# 546 rows measured 2026-08-27, across 32 teams.
-book_rows_guard "BetOnline season props" "${BOL_ROWS}" 200 \
-  "Check the futures endpoint still answers: Rscript R/GetSeasonProps.R ${SEASON}"
+  # 546 rows measured 2026-08-27, across 32 teams.
+  book_rows_guard "BetOnline season props" "${BOL_ROWS}" 200 \
+    "Check the futures endpoint still answers: Rscript R/GetSeasonProps.R ${SEASON}"
+fi
 
 # --- 2e. BetOnline weekly player props ----------------------------------
 # Restored 2026-09-08. This was dead for a month behind a 403 and plan 02 had closed it
@@ -476,17 +496,17 @@ from Scripts.paths import season_dir
 p = season_dir('BetOnline', ${SEASON}, 'BetOnline_AllProps.parquet', create=False)
 print(pl.read_parquet(p).height if p.is_file() else 0)
 " 2>/dev/null)" || BOL_WK_ROWS=0
-  log "BetOnline weekly props: ok, ${BOL_WK_ROWS} players"
-  # 451 players measured 2026-09-08 across all 16 week-1 games. Reported rather than
-  # enforced: a bye week is a real reason for fewer, and the way this breaks is zero
-  # rows or a non-zero exit, both of which are already visible.
-  if [ "${BOL_WK_ROWS}" -lt 150 ]; then
-    log "NOTE: BetOnline weekly props returned ${BOL_WK_ROWS} players against the ~451 \
+log "BetOnline weekly props: ok, ${BOL_WK_ROWS} players"
+# 451 players measured 2026-09-08 across all 16 week-1 games. Reported rather than
+# enforced: a bye week is a real reason for fewer, and the way this breaks is zero
+# rows or a non-zero exit, both of which are already visible.
+if [ "${BOL_WK_ROWS}" -lt 150 ]; then
+  log "NOTE: BetOnline weekly props returned ${BOL_WK_ROWS} players against the ~451 \
 of a full slate. Check the widget still answers: ${PYTHON} -m Scripts.scrape_BOL \
 --week ${WEEK} --dry-run"
-  fi
+fi
 else
-  log "NOTE: BetOnline weekly props failed. Not fatal -- the weekly blend renormalises \
+log "NOTE: BetOnline weekly props failed. Not fatal -- the weekly blend renormalises \
 around an absent source, and failing here would cost the board rebuild below. This stage \
 drives a headless Chromium, so a DST page restructure or a missing browser surfaces here \
 first: ${PYTHON} -m Scripts.scrape_BOL --week ${WEEK} --dry-run. See Scripts/bol_widget.py."
@@ -498,7 +518,7 @@ fi
 # this cheap enough to run nightly.
 log "re-projecting the usage model"
 "${PYTHON}" -m Scripts.usage.project --season "${SEASON}" >>"${LOG}" 2>&1 \
-  || fail "Scripts.usage.project"
+|| fail "Scripts.usage.project"
 
 # --- 4. Rebuild the draft boards, but only while they are still live --------
 # `--what board` is 97s of a ~540s run -- the most expensive stage after BetOnline's
@@ -529,16 +549,13 @@ log "re-projecting the usage model"
 #
 #   python -m Scripts.refresh --all --what board --push
 #
-BOARD_COLD="$("${PYTHON}" -c "
-from Scripts.freeze import board_is_cold
-print(1 if board_is_cold(${SEASON}) else 0)
-" 2>/dev/null)" || BOARD_COLD=0
+# BOARD_COLD was computed once near the top; the season-props pulls answer to it too.
 if [ "${BOARD_COLD}" = "1" ]; then
-  log "draft boards are cold (season under way, every drafted league frozen) -- skipping the board rebuild"
+log "draft boards are cold (season under way, every drafted league frozen) -- skipping the board rebuild"
 else
-  log "rebuilding draft boards for all leagues"
-  "${PYTHON}" -m Scripts.refresh --all --what board >>"${LOG}" 2>&1 \
-    || fail "Scripts.refresh --what board"
+log "rebuilding draft boards for all leagues"
+"${PYTHON}" -m Scripts.refresh --all --what board >>"${LOG}" 2>&1 \
+  || fail "Scripts.refresh --what board"
 fi
 
 # --- 4b. Rebuild the weekly lineups -------------------------------------
@@ -562,7 +579,7 @@ fi
 # `Scripts/kickoff_freeze.py`; the log line is `freeze`.
 log "rebuilding weekly lineups for all leagues"
 "${PYTHON}" -m Scripts.refresh --all --what lineups >>"${LOG}" 2>&1 \
-  || fail "Scripts.refresh --what lineups"
+|| fail "Scripts.refresh --what lineups"
 
 # --- 4c. Keep this week's waiver wire ------------------------------------
 # **The stage above just destroyed the one it read.** `league.free_agents()` serves
@@ -581,8 +598,8 @@ log "rebuilding weekly lineups for all leagues"
 # the S3 push of boards and lineups that are already correct.
 log "capturing the free-agent pool"
 "${PYTHON}" -m Scripts.refresh --all --what pool >>"${LOG}" 2>&1 \
-  || log "NOTE: pool capture failed -- this week's wire is lost and cannot be
-        refetched. Nothing downstream depends on it yet, so the run continues."
+|| log "NOTE: pool capture failed -- this week's wire is lost and cannot be
+      refetched. Nothing downstream depends on it yet, so the run continues."
 
 # --- 4d. Advance the fixtures -------------------------------------------
 # `team_stats` is what the Matchup tab reads for who plays whom, and what Home reads
@@ -605,9 +622,9 @@ log "capturing the free-agent pool"
 # tomorrow, so the next run picks it up.
 log "advancing fixtures and standings (team_stats)"
 "${PYTHON}" -m Scripts.refresh --all --what team_stats >>"${LOG}" 2>&1 \
-  || log "NOTE: team_stats refresh failed -- the Matchup tab and Home standings will
-        read the last good fixtures until the next run. Nothing is lost by the wait;
-        the run continues."
+|| log "NOTE: team_stats refresh failed -- the Matchup tab and Home standings will
+      read the last good fixtures until the next run. Nothing is lost by the wait;
+      the run continues."
 
 # --- 5. Verify the data actually moved ----------------------------------
 # Exit code 0 means the commands ran. It does not mean upstream served anything new.
@@ -615,8 +632,8 @@ log "advancing fixtures and standings (team_stats)"
 AFTER="$(depth_snapshot)"
 log "depth chart after:  ${AFTER}"
 if [ "${BEFORE}" = "${AFTER}" ]; then
-  log "NOTE: depth chart did not advance. Fine on a quiet day or a re-run; worth a"
-  log "      look if it repeats, since upstream publishes most weekdays in camp."
+log "NOTE: depth chart did not advance. Fine on a quiet day or a re-run; worth a"
+log "      look if it repeats, since upstream publishes most weekdays in camp."
 fi
 
 COVERAGE="$("${PYTHON}" -c "

@@ -377,9 +377,9 @@ fixture list, no standings and no win probability for a month.
 Run from the repo root. Scrapers use `-m` because modules import as
 `Scripts.<name>`.
 
-**The two season-long book feeds are nightly and are not in that list.**
-`python -m Scripts.scrape_pinnacle_season` and `Rscript R/GetSeasonProps.R` run as part
-of `run_daily_refresh.sh`, so there is nothing recurring to remember here. They were
+**The two season-long book feeds are nightly while the boards are warm, and are not in
+that list.** `python -m Scripts.scrape_pinnacle_season` and `Rscript R/GetSeasonProps.R`
+run as part of `run_daily_refresh.sh`, so there is nothing recurring to remember here. They were
 added 2026-08-27, and the reason is worth keeping: both had only ever been run by hand,
 so on the day it was found each was **thirteen days stale** against a 09-07 draft while
 every other source refreshed at 06:00. The blend gives each book an equal vote on the
@@ -393,6 +393,20 @@ the nightly has not been firing -- check `python -m Scripts.refresh_status`.
 Both stages are fatal **only before the season opens**. Once games are played, books
 retire their season-long markets outright, so an empty pull becomes expected and the
 nightly logs a `NOTE:` and carries on rather than stopping the boards rebuilding.
+
+**They stop when the boards go cold** (since 2026-09-23). The season blend they feed is
+read by the board stage alone, so the same `Scripts.freeze.board_is_cold` gate that
+skips the board rebuild skips both pulls, and the log says `skipping the season-long
+props pulls`. `python -m Scripts.refresh_status` stops judging `Pinnacle`, `BetOnline`
+and the season-long `The Athletic` workbook against the nightly window at the same
+moment and prints them as `draft-only, boards cold`. The weekly Athletic slate
+(`ATH weekly`) keeps its eight-day clock all season. Nothing to re-add next August: the
+first nightly with no games played is warm again and pulls them.
+
+**A league added after the drafts holds all of this open.** `board_is_cold` waits on
+every league with recorded picks, so a league that joins `config.yaml` mid-season with
+its draft already done keeps the board rebuild and both pulls running nightly until it
+is frozen (step 9). `richardson_invitational` did exactly this from 2026-09-22.
 
 **The weekly Pinnacle scraper is nightly since 2026-09-08 and BetOnline's never will
 be.** This said both were "deliberately still manual" because both were broken. That
