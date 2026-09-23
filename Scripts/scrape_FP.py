@@ -135,6 +135,87 @@ dst_map = {'Kansas City Chiefs': 'Chiefs D/ST',
            'Minnesota Vikings': 'Vikings D/ST'
            }
 
+#: FantasyPros header -> our column, per position. Keyed by header rather than by
+#: position in the table because the table's shape is not stable: on 2026-09-23 the
+#: season-long (``week=draft``) tables grew a ``BYE`` column after ``Player``, the QB
+#: table went from 11 columns to 12, and the positional ``df.columns = [...]`` that
+#: used to live in `get_fp` raised a length mismatch and took the whole nightly down.
+#: The weekly tables did not grow it, so both shapes are live at once. Skill positions
+#: carry a two-row header (``PASSING`` / ``ATT``), flattened to ``"PASSING ATT"``;
+#: K and DST have one row.
+STAT_COLUMNS = {
+    "qb": {"PASSING ATT": "proj_passingAttempts", "PASSING CMP": "proj_passingCompletions",
+           "PASSING YDS": "proj_passingYards", "PASSING TDS": "proj_passingTouchdowns",
+           "PASSING INTS": "proj_passingInterceptions",
+           "RUSHING ATT": "proj_rushingAttempts", "RUSHING YDS": "proj_rushingYards",
+           "RUSHING TDS": "proj_rushingTouchdowns",
+           "MISC FL": "proj_lostFumbles", "MISC FPTS": "STD_FantasyPoints"},
+    "rb": {"RUSHING ATT": "proj_rushingAttempts", "RUSHING YDS": "proj_rushingYards",
+           "RUSHING TDS": "proj_rushingTouchdowns",
+           "RECEIVING REC": "proj_receivingReceptions", "RECEIVING YDS": "proj_receivingYards",
+           "RECEIVING TDS": "proj_receivingTouchdowns",
+           "MISC FL": "proj_lostFumbles", "MISC FPTS": "STD_FantasyPoints"},
+    "wr": {"RECEIVING REC": "proj_receivingReceptions", "RECEIVING YDS": "proj_receivingYards",
+           "RECEIVING TDS": "proj_receivingTouchdowns",
+           "RUSHING ATT": "proj_rushingAttempts", "RUSHING YDS": "proj_rushingYards",
+           "RUSHING TDS": "proj_rushingTouchdowns",
+           "MISC FL": "proj_lostFumbles", "MISC FPTS": "STD_FantasyPoints"},
+    "te": {"RECEIVING REC": "proj_receivingReceptions", "RECEIVING YDS": "proj_receivingYards",
+           "RECEIVING TDS": "proj_receivingTouchdowns",
+           "MISC FL": "proj_lostFumbles", "MISC FPTS": "STD_FantasyPoints"},
+    "k": {"FPTS": "STD_FantasyPoints"},
+    "dst": {"SACK": "proj_defensiveSacks", "INT": "proj_defensiveInterceptions",
+            "FR": "proj_defensiveFumbles", "TD": "proj_defensiveTouchdowns",
+            "SAFETY": "proj_defensiveSafeties", "PA": "proj_defensivePointsAllowed",
+            "YDS AGN": "proj_defensiveYardsAllowed", "FPTS": "STD_FantasyPoints"},
+}
+
+
+def _header_label(col) -> str:
+    """Flatten one `read_html` column label to the key `STAT_COLUMNS` uses.
+
+    Args:
+        col: A plain string, or a ``(group, stat)`` tuple from a two-row header.
+            pandas names an empty group cell ``"Unnamed: 0_level_0"``, which is
+            dropped so ``Player`` stays ``"Player"``.
+
+    Returns:
+        str: ``"PASSING ATT"`` for a grouped column, the bare header otherwise.
+    """
+    if not isinstance(col, tuple):
+        return str(col).strip()
+    parts = [str(p).strip() for p in col if not str(p).startswith("Unnamed:")]
+    return " ".join(parts)
+
+
+def _select_stat_columns(df: pd.DataFrame, pos: str) -> pd.DataFrame:
+    """Keep and rename the columns `get_fp` uses, by header name.
+
+    Columns FantasyPros adds (``BYE``, DST's ``FF``, K's ``FG``) are ignored. A
+    column it *drops or renames* raises instead: `get_fp` zero-fills whatever is
+    absent, so a missing stat would otherwise publish as a projection of 0.
+
+    Args:
+        df: One position's table as `pd.read_html` returns it.
+        pos: FantasyPros position slug (``qb``, ``rb``, ``wr``, ``te``, ``k``, ``dst``).
+
+    Returns:
+        pd.DataFrame: ``player_name`` followed by that position's ``proj_`` columns
+        and ``STD_FantasyPoints``.
+
+    Raises:
+        ValueError: If ``Player`` or any expected stat header is missing.
+    """
+    wanted = {"Player": "player_name", **STAT_COLUMNS[pos]}
+    df = df.copy()
+    df.columns = [_header_label(c) for c in df.columns]
+    missing = [h for h in wanted if h not in df.columns]
+    if missing:
+        raise ValueError(f"FantasyPros {pos} table is missing {missing}; "
+                         f"it has {list(df.columns)}")
+    return df[list(wanted)].rename(columns=wanted)
+
+
 def get_fp(wk, year=None):
     """Scrape FantasyPros projections for one week.
 
@@ -199,43 +280,7 @@ def get_fp(wk, year=None):
                       'STD_FantasyPoints'
                       ]
 
-        # Clean Column Names
-        if pos == 'qb':
-            df.columns = ['player_name',
-                        'proj_passingAttempts', 'proj_passingCompletions', 'proj_passingYards', 'proj_passingTouchdowns', 'proj_passingInterceptions',
-                        'proj_rushingAttempts', 'proj_rushingYards', 'proj_rushingTouchdowns',
-                        'proj_lostFumbles',
-                        'STD_FantasyPoints']
-
-        if pos == 'rb':
-            df.columns = ['player_name',
-                        'proj_rushingAttempts', 'proj_rushingYards', 'proj_rushingTouchdowns',
-                        'proj_receivingReceptions', 'proj_receivingYards', 'proj_receivingTouchdowns',
-                        'proj_lostFumbles',
-                        'STD_FantasyPoints']
-
-        if pos == 'wr':
-            df.columns = ['player_name',
-                          'proj_receivingReceptions', 'proj_receivingYards', 'proj_receivingTouchdowns',
-                          'proj_rushingAttempts', 'proj_rushingYards', 'proj_rushingTouchdowns',
-                          'proj_lostFumbles',
-                          'STD_FantasyPoints']
-
-        if pos == 'te':
-            df.columns = ['player_name',
-                          'proj_receivingReceptions', 'proj_receivingYards', 'proj_receivingTouchdowns',
-                          'proj_lostFumbles',
-                          'STD_FantasyPoints']
-        
-        if pos == 'k':
-            df = df[['Player', 'FPTS']]
-            df.columns = ['player_name', 'STD_FantasyPoints']
-
-        if pos == 'dst':
-            df = df[['Player', 'SACK', 'INT', 'FR', 'TD', 'SAFETY', 'PA', 'YDS AGN', 'FPTS']]
-            df.columns = ['player_name',
-                          'proj_defensiveSacks', 'proj_defensiveInterceptions', 'proj_defensiveFumbles', 'proj_defensiveTouchdowns', 'proj_defensiveSafeties', 'proj_defensivePointsAllowed', 'proj_defensiveYardsAllowed',
-                          'STD_FantasyPoints']
+        df = _select_stat_columns(df, pos)
 
         # Split Name and Team
         if pos == 'dst':
