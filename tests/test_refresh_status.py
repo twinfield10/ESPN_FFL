@@ -298,3 +298,57 @@ def test_report_sources_reads_the_manifest_at_call_time(monkeypatch, tmp_path):
     monkeypatch.setattr(rs, "PROJECTION_SOURCES",
                         (("Fake", lambda s: tmp_path / "absent.parquet", "fix"),))
     assert rs._report_sources(2026, 25.0) is True
+
+
+# --- draft-only sources once the boards are cold -------------------------
+# The two books' season props and The Athletic's season workbook feed the season
+# blend, which only the board stage reads. Once the boards are cold the nightly stops
+# pulling the books (run_daily_refresh.sh 2c/2d), so a 25-hour window on them would be
+# red every night for the rest of the season.
+
+
+def _aged(tmp_path, name, hours):
+    path = tmp_path / name
+    path.write_bytes(b"x")
+    old = time.time() - hours * 3600
+    os.utime(path, (old, old))
+    return path
+
+
+def test_every_draft_only_source_is_in_the_season_manifest():
+    """A typo here would silence nothing and fail no test without this."""
+    named = {name for name, _, _ in rs.PROJECTION_SOURCES}
+    assert rs.DRAFT_ONLY_SOURCES <= named
+
+
+def test_a_stale_draft_only_source_is_quiet_once_the_boards_are_cold(tmp_path, capsys):
+    path = _aged(tmp_path, "Pinnacle_SeasonProps.parquet", 9 * 24)
+    manifest = (("Pinnacle", lambda s: path, "python -m Scripts.scrape_pinnacle_season"),)
+    assert rs._report_sources(2026, 25.0, sources=manifest, board_cold=True) is False
+    assert "draft-only" in capsys.readouterr().out
+
+
+def test_a_stale_draft_only_source_is_still_stale_while_the_boards_are_warm(tmp_path):
+    """Pre-season and mid-draft-season it is the draft board's book half."""
+    path = _aged(tmp_path, "Pinnacle_SeasonProps.parquet", 9 * 24)
+    manifest = (("Pinnacle", lambda s: path, "python -m Scripts.scrape_pinnacle_season"),)
+    assert rs._report_sources(2026, 25.0, sources=manifest, board_cold=False) is True
+
+
+def test_a_cold_board_does_not_quiet_a_source_that_is_not_draft_only(tmp_path):
+    path = _aged(tmp_path, "FantasyPros_Projections_Season.parquet", 40)
+    manifest = (("FantasyPros", lambda s: path,
+                 "python -m Scripts.scrape_FP --what season"),)
+    assert rs._report_sources(2026, 25.0, sources=manifest, board_cold=True) is True
+
+
+def test_an_unreadable_board_state_watches_every_source(monkeypatch, capsys):
+    """Failing towards cold would silence three sources on a broken schedule file."""
+    import Scripts.freeze as freeze
+
+    def boom(season):
+        raise OSError("schedule unreadable")
+
+    monkeypatch.setattr(freeze, "board_is_cold", boom)
+    assert rs._board_cold(2026) is False
+    assert "watching every source" in capsys.readouterr().out
