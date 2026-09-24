@@ -201,3 +201,20 @@ def test_scoring_format_is_not_shared_between_leagues():
     after = build_scoring_table(first)
 
     pd.testing.assert_frame_equal(before, after)
+
+
+def test_scored_columns_drops_unmapped_rules_from_either_path():
+    """An unmapped rule is `None` off the registry and `NaN` off live ESPN.
+
+    Both reached the lineup frame as column names until 2026-09-24, when the
+    nightly lost john_pc_league's and fields_league's lineups to
+    `None.startswith` the morning after the registry first recorded such rules.
+    """
+    import numpy as np
+    import pandas as pd
+
+    from Scripts.scrape_player_stats import scored_columns
+
+    table = pd.DataFrame({"colName": ["passingYards", None, "rushingYards",
+                                      np.nan, "passingYards"]})
+    assert scored_columns(table) == ["passingYards", "rushingYards"]

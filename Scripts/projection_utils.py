@@ -40,6 +40,7 @@ from Scripts.scrape_player_stats import (
     SLOT_BASE,
     SLOT_DST,
     VOLUME_STATS,
+    scored_columns,
 )
 
 
@@ -1880,7 +1881,8 @@ def clean_lineups(df, lg, season=None):
     # Get Base of Projections (player_name, week, team, etc.)
     base_cols = ['league_id','year','week', 'team_owner', 'team_name', 'team_division', 'player_name', 'player_id', 'slotPosition', 'primaryPosition', 'eligiblePositions', 'pro_team', 'current_team_id' ,'player_position' ,'player_active_status', 'points', 'projPoints']
     scores_df = get_scoring_table(lg)
-    actual_scoring_cols = scores_df['colName'].to_list()
+    # Unmapped rules keep a null `colName` in the table; see `scored_columns`.
+    actual_scoring_cols = scored_columns(scores_df)
     # Volume is blended even where the league does not score it -- see
     # VOLUME_STATS for why. `blend_cols` is what compute_weighted_stats averages;
     # `proj_to_score` still iterates the scoring table, so an unscored TRUE_
