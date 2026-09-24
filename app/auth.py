@@ -129,10 +129,79 @@ SESSION_KEY = "viewer"
 #: stops accumulating a store rather than quietly keeping one.
 ALL_LEAGUES_ENV = "ESPN_FFL_ALL_LEAGUES"
 
+#: Set this to ``0`` to remove the sidebar's Owner selector.
+#:
+#: The selector is the local convenience that replaces restarting the app with a
+#: different :data:`VIEWER_ENV`, and it is **on by default** because needing a flag
+#: to get it would cost exactly the friction it exists to remove. It is not a
+#: security boundary and does not pretend to be one -- neither is anything else in
+#: this module; see the module docstring. It is off-switchable rather than
+#: on-switchable so that a served deployment has one thing to set, and plan 26's
+#: real login is what removes it for good.
+OWNER_PICKER_ENV = "ESPN_FFL_OWNER_PICKER"
+
 #: The unrestricted viewer :data:`ALL_LEAGUES_ENV` resolves to. Empty ``leagues``
 #: is the "no restriction" sentinel, so this is the default viewer with the scope
 #: dropped and the same landing league.
 UNRESTRICTED_VIEWER = DEFAULT_VIEWER._replace(user_id="all", leagues=())
+
+#: The other owner this laptop actually opens the app as. ``john_pc_league`` and
+#: ``john_atl_league`` are his two of the eight in ``config.yaml``; the pipeline has
+#: always built them and the Google Sheet is how he normally reads them, but the
+#: Sheet cannot answer "why does this number look wrong", and the app could not be
+#: pointed at him without editing :data:`DEFAULT_VIEWER`.
+#:
+#: ``owner_names`` is a join key, not a greeting -- see :class:`Viewer`. ``John
+#: Baizer`` is the spelling ``team_owner`` actually carries in both leagues'
+#: ``lineups`` and ``team_stats`` for 2026, checked rather than assumed, and it is
+#: one spelling in both. The tuple is where a second one goes if ESPN ever
+#: disagrees with itself about him the way it does about ``knights_ffl``'s Andrew
+#: Blair.
+JOHN_VIEWER = Viewer(
+    user_id="john",
+    display_name="John Baizer",
+    leagues=("john_pc_league", "john_atl_league"),
+    default_league="john_pc_league",
+    owner_names=("John Baizer",),
+)
+
+#: The third owner, added 2026-09-22 with ``richardson_invitational``. Her league
+#: is the first in ``config.yaml`` that no Winfield is a member of, so it carries
+#: its own cookie pair and it is the only one she can open.
+#:
+#: ``owner_names`` is a join key, not a greeting. ``Emma Richardson`` is the
+#: spelling ``team_owner`` carries in this league's ``lineups``, ``team_stats``
+#: and ``results`` and that ``owner`` carries in ``draft`` -- checked in all four
+#: rather than assumed, and one spelling in each. The tuple is where a second one
+#: goes if ESPN ever disagrees with itself about her.
+EMMA_VIEWER = Viewer(
+    user_id="emma",
+    display_name="Emma Richardson",
+    leagues=("richardson_invitational",),
+    default_league="richardson_invitational",
+    owner_names=("Emma Richardson",),
+)
+
+#: Every viewer this app can be launched as, by :data:`VIEWER_ENV` value.
+#:
+#: Not a user table and not a step toward one -- a real login brings its own. It is
+#: the three accounts that exist on this laptop, so that opening the app as somebody
+#: else is a launch flag rather than a diff. Adding a fourth owner here is one entry
+#: plus their ``team_owner`` spelling, verified against their league's parquet.
+VIEWERS = {
+    "tommy": DEFAULT_VIEWER,
+    "john": JOHN_VIEWER,
+    "emma": EMMA_VIEWER,
+}
+
+#: Which of :data:`VIEWERS` to render for. Unset means :data:`DEFAULT_VIEWER`.
+#:
+#: Read at call time rather than import, like :data:`ALL_LEAGUES_ENV`. An
+#: unrecognised value is a hard error rather than a fallback: silently rendering
+#: Tommy's four leagues to somebody who asked for John's two is exactly the
+#: wrong-board-on-draft-night failure the scoping exists to prevent, and a typo in a
+#: launch flag is the likeliest way to ask for it.
+VIEWER_ENV = "ESPN_FFL_VIEWER"
 
 
 def _unrestricted() -> bool:
@@ -147,21 +216,91 @@ def _unrestricted() -> bool:
     return os.environ.get(ALL_LEAGUES_ENV, "").strip().lower() in {"1", "true", "yes"}
 
 
+def _named_viewer() -> Optional[Viewer]:
+    """The viewer :data:`VIEWER_ENV` names, if it names one.
+
+    Returns:
+        Viewer | None: None when the variable is unset or empty, which is the
+        ordinary case.
+
+    Raises:
+        ValueError: When it is set to something that is not a key of
+            :data:`VIEWERS`. Loud on purpose -- Streamlit renders the traceback on
+            the page, which is the only outcome better than quietly showing the
+            wrong owner's leagues.
+    """
+    name = os.environ.get(VIEWER_ENV, "").strip().lower()
+    if not name:
+        return None
+    try:
+        return VIEWERS[name]
+    except KeyError:
+        raise ValueError(
+            f"{VIEWER_ENV}={name!r} is not a known viewer. "
+            f"Known: {', '.join(sorted(VIEWERS))}."
+        ) from None
+
+
 def current_viewer() -> Viewer:
     """The viewer this render is for.
 
-    The one function a login has to change. Today it resolves, in order: the
-    environment escape hatch, a viewer a sign-in put in session state, then
-    :data:`DEFAULT_VIEWER`.
+    The one function a login has to change. Today it resolves, in order: a viewer
+    a sign-in put in session state, the viewer :data:`VIEWER_ENV` names, then
+    :data:`DEFAULT_VIEWER` -- and then :data:`ALL_LEAGUES_ENV` drops whichever
+    one of those it landed on down to no scope at all, rather than replacing him.
+    A sign-in outranks the launch flag because the launch flag is only a default;
+    the scope hatch outranks both because it is a statement about the *picker*,
+    not about who is looking.
 
     Returns:
         Viewer: Never None. An app with no viewer has nothing to render, so the
         fallback is a real account rather than an anonymous one.
     """
-    if _unrestricted():
-        return UNRESTRICTED_VIEWER
     stored = st.session_state.get(SESSION_KEY)
-    return stored if isinstance(stored, Viewer) else DEFAULT_VIEWER
+    if isinstance(stored, Viewer):
+        viewer = stored
+    else:
+        viewer = _named_viewer() or DEFAULT_VIEWER
+    if _unrestricted():
+        return viewer._replace(user_id="all", leagues=())
+    return viewer
+
+
+def owner_picker_enabled() -> bool:
+    """Whether the sidebar should offer the Owner selector.
+
+    Read at call time rather than import, like :func:`_unrestricted`, so the
+    variable can be changed without restarting.
+
+    Returns:
+        bool: True unless :data:`OWNER_PICKER_ENV` is set to a falsey word, or
+        there is only one viewer to choose between -- a one-option dropdown is
+        furniture, not a control.
+    """
+    off = os.environ.get(OWNER_PICKER_ENV, "").strip().lower() in {"0", "false", "no"}
+    return not off and len(VIEWERS) > 1
+
+
+def selected_viewer_key() -> str:
+    """Which entry of :data:`VIEWERS` the app is currently drawing for.
+
+    Deliberately *not* ``current_viewer().user_id``: :func:`current_viewer`
+    rewrites ``user_id`` to ``"all"`` under :data:`ALL_LEAGUES_ENV`, which is a
+    statement about the picker rather than about who is looking, and the Owner
+    selector must keep showing the real owner underneath it. This reads the same
+    two sources in the same order, and stops before that rewrite.
+
+    Returns:
+        str: A key of :data:`VIEWERS`. Falls back to the first one when a
+        sign-in put a viewer in session state that is not one of them -- the
+        guest case in ``tests/test_app_auth.py``, which has no key to name.
+    """
+    stored = st.session_state.get(SESSION_KEY)
+    target = stored if isinstance(stored, Viewer) else (_named_viewer() or DEFAULT_VIEWER)
+    for key, viewer in VIEWERS.items():
+        if viewer.user_id == target.user_id:
+            return key
+    return next(iter(VIEWERS))
 
 
 def sign_in(viewer: Viewer) -> None:

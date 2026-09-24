@@ -84,8 +84,8 @@ def test_the_routes_directory_holds_nothing_unregistered():
     assert on_disk == registered
 
 
-@pytest.mark.parametrize("tab", ["home", "draft", "roster", "free_agents", "matchup",
-                                 "shares"])
+@pytest.mark.parametrize("tab", ["home", "draft", "roster", "free_agents",
+                                 "matchup"])
 def test_every_tab_is_still_a_tab(tab):
     """The URL path Streamlit derives comes from the *file* name, not the directory,
     so renaming ``pages/`` to ``routes/`` left every bookmark working -- and adding
@@ -105,10 +105,53 @@ def test_the_tabs_are_in_the_order_a_season_is_worked():
         "routes/home.py",
         "routes/roster.py",
         "routes/matchup.py",
-        "routes/shares.py",
         "routes/free_agents.py",
         "routes/draft.py",
     ]
+
+
+def _render_home_calls():
+    """The calls in ``views.home_tab.render_home``, in source order.
+
+    Parsed rather than run, for the reason the whole suite is: ``Data/`` is
+    untracked, so there is no store to render a real Home against.
+
+    Returns:
+        list: Dotted call names, e.g. ``["shares_tab.render_shares"]``.
+    """
+    tree = ast.parse((APP / "views" / "home_tab.py").read_text())
+    body = next(node for node in ast.walk(tree)
+                if isinstance(node, ast.FunctionDef) and node.name == "render_home")
+    names = []
+    for node in ast.walk(body):
+        if isinstance(node, ast.Call):
+            names.append(ast.unparse(node.func))
+    return names
+
+
+def test_player_shares_is_a_section_of_home_and_not_a_tab():
+    """It was the sixth tab and is now the middle of the landing page.
+
+    The tab bar was the wrong place for it: it is the only view other than Home that
+    ignores the League selector, reading the same season and week, so the two were
+    one sweep split across two clicks. Pinned from both ends -- no route, and Home
+    really calls it -- because either half alone is a page nobody can reach.
+    """
+    assert "routes/shares.py" not in registered_routes()
+    assert not (APP / "routes" / "shares.py").exists()
+    assert "shares_tab.render_shares" in _render_home_calls()
+
+
+def test_home_draws_player_shares_above_standings():
+    """The order *is* the design, the same way the tab bar's is.
+
+    Cards say which league needs you; Player Shares answers the next question once
+    the lineups are set; Standings is about the week after this one. Two calls on
+    consecutive lines is exactly the kind of thing a later edit reshuffles without
+    anything else noticing.
+    """
+    calls = _render_home_calls()
+    assert calls.index("shares_tab.render_shares") < calls.index("_render_standings")
 
 
 def test_home_is_the_landing_page():

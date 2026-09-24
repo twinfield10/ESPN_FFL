@@ -27,6 +27,10 @@ IDP league, and a superflex league without special-casing.
   it there is right now, `python -m Scripts.catalogue`.
 - **[docs/SEASON_ROLLOVER.md](docs/SEASON_ROLLOVER.md)** — the weekly and annual
   runbooks.
+- **[docs/guides/](docs/guides/)** — what to send somebody whose league is not
+  in `config.yaml` yet: an illustrated walkthrough of collecting their league
+  id, `SWID` and `espn_s2`, rendered as a PDF to hand over. Rebuild both the
+  HTML and the PDF with `python -m Scripts.guide_credentials`.
 - **[docs/plans/](docs/plans/)** — small, self-contained upgrade plans.
 
 ---
@@ -205,15 +209,18 @@ differently across your ten. Josh Allen is VOR rank 9 in the 10-team superflex a
 21 in 14-team Knights_FFL, because a superflex `OP` slot pushes QB replacement from
 QB14 to QB20.
 
-### Six tabs
+### Five tabs
 
-**Home**, **Roster**, **Matchup**, **Player Shares**, **Free Agents**, **Draft** —
-Home first because it is the question you actually arrive with, then a single week in
-the order you work it, then Draft, which for all but one weekend of the year is
-history. The **League** and **Week** selectors sit in the sidebar, under the identity
-block; **Week** governs every tab and **League** governs the four that are about one
-league — they are *drawn from the entrypoint* rather than from the pages, which is what
-removes a Streamlit behaviour that had twice rendered the wrong league silently. The
+**Home**, **Roster**, **Matchup**, **Free Agents**, **Draft** — Home first because it
+is the question you actually arrive with, then a single week in the order you work it,
+then Draft, which for all but one weekend of the year is history. **Player Shares is a
+section of Home** rather than a tab of its own: it is the only other view that ignores
+the League selector, so the two are one cross-league sweep and it draws between the
+cards and Standings. The **League** and **Week** selectors sit in the sidebar, under
+the identity block; **Week** governs every tab and **League** governs the four that are
+about one league — they are *drawn from the entrypoint* rather than from the pages,
+which is what removes a Streamlit behaviour that had twice rendered the wrong league
+silently. The
 season is **pinned, not selected**: every tab answers a question about the season in
 progress, and a control nobody moves is one that eventually gets moved by accident. See
 [plan 40](docs/plans/40-frontend-restructure.md).
@@ -401,8 +408,8 @@ configured.
 
 ### Player Shares
 
-Every other tab answers a question about one league. This one answers the question you
-actually have on the couch — **when Ja'Marr Chase catches a touchdown, is that good for
+On **Home**, between the league cards and Standings. Every tab answers a question about
+one league; this section answers the question you actually have on the couch — **when Ja'Marr Chase catches a touchdown, is that good for
 me?** — and it is not rhetorical: on week 2 of 2026, eighteen players were started in
 more than one of the viewer's four leagues and **eight were on both sides**, owned in
 one and faced in another. No amount of opening the Matchup tab four times says so,
@@ -533,7 +540,31 @@ needs.
 
 ```bash
 ESPN_FFL_ALL_LEAGUES=1 streamlit run app/main.py   # every configured league
+ESPN_FFL_VIEWER=john streamlit run app/main.py     # open it as John Baizer
+ESPN_FFL_VIEWER=emma streamlit run app/main.py     # open it as Emma Richardson
+ESPN_FFL_OWNER_PICKER=0 streamlit run app/main.py  # hide the sidebar Owner selector
 ```
+
+`ESPN_FFL_VIEWER` picks one of `auth.VIEWERS` — `tommy` (the default), `john`,
+whose two leagues are `john_pc_league` and `john_atl_league`, or `emma`, whose one is
+`richardson_invitational`. It is the launch flag
+that replaces editing `DEFAULT_VIEWER` when you need to see what another owner sees,
+and it is a **different question** from `ESPN_FFL_ALL_LEAGUES`: that one widens the
+picker, this one changes who the app thinks you are, which is also the `team_owner`
+it joins "my team" on. An unrecognised name raises rather than falling back to the
+default, because quietly rendering the wrong owner's board is the failure the scoping
+exists to prevent. A sign-in, when there is one, outranks it.
+
+The sidebar's **Owner** selector, above League, is the same choice made at render
+time rather than at launch — it applies through `auth.sign_in`, which is the seam a
+real login will use, so switching owner needs no restart and the League selector
+below it lands on the new owner's own league rather than holding one they cannot
+open. It is **local convenience and nothing more**: `auth` is not a security
+boundary with it or without it, and anyone who can open the app could already read
+every league by setting `ESPN_FFL_ALL_LEAGUES`. It is on by default because a flag
+to get it would cost exactly the friction it removes; `ESPN_FFL_OWNER_PICKER=0`
+takes it away, which is the one thing a served deployment would set until [plan
+26](docs/plans/26-user-accounts.md) replaces it.
 
 The sidebar shows when the store was built, turns red past an hour, and lists
 per-source projection coverage so a dead source is visible rather than absorbed

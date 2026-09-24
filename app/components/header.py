@@ -336,6 +336,47 @@ def sticky_selectbox(label, state_key, options, default=None, format_func=str):
     return st.selectbox(label, options, key=state_key, format_func=format_func)
 
 
+#: ``st.session_state`` key the Owner selector stores its choice under.
+#:
+#: Its value is a key of :data:`auth.VIEWERS` -- ``"emma"`` -- not a
+#: :class:`auth.Viewer`. The viewer itself lives under ``auth.SESSION_KEY``, which
+#: :func:`auth.sign_in` owns; this is the widget's own memory, and keeping the two
+#: apart is what lets :func:`auth.current_viewer` stay the single answer to *who is
+#: looking* whether the sign-in came from this dropdown or from a real login later.
+OWNER_KEY = "owner_key"
+
+
+def render_owner_picker() -> bool:
+    """Draw the sidebar's Owner selector, if this build offers one.
+
+    Sits above the League selector because it is upstream of it: changing the owner
+    changes which leagues are offered at all. That correction needs no code here --
+    :func:`sticky_selectbox` already drops a remembered value that is no longer in
+    ``options``, so the League selector lands on the new owner's default the moment
+    the owner changes, and :func:`session.render_context` passes that default in.
+
+    The choice is applied through :func:`auth.sign_in` rather than by writing the
+    viewer into session state here, so that this dropdown and the eventual login
+    hand their result to the same function. It is applied on **every** run, not
+    only when it changes, because ``sign_in`` is idempotent and a conditional write
+    is the bug class :func:`sticky_selectbox` documents at length.
+
+    Returns:
+        bool: True when the selector was drawn, so the caller can drop the caption
+        that would otherwise repeat the name the dropdown is already showing.
+    """
+    if not auth.owner_picker_enabled():
+        return False
+
+    chosen = sticky_selectbox(
+        "Owner", OWNER_KEY, list(auth.VIEWERS),
+        default=auth.selected_viewer_key(),
+        format_func=lambda key: auth.VIEWERS[key].display_name,
+    )
+    auth.sign_in(auth.VIEWERS[chosen])
+    return True
+
+
 def render_identity() -> None:
     """The sidebar's heading: what this app is, and who it is being drawn for.
 
@@ -344,11 +385,17 @@ def render_identity() -> None:
     Streamlit places sidebar elements in call order. It resolves nothing and needs no
     selection, which is exactly why it can go first -- and why the selectors can sit
     under a heading that names the app rather than under nothing.
+
+    The viewer is read **after** :func:`render_owner_picker` rather than before,
+    because when that selector is present it is the thing that decides the answer;
+    reading first would caption this run with the owner you just navigated away
+    from.
     """
-    viewer = auth.current_viewer()
     with st.sidebar:
         st.markdown("### Fantasy Football")
-        st.caption(f"Signed in as **{viewer.display_name}**")
+        picked = render_owner_picker()
+        if not picked:
+            st.caption(f"Signed in as **{auth.current_viewer().display_name}**")
 
 
 def render_sidebar_health(selection) -> None:
