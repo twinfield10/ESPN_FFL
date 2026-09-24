@@ -222,6 +222,32 @@ def scoring_slots(overrides: Dict[int, Dict[str, float]]) -> List[str]:
     return [SLOT_BASE] + sorted(slots)
 
 
+def scored_columns(scores_df: pd.DataFrame) -> List[str]:
+    """The stat columns a scoring table names, without its unmapped rules.
+
+    A rule the pipeline cannot model keeps its row with a null ``colName`` --
+    that is what lets :func:`_check_scoring_coverage` and the registry report it
+    -- so ``scores_df['colName'].to_list()`` carries a ``None`` (registry path) or
+    a ``NaN`` (live path) for each one. Used as column names, those became real
+    ``None`` columns, and ``impute_columns`` failed on ``None.startswith`` for
+    every league with an unmapped rule. Nothing hit it until 2026-09-23, when the
+    registry first recorded such rules for ``john_pc_league`` and
+    ``fields_league``, and the nightly lost both leagues' lineups the next morning.
+
+    Args:
+        scores_df: Output of :func:`build_scoring_table` or
+            :func:`Scripts.scoring.get_scoring_table`.
+
+    Returns:
+        list: ``colName`` values that are strings, in table order, deduplicated.
+    """
+    out: List[str] = []
+    for col in scores_df["colName"].to_list():
+        if isinstance(col, str) and col not in out:
+            out.append(col)
+    return out
+
+
 def build_scoring_table(
     league: League,
     strict: bool = False,
@@ -600,12 +626,12 @@ def get_ply_stats_by_matchup(
 
             # Get stats for home team
             df_home_team = extract_player_stats(
-                matchup.home_team, matchup.home_lineup, week + 1, score_cols=score_settings['colName'].to_list(), curr_week=current_matchup_period
+                matchup.home_team, matchup.home_lineup, week + 1, score_cols=scored_columns(score_settings), curr_week=current_matchup_period
             )
 
             # Get stats for away team
             df_away_team = extract_player_stats(
-                matchup.away_team, matchup.away_lineup, week + 1, score_cols=score_settings['colName'].to_list(), curr_week=current_matchup_period
+                matchup.away_team, matchup.away_lineup, week + 1, score_cols=scored_columns(score_settings), curr_week=current_matchup_period
             )
 
             # Append to week data frame
@@ -726,7 +752,7 @@ def build_fa_market(league:League, qbs=20, rbs=30, wrs=30, tes=20, ks=20):
 
     score_settings = get_scoring_table(league)
 
-    fa = extract_fa_stats(team_lineup = fa_list, score_cols=list(score_settings['colName']), league=league)
+    fa = extract_fa_stats(team_lineup = fa_list, score_cols=scored_columns(score_settings), league=league)
 
     return fa
 
