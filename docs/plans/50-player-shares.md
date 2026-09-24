@@ -2,10 +2,12 @@
 
 **Status:** COMPLETE
 
-**Priority:** Medium · **Effort:** S · **Where it stands:** **Shipped 2026-09-16.**
-The Player Shares tab differentiates [plan 42](42-weekly-matchup-odds.md)'s win
-probability with respect to one player and sums it over every league the viewer is
-in. No new model, no new artifact, no pipeline change.
+**Priority:** Medium · **Effort:** S · **Where it stands:** **Shipped 2026-09-16**
+as a sixth tab; **moved onto Home 2026-09-18**, above Standings, and the tab bar is
+back to [plan 40](40-frontend-restructure.md)'s five. It differentiates
+[plan 42](42-weekly-matchup-odds.md)'s win probability with respect to one player and
+sums it over every league the viewer is in. No new model, no new artifact, no pipeline
+change.
 **Depends on:** [42 (weekly matchup odds)](42-weekly-matchup-odds.md) ·
 [48 (live scoring)](48-live-scoring.md) — the remaining-points spread this reads ·
 [40 (frontend restructure)](40-frontend-restructure.md) · [26 (user accounts)](26-user-accounts.md)
@@ -162,10 +164,10 @@ no number.
 |---|---|
 | `app/player_shares.py` | The arithmetic. Streamlit-free, takes loaded frames, 19 tests |
 | `app/views/shares_tab.py` | Layout and the IO, cached on `store.version` |
-| `app/routes/shares.py` | The route, after Matchup |
+| `app/views/home_tab.py` | Draws it, between the league cards and Standings |
 | `Scripts/outcomes/weekly.py` | `normal_pdf`, beside the `normal_cdf` it differentiates |
 | `app/auth.py` | `Viewer.owner_names` and `owner_for` — see below |
-| `app/main.py` | Six tabs |
+| `app/main.py` | Five tabs — this is not one |
 
 **`Viewer.owner_names` is a new seam, not a convenience.** The tab has to answer
 "which team in this league is mine" for four leagues at once, and
@@ -180,6 +182,32 @@ greeting. It is a tuple because the same person is not always one name:
 has two ESPN SWIDs**, `{DA9F7430-…}` in `winfield_football` and `{796FF49A-…}` in
 the other three, so an id join needs the union before it beats a name that was
 verified identical in all four stores.
+
+## Where it lives — a section of Home, not a tab (2026-09-18)
+
+It shipped as the sixth tab, after Matchup, on the argument that it is the Matchup
+question one league wider. That was true about the *arithmetic* and wrong about the
+*navigation*. Player Shares is the only view other than Home that ignores the League
+selector: both read season and week off one `session.Selection` and sweep every league
+the viewer has. So the tab bar was carrying two halves of one sweep — which of my
+leagues needs me before kickoff, and then, once the lineups are set, who do I want the
+ball to go to — and charging a click to cross between them.
+
+It draws between the cards and Standings, in the order a Sunday is worked: the cards
+are this afternoon, Player Shares is this afternoon once the lineups are locked, and
+Standings is the week after. `render_shares` is unchanged apart from its heading —
+`st.title` became `st.divider()` + `st.subheader`, the shape `_render_standings`
+already used — and it is `views/home_tab.py` that calls it, which is the one place
+`views/` imports a sibling view rather than a logic module.
+
+**Home did not get slower.** Everything the section reads was already cached on
+`store.version` — `shares_tab._matchup` through `st.cache_data`, `matchup_sim.model`
+through `st.cache_resource` — so the sidebar's Refresh button still invalidates it and
+nothing is re-derived on a rerun.
+
+`tests/test_app_routing.py` pins both halves: no `routes/shares.py`, and `render_home`
+really calls `shares_tab.render_shares` *before* `_render_standings`. Either one alone
+is a page nobody can reach.
 
 ## What is left
 

@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connect your ESPN league</title>
+<style>
+:root {
+  --ink: #1f2328;
+  --muted: #5b6470;
+  --line: #d8dde3;
+  --mark: #b3261e;
+  --mark-soft: #fdecea;
+  --warn-bg: #fff8e6;
+  --warn-line: #e8c96a;
+  --paper: #ffffff;
+}
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  color: var(--ink);
+  background: var(--paper);
+  margin: 0 auto;
+  padding: 28px 24px 48px;
+  max-width: 760px;
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+h1 { font-size: 30px; line-height: 1.15; margin: 0 0 6px; letter-spacing: -0.01em; }
+h2 {
+  font-size: 18px;
+  margin: 0 0 10px;
+  letter-spacing: -0.005em;
+  break-after: avoid;
+  page-break-after: avoid;
+}
+p { margin: 0 0 12px; }
+.lede { font-size: 16px; color: var(--muted); margin: 0 0 22px; }
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.92em;
+  background: #f3f5f7;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.step {
+  break-inside: avoid;
+  page-break-inside: avoid;
+  margin: 0 0 26px;
+  padding: 0 0 0 46px;
+  position: relative;
+}
+.step .n {
+  position: absolute;
+  left: 0;
+  top: -2px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--ink);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+figure { margin: 12px 0 0; break-inside: avoid; page-break-inside: avoid; }
+figure svg { width: 100%; height: auto; display: block; }
+figcaption { font-size: 13px; color: var(--muted); margin-top: 6px; }
+.box {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin: 0 0 22px;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+.box h3 { font-size: 15px; margin: 0 0 8px; }
+.box p:last-child, .box ul:last-child { margin-bottom: 0; }
+.warn { background: var(--warn-bg); border-color: var(--warn-line); }
+.flag {
+  color: var(--mark);
+  font-weight: 600;
+}
+ul { margin: 0 0 12px; padding-left: 20px; }
+li { margin: 0 0 5px; }
+.form {
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  padding: 16px 18px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 2.5;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+.form .row { border-bottom: 1px dotted #9aa4b0; display: block; }
+.form .label { color: var(--muted); }
+.sig { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line);
+        margin-top: 28px; padding-top: 12px; }
+@page {
+  size: Letter;
+  margin: 14mm 15mm;
+}
+@media print {
+  body { padding: 0; max-width: none; font-size: 12.5px; }
+  h1 { font-size: 26px; }
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs><marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--mark)"/></marker></defs></svg>
+<h1>Connect your ESPN league</h1>
+<p class="lede">Six things out of your ESPN account and I can pull your league
+into the projections. It takes about five minutes, once, and there is a form at
+the end to fill in and send straight back.</p>
+
+<div class="box warn">
+  <h3>Before you start</h3>
+  <p>You need <strong>a computer</strong> — laptop or desktop — <strong>and the
+  Chrome browser</strong>. A phone cannot do this; the tool we need does not
+  exist in the mobile app or in mobile Safari. Microsoft Edge works identically
+  if that is what you have.</p>
+  <p style="margin-bottom:0">Log in at <code>espn.com</code> first and open the
+  league you want connected, so you are looking at your own team.</p>
+</div>
+
+<section class="step"><div class="n">1</div><h2>Open your league and look at the address bar</h2><p>With your league open, the web address at the top has a long number in it. That number is the league's ID. You do not have to pick it out — <strong>select the whole address and copy it</strong>, and I will take the number out of it.</p><figure><svg viewBox="0 0 720 166" role="img" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="1" width="718" height="146" rx="10" fill="#fff" stroke="#d8dde3"/><path d="M1,11 a10,10 0 0 1 10,-10 h698 a10,10 0 0 1 10,10 v23 h-718 z" fill="#dfe1e5"/><circle cx="20" cy="18" r="5" fill="#ff5f57"/><circle cx="38" cy="18" r="5" fill="#febc2e"/><circle cx="56" cy="18" r="5" fill="#28c840"/><rect x="80" y="7" width="210" height="27" rx="6" fill="#fff"/><text x="94" y="25" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="11" fill="#5b6470" font-weight="normal" text-anchor="start">My Fantasy League</text><rect x="1" y="35" width="718" height="45" fill="#f1f3f4"/><rect x="20" y="46" width="680" height="26" rx="13" fill="#fff" stroke="#dadce0"/><rect x="32" y="56" width="10" height="8" rx="1.5" fill="#5b6470"/><path d="M34.5,56 v-2.5 a2.5,2.5 0 0 1 5,0 V56" fill="none" stroke="#5b6470" stroke-width="1.4"/><rect x="297.86625" y="50" width="140.4725" height="18" rx="3" fill="#ffe8a3"/><text x="52.0" y="63" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.5" fill="#5b6470" font-weight="normal" text-anchor="start" textLength="248.36624999999998" lengthAdjust="spacing">fantasy.espn.com/football/league?</text><text x="300.36625" y="63" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.5" fill="#1f2328" font-weight="700" text-anchor="start" textLength="135.4725" lengthAdjust="spacing">leagueId=123456789</text><text x="435.83875" y="63" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.5" fill="#5b6470" font-weight="normal" text-anchor="start" textLength="105.36749999999999" lengthAdjust="spacing">&amp;seasonId=2026</text><rect x="40" y="96" width="200" height="6" rx="3" fill="#e8eaed"/><rect x="40" y="110" width="160" height="6" rx="3" fill="#e8eaed"/><rect x="470" y="90" width="210" height="28" rx="6" fill="#f3f5f7"/><line x1="360.36625" y1="124" x2="360.36625" y2="76" stroke="var(--mark)" stroke-width="1.8" marker-end="url(#arw)"/><text x="360.36625" y="142" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="11.5" fill="var(--mark)" font-weight="600" text-anchor="middle">this number is your league ID —</text><text x="360.36625" y="156" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="11.5" fill="var(--mark)" font-weight="600" text-anchor="middle">easiest is to send me the whole address</text></svg><figcaption>The address bar on any page inside your league. The number after leagueId= is the one that matters.</figcaption></figure></section>
+
+<section class="step"><div class="n">2</div><h2>Right-click anywhere on the page, then click Inspect</h2><p>Right-click on an empty part of the page — not on a link or an image — and a menu appears. <strong>Inspect</strong> is at the very bottom. A second panel opens beside or underneath the page; that is normal, and nothing you do in there changes your team.</p><p>If right-clicking does nothing, press <code>Option</code> + <code>Command</code> + <code>I</code> on a Mac, or <code>F12</code> on Windows.</p><figure><svg viewBox="0 0 720 265" role="img" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="1" width="718" height="263" rx="8" fill="#fafbfc" stroke="#d8dde3"/><rect x="40" y="30" width="260" height="6" rx="3" fill="#e8eaed"/><rect x="40" y="44" width="220" height="6" rx="3" fill="#e8eaed"/><rect x="40" y="58" width="180" height="6" rx="3" fill="#e8eaed"/><rect x="40" y="72" width="260" height="6" rx="3" fill="#e8eaed"/><rect x="40" y="86" width="220" height="6" rx="3" fill="#e8eaed"/><path d="M150,44 l0,20 l5,-5 l4,9 l4,-2 l-4,-8 l7,0 z" fill="#1f2328" stroke="#fff" stroke-width="1"/><rect x="174" y="44" width="232" height="215" rx="8" fill="#00000010"/><rect x="170" y="40" width="232" height="215" rx="8" fill="#fff" stroke="#cfd4da"/><text x="190" y="58" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12.5" fill="#3c4043" font-weight="normal" text-anchor="start">Back</text><text x="190" y="83" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12.5" fill="#3c4043" font-weight="normal" text-anchor="start">Forward</text><text x="190" y="108" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12.5" fill="#3c4043" font-weight="normal" text-anchor="start">Reload</text><line x1="178" y1="133" x2="394" y2="133" stroke="#e4e7eb"/><text x="190" y="145" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12.5" fill="#3c4043" font-weight="normal" text-anchor="start">Save page as…</text><text x="190" y="170" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12.5" fill="#3c4043" font-weight="normal" text-anchor="start">Print…</text><line x1="178" y1="195" x2="394" y2="195" stroke="#e4e7eb"/><text x="190" y="207" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12.5" fill="#3c4043" font-weight="normal" text-anchor="start">View page source</text><rect x="172" y="217" width="228" height="22" fill="#e8f0fe"/><text x="190" y="232" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12.5" fill="#1f2328" font-weight="700" text-anchor="start">Inspect</text><line x1="540" y1="226" x2="412" y2="226" stroke="var(--mark)" stroke-width="1.8" marker-end="url(#arw)"/><text x="552" y="222" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="11.5" fill="var(--mark)" font-weight="600" text-anchor="start">the one at the bottom</text><text x="552" y="236" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="11.5" fill="var(--mark)" font-weight="600" text-anchor="start">of the menu</text></svg><figcaption>The right-click menu. Inspect is always the last item.</figcaption></figure></section>
+
+<section class="step"><div class="n">3</div><h2>In that new panel, click Application</h2><p>The new panel has a row of words along its top: Elements, Console, Sources and so on. Click <strong>Application</strong>. If you cannot see it, the row has run out of space — click the <code>&#187;</code> at the end of the row and pick Application from the list that drops down.</p><figure><svg viewBox="0 0 720 133" role="img" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="1" width="718" height="131" rx="8" fill="#fff" stroke="#d8dde3"/><rect x="1" y="1" width="718" height="35" fill="#f1f3f4"/><line x1="1" y1="36" x2="719" y2="36" stroke="#dadce0"/><path d="M20,14 l0,12 l3,-3 l2.5,5 l2.5,-1 l-2.5,-5 l4,0 z" fill="#5b6470"/><rect x="36" y="13" width="9" height="12" rx="1.5" fill="none" stroke="#5b6470" stroke-width="1.4"/><rect x="504" y="4" width="94" height="28" rx="4" fill="#e8f0fe"/><rect x="504" y="32" width="94" height="3" fill="#1a73e8"/><text x="62" y="23" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6470" font-weight="normal" text-anchor="start">Elements</text><text x="136" y="23" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6470" font-weight="normal" text-anchor="start">Console</text><text x="206" y="23" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6470" font-weight="normal" text-anchor="start">Sources</text><text x="276" y="23" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6470" font-weight="normal" text-anchor="start">Network</text><text x="346" y="23" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6470" font-weight="normal" text-anchor="start">Performance</text><text x="440" y="23" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6470" font-weight="normal" text-anchor="start">Memory</text><text x="512" y="23" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12.5" fill="#1a73e8" font-weight="700" text-anchor="start">Application</text><text x="618" y="23" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="15" fill="#5b6470" font-weight="700" text-anchor="start">»</text><rect x="24" y="56" width="300" height="6" rx="3" fill="#e8eaed"/><rect x="24" y="70" width="260" height="6" rx="3" fill="#e8eaed"/><rect x="24" y="84" width="220" height="6" rx="3" fill="#e8eaed"/><rect x="24" y="98" width="300" height="6" rx="3" fill="#e8eaed"/><line x1="551" y1="96" x2="551" y2="44" stroke="var(--mark)" stroke-width="1.8" marker-end="url(#arw)"/><text x="430" y="112" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="11.5" fill="var(--mark)" font-weight="600" text-anchor="middle">click Application — if you cannot see it,</text><text x="430" y="126" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="11.5" fill="var(--mark)" font-weight="600" text-anchor="middle">it is hiding under the »</text></svg><figcaption>The row of tabs across the top of the panel that just opened.</figcaption></figure></section>
+
+<section class="step"><div class="n">4</div><h2>On the left, open Storage → Cookies → https://fantasy.espn.com</h2><p>Down the left-hand side is a list. Find the <strong>Storage</strong> heading, click the little arrow next to <strong>Cookies</strong> to open it, and then click <strong>https://fantasy.espn.com</strong>. A big table fills the right-hand side.</p><figure><svg viewBox="0 0 720 270" role="img" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="1" width="718" height="268" rx="8" fill="#fff" stroke="#d8dde3"/><rect x="1" y="1" width="718" height="30" fill="#f1f3f4"/><text x="16" y="21" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12" fill="#1a73e8" font-weight="700" text-anchor="start">Application</text><rect x="1" y="31" width="262" height="238" fill="#fbfcfd"/><line x1="263" y1="31" x2="263" y2="269" stroke="#e4e7eb"/><rect x="1" y="208" width="262" height="22" fill="#e8f0fe"/><text x="16" y="58" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12" fill="#1f2328" font-weight="700" text-anchor="start">Application</text><text x="28" y="82" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12" fill="#3c4043" font-weight="normal" text-anchor="start">▸  Manifest</text><text x="28" y="104" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12" fill="#3c4043" font-weight="normal" text-anchor="start">▸  Service workers</text><text x="16" y="132" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12" fill="#1f2328" font-weight="700" text-anchor="start">Storage</text><text x="34" y="156" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12" fill="#3c4043" font-weight="normal" text-anchor="start">▸  Local storage</text><text x="34" y="178" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12" fill="#3c4043" font-weight="normal" text-anchor="start">▸  Session storage</text><text x="34" y="200" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12" fill="#1f2328" font-weight="700" text-anchor="start">▾  Cookies</text><text x="52" y="222" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12" fill="#1a73e8" font-weight="700" text-anchor="start">https://fantasy.espn.com</text><text x="52" y="244" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12" fill="#3c4043" font-weight="normal" text-anchor="start">https://www.espn.com</text><rect x="288" y="60" width="380" height="6" rx="3" fill="#e8eaed"/><rect x="288" y="78" width="340" height="6" rx="3" fill="#e8eaed"/><rect x="288" y="96" width="300" height="6" rx="3" fill="#e8eaed"/><rect x="288" y="114" width="380" height="6" rx="3" fill="#e8eaed"/><rect x="288" y="132" width="340" height="6" rx="3" fill="#e8eaed"/><rect x="288" y="150" width="300" height="6" rx="3" fill="#e8eaed"/><line x1="470" y1="219" x2="278" y2="219" stroke="var(--mark)" stroke-width="1.8" marker-end="url(#arw)"/><text x="482" y="215" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="11.5" fill="var(--mark)" font-weight="600" text-anchor="start">this one — the cookies</text><text x="482" y="229" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="11.5" fill="var(--mark)" font-weight="600" text-anchor="start">live under here</text></svg><figcaption>The left-hand list, with Cookies opened up.</figcaption></figure></section>
+
+<section class="step"><div class="n">5</div><h2>Find the row called SWID and copy its Value</h2><p>The table is sorted alphabetically and it is long — scroll until you find <strong>SWID</strong> in the left-hand Name column. Copy what sits next to it in the <strong>Value</strong> column.</p><p class="flag">Copy the curly braces at each end as well. They look like punctuation but they are part of the value, and it will not work without them.</p><figure><svg viewBox="0 0 720 215" role="img" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="1" width="718" height="213" rx="8" fill="#fff" stroke="#d8dde3"/><rect x="1" y="1" width="718" height="28" fill="#f1f3f4"/><line x1="1" y1="29" x2="719" y2="29" stroke="#dadce0"/><line x1="168" y1="1" x2="168" y2="29" stroke="#dadce0"/><line x1="556" y1="1" x2="556" y2="29" stroke="#dadce0"/><text x="16" y="20" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="11.5" fill="#5b6470" font-weight="700" text-anchor="start">Name</text><text x="180" y="20" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="11.5" fill="#5b6470" font-weight="700" text-anchor="start">Value</text><text x="568" y="20" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="11.5" fill="#5b6470" font-weight="700" text-anchor="start">Domain</text><text x="16" y="47" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#9aa4b0" font-weight="normal" text-anchor="start" textLength="43.3512" lengthAdjust="spacing">region</text><text x="180" y="47" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#9aa4b0" font-weight="normal" text-anchor="start" textLength="21.6756" lengthAdjust="spacing">usa</text><text x="568" y="47" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#9aa4b0" font-weight="normal" text-anchor="start">.espn.com</text><text x="16" y="73" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#9aa4b0" font-weight="normal" text-anchor="start" textLength="43.3512" lengthAdjust="spacing">s_ecid</text><text x="180" y="73" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#9aa4b0" font-weight="normal" text-anchor="start" textLength="108.378" lengthAdjust="spacing">MCMID%7C1938442</text><text x="568" y="73" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#9aa4b0" font-weight="normal" text-anchor="start">.espn.com</text><rect x="1" y="81" width="718" height="26" fill="#fff3cd"/><text x="16" y="99" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#1f2328" font-weight="700" text-anchor="start" textLength="28.900799999999997" lengthAdjust="spacing">SWID</text><text x="180" y="99" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#1f2328" font-weight="700" text-anchor="start" textLength="274.5576" lengthAdjust="spacing">{A1B2C3D4-5E6F-7890-ABCD-EF1234567890}</text><text x="568" y="99" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#9aa4b0" font-weight="normal" text-anchor="start">.espn.com</text><text x="16" y="125" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#9aa4b0" font-weight="normal" text-anchor="start" textLength="50.5764" lengthAdjust="spacing">espn_s2</text><text x="180" y="125" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#9aa4b0" font-weight="normal" text-anchor="start" textLength="137.2788" lengthAdjust="spacing">AEBq7mXk%2FvR3TnGx…</text><text x="568" y="125" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#9aa4b0" font-weight="normal" text-anchor="start">.espn.com</text><text x="16" y="151" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#9aa4b0" font-weight="normal" text-anchor="start" textLength="57.80159999999999" lengthAdjust="spacing">nol_fpid</text><text x="180" y="151" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#9aa4b0" font-weight="normal" text-anchor="start" textLength="72.252" lengthAdjust="spacing">tt2xq9v0s1</text><text x="568" y="151" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#9aa4b0" font-weight="normal" text-anchor="start">.espn.com</text><ellipse cx="183.6126" cy="91" rx="8" ry="11" fill="none" stroke="var(--mark)" stroke-width="1.8"/><ellipse cx="450.945" cy="91" rx="8" ry="11" fill="none" stroke="var(--mark)" stroke-width="1.8"/><line x1="450.945" y1="188" x2="450.945" y2="105" stroke="var(--mark)" stroke-width="1.8" marker-end="url(#arw)"/><text x="450.945" y="206" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="11.5" fill="var(--mark)" font-weight="600" text-anchor="middle">copy the curly braces too — they are part of the value</text></svg><figcaption>It is a short code in the shape of a serial number, wrapped in { curly braces }.</figcaption></figure></section>
+
+<section class="step"><div class="n">6</div><h2>Find the row called espn_s2 and copy its Value</h2><p>Same table, a different row: <strong>espn_s2</strong>. This one is much longer and has <code>%</code> signs scattered through it. Because it is too long to fit the column, <strong>click the row once</strong> and the whole thing appears in a panel underneath, where you can select it and copy it.</p><p class="flag">If you see a checkbox marked “Show URL-decoded”, leave it unchecked. Ticking it quietly rewrites the value and the connection will fail.</p><figure><svg viewBox="0 0 720 285" role="img" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="1" width="718" height="283" rx="8" fill="#fff" stroke="#d8dde3"/><rect x="1" y="1" width="718" height="28" fill="#f1f3f4"/><line x1="1" y1="29" x2="719" y2="29" stroke="#dadce0"/><line x1="168" y1="1" x2="168" y2="29" stroke="#dadce0"/><line x1="556" y1="1" x2="556" y2="29" stroke="#dadce0"/><text x="16" y="20" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="11.5" fill="#5b6470" font-weight="700" text-anchor="start">Name</text><text x="180" y="20" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="11.5" fill="#5b6470" font-weight="700" text-anchor="start">Value</text><text x="568" y="20" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="11.5" fill="#5b6470" font-weight="700" text-anchor="start">Domain</text><text x="16" y="47" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#9aa4b0" font-weight="normal" text-anchor="start" textLength="28.900799999999997" lengthAdjust="spacing">SWID</text><text x="180" y="47" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#9aa4b0" font-weight="normal" text-anchor="start" textLength="137.2788" lengthAdjust="spacing">{A1B2C3D4-5E6F-789…</text><text x="568" y="47" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#9aa4b0" font-weight="normal" text-anchor="start">.espn.com</text><rect x="1" y="55" width="718" height="26" fill="#fff3cd"/><text x="16" y="73" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#1f2328" font-weight="700" text-anchor="start" textLength="50.5764" lengthAdjust="spacing">espn_s2</text><text x="180" y="73" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#1f2328" font-weight="700" text-anchor="start" textLength="223.9812" lengthAdjust="spacing">AEBq7mXk%2FvR3TnGxLd0pYzW8sCu1…</text><text x="568" y="73" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#9aa4b0" font-weight="normal" text-anchor="start">.espn.com</text><text x="16" y="99" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#9aa4b0" font-weight="normal" text-anchor="start" textLength="57.80159999999999" lengthAdjust="spacing">nol_fpid</text><text x="180" y="99" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#9aa4b0" font-weight="normal" text-anchor="start" textLength="72.252" lengthAdjust="spacing">tt2xq9v0s1</text><text x="568" y="99" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#9aa4b0" font-weight="normal" text-anchor="start">.espn.com</text><line x1="1" y1="118" x2="719" y2="118" stroke="#dadce0"/><rect x="1" y="118" width="718" height="165" fill="#fbfcfd"/><text x="16" y="138" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="11.5" fill="#5b6470" font-weight="700" text-anchor="start">Cookie Value</text><rect x="16" y="148" width="688" height="46" rx="4" fill="#fff" stroke="#e4e7eb"/><text x="26" y="168" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">AEBq7mXk%2FvR3TnGxLd0pYzW8sCu1JhNfA6QeDbMi5rKoP9t</text><text x="26" y="186" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">5wQhTzVrB%2FnKdLp8XsYmE3aGc1UoJ9f</text><rect x="18" y="208" width="13" height="13" rx="2" fill="#fff" stroke="#9aa4b0" stroke-width="1.5"/><text x="40" y="219" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12" fill="#3c4043" font-weight="normal" text-anchor="start">Show URL-decoded</text><ellipse cx="24.5" cy="214.5" rx="13" ry="13" fill="none" stroke="var(--mark)" stroke-width="1.8"/><line x1="60" y1="252" x2="28" y2="231" stroke="var(--mark)" stroke-width="1.8" marker-end="url(#arw)"/><text x="74" y="250" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="11.5" fill="var(--mark)" font-weight="600" text-anchor="start">leave this box UNCHECKED —</text><text x="74" y="264" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="11.5" fill="var(--mark)" font-weight="600" text-anchor="start">the %-signs have to stay in</text></svg><figcaption>Click the espn_s2 row and the full value appears in the pane below.</figcaption></figure></section>
+
+<section class="step"><div class="n">7</div><h2>Last thing: your name as ESPN spells it</h2><p>My end matches you to your team by <strong>manager name</strong>, not by team name, and it has to match character for character — “Mike” and “Michael” are two different people to it. Open your league's <strong>Members</strong> page and tell me the name shown against your team, plus roughly what year the league started on ESPN.</p><p>Easiest of all: take a screenshot of that Members page and send it along. That answers the league name, your manager name and the spelling in one go.</p><figure><svg viewBox="0 0 720 170" role="img" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="1" width="718" height="168" rx="8" fill="#fff" stroke="#d8dde3"/><text x="20" y="28" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="14" fill="#1f2328" font-weight="700" text-anchor="start">League Members</text><rect x="1" y="42" width="718" height="28" fill="#f1f3f4"/><line x1="1" y1="70" x2="719" y2="70" stroke="#dadce0"/><rect x="330" y="42" width="200" height="127" fill="#fff3cd" opacity="0.6"/><text x="20" y="61" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="11" fill="#5b6470" font-weight="700" text-anchor="start">TEAM</text><text x="344" y="61" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="11" fill="#1f2328" font-weight="700" text-anchor="start">MANAGER</text><text x="20" y="92" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12.5" fill="#9aa4b0" font-weight="normal" text-anchor="start">Thunder Cats</text><text x="344" y="92" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12.5" fill="#1f2328" font-weight="700" text-anchor="start">Jordan Ellis</text><line x1="1" y1="102" x2="719" y2="102" stroke="#f0f2f4"/><text x="20" y="124" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12.5" fill="#9aa4b0" font-weight="normal" text-anchor="start">Gridiron Gang</text><text x="344" y="124" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12.5" fill="#1f2328" font-weight="700" text-anchor="start">Sam Ortiz</text><line x1="1" y1="134" x2="719" y2="134" stroke="#f0f2f4"/><text x="20" y="156" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12.5" fill="#9aa4b0" font-weight="normal" text-anchor="start">Waiver Wire Warriors</text><text x="344" y="156" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="12.5" fill="#1f2328" font-weight="700" text-anchor="start">Alex Kim</text><line x1="1" y1="166" x2="719" y2="166" stroke="#f0f2f4"/><line x1="600" y1="104" x2="470" y2="92" stroke="var(--mark)" stroke-width="1.8" marker-end="url(#arw)"/><text x="612" y="100" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="11.5" fill="var(--mark)" font-weight="600" text-anchor="start">this name, not</text><text x="612" y="114" font-family="-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif" font-size="11.5" fill="var(--mark)" font-weight="600" text-anchor="start">the team name</text></svg><figcaption>League → Members. The manager name is the one I need.</figcaption></figure></section>
+
+<section class="step" style="padding-left:0">
+<h2>Send me these six things</h2>
+<p>All in one message is easiest — the two codes are no use to me one at a
+time.</p>
+<div class="form"><div class="row"><span class="label">The league&#x27;s web address <em>(paste the whole thing)</em>:</span></div><div class="row"><span class="label">League name:</span></div><div class="row"><span class="label">Your manager name, spelled exactly as ESPN has it:</span></div><div class="row"><span class="label">First season this league was on ESPN <em>(a year, e.g. 2019)</em>:</span></div><div class="row"><span class="label">SWID <em>(with the { } braces)</em>:</span></div><div class="row"><span class="label">espn_s2 <em>(the long one)</em>:</span></div></div>
+</section>
+
+<div class="box">
+  <h3>If something looks different</h3>
+  <ul>
+    <li><strong>No <code>https://fantasy.espn.com</code> in the list.</strong>
+    Open your league page first, reload it, then look again. Failing that, click
+    <code>https://www.espn.com</code> instead — the same two rows are in there.</li>
+    <li><strong>The value looks chopped off.</strong> It is — the column is too
+    narrow. Click the row and copy from the pane underneath.</li>
+    <li><strong>It worked and then stopped a few weeks later.</strong> Expected.
+    ESPN expires these on a schedule and I will ask you for a fresh pair; it is
+    the same five minutes.</li>
+  </ul>
+</div>
+
+<div class="box warn">
+  <h3>What you are actually sending me</h3>
+  <p>Those two codes are the pass your browser shows ESPN to prove you are
+  logged in. They are <strong>not</strong> your password, and they cannot be
+  turned back into it — but while they last they do let me read ESPN as you, so
+  treat them like a password: send them to me directly, not into a group chat,
+  and do not post them anywhere public.</p>
+  <p style="margin-bottom:0">They expire on their own after a few weeks. If you
+  ever want to cut them off sooner, change your ESPN password and both codes
+  stop working immediately.</p>
+</div>
+
+<p class="sig">Any step that does not look like the picture, send me a screenshot
+of what you are seeing and I will point at the right thing.</p>
+</body>
+</html>

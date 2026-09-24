@@ -505,9 +505,10 @@ def list_leagues(season: int) -> list:
     """League keys with a complete store for ``season``.
 
     Cached for :data:`LISTING_TTL`. Worth caching even though it is one call: the
-    router asks once, the sidebar health badge asks again, and Home and Player Shares
-    each ask a third time, so an uncached listing is four round-trips per rerun for an
-    answer that changes when a league is added to ``config.yaml``.
+    router asks once, the sidebar health badge asks again, and Home asks twice more --
+    once for its cards and once for the Player Shares section it draws -- so an uncached
+    listing is four round-trips per rerun for an answer that changes when a league is
+    added to ``config.yaml``.
 
     Args:
         season: Season year.

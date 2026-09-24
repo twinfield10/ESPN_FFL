@@ -1,7 +1,14 @@
-"""Home — one card per league, and the tables underneath them.
+"""Home — one card per league, and the two cross-league readouts underneath them.
 
 Layout only. Every decision a card states is made in :mod:`home`, which is
 Streamlit-free and tested; this reads five summaries and draws them.
+
+**Three sections, in the order a Sunday is worked: cards, Player Shares, Standings.**
+The cards say which league needs you and hand you the tab that can act on it. Player
+Shares -- :func:`views.shares_tab.render_shares`, drawn here rather than from a tab of
+its own -- answers the next question, once the lineups are set: who do I want the ball
+to go to, summed across all of them. Standings is last because it is the week after
+this one, not this one.
 
 **The store reads live here rather than in :mod:`home`**, so a summary can be cached
 on the same fingerprint the artifact readers use -- see :func:`summary` and
@@ -31,6 +38,7 @@ import home
 import matchup_sim as sim
 import session
 import store
+from views import shares_tab
 
 #: Where a card's button leaves the route it wants opened, for the page body to act on.
 #:
@@ -355,11 +363,12 @@ def _render_standings(cards: Sequence[home.LeagueSummary]) -> None:
 
 
 def render_home(selection: session.Selection) -> None:
-    """Draw the landing page.
+    """Draw the landing page: cards, then Player Shares, then Standings.
 
     Args:
         selection: The global selection. Only the season and the week are read --
-            Home is the one tab that is *not* about the selected league.
+            Home is the one tab that is *not* about the selected league, and the
+            same is true of the Player Shares section it draws.
     """
     pending = st.session_state.pop(PENDING_KEY, None)
     if pending:
@@ -405,4 +414,5 @@ def render_home(selection: session.Selection) -> None:
             with column:
                 _render_card(card, selection.week)
 
+    shares_tab.render_shares(selection)
     _render_standings(cards)

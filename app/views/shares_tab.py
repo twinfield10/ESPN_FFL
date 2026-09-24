@@ -5,11 +5,14 @@ The IO lives here rather than in the logic module, the same split
 ``store.version``, so the sidebar's Refresh button invalidates it, and
 :mod:`player_shares` stays a pure function of loaded frames.
 
-**This is the second tab that ignores the League selector.** Home established that
-a multi-league view needs no second :class:`session.Selection` -- only the season
-and the week are read. The selector stays live because it governs the other five
-tabs, and the page says in one line that this one spans all of them, so a control
-that looks inert is explained rather than puzzling.
+**This is a section of Home, not a tab of its own.** It was the second tab that
+ignored the League selector, and that was the tell: Home reads the same
+:class:`session.Selection` -- season and week, never a league -- and asks the
+neighbouring question. Which of my leagues needs me before kickoff, and then, once
+the lineups are set, who do I want the ball to go to. :func:`views.home_tab.render_home`
+draws it between the league cards and Standings. The selector stays live because it
+governs the other four tabs, and the section says in one line that it does not apply
+here, so a control that looks inert is explained rather than puzzling.
 
 Leagues are listed in **store order** -- sorted, stable across seasons, which is
 what :func:`auth.visible_leagues` preserves. Only the charts are reordered.
@@ -438,16 +441,21 @@ def _render_detail(rows: List[ps.Share]) -> None:
 
 
 def render_shares(selection: session.Selection) -> None:
-    """Draw the Player Shares tab.
+    """Draw the Player Shares section of Home.
+
+    Called by :func:`views.home_tab.render_home` above :func:`_render_standings`,
+    and it returns early -- after its heading, so the message is labelled -- when no
+    league has both a lineup and a fixture. Standings still draws below either way.
 
     Args:
         selection: The global selection. Only the season and the week are read --
-            this tab spans every league the viewer has.
+            this section spans every league the viewer has.
     """
     viewer = auth.current_viewer()
     leagues = auth.visible_leagues(viewer, store.list_leagues(selection.season))
 
-    st.title(f"Player Shares · Week {selection.week}")
+    st.divider()
+    st.subheader(f"Player Shares · Week {selection.week}")
 
     matchups: List[ps.LeagueMatchup] = []
     notes: List[str] = []
@@ -493,8 +501,8 @@ def render_shares(selection: session.Selection) -> None:
             f"Every player started in your {len(matchups)} matchups this week, "
             f"ranked by how much he moves that total. **Δ Wins** is how far your "
             f"expected wins travel if he has a p90 week instead of a p10 one — "
-            f"positive means root for him. This tab spans all your leagues, so the "
-            f"League selector in the sidebar does not apply to it.")
+            f"positive means root for him. Like the rest of Home this spans all your "
+            f"leagues, so the League selector in the sidebar does not apply to it.")
 
     _render_leagues(matchups)
 
