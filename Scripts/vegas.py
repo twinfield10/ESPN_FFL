@@ -211,6 +211,28 @@ def _prefer_quoted_totals(df: pl.DataFrame) -> pl.DataFrame:
     ]).drop("quoted_own", "quoted_allowed")
 
 
+def _book_team_abbr(in_use: set) -> Dict[str, str]:
+    """A book's full team names mapped to this season's schedule abbreviations.
+
+    Restricted to the abbreviations this season actually uses, which is not a
+    tidiness measure. ``team_names.parquet`` carries every historical abbreviation,
+    so two rows map to "Los Angeles Rams" -- ``LA`` and ``LAR`` -- and a plain
+    ``dict(zip(...))`` keeps whichever comes last. It kept ``LAR``; the schedule
+    says ``LA``; the Rams silently vanished from a 32-team join that returned 31.
+    The same trap is waiting on OAK/LV, SD/LAC and STL/LA.
+
+    Args:
+        in_use: The schedule's abbreviations for the season in question.
+
+    Returns:
+        dict: Book team name to schedule abbreviation.
+    """
+    names = pl.read_parquet(paths.DATA_DIR / "NFL" / "team_names.parquet")
+    return {row["team_name"]: row["team_abbr"]
+            for row in names.iter_rows(named=True)
+            if row["team_abbr"] in in_use}
+
+
 def book_team_totals(season: int, book: Optional[str] = None) -> pl.DataFrame:
     """Quoted team totals from the odds store, keyed the way the schedule is.
 
@@ -247,8 +269,11 @@ def book_team_totals(season: int, book: Optional[str] = None) -> pl.DataFrame:
     # The main team-total line only. An alternate is a different question -- "how
     # likely is 27.5" rather than "what is the number" -- and averaging a ladder in
     # would drag the estimate toward wherever the book chose to stop posting.
+    # Full game only. Pinnacle also quotes first-half team totals under the same title,
+    # and averaging the two in put Arizona at 15.0 and the Giants at 15.5 on a 43.5 total.
     quotes = quotes.filter(
         (pl.col("marketTitle") == "TeamTotal")
+        & (pl.col("gamePeriod") == "GAME")
         & (~pl.col("isAlt"))
         & (pl.col("betSide") == "over")
         & pl.col("sideOf").is_not_null())
@@ -263,18 +288,7 @@ def book_team_totals(season: int, book: Optional[str] = None) -> pl.DataFrame:
         sched.select("season", "week", "gameday", pl.col("home_team").alias("team")),
         sched.select("season", "week", "gameday", pl.col("away_team").alias("team")),
     ])
-    in_use = set(long_sched["team"].unique().to_list())
-
-    # Restricted to the abbreviations this season actually uses, which is not a
-    # tidiness measure. ``team_names.parquet`` carries every historical abbreviation,
-    # so two rows map to "Los Angeles Rams" -- ``LA`` and ``LAR`` -- and a plain
-    # ``dict(zip(...))`` keeps whichever comes last. It kept ``LAR``; the schedule
-    # says ``LA``; the Rams silently vanished from a 32-team join that returned 31.
-    # The same trap is waiting on OAK/LV, SD/LAC and STL/LA.
-    names = pl.read_parquet(paths.DATA_DIR / "NFL" / "team_names.parquet")
-    to_abbr = {row["team_name"]: row["team_abbr"]
-               for row in names.iter_rows(named=True)
-               if row["team_abbr"] in in_use}
+    to_abbr = _book_team_abbr(set(long_sched["team"].unique().to_list()))
 
     quotes = quotes.with_columns([
         pl.when(pl.col("sideOf") == "home").then(pl.col("Home"))
@@ -298,7 +312,12 @@ def book_team_totals(season: int, book: Optional[str] = None) -> pl.DataFrame:
             RuntimeWarning, stacklevel=2)
     quotes = quotes.drop_nulls("team")
 
-    own = (quotes.select(pl.col("officialDate").alias("gameday"), "team", "opponent",
+    # Each value a line has carried is its own stored row, so a plain mean averaged a
+    # team total's whole history. The latest snapshot is each book's number; the books
+    # are then averaged, which is the equal vote the docstring describes.
+    own = (quotes.sort("snapshot_ts")
+                 .group_by(["sportsbook", "officialDate", "team", "opponent"]).last()
+                 .select(pl.col("officialDate").alias("gameday"), "team", "opponent",
                          pl.col("marketLine").alias("quoted"))
                  .group_by(["gameday", "team", "opponent"])
                  .agg(pl.col("quoted").mean())
@@ -312,6 +331,95 @@ def book_team_totals(season: int, book: Optional[str] = None) -> pl.DataFrame:
                .join(allowed, on=["season", "week", "team"], how="left")
                .with_columns(pl.col("season").cast(pl.Int32),
                              pl.col("week").cast(pl.Int32)))
+
+
+def book_game_lines(season: int, book: str) -> pl.DataFrame:
+    """One book's own spread and total per team-game, shaped like :func:`team_games`.
+
+    :func:`team_games` prices every game off nflverse's consensus line, which is one
+    number per game however many books are stored. This reads a single book's main
+    spread and main total instead, so a model driven by lines -- the D/ST arm -- can
+    speak once per book rather than once for the market.
+
+    **The spread is stored as the home team's handicap** (``-3.0`` = home favoured by
+    three), which is the opposite sign to nflverse's ``spread_line``. ``margin`` here
+    keeps :func:`team_games`' convention, positive = this team favoured, so the flip
+    happens once, in this function, and is pinned by a test.
+
+    Each line value a game has carried is its own row in the store, so the **latest
+    snapshot** per game and market is the book's number -- for a game already played,
+    that is its last pre-kickoff price. Where the same book quotes a team total, that
+    quote replaces the halved-total derivation of ``implied_allowed``, exactly as
+    :func:`team_games` does.
+
+    Args:
+        season: Season year.
+        book: Store name, e.g. ``"Pinnacle"`` or ``"BetOnline"``.
+
+    Returns:
+        pl.DataFrame: ``season``, ``week``, ``team``, ``opponent``, ``margin``,
+        ``total_line``, ``implied_own``, ``implied_allowed``, ``implied_source``. Only
+        games carrying both a spread and a total from this book; empty when none do.
+    """
+    from Scripts.books.store import read_current
+
+    empty = pl.DataFrame(schema={"season": pl.Int32, "week": pl.Int32, "team": pl.Utf8,
+                                 "opponent": pl.Utf8, "margin": pl.Float64,
+                                 "total_line": pl.Float64, "implied_own": pl.Float64,
+                                 "implied_allowed": pl.Float64,
+                                 "implied_source": pl.Utf8})
+    raw = read_current(season, book)
+    if raw.is_empty():
+        return empty
+    raw = raw.filter(pl.col("gamePeriod") == "GAME", ~pl.col("isAlt"),
+                     pl.col("marketTitle").is_in(["Spread", "Total"]))
+
+    def latest(title: str, side: str, alias: str) -> pl.DataFrame:
+        return (raw.filter(pl.col("marketTitle") == title, pl.col("betSide") == side)
+                .sort("snapshot_ts")
+                .group_by("officialDate", "Home", "Away").last()
+                .select("officialDate", "Home", "Away", pl.col("marketLine").alias(alias)))
+
+    games = latest("Spread", "home", "home_handicap").join(
+        latest("Total", "over", "total_line"), on=["officialDate", "Home", "Away"])
+    if games.is_empty():
+        return empty
+
+    sched = (load_schedules([season])
+             .select("season", "week", pl.col("gameday").alias("officialDate"),
+                     "home_team", "away_team"))
+    to_abbr = _book_team_abbr(set(sched["home_team"].to_list())
+                              | set(sched["away_team"].to_list()))
+    games = (games.with_columns(pl.col("Home").replace_strict(to_abbr, default=None)
+                                .alias("home_team"),
+                                pl.col("Away").replace_strict(to_abbr, default=None)
+                                .alias("away_team"))
+             # Joined on the date and both teams, so a preseason game the book priced
+             # under the same names cannot land on a regular-season week.
+             .join(sched, on=["officialDate", "home_team", "away_team"], how="inner"))
+
+    home = games.select("season", "week", pl.col("home_team").alias("team"),
+                        pl.col("away_team").alias("opponent"), "total_line",
+                        (-pl.col("home_handicap")).alias("margin"))
+    away = games.select("season", "week", pl.col("away_team").alias("team"),
+                        pl.col("home_team").alias("opponent"), "total_line",
+                        pl.col("home_handicap").alias("margin"))
+    both = pl.concat([home, away]).with_columns(
+        (pl.col("total_line") / 2 + pl.col("margin") / 2).alias("implied_own"),
+        (pl.col("total_line") / 2 - pl.col("margin") / 2).alias("implied_allowed"))
+
+    quotes = book_team_totals(season, book)
+    if quotes.is_empty():
+        both = both.with_columns(pl.lit("derived").alias("implied_source"))
+    else:
+        both = both.join(quotes, on=["season", "week", "team"], how="left").with_columns(
+            pl.coalesce("quoted_own", "implied_own").alias("implied_own"),
+            pl.coalesce("quoted_allowed", "implied_allowed").alias("implied_allowed"),
+            pl.when(pl.col("quoted_allowed").is_not_null())
+              .then(pl.lit("quoted")).otherwise(pl.lit("derived"))
+              .alias("implied_source")).drop("quoted_own", "quoted_allowed")
+    return (both.with_columns(pl.col("season").cast(pl.Int32), pl.col("week").cast(pl.Int32))
+            .select(empty.columns).sort("week", "team"))
 
 
 #: Quantities :func:`team_strength` averages and shrinks.

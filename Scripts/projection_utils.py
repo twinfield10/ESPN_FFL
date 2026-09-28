@@ -1222,6 +1222,51 @@ def clean_bol(bol_path=None, season=None, tackle_dim=None):
     return raw
 
 
+def book_dst_rows(df: pd.DataFrame, season: int, prefix: str,
+                  keep_stats) -> pd.DataFrame:
+    """One book's weekly D/ST lines, keyed the way the book frames are.
+
+    Neither book posts a D/ST market, so ``clean_pinny`` and ``clean_bol`` carry no
+    defence rows and both books abstained on every D/ST. The D/ST model needs only a
+    spread and a total, which each book *does* post, so :mod:`Scripts.dst.books` prices
+    the model off each book's own lines and this attaches the result to that book's
+    frame under ESPN's D/ST names. Plan 51.
+
+    Args:
+        df: The lineup frame; its D/ST rows supply ``pro_team`` -> ``player_name``.
+        season: Season year.
+        prefix: ``"PINNY"`` or ``"BOL"``.
+        keep_stats: Stat names to keep -- those the rest of the blend has a ``MEAN_``
+            column for, so a model-only diagnostic like team tackles is not written
+            under a book's name.
+
+    Returns:
+        pd.DataFrame: ``week``, ``player_name`` and ``proj_<stat>`` columns; empty
+        when the model artifact is missing or the book priced nothing.
+    """
+    from Scripts.dst import books as dst_books
+    from Scripts.nfl_utils import ESPN_TEAM_ALIASES
+
+    empty = pd.DataFrame(columns=["week", "player_name"])
+    dst = (df.loc[df["primaryPosition"] == "D/ST", ["pro_team", "player_name"]]
+           .dropna().drop_duplicates())
+    if dst.empty:
+        return empty
+    try:
+        lines = dst_books.weekly(season, prefix).to_pandas()
+    except FileNotFoundError as exc:
+        _warn_missing(f"{prefix} D/ST lines skipped: {exc}")
+        return empty
+    if lines.empty:
+        return empty
+
+    dst["team"] = dst["pro_team"].replace(ESPN_TEAM_ALIASES)
+    keep = [f"proj_{s}" for s in keep_stats if f"proj_{s}" in lines.columns]
+    out = lines.merge(dst[["team", "player_name"]], on="team", how="inner")
+    out["week"] = out["week"].astype("int64")
+    return out[["week", "player_name"] + keep]
+
+
 def clean_ath_weekly(ath_path=None, season=None):
     """Load The Athletic's weekly slates, prefixed ``proj_`` for the blend to rename.
 
@@ -1982,6 +2027,12 @@ def clean_lineups(df, lg, season=None):
     ## a) Clean Pinnacle Data
     pinny_proj = clean_pinny(season=season)
     pinny_proj = align_to_espn_names(pinny_proj, espn_universe, "Pinnacle")
+    ## Each book's D/ST line is the D/ST model priced off that book's own spread and
+    ## total -- neither posts a defence market. See `book_dst_rows`.
+    mean_stats = [c[len("MEAN_"):] for c in mean_df.columns
+                  if c.startswith("MEAN_") and not c.endswith(IMPUTED_SUFFIX)]
+    pinny_proj = pd.concat([pinny_proj, book_dst_rows(df, season, "PINNY", mean_stats)],
+                           ignore_index=True)
     pinny_proj = change_col_prefix(df=pinny_proj, old_pfix="proj", new_pfix="PINNY")
 
     ## b) Impute Missing Data From ESPN
@@ -1999,6 +2050,8 @@ def clean_lineups(df, lg, season=None):
     # 3) Combine BetOnline Data With ESPN and Impute
     bol_proj = clean_bol(season=season)
     bol_proj = align_to_espn_names(bol_proj, espn_universe, "BetOnline")
+    bol_proj = pd.concat([bol_proj, book_dst_rows(df, season, "BOL", mean_stats)],
+                         ignore_index=True)
     bol_proj = change_col_prefix(df=bol_proj, old_pfix="proj", new_pfix="BOL")
 
     ## b) Impute Missing Data From ESPN
