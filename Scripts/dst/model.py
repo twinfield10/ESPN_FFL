@@ -133,6 +133,55 @@ def _tier_probs(mean: np.ndarray, residuals: np.ndarray,
     return np.divide(out, total, out=np.zeros_like(out), where=total > 0)
 
 
+def _fit_games(tw: pl.DataFrame, rates: Dict, cut: int) -> Dict:
+    """The same components fitted one game at a time, for a weekly projection.
+
+    The season fit regresses team-season means on team-season average lines, and its
+    slopes do not carry over to a single game: points allowed runs **1.347** per point of
+    implied points allowed across seasons but **0.996** across games (2016-2025), which
+    is the market being efficient game by game. Pushing one game's line through the
+    season coefficients put Minnesota at 11.4 points allowed on a line implying 14.75.
+    So a weekly projection gets its own coefficients, and its tier residuals are
+    measured around each game's own prediction rather than around a team's season
+    mean.
+
+    A rate the season fit shrank to its mean stays shrunk here: the verdict is about
+    whether the market says anything about that component, and it is the season
+    comparison that measured it.
+
+    Args:
+        tw: Priced team-weeks, as :func:`fit` filters them.
+        rates: The season fit's rate block, for the shrinkage verdicts.
+        cut: First held-out season, for the diagnostic.
+
+    Returns:
+        dict: ``rates`` and ``tiers``, shaped like the season blocks.
+    """
+    X = np.column_stack([tw["implied_allowed"].to_numpy(), tw["margin"].to_numpy()])
+    held = tw["season"].to_numpy() >= cut
+    out: Dict[str, Dict] = {"rates": {}, "tiers": {}}
+    for c, spec in rates.items():
+        y = tw[c].to_numpy().astype(float)
+        beta = ([float(y.mean()), 0.0, 0.0] if spec["shrunk_to_mean"]
+                else [float(b) for b in _ols(X, y)])
+        out["rates"][c] = {"beta": beta, "shrunk_to_mean": spec["shrunk_to_mean"]}
+    for name in ("points_allowed", "yards_allowed"):
+        y = tw[name].to_numpy().astype(float)
+        b_train = _ols(X[~held], y[~held])
+        pred = np.column_stack([np.ones(held.sum()), X[held]]) @ b_train
+        mae = float(np.abs(pred - y[held]).mean())
+        base = float(np.abs(y[~held].mean() - y[held]).mean())
+        beta = _ols(X, y)
+        resid = y - np.column_stack([np.ones(len(y)), X]) @ beta
+        out["tiers"][name] = {
+            "beta": [float(b) for b in beta],
+            "gain_pct": 100 * (1 - mae / base) if base else 0.0,
+            "residuals": [float(v) for v in np.round(resid, 3)],
+            "resid_sd": float(resid.std()),
+        }
+    return out
+
+
 def fit(seasons: Optional[Sequence[int]] = None, holdout: int = 2) -> Dict:
     """Fit the rate components and the two tiered distributions.
 
@@ -207,11 +256,65 @@ def fit(seasons: Optional[Sequence[int]] = None, holdout: int = 2) -> Dict:
             "resid_sd": float(resid.std()),
         }
 
+    games = _fit_games(tw, rates, cut)
+
     return {"version": VERSION,
             "train_seasons": [int(min(seasons)), int(max(seasons))],
             "n_team_seasons": ts.height, "holdout_seasons": holdout,
-            "rates": rates, "tiers": tiers,
+            "rates": rates, "tiers": tiers, "games": games,
             "int_td_share": INT_TD_SHARE}
+
+
+def components(implied_allowed: np.ndarray, margin: np.ndarray, model: Dict,
+               slate: float, grain: str = "season") -> Dict[str, np.ndarray]:
+    """The D/ST component vector for each row of lines, over ``slate`` games.
+
+    One function for both grains. A season projection passes each team's average line
+    and a slate of 17; a single game passes that game's own line and a slate of 1, and
+    the tier columns then read as the probability of landing in each tier this week.
+
+    **`fumbleRecoveredForTD` is written as zero, deliberately.** ESPN books every D/ST
+    fumble touchdown under `fumbleReturnTouchdowns` -- all 15 in 2025, with
+    `fumbleRecoveredForTD` zero on every D/ST row, actual and ESPN-projected -- and
+    eight of the nine leagues price both at the D/ST slot. Filling both with the same
+    expectation, as 1.1.0 first shipped, paid every projected fumble touchdown twice.
+
+    Args:
+        implied_allowed: Implied points allowed per row.
+        margin: This team's spread per row, positive = favoured.
+        model: Output of :func:`fit`.
+        slate: Games the vector covers.
+        grain: ``"season"`` reads the season coefficients, ``"game"`` the per-game ones
+            from :func:`_fit_games`. They differ, and mixing them is the error the
+            per-game fit exists to prevent.
+
+    Returns:
+        dict: ESPN stat name to an array, one value per row.
+    """
+    block = model if grain == "season" else model["games"]
+    x = np.column_stack([np.ones(len(implied_allowed)), implied_allowed, margin])
+    out: Dict[str, np.ndarray] = {}
+    for c, spec in block["rates"].items():
+        per_game = np.clip(x @ np.array(spec["beta"]), 0.0, None)
+        if c == "def_tds":
+            share = model["int_td_share"]
+            out["interceptionReturnTouchdowns"] = per_game * slate * share
+            out["fumbleReturnTouchdowns"] = per_game * slate * (1 - share)
+            out["fumbleRecoveredForTD"] = np.zeros_like(per_game)
+            out["defensiveTouchdowns"] = per_game * slate
+        else:
+            out[RATES[c]] = per_game * slate
+
+    for name, ladder in (("points_allowed", PA_TIERS), ("yards_allowed", YD_TIERS)):
+        spec = block["tiers"][name]
+        mean = x @ np.array(spec["beta"])
+        probs = _tier_probs(mean, np.array(spec["residuals"]), ladder)
+        for j, (tier, _, _) in enumerate(ladder):
+            out[f"defensive{tier}"] = probs[:, j] * slate
+        total = "defensivePointsAllowed" if name == "points_allowed" \
+            else "defensiveYardsAllowed"
+        out[total] = np.clip(mean, 0.0, None) * slate
+    return out
 
 
 def project(season: int, model: Optional[Dict] = None) -> pl.DataFrame:
@@ -228,37 +331,41 @@ def project(season: int, model: Optional[Dict] = None) -> pl.DataFrame:
     """
     model = load() if model is None else model
     st = vegas.team_strength(season)
-    x = np.column_stack([np.ones(st.height), st["implied_allowed"].to_numpy(),
-                         st["margin"].to_numpy()])
-
+    vec = components(st["implied_allowed"].to_numpy(), st["margin"].to_numpy(),
+                     model, SLATE)
     out = st.select("season", "team", pl.col("n_priced").alias("dst_n_priced"))
-    for c, spec in model["rates"].items():
-        per_game = np.clip(x @ np.array(spec["beta"]), 0.0, None)
-        if c == "def_tds":
-            share = model["int_td_share"]
-            out = out.with_columns(
-                pl.Series("USG_interceptionReturnTouchdowns", per_game * SLATE * share),
-                pl.Series("USG_fumbleReturnTouchdowns", per_game * SLATE * (1 - share)),
-                pl.Series("USG_fumbleRecoveredForTD", per_game * SLATE * (1 - share)),
-                pl.Series("USG_defensiveTouchdowns", per_game * SLATE))
-        else:
-            out = out.with_columns(pl.Series(f"USG_{RATES[c]}", per_game * SLATE))
-
-    for name, ladder in (("points_allowed", PA_TIERS), ("yards_allowed", YD_TIERS)):
-        spec = model["tiers"][name]
-        mean = x @ np.array(spec["beta"])
-        probs = _tier_probs(mean, np.array(spec["residuals"]), ladder)
-        for j, (tier, _, _) in enumerate(ladder):
-            out = out.with_columns(
-                pl.Series(f"USG_defensive{tier}", probs[:, j] * SLATE))
-        total = "USG_defensivePointsAllowed" if name == "points_allowed" \
-            else "USG_defensiveYardsAllowed"
-        out = out.with_columns(pl.Series(total, np.clip(mean, 0.0, None) * SLATE))
-
+    out = out.with_columns([pl.Series(f"USG_{k}", v) for k, v in vec.items()])
     return out.with_columns(
         pl.when(pl.col("dst_n_priced") == 0)
         .then(pl.lit("no line; league-average environment"))
         .otherwise(pl.lit("")).alias("dst_evidence"))
+
+
+def project_games(lines: pl.DataFrame, model: Optional[Dict] = None,
+                  prefix: str = "proj") -> pl.DataFrame:
+    """A one-game D/ST component vector per team-game, from whatever lines are given.
+
+    The weekly counterpart of :func:`project`. It takes the lines as an argument rather
+    than reading them, so the same fitted model can be priced off each book's own
+    spread and total -- see :mod:`Scripts.dst.books`.
+
+    Args:
+        lines: ``season``, ``week``, ``team``, ``implied_allowed``, ``margin``.
+        model: Output of :func:`fit`. Loaded from :data:`MODEL_PATH` when None.
+        prefix: Column prefix, ``proj`` by default, which is the shape every weekly
+            source frame takes before ``change_col_prefix`` names it.
+
+    Returns:
+        pl.DataFrame: ``season``, ``week``, ``team`` and ``<prefix>_<stat>``, one row per
+        input row.
+    """
+    model = load() if model is None else model
+    keys = lines.select("season", "week", "team")
+    if lines.is_empty():
+        return keys
+    vec = components(lines["implied_allowed"].to_numpy().astype(float),
+                     lines["margin"].to_numpy().astype(float), model, 1.0, grain="game")
+    return keys.with_columns([pl.Series(f"{prefix}_{k}", v) for k, v in vec.items()])
 
 
 def save(model: Dict) -> None:
@@ -299,6 +406,13 @@ def report(model: Dict) -> str:
                      f"{s['beta'][1]:+.4f} x impAllw {s['beta'][2]:+.4f} x margin"
                      f"   held-out gain {s['gain_pct']:+.1f}%"
                      f"   weekly resid SD {s['resid_sd']:.2f}")
+    if "games" in model:
+        lines.append("  per-game coefficients (the weekly projection)")
+        for n, s in model["games"]["tiers"].items():
+            lines.append(f"    {n:24s} mean = {s['beta'][0]:.3f} "
+                         f"{s['beta'][1]:+.4f} x impAllw {s['beta'][2]:+.4f} x margin"
+                         f"   held-out gain {s['gain_pct']:+.1f}%"
+                         f"   resid SD {s['resid_sd']:.2f}")
     return "\n".join(lines)
 
 

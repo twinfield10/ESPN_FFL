@@ -82,7 +82,9 @@ def realised(seasons: Sequence[int]) -> pl.DataFrame:
     return out.with_columns(
         (pl.col("_def_tds") * share).alias("USG_interceptionReturnTouchdowns"),
         (pl.col("_def_tds") * (1 - share)).alias("USG_fumbleReturnTouchdowns"),
-        (pl.col("_def_tds") * (1 - share)).alias("USG_fumbleRecoveredForTD"),
+        # ESPN books a D/ST fumble touchdown under fumbleReturnTouchdowns only; see
+        # dm.components. Filling both paid it twice in eight leagues.
+        pl.lit(0.0).alias("USG_fumbleRecoveredForTD"),
         pl.col("_def_tds").cast(pl.Float64).alias("USG_defensiveTouchdowns"),
     ).drop("_def_tds")
 

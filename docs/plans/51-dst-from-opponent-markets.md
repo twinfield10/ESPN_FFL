@@ -5,7 +5,9 @@
 **Priority:** Medium · **Effort:** M · **Where it stands:** **Phases 0–2 done 2026-09-28.**
 Step 0 refuted the plan's main hypothesis, phase 1 made the evidence reproducible
 (`python -m Scripts.dst.evidence_51`), and phase 2 moved the model onto ESPN's definitions as
-**D/ST 1.1.0**. Phases 2b–5 are owed.
+**D/ST 1.1.0**, and **each book's weekly D/ST line is now the D/ST model priced off that
+book's own game lines** (phase 2c), so `PINNY_` and `BOL_` stop abstaining on every
+defence. Phases 2b and 3–5 are owed.
 
 The idea was to project each D/ST component
 from the opponent's props: yards allowed from the opposing QB's passing line plus the
@@ -175,6 +177,60 @@ fixes the stat and exposes the next problem rather than creating one.
   was built on older lines. The old model on today's lines differed from it by hundreds of
   yards a season. Same shape as [44](44-weekly-sources-and-coverage.md)'s finding 6.
 
+## Phase 2c — each book's D/ST line, from that book's own lines
+
+Neither book posts a D/ST market, so on the weekly board `PINNY_` and `BOL_` were imputed
+from `MEAN_` and flagged on every defence, and the D/ST blend was ESPN plus whatever
+FantasyPros had. But the D/ST model's only inputs are a spread and a total, which both
+books post. So:
+
+- `vegas.book_game_lines(season, book)` reads one book's main spread and main total per
+  team-game (latest snapshot, full game), plus its own team total where it quotes one.
+- `dst.model.project_games` prices those lines one game at a time, and `dst.books.weekly`
+  wraps the two together for `"PINNY"` and `"BOL"`.
+- `projection_utils.book_dst_rows` attaches the result to each book's weekly frame under
+  ESPN's D/ST names, keeping only stats the blend has a `MEAN_` column for. Stats the model
+  doesn't produce (blocked kicks, kick and punt return TDs) stay null, so the book abstains
+  on those alone.
+
+**It is one model read through two sets of lines**, which is the requested weighting and
+worth stating: Pinnacle and BetOnline agree within **0.27** points on spreads and **0.38**
+on totals over 2026 weeks 1–4, so on a D/ST row the model now carries two of the (up to)
+four real votes.
+
+Verified end-to-end on `winfield_football`: only the two D/ST rows not yet kicked off
+changed (Eagles TRUE 7.41 → 6.83, Bears 3.75 → 4.49). All 416 locked rows held under the
+freeze, and non-D/ST `TRUE_Points` moved by exactly 0.0.
+
+### Four things building it found
+
+1. **The season coefficients cannot price a single game.** Points allowed runs **1.347**
+   per point of implied points allowed across team-seasons but **0.996** across games
+   (2016–2025). Pushing one game through the season fit put Minnesota at 11.4 points
+   allowed on a line implying 14.75. `fit` now also writes a per-game block
+   (`model["games"]`) with its own coefficients and tier residuals measured around each
+   game's own prediction. Held-out gain on 2024–25 games: points allowed +8.7%, yards
+   +9.8%, against a constant.
+2. **`book_team_totals` was averaging Pinnacle's first-half team totals into the full-game
+   ones**, and every value a line had ever carried. Arizona read 15.0 and the Giants 15.5
+   on a 43.5 total. It now filters to `gamePeriod == "GAME"` and takes the latest snapshot
+   per book. `team_games(use_book_quotes=True)` feeds `team_strength`, so **every
+   book-quoted implied total on the season path was about a third too low**. Seattle's
+   season D/ST points allowed moves from 260.6 to 306.6 and its projected shutouts from
+   0.84 to 0.37. The kicker's season projection reads the same function and will change on
+   its next rebuild. It has not been rebuilt here.
+3. **Fumble touchdowns were projected twice.** ESPN books every D/ST fumble TD under
+   `fumbleReturnTouchdowns` (15 in 2025), with `fumbleRecoveredForTD` zero on every D/ST
+   row, both actual and ESPN-projected. Eight of the nine leagues price both at the D/ST
+   slot, and the model filled both with the same expectation, about +3 points a season per
+   defence. It now writes zero there, and so does the gate's truth frame. G-DST2(a) MAE on
+   `winfield_football` fell 23.1 → 22.0.
+4. **nflverse's 2026 schedule lines disagree with both books by about 1.8 points on the
+   spread** (Washington in week 4: both books −3, nflverse +1.5), while the books agree
+   with each other within 0.27. They look like stale lookahead lines. `team_games` uses
+   them wherever no book quote exists, and the season D/ST projection is built on them.
+   Owed: find where `R/GetNFL.R` gets its lines and whether they refresh.
+
 ## What to build instead
 
 The hypothesis is set aside rather than half-built. The weekly D/ST projection stays on
@@ -220,6 +276,7 @@ One row per defence per game, `Data/NFL/<season>/dst_inputs.parquet`, keyed
 | 0 | Measurements above | **Done 2026-09-28** |
 | 1 | `Scripts/dst/evidence_51.py`: the step-0 tables, deterministic, from local data | **Done 2026-09-28**: reproduces 357/357, 431/431 and the backtest table |
 | 2 | Fix both definitions in `model.py`, refit, re-run plan 30's G-DST gates | **G-51a: PASS 2026-09-28**, 100% tier match on both ladders and G-DST2(a) 8/8 |
+| 2c | Each book's D/ST line from its own game lines | **Done 2026-09-28** — see Phase 2c |
 | 2b | Recency or trend in the turnover rates | Walk-forward 2024–2025 rate-component bias within ±2 points per team-season, without losing G-DST2(a) |
 | 3 | Key-number score PMF conditional on the implied total, replacing the pooled residual | **G-51b:** held-out-season log-loss on the ESPN PA tiers beats the pooled residual, 2016–2025 rolling |
 | 4 | Tilt the PMF toward quoted team totals and Pinnacle ladders | **G-51c:** needs about 8 weeks of 2026; tier log-loss beats phase 3 on 2026 held-out weeks |
