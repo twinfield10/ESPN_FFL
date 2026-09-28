@@ -119,6 +119,30 @@ def _walk_forward(test_seasons: Sequence[int],
     return out
 
 
+def scoreable_leagues(test_seasons: Sequence[int]) -> Tuple[List[str], List[str]]:
+    """Split configured leagues into those with a slot-16 registry for every test season.
+
+    A league that joined after the test seasons -- ``jeffs_league`` is new in 2026 --
+    has no rules to score 2024 under, and asking for them raised out of the whole gate.
+    It is skipped and named rather than guessed at.
+
+    Args:
+        test_seasons: Seasons the gate scores.
+
+    Returns:
+        tuple: ``(scoreable, skipped)`` config keys.
+    """
+    ok, skipped = [], []
+    for key in load_config()["leagues"]:
+        try:
+            for s in test_seasons:
+                get_scoring_table(league_key=key, season=s, verify=False, slot=SLOT_DST)
+            ok.append(key)
+        except ValueError:
+            skipped.append(key)
+    return ok, skipped
+
+
 def run(test_seasons: Optional[Sequence[int]] = None,
         leagues: Optional[Sequence[str]] = None) -> Tuple[pd.DataFrame, bool]:
     """Run G-DST2 baseline (a) across every configured league.
@@ -132,7 +156,7 @@ def run(test_seasons: Optional[Sequence[int]] = None,
     """
     test_seasons = [2024, 2025] if test_seasons is None else list(test_seasons)
     if leagues is None:
-        leagues = list(load_config()["leagues"].keys())
+        leagues, _ = scoreable_leagues(test_seasons)
 
     need = sorted(set(test_seasons) | {s - 1 for s in test_seasons})
     truth = realised(need)
@@ -167,7 +191,8 @@ def run(test_seasons: Optional[Sequence[int]] = None,
 def report(test_seasons: Optional[Sequence[int]] = None) -> str:
     """Human-readable G-DST2(a) result."""
     test_seasons = [2024, 2025] if test_seasons is None else list(test_seasons)
-    df, ok = run(test_seasons)
+    leagues, skipped = scoreable_leagues(test_seasons)
+    df, ok = run(test_seasons, leagues)
     lines = [
         f"===== G-DST2 baseline (a): model vs prior-season points "
         f"({', '.join(str(s) for s in test_seasons)}, walk-forward) =====",
@@ -183,6 +208,8 @@ def report(test_seasons: Optional[Sequence[int]] = None) -> str:
                      f"{'PASS' if r['pass'] else 'FAIL'}")
     lines += ["", f"  G-DST2(a): {'PASS' if ok else 'FAIL'} "
                   f"({int(df['pass'].sum())} of {len(df)} leagues)",
+              *([f"  not scored (no registry for a test season): {', '.join(skipped)}"]
+                if skipped else []),
               "",
               "  G-DST2(b) vs ESPN is NOT run: no pre-season ESPN D/ST projection",
               "  survives for any season whose result is known. Deferred to 2027,",

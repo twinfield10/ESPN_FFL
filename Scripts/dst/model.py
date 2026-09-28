@@ -22,6 +22,7 @@ import numpy as np
 import polars as pl
 
 from Scripts import paths, vegas
+from Scripts.dst import allowed
 
 SLATE: int = 17
 MIN_GAMES: int = 14
@@ -64,7 +65,9 @@ RATES: Dict[str, str] = {
 #: split is harmless here and would not be if a league ever priced them differently).
 INT_TD_SHARE: float = 0.60
 
-MODEL_PATH = paths.DATA_DIR / "NFL" / "models" / "dst_1.0.0.json"
+#: 1.1.0: points and yards allowed on ESPN's definitions (plan 51).
+VERSION: str = "1.1.0"
+MODEL_PATH = paths.DATA_DIR / "NFL" / "models" / f"dst_{VERSION}.json"
 
 
 def team_weeks(seasons: Sequence[int]) -> pl.DataFrame:
@@ -72,8 +75,7 @@ def team_weeks(seasons: Sequence[int]) -> pl.DataFrame:
     frames = []
     for s in seasons:
         d = pl.read_parquet(paths.DATA_DIR / "NFL" / str(s) / "player_weeks.parquet")
-        keep = (["season", "week", "team", "opponent_team", "passing_yards",
-                 "rushing_yards", "def_tds"] + [c for c in RATES if c in d.columns])
+        keep = (["season", "week", "team", "def_tds"] + [c for c in RATES if c in d.columns])
         frames.append(d.select([c for c in keep if c in d.columns])
                       .with_columns(pl.col("season").cast(pl.Int32),
                                     pl.col("week").cast(pl.Int32)))
@@ -82,14 +84,14 @@ def team_weeks(seasons: Sequence[int]) -> pl.DataFrame:
     dfn = (pw.group_by(["season", "week", "team"])
            .agg(*[pl.col(c).fill_null(0).sum().alias(c) for c in have],
                 pl.col("def_tds").fill_null(0).sum().alias("def_tds")))
-    allowed = (pw.group_by(["season", "week", "opponent_team"])
-               .agg((pl.col("passing_yards").fill_null(0)
-                     + pl.col("rushing_yards").fill_null(0)).sum().alias("yards_allowed"))
-               .rename({"opponent_team": "team"}))
+    # Both tiered quantities on ESPN's own definitions (plan 51): net yards with kneels,
+    # and the opponent's score less what it scored against this team's offence. The
+    # schedule's final score and player gross yards were each wrong in the tiers.
+    espn = allowed.load(seasons).select("season", "week", "team", "points_allowed",
+                                        "yards_allowed")
     lines = vegas.team_games(seasons).select(
-        "season", "week", "team", "implied_allowed", "margin", "total_line",
-        "points_allowed", "priced")
-    return (dfn.join(allowed, on=["season", "week", "team"], how="left")
+        "season", "week", "team", "implied_allowed", "margin", "total_line", "priced")
+    return (dfn.join(espn, on=["season", "week", "team"], how="left")
             .join(lines, on=["season", "week", "team"], how="inner")
             .with_columns(pl.col("yards_allowed").fill_null(0)))
 
@@ -205,7 +207,7 @@ def fit(seasons: Optional[Sequence[int]] = None, holdout: int = 2) -> Dict:
             "resid_sd": float(resid.std()),
         }
 
-    return {"version": "1.0.0",
+    return {"version": VERSION,
             "train_seasons": [int(min(seasons)), int(max(seasons))],
             "n_team_seasons": ts.height, "holdout_seasons": holdout,
             "rates": rates, "tiers": tiers,

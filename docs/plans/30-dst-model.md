@@ -60,6 +60,15 @@ as 0.0 · [21](21-coaching-and-scheme.md) — the coordinator table
 **Feeds:** [28](28-outcome-distributions.md) — a tiered score is a distribution problem by
 construction
 
+> **Correction, 2026-09-28 — both tiered quantities were on the wrong definition.**
+> `team_weeks` built yards allowed from player gross passing + rushing yards and took
+> points allowed from the schedule's final score. ESPN scores **net scrimmage yards
+> including kneels** (gross is 15.1 yards a game high and puts 26.1% of games in the wrong
+> tier) and **the opponent's score less 6 per return TD and 2 per safety conceded by the
+> offence** (the final score misses 30 of 431 tiers). Both are reproduced exactly on 2025
+> and the model is now 1.1.0 on them. The figures below were measured on the old
+> definitions and are kept as the record. See [51](51-dst-from-opponent-markets.md).
+
 > **Correction, 2026-08-18 — only part of a season is priced pre-season.** This plan
 > said Vegas needs "no forecast of its own" because "all 272 of 2026's games are already
 > priced". **They are not: 52 of 272 carry a line**, weeks 1 to 4, giving 3 to 4 priced
