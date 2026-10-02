@@ -713,9 +713,16 @@ def read_weekly_workbook(path: Path) -> Tuple["pd.DataFrame", int, int, str]:
         raise KeyError(f"{path.name}: {sheet_name} row 1 names no known position; "
                        f"found {[p for _, p in banners]}")
 
+    # A block ends at the next banner of *any* kind, not the next one we read. The
+    # week-4 download added ``Flex``, ``Superflex`` and ``DST`` blocks after ``TE``;
+    # bounded by known positions only, the TE slice ran to the sheet's edge, and
+    # `_header_map` -- last duplicate wins -- took ``Name`` and ``Team`` from the DST
+    # block, so 32 defences were filed as tight ends carrying the tight ends' catches.
+    bounds = [i for i, _ in banners] + [len(rows[1])]
+
     records: List[dict] = []
-    for index, (start, position) in enumerate(starts):
-        end = starts[index + 1][0] if index + 1 < len(starts) else len(rows[1])
+    for start, position in starts:
+        end = next(b for b in bounds if b > start)
         header = _header_map(rows[1][start:end])
         if "Name" not in header:
             raise KeyError(f"{path.name}: {sheet_name} {position} block has no Name "

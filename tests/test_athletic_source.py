@@ -385,6 +385,27 @@ def test_the_position_mask_still_fires_if_the_workbook_drifts(fake_weekly):
     assert set(row["masked_stats"].split(",")) == {"rushingAttempts", "rushingYards"}
 
 
+def test_an_unread_block_after_tight_ends_does_not_bleed_into_them(fake_weekly):
+    """The week-4 download added ``Flex``, ``Superflex`` and ``DST`` blocks after
+    ``TE``. A block must end at the next banner of any kind: bounded by known
+    positions only, the TE slice ran on into the DST block and took its ``Name``."""
+    name, rows = _weekly_sheet_rows(blocks=[
+        ("TE", ["Name", "Proj", "Team", "Opp", "REC", "REC YD", "REC TD"],
+         [["Brock Bowers", 12.2, "LV", "vs KC", 6.3, 56.6, 0.5]]),
+        ("Flex", ["Name", "Proj", "Team", "Opp"],
+         [["Jahmyr Gibbs", 22.6, "DET", "at CAR"]]),
+        ("DST", ["Name", "Proj", "Team", "Opp"],
+         [["Minnesota Vikings", 8.7, "MIN", "vs MIA"]]),
+    ])
+    path = fake_weekly({name: rows})
+    frame, _, _, _ = la.read_weekly_workbook(path)
+
+    assert frame["player_name"].tolist() == ["Brock Bowers"]
+    row = frame.iloc[0]
+    assert row["pro_team"] == "LV" and row["position"] == "TE"
+    assert row["proj_receivingReceptions"] == 6.3
+
+
 def test_the_workbook_s_own_points_are_never_read(fake_weekly):
     """``FPS`` is half-PPR and derived from the nine columns beside it. Points are
     what a league's rules do to a stat line -- the rule this module opens with."""
