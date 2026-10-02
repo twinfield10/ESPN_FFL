@@ -253,25 +253,28 @@ For 2026: last draft Tue 09-08 20:30, first game Wed 09-09. See
 
 **Most of this is now nightly.** As of 2026-09-08 `run_daily_refresh.sh` runs the
 schedule, both FantasyPros pulls, the weekly Pinnacle props, the injury report, the
-boards **and** `--what lineups`. What is left by hand each week is the part that needs
-a human decision and the things the nightly cannot do: a paid download nothing can
-fetch, and an injury severity nothing can judge.
+boards **and** `--what lineups`. What is left by hand each week is the one thing the
+nightly cannot do: a paid download nothing can fetch.
 
 ```bash
 # Download this week's Athletic slate first -- it is a paid .xlsx with no API behind
 # it, so nothing can fetch it for you. The sheet name carries the week; --week only
 # confirms it.
 python -m Scripts.load_athletic --what weekly --file ~/Downloads/Week_<n>_Proj_<MMDD>.xlsx
-python -m Scripts.injury.review        # who needs a hand-written severity  <-- read this
-#   ... edit config/injuries/<season>.yaml if it named anyone ...
 python -m Scripts.refresh --all --what lineups,team_stats   # team_stats is the weekly bit
 python -m Scripts.sync --push          # publish it to S3 -- the app reads from there
 python populateGoogleSheet.py          # render the store to Sheets
 ```
 
-Both hand steps must come **before** `refresh`, for the same reason: the injury edit
-and the Athletic import are both read while the lineups are built, so doing either
-afterwards changes nothing until next week's run.
+The import must come **before** `refresh`: the Athletic file is read while the lineups
+are built, so importing afterwards changes nothing until the next run. Running the
+nightly by hand (`~/bin/espn_ffl_nightly.sh`) does the last three lines for you.
+
+**There is no weekly injury step.** It was here until 2026-10-02 and never did
+anything in season: `config/injuries/<season>.yaml` is read only by the board build,
+which the nightly skips once the boards are cold, and the weekly lineups never read
+it -- ESPN, FantasyPros, The Athletic and the books each price a known absence
+themselves. See [Injuries: before the draft](#injuries-before-the-draft).
 
 ### Live scoring, which needs nothing from you
 
@@ -518,11 +521,17 @@ p.run(p.john + p.will + p.cooleen + p.fields)    # everyone but you (~7 min)
 Cohorts defined in the script: `all`, `tommy`, `john`, `will`, `cooleen`,
 `fields`.
 
-### Injuries: the weekly five minutes
+### Injuries: before the draft
+
+**A draft-season job, not a weekly one.** The override file feeds the board build and
+nothing else: the `inj_` columns on the draft tab, and the vacancy transfer that hands
+a hurt RB or TE's volume to the backs behind him in the season-long line. Once every
+drafted league is frozen the boards go cold, the nightly stops rebuilding them, and an
+edit reaches nothing -- `review` says so in a banner. In season it is worth running
+only before a board rebuild you force by hand (a keeper deadline).
 
 **Order matters.** `scrape_espn_injuries` first, so the review reads today's report;
-the file edit before `refresh`, because `refresh` is what bakes it into the boards.
-Edit after refreshing and nothing happens until next week.
+the file edit before the board build, because that is what bakes it into the boards.
 
 ```bash
 python -m Scripts.scrape_espn_injuries   # the nightly job does this; do it again if stale
@@ -537,7 +546,7 @@ The review prints three groups and you act on them in order:
 | **Stale** | Older than 28 days. Re-read the beat report, or delete. |
 | **Expired** | The entry's own window has elapsed — "4–6 weeks from 18 August" is spent by early October. Confirm he is back and delete. |
 
-Most weeks the answer is **nothing**. On the 2026-08-18 board all 22 flagged players were
+Most runs the answer is **nothing**. On the 2026-08-18 board all 22 flagged players were
 half-game knocks, so the correct action was to close the file. That is the review working,
 not the review failing.
 
@@ -558,7 +567,7 @@ To add one, append to `config/injuries/<season>.yaml`:
 Then:
 
 ```bash
-python -m Scripts.refresh --all --what board   # in season, plain --all
+python -m Scripts.refresh --all --what board   # in season add --push; lineups never read it
 python -m Scripts.injury.review                # confirm the row moved to the strong rung
 ```
 
