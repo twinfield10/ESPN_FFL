@@ -654,16 +654,14 @@ Rscript R/GetNFL.R                     # refresh schedule + stats
 python -m Scripts.scrape_FP            # FantasyPros
 python -m Scripts.scrape_pinnacle
 python -m Scripts.scrape_espn_injuries # injury report + a dated snapshot
-python -m Scripts.injury.review        # who needs a hand-written severity
 python -m Scripts.refresh --all        # build the store, once
 python populateGoogleSheet.py          # render it to Sheets
 ```
 
-`Scripts.injury.review` is the one step that can ask something of you: it names the
-players whose injury severity came off a news sentence rather than a published
-diagnosis, and any correction goes in `config/injuries/<season>.yaml` **before**
-`refresh`. Most weeks it names nobody worth writing down. Five minutes, and the
-runbook has the decision rule.
+There is no weekly injury step. `Scripts.injury.review` and
+`config/injuries/<season>.yaml` feed only the draft board, which stops rebuilding once
+every league is frozen, and the weekly sources price a known absence themselves. It is
+a pre-draft job; the runbook has the decision rule.
 
 `refresh` must come first: `populateGoogleSheet.py` reads the store rather than
 ESPN, so the two outputs cannot disagree.

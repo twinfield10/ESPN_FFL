@@ -163,6 +163,23 @@ def test_the_review_names_the_file_to_edit_and_the_command_to_run():
     assert "Scripts.refresh" in text
 
 
+def test_a_cold_board_says_an_edit_reaches_nothing():
+    """In season the nightly skips the board build, the only reader of the file, so
+    the review must not ask for edits as though the lineups will see them."""
+    text = rv.report(2026, board([{"name": "Fine", "adp": 5.0}]), today=TODAY,
+                     cold=True)
+    assert "BOARDS ARE COLD" in text
+    assert "last board build" in text
+    assert "No action needed in season" in text
+    assert "After editing, rebuild" not in text
+
+
+def test_a_warm_board_carries_no_cold_warning():
+    text = rv.report(2026, board([{"name": "Fine", "adp": 5.0}]), today=TODAY)
+    assert "BOARDS ARE COLD" not in text
+    assert "After editing, rebuild" in text
+
+
 # --- the health of existing overrides ------------------------------------
 
 def test_a_fresh_override_is_neither_stale_nor_expired(tmp_path, monkeypatch):

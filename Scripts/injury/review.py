@@ -1,4 +1,9 @@
-"""The weekly injury review: who needs a human, ranked by how much it matters.
+"""The pre-draft injury review: who needs a human, ranked by how much it matters.
+
+**A draft-season tool.** The override file is read only by the board build, and the
+nightly stops rebuilding boards once every drafted league is frozen. The weekly lineups
+never read it -- every weekly source prices a known absence itself -- so once the boards
+are cold, :func:`report` says so instead of asking for edits nothing will see.
 
 The override file in ``config/injuries/<season>.yaml`` is the highest-value-per-minute
 input in this package -- the fitted curve was rejected as a multiplier, while a hand-written
@@ -187,9 +192,31 @@ def override_health(season: int, board: pl.DataFrame,
 
 def report(season: int, board: pl.DataFrame,
            adp_cutoff: float = DEFAULT_ADP_CUTOFF,
-           today: Optional[datetime.date] = None) -> str:
-    """The weekly review, as printable text."""
+           today: Optional[datetime.date] = None,
+           cold: bool = False) -> str:
+    """The review, as printable text.
+
+    Args:
+        season: Season the override file belongs to.
+        board: A stored board carrying the ``inj_`` columns.
+        adp_cutoff: How deep into the board to look.
+        today: Date stale and expired entries are judged against; defaults to today.
+        cold: Whether the boards are cold (:func:`Scripts.freeze.board_is_cold`). The
+            overrides are read only by the board build, which the nightly skips once
+            they are, so an edit then reaches nothing -- and the board this reads is
+            as old as the last rebuild, not today's report.
+
+    Returns:
+        str: The report.
+    """
     lines: List[str] = []
+    if cold:
+        lines.append("  BOARDS ARE COLD -- nothing reads this file until a board rebuild.")
+        lines.append("  The weekly lineups never read it: weekly sources price an absence "
+                     "themselves.")
+        lines.append("  The readings below are from the last board build, not today's "
+                     "report.")
+        lines.append("")
     candidates = needs_severity(board, adp_cutoff)
     stale, resolved = override_health(season, board, today)
 
@@ -248,8 +275,13 @@ def report(season: int, board: pl.DataFrame,
                          f"{entry['as_of']}")
 
     lines.append("")
-    lines.append("  After editing, rebuild so the boards see it:")
-    lines.append("    python -m Scripts.refresh --all --what board")
+    if cold:
+        lines.append("  No action needed in season. Only worth editing before a forced "
+                     "rebuild (a keeper deadline):")
+        lines.append("    python -m Scripts.refresh --all --what board --push")
+    else:
+        lines.append("  After editing, rebuild so the boards see it:")
+        lines.append("    python -m Scripts.refresh --all --what board")
     return "\n".join(lines)
 
 
@@ -275,7 +307,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     except FileNotFoundError as error:
         print(f"  {error}")
         return 1
-    print(report(season, board, adp_cutoff=args.adp))
+    try:
+        from Scripts.freeze import board_is_cold
+        cold = board_is_cold(season)
+    except Exception as error:     # a review that cannot tell still prints the lists
+        print(f"  could not tell whether the boards are cold -- {error}")
+        cold = False
+    print(report(season, board, adp_cutoff=args.adp, cold=cold))
     return 0
 
 
