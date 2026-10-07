@@ -1373,8 +1373,17 @@ DOUBLING_MARGIN: float = 1.0
 #: How much closer halving must bring it before the halving is kept.
 DOUBLING_IMPROVEMENT: float = 0.5
 
+#: A line still scoring this many times ESPN's own total after halving is not
+#: trusted. ESPN's line agrees with its total to within ~1% on a normal week.
+RUNAWAY_RATIO: float = 1.5
 
-def espn_line_points(df, scoring_df, prefix="ESPN_", halve=()) -> "pd.Series":
+#: ...and by at least this many points, so a 1-point projection that scores 2
+#: is not treated as a runaway.
+RUNAWAY_MARGIN: float = 5.0
+
+
+def espn_line_points(df, scoring_df, prefix="ESPN_", halve=(),
+                     zero=()) -> "pd.Series":
     """Score one prefix's stat line, optionally halving some columns.
 
     A local scorer rather than :func:`_apply_scoring` because it has to price a
@@ -1386,16 +1395,17 @@ def espn_line_points(df, scoring_df, prefix="ESPN_", halve=()) -> "pd.Series":
         scoring_df: Scoring table with ``colName`` and ``points``.
         prefix: Source prefix, with its underscore.
         halve: Stat names to halve before scoring.
+        zero: Stat names to leave out of the score entirely.
 
     Returns:
         pd.Series: Points per row, absent columns scoring zero.
     """
     total = pd.Series(0.0, index=df.index)
-    halve = set(halve)
+    halve, zero = set(halve), set(zero)
     for _, rule in scoring_df.iterrows():
         stat = rule["colName"]
         column = f"{prefix}{stat}" if isinstance(stat, str) else None
-        if column is None or column not in df.columns:
+        if column is None or column not in df.columns or stat in zero:
             continue
         values = pd.to_numeric(df[column], errors="coerce").fillna(0.0)
         if stat in halve:
@@ -1456,6 +1466,66 @@ def halve_doubled_espn_yardage(df, scoring_df, projected_points="projPoints"):
         if column in df.columns:
             df.loc[take, column] = pd.to_numeric(
                 df.loc[take, column], errors="coerce") / 2.0
+    return df, int(take.sum())
+
+
+def rescale_runaway_espn_yardage(df, scoring_df, projected_points="projPoints"):
+    """Pull a yardage line that is still far over ESPN's own total back onto it.
+
+    **Halving assumes the error is a factor of two, and in week 5 of 2026 it was
+    a factor of a hundred.** ESPN sent Breece Hall 7,188 rushing and 2,273
+    receiving yards against 16.5 carries at 4.36 a carry and 2.8 catches at 8.06
+    a catch, with a published total of 16.36. :func:`halve_doubled_espn_yardage`
+    fired, as it should, and left 3,594 yards -- a 479.8-point line. Pinnacle,
+    BetOnline and The Athletic had nothing for him, so the blend imputed all
+    three from that mean and ``TRUE_Points`` came out at 246.6, RB1 for the week.
+    Adonai Mitchell and Mason Taylor went the same way.
+
+    This makes no assumption about the size of the error. ESPN's published total
+    has been the correct half every time the line was wrong, so when the line
+    still scores more than :data:`RUNAWAY_RATIO` times it (and by more than
+    :data:`RUNAWAY_MARGIN` points), the yardage is scaled by the one factor that
+    makes the line score exactly the published total. Touchdowns, receptions and
+    attempts are left as ESPN sent them -- in every case seen the yardage was the
+    broken part -- and the factor is clamped to ``[0, 1]`` so this can only ever
+    shrink yardage.
+
+    Run it after :func:`halve_doubled_espn_yardage`, which handles the common
+    case with a cleaner correction.
+
+    Args:
+        df: Frame with ``ESPN_<stat>`` columns and ESPN's own projected points.
+            Modified in place.
+        scoring_df: The league's scoring table.
+        projected_points: Column holding ESPN's own projection.
+
+    Returns:
+        tuple: ``(df, rows rescaled)``. Unchanged with a count of 0 when the
+        projected-points column is absent.
+    """
+    if projected_points not in df.columns:
+        return df, 0
+
+    published = pd.to_numeric(df[projected_points], errors="coerce")
+    current = espn_line_points(df, scoring_df)
+    rest = espn_line_points(df, scoring_df, zero=DOUBLED_YARDAGE)
+    yardage = current - rest
+
+    # A published zero is not a reference: it is a player ESPN has ruled out or
+    # has no projection for, and pulling his yardage to zero is not this fix.
+    take = (
+        (published > 0)
+        & (current > published * RUNAWAY_RATIO)
+        & (current - published > RUNAWAY_MARGIN)
+        & (yardage > 0)
+    )
+    factor = ((published - rest) / yardage.where(yardage > 0)).clip(0.0, 1.0)
+    for stat in DOUBLED_YARDAGE:
+        column = f"ESPN_{stat}"
+        if column in df.columns:
+            df.loc[take, column] = (
+                pd.to_numeric(df.loc[take, column], errors="coerce")
+                * factor[take])
     return df, int(take.sum())
 
 
@@ -1997,6 +2067,9 @@ def clean_lineups(df, lg, season=None):
     trans1_df, halved = halve_doubled_espn_yardage(
         trans1_df, base_scores, projected_points=ESPN_PUBLISHED_POINTS)
     print(f"  ESPN line: halved doubled yardage on {halved} player-week(s).")
+    trans1_df, rescaled = rescale_runaway_espn_yardage(
+        trans1_df, base_scores, projected_points=ESPN_PUBLISHED_POINTS)
+    print(f"  ESPN line: rescaled runaway yardage on {rescaled} player-week(s).")
 
     silent = report_silent_zero_stats(trans1_df, base_scores)
     if silent:

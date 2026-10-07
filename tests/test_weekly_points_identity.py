@@ -241,3 +241,90 @@ def test_the_correction_fires_through_the_real_rename_sequence():
         espn, PPR, projected_points=pu.ESPN_PUBLISHED_POINTS)
     assert halved == 1
     assert out["ESPN_receivingYards"][0] == pytest.approx(68.14)
+
+
+# --- the runaway guard ---------------------------------------------------
+
+STANDARD = scoring({"rushingYards": 0.1, "rushingTouchdowns": 6.0,
+                    "receivingYards": 0.1, "receivingReceptions": 1.0,
+                    "receivingTouchdowns": 6.0})
+
+
+def breece_hall_week_5():
+    """ESPN's line for Breece Hall, 2026 week 5: yardage at a hundred times."""
+    return pd.DataFrame({
+        "ESPN_rushingYards": [7188.455724],
+        "ESPN_rushingTouchdowns": [0.574223538],
+        "ESPN_receivingYards": [2273.229313],
+        "ESPN_receivingReceptions": [2.820560906],
+        "ESPN_receivingTouchdowns": [0.113406364],
+        "projPoints": [16.36],
+    })
+
+
+def test_a_hundredfold_line_is_pulled_back_onto_espns_own_total():
+    """The case halving cannot fix: it fires once and leaves 3,594 yards."""
+    frame, scores = breece_hall_week_5(), STANDARD
+    frame, halved = pu.halve_doubled_espn_yardage(frame, scores)
+    assert halved == 1
+    frame, rescaled = pu.rescale_runaway_espn_yardage(frame, scores)
+    assert rescaled == 1
+    assert pu.espn_line_points(frame, scores)[0] == pytest.approx(16.36)
+    # Only yardage moves; the counting stats are ESPN's.
+    assert frame["ESPN_receivingReceptions"][0] == pytest.approx(2.820560906)
+    assert frame["ESPN_rushingTouchdowns"][0] == pytest.approx(0.574223538)
+    # And the yardage lands near carries x yards-per-carry (16.5 x 4.36 = 72).
+    assert 50 < frame["ESPN_rushingYards"][0] < 90
+
+
+def test_a_line_within_normal_drift_is_not_rescaled():
+    """ESPN's line and total differ by ~1% routinely; that is not a runaway."""
+    frame = pd.DataFrame({
+        "ESPN_receivingYards": [70.0], "ESPN_receivingReceptions": [5.0],
+        "ESPN_receivingTouchdowns": [0.4], "projPoints": [14.3],
+    })
+    out, rescaled = pu.rescale_runaway_espn_yardage(frame, PPR)
+    assert rescaled == 0
+    assert out["ESPN_receivingYards"][0] == pytest.approx(70.0)
+
+
+def test_a_tiny_projection_needs_a_real_gap_not_just_a_ratio():
+    """Two points against one is a ratio of two and not worth touching."""
+    frame = pd.DataFrame({
+        "ESPN_receivingYards": [10.0], "ESPN_receivingReceptions": [1.0],
+        "ESPN_receivingTouchdowns": [0.0], "projPoints": [1.0],
+    })
+    _, rescaled = pu.rescale_runaway_espn_yardage(frame, PPR)
+    assert rescaled == 0
+
+
+def test_rescaling_can_only_shrink_yardage():
+    """When the overage is not yardage, the guard zeroes yardage at worst."""
+    frame = pd.DataFrame({
+        "ESPN_receivingYards": [40.0], "ESPN_receivingReceptions": [30.0],
+        "ESPN_receivingTouchdowns": [0.0], "projPoints": [10.0],
+    })
+    out, rescaled = pu.rescale_runaway_espn_yardage(frame, PPR)
+    assert rescaled == 1
+    assert out["ESPN_receivingYards"][0] == pytest.approx(0.0)
+    assert out["ESPN_receivingReceptions"][0] == pytest.approx(30.0)
+
+
+def test_a_published_zero_is_not_a_reference():
+    """ESPN projecting zero means out or unprojected, not a line to rescale.
+
+    Twelve such rows in the 2026 stores would have had their yardage zeroed.
+    """
+    frame = pd.DataFrame({
+        "ESPN_receivingYards": [40.0], "ESPN_receivingReceptions": [3.0],
+        "ESPN_receivingTouchdowns": [0.2], "projPoints": [0.0],
+    })
+    _, rescaled = pu.rescale_runaway_espn_yardage(frame, PPR)
+    assert rescaled == 0
+
+
+def test_runaway_guard_degrades_without_espns_own_points():
+    frame = pd.DataFrame({"ESPN_receivingYards": [9000.0]})
+    out, rescaled = pu.rescale_runaway_espn_yardage(frame, PPR)
+    assert rescaled == 0
+    assert out["ESPN_receivingYards"][0] == pytest.approx(9000.0)
