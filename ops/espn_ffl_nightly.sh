@@ -27,6 +27,7 @@
 #   git -C ~/GitRepos/ESPN_FFL worktree add --detach ~/GitRepos/ESPN_FFL-nightly origin/main
 #   ln -s ~/GitRepos/ESPN_FFL/Data        ~/GitRepos/ESPN_FFL-nightly/Data
 #   ln -s ~/GitRepos/ESPN_FFL/config.yaml ~/GitRepos/ESPN_FFL-nightly/config.yaml
+#   ln -s ~/GitRepos/ESPN_FFL/gs4creds.json ~/GitRepos/ESPN_FFL-nightly/gs4creds.json
 #
 # Detached on purpose: a branch cannot be checked out in two worktrees at once, and
 # a detached tree cannot drift. Data/ and config.yaml are symlinked rather than

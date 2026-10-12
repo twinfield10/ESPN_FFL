@@ -679,6 +679,9 @@ row straight away. See `Scripts/zero_starters.py`.
 `run_odds_refresh_nfl.sh` at 07:00 pulls NFL sportsbook game lines into `Data/Odds/`
 and stores only what moved, so line history accumulates for free; and
 `ops/espn_ffl_live.sh` every ten minutes keeps the week's **actual** scores current.
+The nightly also republishes the **Knights FFL** Sheet, so the punishment log picks up
+each finished week by the next morning; every other league's Sheet is still published
+by hand.
 
 That last one is why the app stops showing a projection for a game that has been
 played. The store carries `LIVE_Points` — the blend before kickoff, ESPN's own total
