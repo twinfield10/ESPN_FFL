@@ -6,7 +6,8 @@ matchup, free-agent market, concat/fillna/dedupe, blend -- and two copies of one
 sequence is the shape that already cost this repo once (12 projection functions,
 8 drifted). These tests fail if that copy ever comes back.
 
-No network and no Google connection: ``write_to_google`` is replaced throughout.
+No network and no Google connection: ``write_to_google`` and ``read_tab`` are
+replaced throughout.
 """
 
 import ast
@@ -42,6 +43,7 @@ def driver(tmp_path, monkeypatch):
     published = []
     monkeypatch.setattr(p, "write_to_google",
                         lambda **kw: published.append(kw["league_name"]))
+    monkeypatch.setattr(p, "read_tab", lambda league, tab: None)
     monkeypatch.setattr(p.time, "sleep", lambda _s: None)
     p.published = published
     return p
@@ -247,12 +249,19 @@ def test_run_survives_a_league_whose_publish_fails(driver, lineups):
         "the league behind the failure must still publish")
 
 
-def test_run_takes_the_week_from_the_store(driver, lineups):
+def test_run_takes_the_week_from_the_store(driver, lineups, monkeypatch):
     """Not from a live fetch -- so the Sheet and the app report the same week from
     the same build."""
     captured = {}
-    driver.build_tables = lambda lu, curr_week, primary_own: captured.setdefault(
-        "week", curr_week) or {t: pd.DataFrame() for t in EXPECTED_TABS}
+
+    # Through monkeypatch, not plain assignment: the driver module is cached, so a
+    # bare `driver.build_tables = ...` outlived this test and handed the next
+    # one's run() this stub.
+    def build_tables(lu, curr_week, primary_own):
+        captured["week"] = curr_week
+        return {t: pd.DataFrame() for t in EXPECTED_TABS}
+
+    monkeypatch.setattr(driver, "build_tables", build_tables)
 
     store.write_league_store(2026, "knights_ffl", lineups=lineups,
                              meta_extra={"current_week": 9})

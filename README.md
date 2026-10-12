@@ -666,6 +666,14 @@ a pre-draft job; the runbook has the decision rule.
 `refresh` must come first: `populateGoogleSheet.py` reads the store rather than
 ESPN, so the two outputs cannot disagree.
 
+**Knights FFL also gets a punishment log.** `Zero_Starters` lists every start from
+week 2 on that finished at zero or less, and `Zero_Starters_Owners` totals them with
+an `OPEN` count. `COMPLETE` on the log is typed into the Sheet by hand: each publish
+reads the tab first and puts every mark back on its row (by week, owner and player),
+and stops before clearing anything if that read fails. Open rows are yellow for the
+latest week and red for older ones, as conditional formatting, so a `YES` clears its
+row straight away. See `Scripts/zero_starters.py`.
+
 **Three jobs run themselves, so they are not in that list.** `run_daily_refresh.sh` at
 06:00 pulls the season's projection sources and rebuilds the boards;
 `run_odds_refresh_nfl.sh` at 07:00 pulls NFL sportsbook game lines into `Data/Odds/`

@@ -47,6 +47,46 @@ from Scripts.projection_utils import (
     get_league_projections,
     get_rankings,
 )
+from Scripts.zero_starters import (
+    ZERO_STARTER_LEAGUES,
+    carry_marks,
+    highlight_rules,
+    owner_tally,
+    zero_point_starters,
+)
+
+
+def open_spreadsheet(league_name):
+    """Authorize with the service account and open one league's spreadsheet.
+
+    Args:
+        league_name: Display name; must match the spreadsheet name exactly.
+
+    Returns:
+        gspread.Spreadsheet: The open spreadsheet.
+    """
+    scope = ['https://spreadsheets.google.com/feeds',
+             'https://www.googleapis.com/auth/drive']
+    creds = ServiceAccountCredentials.from_json_keyfile_name('gs4creds.json', scope)
+    return gspread.authorize(creds).open(league_name)
+
+
+def read_tab(league_name, sheet_name):
+    """Read one published tab back, before a publish overwrites it.
+
+    Args:
+        league_name: Display name of the spreadsheet.
+        sheet_name: Tab to read.
+
+    Returns:
+        list | None: Rows as ``get_all_values`` gives them, header first; ``None``
+        when the tab does not exist yet. Any other failure raises, so a tab whose
+        hand-kept values could not be read is never cleared.
+    """
+    try:
+        return open_spreadsheet(league_name).worksheet(sheet_name).get_all_values()
+    except gspread.exceptions.WorksheetNotFound:
+        return None
 
 
 def write_to_google(df_dict, league_name, primary_owner):
@@ -66,16 +106,6 @@ def write_to_google(df_dict, league_name, primary_owner):
             League". Introduced 2026-08-05 and caught the same day, so no
             published Sheet was affected -- but nothing would have reported it.
     """
-    # Set up authentication
-    scope = ['https://spreadsheets.google.com/feeds',
-             'https://www.googleapis.com/auth/drive']
-
-    # Option 1: Using service account (recommended for automation)
-    creds = ServiceAccountCredentials.from_json_keyfile_name(
-        'gs4creds.json',
-        scope
-    )
-
     # Get Min and Max
     points_cols = ['projPoints', 'FP_Points', 'BOL_Points', 'PINNY_Points', 'ATH_Points', 'TRUE_Points']
     scale_dict = {
@@ -117,11 +147,7 @@ def write_to_google(df_dict, league_name, primary_owner):
         }
     }
 
-    # Authorize and connect
-    client = gspread.authorize(creds)
-
-    # Open or create a spreadsheet
-    spreadsheet = client.open(league_name)
+    spreadsheet = open_spreadsheet(league_name)
 
     for sheet_name, df in df_dict.items():
         try:
@@ -703,6 +729,16 @@ def write_to_google(df_dict, league_name, primary_owner):
             set_with_dataframe(worksheet, df, include_index=False)
             format_league_projections(worksheet, df)
             time.sleep(5)
+        elif sheet_name.startswith("Zero_Starters"):
+            # Already in display columns (Scripts/zero_starters.py), so no rename.
+            set_with_dataframe(worksheet, df, include_index=False)
+            worksheet.freeze(rows=1)
+            if sheet_name == "Zero_Starters":
+                worksheet.spreadsheet.batch_update({"requests":
+                    clear_sheet_formatting(worksheet, df)
+                    + highlight_rules(worksheet.id, list(df.columns))})
+            print(f"Written {sheet_name} to Google Sheets")
+            time.sleep(5)
         elif "FA_" in sheet_name:
             position = sheet_name.split("FA_")[1]
             try:
@@ -814,6 +850,20 @@ def run(leagues=None, season=None):
         # four after it, and the run reported nothing at all.
         try:
             df_dict = build_tables(LINEUPS, curr_week, primary_own)
+            if cfg['key'] in ZERO_STARTER_LEAGUES:
+                # Season-to-date, not one week: the log reads every finished week
+                # in the store. Two tabs rather than one wide one -- it is read
+                # on a phone. COMPLETE is kept by hand in the Sheet, so the tab
+                # is read before it is rewritten; a failed read fails the league
+                # here, before anything is cleared.
+                zero_log, lost = carry_marks(
+                    zero_point_starters(LINEUPS),
+                    read_tab(select_league, "Zero_Starters"))
+                if not lost.empty:
+                    print(f"  Zero_Starters: {len(lost)} marked row(s) no longer "
+                          f"qualify and will drop off:\n{lost.to_string(index=False)}")
+                df_dict["Zero_Starters"] = zero_log
+                df_dict["Zero_Starters_Owners"] = owner_tally(LINEUPS, zero_log)
             _publish(df_dict, select_league, primary_own)
             results[select_league] = "ok"
         except Exception as e:  # noqa: BLE001 -- one Sheet must not cost the rest
