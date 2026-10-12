@@ -17,9 +17,9 @@
 #     change. Re-pulling them daily would download ~600 MB of play-by-play to
 #     arrive at identical files. The play-by-play archive *is* pulled nightly, but
 #     for the current season only -- that one does change, every week.
-#   * No Google Sheets render. populateGoogleSheet.py spends ~9 minutes asleep in
-#     rate-limit backoff, and pre-season there is nothing weekly to publish. Add it
-#     once the season starts if you want the phone view refreshed nightly.
+#   * No Google Sheets render beyond Knights FFL. populateGoogleSheet.py spends ~9
+#     minutes asleep in rate-limit backoff across every league, so only the Knights
+#     Sheet, which carries the punishment log, is published here (stage 4e).
 #   * No board rebuild when a pull failed. That is the whole point of the guard
 #     below -- see "Why this fails loudly".
 #   * No run at all off a branch other than main -- see "Why this refuses to run
@@ -625,6 +625,33 @@ log "advancing fixtures and standings (team_stats)"
 || log "NOTE: team_stats refresh failed -- the Matchup tab and Home standings will
       read the last good fixtures until the next run. Nothing is lost by the wait;
       the run continues."
+
+# --- 4e. Publish the Knights Sheet --------------------------------------
+# Knights only, not every league: the Sheets publish is ~70s a league, most of it
+# rate-limit sleep, and Knights is the one with something that has to stay current
+# -- the `Zero_Starters` punishment log, whose open rows turn red once a newer week
+# lands. The other leagues are still published by hand.
+#
+# **Safe against the hand-kept column.** `COMPLETE` on that tab is typed into the
+# Sheet by the league, and the publish reads the tab before rewriting it; if that
+# read fails the league is reported and nothing is cleared (Scripts/zero_starters.py).
+#
+# **Non-fatal**, like the two stages above: a Google outage must not withhold the S3
+# push of boards and lineups that are already correct. The service-account key is
+# gitignored, so the nightly checkout reaches it by symlink -- see the layout in
+# ops/espn_ffl_nightly.sh. Without it this is skipped, not failed.
+if [ -e "${REPO}/gs4creds.json" ]; then
+log "publishing the Knights FFL Sheet"
+"${PYTHON}" -c "
+import sys
+import populateGoogleSheet as p
+sys.exit(0 if p.run(['Knights_FFL']) == {'Knights_FFL': 'ok'} else 1)
+" >>"${LOG}" 2>&1 \
+|| log "NOTE: Knights Sheet publish failed -- the reason is in the log above. The
+      Sheet keeps yesterday's tabs and COMPLETE marks; the run continues."
+else
+log "NOTE: no gs4creds.json in ${REPO} -- skipping the Knights Sheet publish."
+fi
 
 # --- 5. Verify the data actually moved ----------------------------------
 # Exit code 0 means the commands ran. It does not mean upstream served anything new.
