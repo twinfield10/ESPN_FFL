@@ -102,6 +102,7 @@ Scripts/
   scrape_FP.py               # FantasyPros projections
   scrape_pinnacle.py         # Pinnacle props (Selenium)
   scrape_BOL.py              # BetOnline weekly props  [BROKEN - see docs]
+  books/weekly_props.py      # FanDuel, DraftKings, Novig, 4Casters weekly props (plan 52)
   projection_utils.py        # the projection blend pipeline
   scoring.py                 # the scoring registry (one source of truth)
   equivalence.py             # build_league_frame(): the single ingest path
@@ -585,6 +586,12 @@ says so in the sidebar.
 ---
 
 ## How the projection blend works
+
+> **Weekly path, from 2026-10-13:** the books — BetOnline, Pinnacle, FanDuel, DraftKings,
+> Novig and 4Casters — enter as **one** source, `MKT_`, the per-stat median of whichever have a
+> real line, held at a **fixed 50%** of `TRUE_`; ESPN 10 / FantasyPros 20 / The Athletic 20 share
+> the rest (`WEEKLY_WEIGHTS`). The season board below is unchanged. See
+> `docs/plans/52-more-prop-books.md`.
 
 Five external sources — **ESPN**, **FantasyPros**, **The Athletic**, **BetOnline** and
 **Pinnacle** — on **both** grains since 2026-09-09, when The Athletic began publishing a

@@ -519,8 +519,11 @@ ESPN_PUBLISHED_POINTS = "espn_published_points"
 #: ``present_prefixes`` keeps the prefix because they are real, and ``proj_to_score``
 #: prices them. It needed no ``WEIGHTS`` entry -- there has been one since the season
 #: path registered it on 2026-09-01.
-WEEKLY_PREFIXES: Tuple[str, ...] = ("ESPN", "FP", "MEAN", "PINNY", "BOL", "ATH",
-                                    "USG", "TRUE")
+#: **``FD``, ``DK``, ``NV``, ``C4`` and ``MKT`` joined on 2026-10-13** with the four books
+#: in :data:`NEW_WEEKLY_BOOKS`. The books are scored so each one's line is visible on the
+#: board; only ``MKT`` -- their consensus -- carries weight. See :data:`WEEKLY_WEIGHTS`.
+WEEKLY_PREFIXES: Tuple[str, ...] = ("ESPN", "FP", "MEAN", "PINNY", "BOL", "FD", "DK",
+                                    "NV", "C4", "MKT", "ATH", "USG", "TRUE")
 
 
 def present_prefixes(df, candidates=WEEKLY_PREFIXES) -> list:
@@ -590,6 +593,51 @@ WEIGHTS = {
     # docs/plans/38-the-athletic.md.
     'default': {'ESPN': 0.25, 'FP': 0.25, 'PINNY': 0.25, 'BOL': 0.25, 'ATH': 0.25},
 }
+
+#: The four weekly prop books added on 2026-10-13: ``(prefix, data directory, label)``.
+#: Ported from NHL-Data; see :mod:`Scripts.books.weekly_props`.
+NEW_WEEKLY_BOOKS: Tuple[Tuple[str, str, str], ...] = (
+    ("FD", "FanDuel", "FanDuel"),
+    ("DK", "DraftKings", "DraftKings"),
+    ("NV", "Novig", "Novig"),
+    ("C4", "FourCasters", "4Casters"),
+)
+
+#: Every book whose real lines feed the ``MKT_`` consensus.
+MARKET_BOOKS: Tuple[str, ...] = ("BOL", "PINNY", "FD", "DK", "NV", "C4")
+
+#: The weekly blend, from 2026-10-13. **Owner decision, not a fitted result** -- there is
+#: no outcome history for four of the six books yet, so the backtest plan 20 asks for is
+#: owed after the fact.
+#:
+#: **Why one market source rather than six book votes.** Measured on the 2026 week-6
+#: Tuesday snapshot (``python -m Scripts.books.compare_props --week 6``): where three or
+#: more books price the same player, FanDuel, Novig, Pinnacle and BetOnline sit a median
+#: **0.0-0.3 receiving yards** from the books' own median. They post the same line. Six
+#: equal votes would have been one opinion counted six times against ESPN's one, so the
+#: books are pooled into ``MKT_`` -- the per-stat median of whichever books have a real
+#: line for that player -- and the pool carries one share.
+#:
+#: **The share is fixed at half** (:data:`WEEKLY_FIXED_SHARES`): whenever ``MKT_`` is real
+#: for a player-stat it is exactly 50% of ``TRUE_``, and ESPN, FantasyPros and The
+#: Athletic split the other half 10/20/20, renormalised over whichever of them are real.
+#: Under plain renormalisation the market would drift to two-thirds on every row
+#: FantasyPros misses. Where no book prices the stat the market abstains and the three
+#: split the whole.
+#:
+#: Separate from :data:`WEIGHTS` on purpose: that dict is shared with the season path,
+#: where BetOnline and Pinnacle still vote individually and none of this applies.
+WEEKLY_WEIGHTS = {
+    'default': {'ESPN': 0.10, 'FP': 0.20, 'ATH': 0.20, 'MKT': 0.50},
+}
+
+#: Sources whose share of ``TRUE_`` is held fixed wherever they are real. See
+#: :func:`compute_weighted_stats`.
+WEEKLY_FIXED_SHARES: Dict[str, float] = {'MKT': 0.50}
+
+#: Sources the coverage report lists, in display order.
+COVERAGE_SOURCES: Tuple[str, ...] = ("ESPN", "FP", "PINNY", "BOL", "FD", "DK", "NV",
+                                     "C4", "MKT", "ATH")
 
 
 def impute_columns(df, target_prefix, source_prefix, track=True):
@@ -727,7 +775,7 @@ def clean_usage_weekly(usage_path=None, season=None):
     return pd.read_parquet(usage_path)
 
 
-def coverage_report(df, sources=('ESPN', 'FP', 'PINNY', 'BOL', 'ATH'),
+def coverage_report(df, sources=COVERAGE_SOURCES,
                     stats=None):
     """Per-source share of cells that are real rather than imputed.
 
@@ -966,8 +1014,7 @@ def print_coverage_report(df, weights_dict=None, key_stats=(
     print("")
     print("========== Projection Source Coverage (% real, not imputed) ==========")
     overall = rep.groupby("source")["real_pct"].mean().round(1)
-    sources = [s for s in ("ESPN", "FP", "PINNY", "BOL", "ATH")
-               if s in overall.index]
+    sources = [s for s in COVERAGE_SOURCES if s in overall.index]
 
     header = f"  {'stat':<24}" + "".join(f"{s:>12}" for s in sources)
     print(header)
@@ -1220,6 +1267,83 @@ def clean_bol(bol_path=None, season=None, tackle_dim=None):
     raw = raw.drop(columns=['position', 'pos'])
 
     return raw
+
+
+def clean_book_props(book_dir: str, label: str, season: int) -> pd.DataFrame:
+    """Load one of :data:`NEW_WEEKLY_BOOKS`' season prop files for the blend.
+
+    The file is :mod:`Scripts.books.weekly_props`' output, already in BetOnline's
+    ``proj_<stat>`` shape, so this only selects: the week, the name and the stat
+    columns. Position and game are dropped as :func:`clean_bol` drops them -- the
+    merge is on ``(week, player_name)``.
+
+    Args:
+        book_dir: Data directory, e.g. ``"FanDuel"``.
+        label: Human-readable name, for the absent-source and staleness messages.
+        season: Season to load.
+
+    Returns:
+        pd.DataFrame: ``week``, ``player_name`` and ``proj_*`` columns, or the empty
+        frame from :func:`absent_weekly_source` when the season has no file.
+    """
+    from Scripts.books.weekly_props import season_file
+
+    path = season_file(book_dir, season, create=False)
+    if not path.exists():
+        return absent_weekly_source(label, path)
+    check_source_freshness(f"{label} weekly props", path,
+                           "python -m Scripts.books.weekly_props --book all")
+    raw = pd.read_parquet(path)
+    keep = ["week", "player_name"] + [c for c in raw.columns if c.startswith("proj_")]
+    return raw[keep]
+
+
+def build_market_consensus(df: pd.DataFrame, stats, books=MARKET_BOOKS,
+                           prefix: str = "MKT") -> pd.DataFrame:
+    """The books' consensus line: per stat, the median of every *real* book value.
+
+    The ``MKT_`` source the weekly blend weights in place of the individual books
+    (:data:`WEEKLY_WEIGHTS`). A book's cell counts only where it is not flagged
+    imputed, so a book that is silent on a player cannot vote through the
+    ``MEAN_`` fill it was given; where no book is real the cell is left for
+    :func:`impute_columns` to fill and flag, and the market abstains.
+
+    A median rather than a mean because the books disagree rarely and a bad quote
+    is the usual reason they do -- DraftKings' lines arrive without prices and are
+    read at even money, and an exchange's thin rung can sit off the board.
+
+    Runs after :func:`reallocate_book_touchdowns`, so each book's touchdown split
+    is already the consensus split before the medians are taken.
+
+    Args:
+        df: Blended frame carrying each book's ``<BOOK>_<stat>`` columns and flags.
+        stats: Stat names to build.
+        books: Book prefixes to pool.
+        prefix: Prefix to write.
+
+    Returns:
+        pd.DataFrame: ``df`` with ``<prefix>_<stat>`` and its imputed flag per stat.
+    """
+    new_cols = {}
+    for stat in stats:
+        real = []
+        for book in books:
+            column = f"{book}_{stat}"
+            if column not in df.columns:
+                continue
+            flag = column + IMPUTED_SUFFIX
+            values = pd.to_numeric(df[column], errors="coerce")
+            if flag in df.columns:
+                values = values.where(~df[flag].fillna(True).astype(bool))
+            real.append(values)
+        if not real:
+            continue
+        stacked = pd.concat(real, axis=1)
+        new_cols[f"{prefix}_{stat}"] = stacked.median(axis=1, skipna=True)
+    if new_cols:
+        df = df.drop(columns=[c for c in new_cols if c in df.columns])
+        df = pd.concat([df, pd.DataFrame(new_cols, index=df.index)], axis=1)
+    return impute_columns(df, target_prefix=f"{prefix}_", source_prefix="MEAN_")
 
 
 def book_dst_rows(df: pd.DataFrame, season: int, prefix: str,
@@ -1688,7 +1812,7 @@ def reallocate_book_touchdowns(df, books=mk.TD_ALLOCATION_BOOKS,
     return df
 
 
-def compute_weighted_stats(df, stats_list, weights_dict, renormalise=True):
+def compute_weighted_stats(df, stats_list, weights_dict, renormalise=True, fixed=None):
     """Blend each source's projection into a ``TRUE_`` column.
 
     When a source's cell is flagged imputed (see :func:`impute_columns`), its
@@ -1709,6 +1833,10 @@ def compute_weighted_stats(df, stats_list, weights_dict, renormalise=True):
         stats_list: Stat names to blend.
         weights_dict: ``{stat: {source: weight}}`` plus a ``'default'`` entry.
         renormalise: Set False for the historical face-value behaviour.
+        fixed: ``{source: share}`` held at exactly that share of ``TRUE_`` on every
+            row where the source is real; the other sources renormalise into what
+            is left. A fixed source that is not real abstains like any other. Used by
+            the weekly path for the pooled market (:data:`WEEKLY_FIXED_SHARES`).
 
     Returns:
         pd.DataFrame: ``df`` with one ``TRUE_<stat>`` column per stat.
@@ -1724,6 +1852,7 @@ def compute_weighted_stats(df, stats_list, weights_dict, renormalise=True):
         the historical output rather than substituting a zero.
     """
     new_cols = {}
+    fixed = fixed or {}
 
     for stat in stats_list:
         weights = weights_dict.get(stat, weights_dict['default'])
@@ -1731,6 +1860,9 @@ def compute_weighted_stats(df, stats_list, weights_dict, renormalise=True):
         numerator = pd.Series(0.0, index=df.index)
         denominator = pd.Series(0.0, index=df.index)
         face_value = pd.Series(0.0, index=df.index)
+        # The fixed sources' contribution, and the share of the row they claim.
+        anchored = pd.Series(0.0, index=df.index)
+        claimed = pd.Series(0.0, index=df.index)
 
         for source, weight in weights.items():
             col_name = f"{source}_{stat}"
@@ -1747,11 +1879,19 @@ def compute_weighted_stats(df, stats_list, weights_dict, renormalise=True):
             else:
                 is_real = pd.Series(True, index=df.index)
 
+            if source in fixed:
+                anchored = anchored + values * fixed[source] * is_real
+                claimed = claimed + fixed[source] * is_real
+                continue
             numerator = numerator + values * weight * is_real
             denominator = denominator + weight * is_real
 
         if renormalise:
-            blended = numerator.divide(denominator.where(denominator > 0))
+            rest = numerator.divide(denominator.where(denominator > 0))
+            # The fixed share where it is real, the others renormalised into the
+            # remainder; a fixed source alone takes the whole row.
+            blended = (anchored + (1.0 - claimed) * rest).where(
+                denominator > 0, anchored.divide(claimed.where(claimed > 0)))
             new_cols[f'TRUE_{stat}'] = blended.fillna(face_value)
         else:
             new_cols[f'TRUE_{stat}'] = face_value
@@ -2173,10 +2313,32 @@ def clean_lineups(df, lg, season=None):
     base = base.merge(trans4_df, on=['week', 'player_name', 'primaryPosition',
                                      'player_active_status'], how='left')
 
+    # 3d) FanDuel, DraftKings, Novig and 4Casters, from 2026-10-13.
+    #
+    # Same chain as the two books above: aligned onto ESPN's names, imputed from
+    # `MEAN_` where silent and flagged, so the flags say which cells are real. Unlike
+    # the two books above they carry no weight of their own -- they reach `TRUE_`
+    # only through the `MKT_` consensus built below. See `WEEKLY_WEIGHTS`.
+    for book_prefix, book_dir, book_label in NEW_WEEKLY_BOOKS:
+        book_proj = clean_book_props(book_dir, book_label, season)
+        book_proj = align_to_espn_names(book_proj, espn_universe, book_label)
+        book_proj = change_col_prefix(df=book_proj, old_pfix="proj", new_pfix=book_prefix)
+        trans_book = mean_df.merge(book_proj, on=["week", "player_name"], how='left')
+        trans_book = impute_columns(trans_book, target_prefix=f'{book_prefix}_',
+                                    source_prefix="MEAN_")
+        trans_book = trans_book[['week', 'player_name', 'primaryPosition',
+                                 'player_active_status']
+                                + [c for c in trans_book.columns
+                                   if c.startswith(f'{book_prefix}_')]]
+        base = base.merge(trans_book, on=['week', 'player_name', 'primaryPosition',
+                                          'player_active_status'], how='left')
+
     ## Clean Missing COlumns
     base = impute_columns(base, target_prefix='PINNY_', source_prefix='MEAN_')
     base = impute_columns(base, target_prefix='BOL_', source_prefix='MEAN_')
     base = impute_columns(base, target_prefix='ATH_', source_prefix='MEAN_')
+    for book_prefix, _, _ in NEW_WEEKLY_BOOKS:
+        base = impute_columns(base, target_prefix=f'{book_prefix}_', source_prefix='MEAN_')
 
     # 3b) TOMCAT's weekly lines, if a weekly head has written any.
     #
@@ -2215,6 +2377,11 @@ def clean_lineups(df, lg, season=None):
     ## touchdowns separately, so there is no combined market of its to re-split.
     base = reallocate_book_touchdowns(base)
 
+    ## 4a') The books' consensus, which is the only way a book reaches `TRUE_` on the
+    ## weekly path since 2026-10-13. After the touchdown re-split, so the median is
+    ## taken over consensus-split columns. See `build_market_consensus`.
+    base = build_market_consensus(base, blend_cols)
+
 
     ## 4b) Report how much of each source is real rather than imputed.
     ##
@@ -2223,11 +2390,15 @@ def clean_lineups(df, lg, season=None):
     ## face value made the nominal four-source blend roughly 90% ESPN. The weights
     ## below are renormalised over whichever sources are real per row, so this
     ## report is the thing to watch when a source degrades.
-    print_coverage_report(base, weights_dict=WEIGHTS)
+    print_coverage_report(base, weights_dict=WEEKLY_WEIGHTS)
 
     ## 5) Create Aggregate Columns For Each Projection Type (Manual Weights)
+    ##
+    ## `WEEKLY_WEIGHTS`, not the season path's `WEIGHTS`, from 2026-10-13: the pooled
+    ## market held at half wherever it is real. See `WEEKLY_WEIGHTS`.
     final = compute_weighted_stats(df=base, stats_list=blend_cols,
-                                   weights_dict=WEIGHTS)
+                                   weights_dict=WEEKLY_WEIGHTS,
+                                   fixed=WEEKLY_FIXED_SHARES)
 
     ## 5b) The milestone bands, derived from each source's own line.
     ##
