@@ -470,10 +470,14 @@ def _render_freshness(meta: dict, season: int, display_name: str) -> None:
 
 #: Sources in reading order. Anything the store reports that is not named here is
 #: appended, so a source registering weekly appears without editing this file.
-COVERAGE_ORDER = ("ESPN", "FP", "PINNY", "BOL", "ATH", "USG")
+COVERAGE_ORDER = ("ESPN", "FP", "SHARP", "SQUARE", "ATH", "USG")
+
+#: Individual books, not shown on the sidebar since 2026-10-13: they reach the weekly
+#: blend only through the ``SHARP`` and ``SQUARE`` pools, which are shown instead.
+COVERAGE_HIDDEN = frozenset({"PINNY", "BOL", "FD", "DK", "NV", "C4"})
 
 #: How a source prefix is labelled on the sidebar.
-COVERAGE_LABELS = {"FP": "FantasyPros", "PINNY": "Pinnacle", "BOL": "BetOnline",
+COVERAGE_LABELS = {"FP": "FantasyPros", "SHARP": "Sharp books", "SQUARE": "Square books",
                    "ATH": "The Athletic", "USG": "TOMCAT"}
 
 
@@ -510,7 +514,8 @@ def _render_coverage(meta: dict) -> None:
                else "Projection Sources (% Real, Not Imputed)")
 
     ordered = [s for s in COVERAGE_ORDER if s in shown]
-    ordered += [s for s in sorted(shown) if s not in COVERAGE_ORDER]
+    ordered += [s for s in sorted(shown)
+                if s not in COVERAGE_ORDER and s not in COVERAGE_HIDDEN]
     for source in ordered:
         pct = shown[source]
         st.progress(min(max(pct / 100.0, 0.0), 1.0),

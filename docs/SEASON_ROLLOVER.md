@@ -432,8 +432,10 @@ python -m Scripts.books.compare_props               # coverage and agreement vs 
 python -m Scripts.refresh --all --what lineups --push
 ```
 
-Each book's lines appear on the board as `FD_`/`DK_`/`NV_`/`C4_`; only their median, `MKT_`,
-is weighted (fixed 50% of `TRUE_`). DraftKings arrives without prices -- ESPN strips them --
+Each book's lines appear on the board as `FD_`/`DK_`/`NV_`/`C4_`; only the two pools are
+weighted — `SHARP_` (FD/NV, fixed 30%) and `SQUARE_` (BOL/PINNY/DK/C4, fixed 20%). Re-measure
+the per-book touchdown margins now and then (`python -m Scripts.books.compare_props
+--td-margin`) and update `Scripts.market.TD_OVERROUND` if they have moved. DraftKings arrives without prices -- ESPN strips them --
 so it contributes yardage, reception and attempt lines only.
 
 ### Sportsbook game lines

@@ -48,7 +48,8 @@ BASE_COLUMNS: Sequence[str] = (
 #: is for replaying a *decision*, and the decision was taken on these. ``LIVE_`` is
 #: kept because it is the column the app actually ranks on once a game has started.
 POINTS_COLUMNS: Sequence[str] = (
-    "ESPN_Points", "FP_Points", "PINNY_Points", "BOL_Points", "ATH_Points",
+    "ESPN_Points", "FP_Points", "PINNY_Points", "BOL_Points", "SHARP_Points",
+    "SQUARE_Points", "ATH_Points",
     "MEAN_Points", "TRUE_Points", "LIVE_Points", "PosRank", "TRUE_PosRank",
     "sources_real",
 )

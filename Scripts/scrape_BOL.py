@@ -389,7 +389,11 @@ def get_x_stat(stat: str = 'anytimeTouchdown', model=None, season: int = None) -
     # than each carrying a copy. BetOnline keeps its own keys and the archived
     # constant as the ladder's fallback margin.
     keys = ['BOL_game_id', 'week', 'player_name', 'position', 'team']
-    return project_stat(df, stat, model, keys, fallback_hold=mk.DEFAULT_OVERROUND)
+    # The touchdown ladder carries more margin than the two-way props it used to borrow
+    # its hold from; see `Scripts.market.TD_OVERROUND`.
+    hold = (mk.TD_OVERROUND["BetOnline"] if stat == 'anytimeTouchdown'
+            else mk.DEFAULT_OVERROUND)
+    return project_stat(df, stat, model, keys, fallback_hold=hold)
 
 
 def _finite(value):

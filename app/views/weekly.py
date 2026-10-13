@@ -36,8 +36,8 @@ SOURCE_HELP: Dict[str, str] = ltab.SOURCE_HELP
 
 #: How a points column is labelled.
 SOURCE_LABELS: Dict[str, str] = {
-    "ESPN_Points": "ESPN", "FP_Points": "FP", "PINNY_Points": "Pinnacle",
-    "BOL_Points": "BetOnline", "ATH_Points": "The Athletic", "TRUE_Points": "Us",
+    "ESPN_Points": "ESPN", "FP_Points": "FP", "SHARP_Points": "Sharp books",
+    "SQUARE_Points": "Square books", "ATH_Points": "The Athletic", "TRUE_Points": "Us",
 }
 
 #: Identity and status columns, in reading order.

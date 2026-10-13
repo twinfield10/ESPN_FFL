@@ -575,9 +575,10 @@ def test_get_match_details_tolerates_a_source_with_no_data(capsys):
 def test_weekly_sources_present_reports_each_file():
     present = pu.weekly_sources_present(UNSCRAPED_SEASON)
     assert present == {"fantasypros": False, "pinnacle": False, "betonline": False,
-                       "theathletic": False}
+                       "theathletic": False, "fanduel": False, "draftkings": False,
+                       "novig": False, "fourcasters": False}
     assert set(pu.weekly_sources_present(2025)) == {
-        "fantasypros", "pinnacle", "betonline", "theathletic"}
+        "fantasypros", "pinnacle", "betonline", "theathletic", "fanduel", "draftkings", "novig", "fourcasters"}
 
 
 # --- a weekly source has to be usable, not merely present ----------------
@@ -645,7 +646,7 @@ def test_the_source_presence_keys_are_the_external_weekly_sources():
     unbuilt model beside sources that failed to arrive answers a different question.
     """
     assert set(pu.WEEKLY_SOURCE_FILES) == {"fantasypros", "pinnacle", "betonline",
-                                           "theathletic"}
+                                           "theathletic", "fanduel", "draftkings", "novig", "fourcasters"}
     assert "usage" not in pu.WEEKLY_SOURCE_FILES
     assert "tomcat" not in pu.WEEKLY_SOURCE_FILES
 

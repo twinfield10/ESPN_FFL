@@ -179,6 +179,24 @@ MODEL_PATH = paths.DATA_DIR / "NFL" / "models" / f"market_{MODEL_VERSION}.json"
 #: its hold should move this pipeline, not be papered over by a constant.
 DEFAULT_OVERROUND: float = 1.0640
 
+#: Each book's margin on its **anytime-touchdown** market, which is not its props margin.
+#:
+#: A touchdown ladder is one-sided and the book posts no two-way touchdown market, so
+#: there is nothing in a scrape to measure its hold from, and it used to fall back to the
+#: book's general props margin. Measured 2026-10-13 (week 6) against Novig's fair price
+#: -- the exchange's two taker prices at the 0.5 strike, proportionally de-vigged, with
+#: no pregame fee -- on the players both price at "1+":
+#:
+#: * **BetOnline 1.1375** (n=42, IQR 1.076-1.189, flat across price bands). The 1.064
+#:   it was de-vigged by left its touchdown projections ~7% high, which is why it read
+#:   above every other book on every player compared that day.
+#: * **FanDuel 1.0242** (n=41). Its general props margin of 1.065 left its touchdown
+#:   projections ~4% *low*.
+#:
+#: Re-measure with ``python -m Scripts.books.compare_props --td-margin``. See
+#: ``docs/plans/52-more-prop-books.md``.
+TD_OVERROUND: Dict[str, float] = {"BetOnline": 1.1375, "FanDuel": 1.0242}
+
 #: Widest margin that will be believed from a live scrape.
 #:
 #: A guard on the *measurement*, not on the book. A malformed pivot -- one side

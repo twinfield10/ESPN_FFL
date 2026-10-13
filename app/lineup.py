@@ -23,7 +23,7 @@ import _bootstrap  # noqa: F401  -- must precede the Scripts imports
 
 import itertools
 import math
-from typing import Dict, Iterable, List, NamedTuple, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, NamedTuple, Optional, Sequence, Tuple, Union
 
 import polars as pl
 
@@ -43,11 +43,14 @@ from Scripts.live import state_counts
 #: ``ATH`` **joined on 2026-09-09**, when The Athletic began publishing weekly slates.
 #: This comment used to say it "publishes seasons, not weeks", which was true when it
 #: was written and is the kind of fact that stops being true without anything breaking.
-WEEKLY_SOURCES: Tuple[Tuple[str, Optional[str]], ...] = (
+#: ``SHARP`` and ``SQUARE`` replaced ``PINNY`` and ``BOL`` on 2026-10-13: the books reach
+#: the blend as two pools (plan 52), so those are the columns worth reading. Each answers
+#: to its books' keys, present when any one of them is.
+WEEKLY_SOURCES: Tuple[Tuple[str, Union[None, str, Tuple[str, ...]]], ...] = (
     ("ESPN", None),
     ("FP", "fantasypros"),
-    ("PINNY", "pinnacle"),
-    ("BOL", "betonline"),
+    ("SHARP", ("fanduel", "novig")),
+    ("SQUARE", ("pinnacle", "betonline", "draftkings", "fourcasters")),
     ("ATH", "theathletic"),
 )
 
@@ -101,8 +104,17 @@ def real_sources(meta: dict) -> List[str]:
         weekly props.
     """
     present = meta.get("weekly_sources_present") or {}
-    return [prefix for prefix, key in WEEKLY_SOURCES
-            if key is None or present.get(key, True)]
+
+    def usable(key) -> bool:
+        if key is None:
+            return True
+        if isinstance(key, tuple):
+            # A pool is present when any of its books is. A missing key reads as
+            # present, as for a single source: no metadata is not evidence of absence.
+            return any(present.get(k, True) for k in key)
+        return present.get(key, True)
+
+    return [prefix for prefix, key in WEEKLY_SOURCES if usable(key)]
 
 
 def points_columns(frame: pl.DataFrame, meta: dict) -> List[str]:

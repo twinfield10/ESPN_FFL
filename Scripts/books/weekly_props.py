@@ -320,6 +320,7 @@ def project_stat(df: pl.DataFrame, stat: str, model, keys: Sequence[str],
 
 def project_book(raw: pl.DataFrame, sched: pl.DataFrame, model=None,
                  fallback_hold: Optional[float] = None,
+                 td_hold: Optional[float] = None,
                  stats: Iterable[str] = OFFENSIVE_STATS) -> pl.DataFrame:
     """Every stat a book priced, one row per player-week, in BetOnline's file shape.
 
@@ -329,6 +330,8 @@ def project_book(raw: pl.DataFrame, sched: pl.DataFrame, model=None,
         model: Loaded market model; None loads it.
         fallback_hold: Ladder overround where a stat has no two-way pair. None
             measures it across the book's own pairs (:func:`book_overround`).
+        td_hold: The anytime-touchdown ladder's own margin, where it has been
+            measured (:data:`Scripts.market.TD_OVERROUND`); None uses ``fallback_hold``.
         stats: Stats to build.
 
     Returns:
@@ -344,7 +347,8 @@ def project_book(raw: pl.DataFrame, sched: pl.DataFrame, model=None,
     present = [s for s in stats if s in set(raw["espn_stat"].unique().to_list())]
     result = None
     for stat in present:
-        frame = project_stat(raw, stat, model, KEYS, fallback_hold=hold)
+        stat_hold = td_hold if (stat == "anytimeTouchdown" and td_hold) else hold
+        frame = project_stat(raw, stat, model, KEYS, fallback_hold=stat_hold)
         result = frame if result is None else result.join(frame, on=KEYS, how="full",
                                                           coalesce=True)
 
@@ -451,7 +455,8 @@ def scrape(book: str, season: Optional[int] = None, week: Optional[int] = None,
         return pl.DataFrame()
 
     projected = project_book(raw, sched, model=model,
-                             fallback_hold=getattr(adapter, "FALLBACK_HOLD", None))
+                             fallback_hold=getattr(adapter, "FALLBACK_HOLD", None),
+                             td_hold=mk.TD_OVERROUND.get(adapter.BOOK))
     if write:
         archive_raw(raw, adapter.DIR, season, week)
         total = reconcile(adapter.DIR, projected, season)

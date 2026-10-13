@@ -42,13 +42,13 @@ import lineup_table as lt  # noqa: E402
 #: A frame's worth of column names, with every weekly source present.
 COLUMNS = (
     "player_name", "player_position", "primaryPosition", "pro_team", "slotPosition",
-    "slot", "ESPN_Points", "FP_Points", "PINNY_Points", "BOL_Points", "TRUE_Points",
+    "slot", "ESPN_Points", "FP_Points", "SHARP_Points", "SQUARE_Points", "TRUE_Points",
     "sources_real", "source_spread",
 )
 
 #: Every source present, which is what 2026 stores say.
 ALL_PRESENT = {"weekly_sources_present":
-               {"fantasypros": True, "pinnacle": True, "betonline": True}}
+               {"fantasypros": True, "fanduel": True, "novig": True, "pinnacle": True, "betonline": True, "draftkings": True, "fourcasters": True}}
 
 
 def player(name, position, points, *, slot="BE", espn=None, sources=4, spread=0.5):
@@ -66,8 +66,8 @@ def player(name, position, points, *, slot="BE", espn=None, sources=4, spread=0.
         "slotPosition": slot,
         "ESPN_Points": points if espn is None else espn,
         "FP_Points": points,
-        "PINNY_Points": points,
-        "BOL_Points": points,
+        "SHARP_Points": points,
+        "SQUARE_Points": points,
         "TRUE_Points": points,
         "sources_real": sources,
         "source_spread": spread,
@@ -123,7 +123,7 @@ def parsed(markup):
 
 def test_every_source_present_gives_the_full_points_block():
     labels = [c.label for c in lt.points_columns(COLUMNS, ALL_PRESENT)]
-    assert labels == ["ESPN", "FP", "PINNY", "BOL", "TRUE", "Δ", "Sources"]
+    assert labels == ["ESPN", "FP", "SHARP", "SQR", "TRUE", "Δ", "Sources"]
 
 
 def test_an_absent_book_is_dropped_rather_than_shown_as_agreement():
@@ -133,8 +133,7 @@ def test_an_absent_book_is_dropped_rather_than_shown_as_agreement():
     no weekly props arrives as a column that agrees with the mean exactly. Rendering
     it turns silence into unanimity.
     """
-    meta = {"weekly_sources_present": {"fantasypros": True, "pinnacle": False,
-                                       "betonline": False}}
+    meta = {"weekly_sources_present": {"fantasypros": True, "fanduel": False, "novig": False, "pinnacle": False, "betonline": False, "draftkings": False, "fourcasters": False}}
     labels = [c.label for c in lt.points_columns(COLUMNS, meta)]
     assert labels == ["ESPN", "FP", "TRUE", "Δ", "Sources"]
 
@@ -514,7 +513,7 @@ def test_only_the_two_reading_columns_are_ever_painted():
     row["ESPN_Points"] = 19.0
     painted = lt.cell_fill(row, lt.Col("TRUE_Points", "TRUE", "points", ""), scales)
     assert painted
-    for label in ("ESPN", "FP", "PINNY", "BOL", "ATH", "Sources", "Δ"):
+    for label in ("ESPN", "FP", "SHARP", "SQR", "ATH", "Sources", "Δ"):
         assert lt.cell_fill(
             row, lt.Col("ESPN_Points", label, "points", ""), scales) == ""
 
@@ -711,7 +710,7 @@ def test_the_blend_can_lead_the_points_block():
     sources he is being compared against."""
     labels = [c.label for c in
               lt.points_columns(COLUMNS, ALL_PRESENT, blend_first=True)]
-    assert labels == ["TRUE", "Δ", "ESPN", "FP", "PINNY", "BOL", "Sources"]
+    assert labels == ["TRUE", "Δ", "ESPN", "FP", "SHARP", "SQR", "Sources"]
 
 
 def test_the_delta_stays_with_the_blend_when_it_leads():
@@ -726,7 +725,7 @@ def test_corroboration_can_be_dropped():
     about whether he beats theirs."""
     labels = [c.label for c in
               lt.points_columns(COLUMNS, ALL_PRESENT, corroboration=False)]
-    assert labels == ["ESPN", "FP", "PINNY", "BOL", "TRUE", "Δ"]
+    assert labels == ["ESPN", "FP", "SHARP", "SQR", "TRUE", "Δ"]
     assert "Sources" not in labels and "Spread" not in labels
 
 
@@ -958,7 +957,7 @@ def test_the_delta_is_italic_not_bold():
 def test_no_per_source_column_is_emphasised():
     """They are the context, not the reading. Emphasising a source would say the
     table is about where the number came from."""
-    for label in ("ESPN", "FP", "PINNY", "BOL", "ATH", "ACT", "Sources"):
+    for label in ("ESPN", "FP", "SHARP", "SQR", "ATH", "ACT", "Sources"):
         assert label not in lt.EMPHASIS
 
 

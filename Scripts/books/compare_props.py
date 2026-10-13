@@ -197,15 +197,76 @@ def new_waiver_coverage(season: int, week: int, books: Dict[str, pl.DataFrame],
     return pl.DataFrame(rows) if rows else pl.DataFrame()
 
 
+def measure_td_margins(season: int, week: int) -> Dict[str, Dict[str, float]]:
+    """Each book's anytime-touchdown margin against Novig's fair price, measured live.
+
+    Novig's two taker prices at the 0.5 ``TOUCHDOWNS`` strike, proportionally
+    de-vigged, are the reference: an exchange with no pregame fee. Each book's raw
+    "1+" price (BetOnline's landing file, FanDuel's latest archive) is divided by it
+    for the players both price, and the median is the margin that belongs in
+    :data:`Scripts.market.TD_OVERROUND`.
+
+    Returns:
+        dict: ``{book: {"n": matched, "median": ratio, "q25": .., "q75": ..}}``.
+    """
+    import glob
+
+    import numpy as np
+
+    from Scripts.books import novig_props as nv
+    from Scripts.paths import landing_dir
+    from Scripts.scrape_BOL import slim_schedule
+    from Scripts.season_projections import normalise_name
+
+    payload = nv.fetch(slim_schedule().filter(pl.col("week") == week))
+    fair = {}
+    for market in payload["markets"]:
+        if market["marketType"] != "TOUCHDOWNS" or float(market["strike"]) != 0.5:
+            continue
+        book, sides = payload["books"].get(market["marketId"]), nv._sides(market)
+        if not book or not sides:
+            continue
+        orders = book.get("orders") or {}
+        p_over, p_under = nv.take(orders.get(sides[1]) or []), nv.take(orders.get(sides[0]) or [])
+        if p_over and p_under:
+            fair[normalise_name(nv.player_name(market))] = p_over / (p_over + p_under)
+
+    raws = {"BetOnline": landing_dir("BetOnline", season, "BetOnline_AllProps_Raw.parquet")}
+    archived = sorted(glob.glob(str(season_file("FanDuel", season, create=False).parent
+                                    / "Raw" / "*.parquet")))
+    if archived:
+        raws["FanDuel"] = archived[-1]
+    out = {}
+    for name, path in raws.items():
+        raw = pl.read_parquet(path).filter((pl.col("espn_stat") == "anytimeTouchdown")
+                                           & (pl.col("value") == 1.0))
+        ratio = np.array([row["impProb"] / fair[key] for row in raw.iter_rows(named=True)
+                          if (key := normalise_name(row["player_name"])) in fair])
+        if ratio.size:
+            q25, med, q75 = np.percentile(ratio, [25, 50, 75])
+            out[name] = {"n": int(ratio.size), "median": round(float(med), 4),
+                         "q25": round(float(q25), 4), "q75": round(float(q75), 4)}
+    return out
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     from Scripts.nfl_utils import current_season, current_week
 
     p = argparse.ArgumentParser(prog="python -m Scripts.books.compare_props")
     p.add_argument("--season", type=int)
     p.add_argument("--week", type=int)
+    p.add_argument("--td-margin", action="store_true",
+                   help="measure each book's anytime-TD margin against Novig (live)")
     args = p.parse_args(argv)
     season = args.season or current_season()
     week = args.week or current_week()
+
+    if args.td_margin:
+        from Scripts.market import TD_OVERROUND
+        for book, m in measure_td_margins(season, week).items():
+            print(f"{book:10s} n={m['n']:3d}  median {m['median']:.4f}  "
+                  f"IQR {m['q25']:.4f}-{m['q75']:.4f}  (in use: {TD_OVERROUND.get(book)})")
+        return 0
 
     books = load_books(season, week)
     pop = load_population(season, week)
