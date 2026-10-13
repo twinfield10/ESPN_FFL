@@ -1298,6 +1298,65 @@ def clean_book_props(book_dir: str, label: str, season: int) -> pd.DataFrame:
     return raw[keep]
 
 
+#: Injury-report statuses under which an ESPN zero means "not playing". Anything but
+#: Active: ESPN projected Questionable and Doubtful players at 0.0 in week 6 2026 who were
+#: not expected to play (Henderson, Montgomery, Shipley), so the season path's OUT/IR-only
+#: set would miss them.
+WEEKLY_BOOK_WITHDRAW_EXCLUDES = ("Active",)
+
+
+def withdraw_books_for_unavailable(df: pd.DataFrame, season: int, current_week=None,
+                                   books=MARKET_BOOKS + ("FP", "ATH")) -> pd.DataFrame:
+    """Flag every non-ESPN line imputed for a player ESPN says will not play.
+
+    A sportsbook voids a prop when the player does not play, so a price on an injured
+    player is not an opinion about his week. BetOnline keeps posting anytime-touchdown
+    prices for players ESPN has ruled out, and with the market at a fixed half of
+    ``TRUE_`` that put Henderson at 6.5 points and Deebo Samuel at 5.4 on week 6
+    2026 against ESPN's 0.0, both out.
+
+    **FantasyPros and The Athletic are withdrawn too**, by the same argument: their
+    weekly files kept projecting the same players -- FantasyPros had Henderson at 8.8
+    -- and at ESPN 0.10 / FP 0.20 a stale FantasyPros line outvotes ESPN's zero two to
+    one. With every other source withdrawn the row is ESPN's, which is zero.
+
+    The rule takes **both** signals, as the season path's availability gate does:
+    ESPN's published projection at or below zero **and** an injury-report status other
+    than Active. ESPN's zero alone also covers a data glitch on a healthy player, and
+    the status alone would withdraw every Questionable player who is expected to play.
+
+    Args:
+        df: Blended frame carrying ``projPoints`` and each book's columns and flags.
+        season: Season, for the injury report.
+        current_week: Only this week and later are touched -- the report is today's,
+            and says nothing about a week already played. None touches every row.
+        books: Source prefixes to withdraw. ESPN is never among them.
+
+    Returns:
+        pd.DataFrame: ``df`` with the flags set on withdrawn rows.
+    """
+    from Scripts.season_projections import load_espn_injuries, normalise_name
+
+    injuries = load_espn_injuries(season)
+    if injuries.empty or "projPoints" not in df.columns:
+        return df
+    status = df["player_name"].map(normalise_name).map(
+        injuries.set_index("name_key")["status"])
+    out = ((pd.to_numeric(df["projPoints"], errors="coerce") <= 0)
+           & status.notna() & ~status.isin(WEEKLY_BOOK_WITHDRAW_EXCLUDES))
+    if current_week is not None:
+        out = out & (pd.to_numeric(df["week"], errors="coerce") >= current_week)
+    if not out.any():
+        return df
+    print(f"  non-ESPN sources withdrawn for {int(out.sum())} player-week(s) ESPN rules out: "
+          f"{', '.join(df.loc[out, 'player_name'].astype(str).unique()[:8])}")
+    flags = [c for c in df.columns if c.endswith(IMPUTED_SUFFIX)
+             and c.split("_", 1)[0] in books]
+    for flag in flags:
+        df[flag] = df[flag].astype(bool) | out
+    return df
+
+
 def build_market_consensus(df: pd.DataFrame, stats, books=MARKET_BOOKS,
                            prefix: str = "MKT") -> pd.DataFrame:
     """The books' consensus line: per stat, the median of every *real* book value.
@@ -2380,6 +2439,7 @@ def clean_lineups(df, lg, season=None):
     ## 4a') The books' consensus, which is the only way a book reaches `TRUE_` on the
     ## weekly path since 2026-10-13. After the touchdown re-split, so the median is
     ## taken over consensus-split columns. See `build_market_consensus`.
+    base = withdraw_books_for_unavailable(base, season, current_week=curr_week)
     base = build_market_consensus(base, blend_cols)
 
 

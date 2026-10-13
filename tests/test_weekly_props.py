@@ -227,3 +227,22 @@ def test_no_fixed_share_is_the_historical_renormalisation():
     weights = {"default": {"ESPN": 0.25, "FP": 0.25}}
     assert compute_weighted_stats(df.copy(), ["x"], weights)["TRUE_x"][0] == 10.0
     assert compute_weighted_stats(df.copy(), ["x"], weights, fixed={})["TRUE_x"][0] == 10.0
+
+
+def test_books_are_withdrawn_only_for_a_player_espn_rules_out(monkeypatch):
+    from Scripts import projection_utils as pu
+    import Scripts.season_projections as sp
+
+    monkeypatch.setattr(sp, "load_espn_injuries", lambda season: pd.DataFrame({
+        "name_key": ["TREVEYON HENDERSON", "HEALTHY ZERO", "QUESTIONABLE STARTER"],
+        "status": ["Questionable", "Active", "Questionable"]}))
+    df = pd.DataFrame({
+        "week": [6, 6, 6, 5],
+        "player_name": ["TreVeyon Henderson", "Healthy Zero", "Questionable Starter",
+                        "TreVeyon Henderson"],
+        "projPoints": [0.0, 0.0, 12.0, 0.0],
+        "BOL_rushingTouchdowns": [0.5, 0.5, 0.5, 0.5],
+        "BOL_rushingTouchdowns" + IMPUTED_SUFFIX: [False] * 4,
+    })
+    out = pu.withdraw_books_for_unavailable(df, 2026, current_week=6)
+    assert out["BOL_rushingTouchdowns" + IMPUTED_SUFFIX].tolist() == [True, False, False, False]
