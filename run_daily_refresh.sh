@@ -512,6 +512,36 @@ drives a headless Chromium, so a DST page restructure or a missing browser surfa
 first: ${PYTHON} -m Scripts.scrape_BOL --week ${WEEK} --dry-run. See Scripts/bol_widget.py."
 fi
 
+# --- 2f. FanDuel, DraftKings, Novig and 4Casters weekly player props -----
+# Added 2026-10-13 (docs/plans/52-more-prop-books.md). Never fatal, same contract as
+# the two books above: books post props through the week, so a thin Tuesday pull is
+# normal, and the blend's `MKT_` consensus abstains wherever no book has a line.
+#
+# Credentials are parsed rather than sourced, as run_odds_refresh_nfl.sh does: only
+# the named keys are read out of PROPS_ENV_FILES. 4Casters' live in Rebirtha's .env
+# and Novig's read key in NHL-Data's. Without them 4Casters is skipped and Novig
+# falls back to its public routes (slower, budgeted); FanDuel and DraftKings need none.
+PROPS_ENV_FILES="${PROPS_ENV_FILES:-${HOME}/GitRepos/Rebirtha/.env ${HOME}/GitRepos/NHL-Data/.env}"
+for env_file in ${PROPS_ENV_FILES}; do
+  [ -f "${env_file}" ] || continue
+  while IFS='=' read -r key value; do
+    case "${key}" in
+      CAST4_USER|CAST4_PASS|CAST4_AUTH_TOKEN|NOVIG_KEY_ID|NOVIG_PEM)
+        export "${key}=$(printf '%s' "${value}" | tr -d '"'"'"'\r')" ;;
+    esac
+  done < "${env_file}"
+done
+log "pulling FanDuel, DraftKings, Novig and 4Casters weekly player props"
+if "${PYTHON}" -m Scripts.books.weekly_props --book all --season "${SEASON}" --week "${WEEK}" \
+    >>"${LOG}" 2>&1; then
+  log "more prop books: ok"
+else
+  log "NOTE: one or more of the four added prop books returned nothing (the log above \
+names which). Not fatal -- early in the week most games have no props posted yet, and \
+the blend's market consensus abstains where no book has a line. Check: ${PYTHON} -m \
+Scripts.books.weekly_props --book all --dry-run"
+fi
+
 # --- 3. Re-project the usage head ---------------------------------------
 # Reads the fresh depth chart and roster. Refits only if the stored model is stale;
 # otherwise it reloads the fitted coefficients and re-predicts, which is what makes

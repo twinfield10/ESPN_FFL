@@ -13,6 +13,7 @@ from Scripts.bol_widget import (
 )
 from Scripts.books.props import props_to_odds_rows
 from Scripts.books.store import write_snapshot
+from Scripts.books.weekly_props import project_stat
 from Scripts.nfl_utils import current_season, current_week, load_schedule
 from Scripts.paths import landing_dir, season_dir
 
@@ -381,92 +382,14 @@ def get_x_stat(stat: str = 'anytimeTouchdown', model=None, season: int = None) -
     """
     model = mk.load_model() if model is None else model
     season = current_season() if season is None else season
-    df = pl.read_parquet(landing_dir("BetOnline", season, "BetOnline_AllProps_Raw.parquet"))\
-           .filter(pl.col('espn_stat') == stat)\
-           .drop('market_id', 'condition', 'is_active', 'is_actual')
+    df = pl.read_parquet(landing_dir("BetOnline", season, "BetOnline_AllProps_Raw.parquet"))
 
+    # The arithmetic moved to `Scripts.books.weekly_props.project_stat` on 2026-10-13,
+    # unchanged, so that the four books added that day share this derivation rather
+    # than each carrying a copy. BetOnline keeps its own keys and the archived
+    # constant as the ladder's fallback margin.
     keys = ['BOL_game_id', 'week', 'player_name', 'position', 'team']
-    df_ou = df.filter(pl.col('prop_source') == 'OverUnder')
-    df_val = df.filter(pl.col('prop_source') == 'Values')
-
-    # The book's own margin, measured on this scrape's two-way pairs and applied to
-    # the one-sided ladders as well -- they carry the same 6.4%, measured. Falls
-    # back to the archived constant when a stat has no two-way market at all.
-    hold = mk.DEFAULT_OVERROUND
-    if df_ou.height > 0:
-        sides = df_ou.pivot(index=['BOL_game_id', 'player_name', 'value'],
-                            on='type', values='impProb', aggregate_function='first')
-        if {'Over', 'Under'}.issubset(sides.columns):
-            hold = mk.measure_overround(sides['Over'].to_numpy(),
-                                        sides['Under'].to_numpy())
-
-    def ou_calc(frame: pl.DataFrame) -> pl.DataFrame:
-        """Two-way pairs into an expectation: de-vig, then convert by stat shape."""
-        wide = frame.pivot(
-            index=keys + ['player_id', 'statistic', 'espn_stat', 'value'],
-            on='type', values=['odds', 'impProb'],
-        ).drop_nulls(['impProb_Over', 'impProb_Under'])
-        if wide.height == 0:
-            return wide.select(keys).with_columns(
-                pl.lit(None, dtype=pl.Float64).alias(f'from_line_{stat}'))
-
-        q_over, _ = mk.devig_two_way(wide['impProb_Over'].to_numpy(),
-                                     wide['impProb_Under'].to_numpy())
-        lines = wide['value'].to_numpy()
-        converted = (model.mean_from_line(stat, lines, q_over,
-                                          wide['position'].to_list())
-                     if model is not None else lines)
-        # One row per player-stat, in case the book posts alternate lines: the join
-        # below is on the keys alone and a duplicate there multiplies every stat.
-        return (wide
-                .with_columns(pl.Series(f'from_line_{stat}', converted))
-                .group_by(keys)
-                .agg(pl.col(f'from_line_{stat}').mean()))
-
-    def ladder_calc(frame: pl.DataFrame) -> pl.DataFrame:
-        """A ladder into a projection and a dispersion, by its shape."""
-        kind = mk.MARKET_STATS[stat].kind if stat in mk.MARKET_STATS else 'yardage'
-        rows = []
-        for group in frame.partition_by(keys, maintain_order=True):
-            edges, survival = mk.monotone_survival(group['value'].to_numpy(),
-                                                   group['impProb'].to_numpy())
-            fair = mk.devig_survival(survival, hold)
-            mean = (mk.count_moments(edges, fair)[0] if kind == 'count'
-                    else mk.ladder_median(edges, fair))
-            rows.append({
-                **{key: group[key][0] for key in keys},
-                f'from_ladder_{stat}': None if not np.isfinite(mean) else mean,
-                f'proj_{stat}_sd': _finite(mk.market_scale(edges, fair, kind)),
-            })
-        if not rows:
-            return frame.select(keys).with_columns(
-                pl.lit(None, dtype=pl.Float64).alias(f'from_ladder_{stat}'),
-                pl.lit(None, dtype=pl.Float64).alias(f'proj_{stat}_sd'))
-        return pl.DataFrame(rows, schema_overrides={
-            f'from_ladder_{stat}': pl.Float64, f'proj_{stat}_sd': pl.Float64})
-
-    # A full join, not an inner one. The old inner join dropped any player with a
-    # ladder and no two-way line for that stat -- measured at 0 rows on the archived
-    # week, so a latent risk rather than a live bug, and the dispersion column makes
-    # it a live one: a laddered player with no line still states a variance.
-    if df_ou.height > 0 and df_val.height > 0:
-        final_df = ou_calc(df_ou).join(ladder_calc(df_val), on=keys, how='full',
-                                       coalesce=True)
-    elif df_ou.height > 0:
-        final_df = ou_calc(df_ou).with_columns(
-            pl.lit(None, dtype=pl.Float64).alias(f'from_ladder_{stat}'),
-            pl.lit(None, dtype=pl.Float64).alias(f'proj_{stat}_sd'))
-    else:
-        final_df = ladder_calc(df_val).with_columns(
-            pl.lit(None, dtype=pl.Float64).alias(f'from_line_{stat}'))
-
-    return (final_df
-            .with_columns(pl.coalesce(pl.col(f'from_line_{stat}'),
-                                      pl.col(f'from_ladder_{stat}'))
-                            .alias(f'proj_{stat}'))
-            .drop(f'from_line_{stat}', f'from_ladder_{stat}')
-            .select(keys + [f'proj_{stat}', f'proj_{stat}_sd'])
-            .sort(by=[f'proj_{stat}'], nulls_last=True))
+    return project_stat(df, stat, model, keys, fallback_hold=mk.DEFAULT_OVERROUND)
 
 
 def _finite(value):

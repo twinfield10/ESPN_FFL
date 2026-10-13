@@ -750,7 +750,9 @@ def allocate_touchdowns(total, consensus_rushing, consensus_receiving
 
 
 #: Sources whose touchdown market is an anytime total rather than two projections.
-TD_ALLOCATION_BOOKS: Tuple[str, ...] = ("BOL", "PINNY")
+#: FanDuel, Novig and 4Casters joined on 2026-10-13; DraftKings posts no touchdown line
+#: it can be read at (see ``Scripts/books/draftkings_props.py``).
+TD_ALLOCATION_BOOKS: Tuple[str, ...] = ("BOL", "PINNY", "FD", "NV", "C4")
 
 #: Sources that project rushing and receiving touchdowns separately.
 #:

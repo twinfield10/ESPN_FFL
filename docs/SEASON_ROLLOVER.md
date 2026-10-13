@@ -420,6 +420,22 @@ It is in the nightly as a non-fatal stage. BetOnline's weekly host still answers
 `invalid_security_headers` and wants a signed request, which is an anti-bot control and
 is not circumvented.
 
+**FanDuel, DraftKings, Novig and 4Casters weekly props are nightly since 2026-10-13**
+(stage 2f of `run_daily_refresh.sh`, non-fatal; plan 52). Nothing to remember week to week.
+Credentials are read from `PROPS_ENV_FILES` (default: Rebirtha's `.env` for `CAST4_*`,
+NHL-Data's for `NOVIG_KEY_ID`/`NOVIG_PEM`); without them 4Casters is skipped and Novig uses
+its slower public routes. To pull mid-week before a waiver deadline and see what moved:
+
+```bash
+python -m Scripts.books.weekly_props --book all      # scrape + reconcile all four
+python -m Scripts.books.compare_props               # coverage and agreement vs BOL/PINNY
+python -m Scripts.refresh --all --what lineups --push
+```
+
+Each book's lines appear on the board as `FD_`/`DK_`/`NV_`/`C4_`; only their median, `MKT_`,
+is weighted (fixed 50% of `TRUE_`). DraftKings arrives without prices -- ESPN strips them --
+so it contributes yardage, reception and attempt lines only.
+
 ### Sportsbook game lines
 
 `run_odds_refresh_nfl.sh` pulls Pinnacle, BetOnline and 4Casters once a day and stores
