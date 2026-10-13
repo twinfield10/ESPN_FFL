@@ -746,8 +746,7 @@ def test_an_absent_source_is_dropped_rather_than_shown_as_agreement():
     book arrives looking unanimous rather than silent. On Knights week 1
     `PINNY_Points` and `BOL_Points` are both exactly `MEAN_Points`.
     """
-    meta = {"weekly_sources_present": {"fantasypros": True, "pinnacle": False,
-                                       "betonline": False}}
+    meta = {"weekly_sources_present": {"fantasypros": True, "fanduel": False, "novig": False, "pinnacle": False, "betonline": False, "draftkings": False, "fourcasters": False}}
     # `theathletic` is not in the metadata at all, and `real_sources` reads a missing
     # key as present -- see `test_no_metadata_assumes_present_rather_than_absent` for
     # why that default is deliberate.
@@ -755,22 +754,20 @@ def test_an_absent_source_is_dropped_rather_than_shown_as_agreement():
 
 
 def test_every_source_present_keeps_all_of_them():
-    meta = {"weekly_sources_present": {"fantasypros": True, "pinnacle": True,
-                                       "betonline": True, "theathletic": True}}
-    assert lu.real_sources(meta) == ["ESPN", "FP", "PINNY", "BOL", "ATH"]
+    meta = {"weekly_sources_present": {"fantasypros": True, "fanduel": True, "novig": True, "pinnacle": True, "betonline": True, "draftkings": True, "fourcasters": True, "theathletic": True}}
+    assert lu.real_sources(meta) == ["ESPN", "FP", "SHARP", "SQUARE", "ATH"]
 
 
 def test_no_metadata_assumes_present_rather_than_absent():
     """Silence is not evidence of absence; the coverage panel is."""
-    assert lu.real_sources({}) == ["ESPN", "FP", "PINNY", "BOL", "ATH"]
+    assert lu.real_sources({}) == ["ESPN", "FP", "SHARP", "SQUARE", "ATH"]
 
 
 def test_one_real_source_reports_no_spread():
     """One number cannot disagree with itself."""
     frame = pl.DataFrame([{**player("A", "RB", 10.0), "ESPN_Points": 10.0}])
     out = lu.with_source_spread(frame, {"weekly_sources_present":
-                                        {"fantasypros": False, "pinnacle": False,
-                                         "betonline": False}})
+                                        {"fantasypros": False, "fanduel": False, "novig": False, "pinnacle": False, "betonline": False, "draftkings": False, "fourcasters": False}})
     assert out["sources_real"][0] == 1
     assert out["source_spread"][0] is None
 

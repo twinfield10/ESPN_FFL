@@ -41,20 +41,25 @@ SOURCE_HELP: Dict[str, str] = {
             "every other source is imputed from when it has no opinion.",
     "FP": "FantasyPros' weekly consensus. Real for the players it publishes and "
           "imputed for the rest — check Sources against it.",
-    "PINNY": "Pinnacle's weekly player props, converted to points.",
-    "BOL": "BetOnline's weekly player props, converted to points.",
+    "SHARP": "The sharp books' consensus — the median of FanDuel and Novig's weekly "
+             "player props, converted to points. A fixed 30% of the blend wherever "
+             "either has a line.",
+    "SQUARE": "The other books' consensus — the median of BetOnline, Pinnacle, "
+              "DraftKings and 4Casters' weekly props, converted to points. A fixed 20% "
+              "of the blend wherever any has a line.",
     "ATH": "The Athletic's weekly projection (Jake Ciely's workbook). Offence only "
            "— it never has an opinion about a kicker or a defence, and it projects "
            "who it thinks starts, so a player it omits is sometimes a judgement "
            "rather than a gap.",
-    "TRUE": "The blend, in this league's own scoring. One equal vote per source "
-            "that has an opinion about this player.",
+    "TRUE": "The blend, in this league's own scoring. Sharp books 30% and square "
+            "books 20% where they have a line; ESPN, FantasyPros and The Athletic "
+            "split the rest 10/20/20.",
 }
 
 #: How each per-source points column is headed. Short on purpose: twenty-five columns
 #: only fit on a laptop if the numeric ones are four characters wide.
 POINTS_LABELS: Dict[str, str] = {
-    "ESPN": "ESPN", "FP": "FP", "PINNY": "PINNY", "BOL": "BOL", "ATH": "ATH",
+    "ESPN": "ESPN", "FP": "FP", "SHARP": "SHARP", "SQUARE": "SQR", "ATH": "ATH",
     "TRUE": "TRUE",
 }
 

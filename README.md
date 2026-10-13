@@ -587,11 +587,12 @@ says so in the sidebar.
 
 ## How the projection blend works
 
-> **Weekly path, from 2026-10-13:** the books — BetOnline, Pinnacle, FanDuel, DraftKings,
-> Novig and 4Casters — enter as **one** source, `MKT_`, the per-stat median of whichever have a
-> real line, held at a **fixed 50%** of `TRUE_`; ESPN 10 / FantasyPros 20 / The Athletic 20 share
-> the rest (`WEEKLY_WEIGHTS`). The season board below is unchanged. See
-> `docs/plans/52-more-prop-books.md`.
+> **Weekly path, from 2026-10-13:** the books enter as two pools — **`SHARP_`** (median of
+> FanDuel and Novig) held at a **fixed 30%** of `TRUE_`, and **`SQUARE_`** (median of
+> BetOnline, Pinnacle, DraftKings and 4Casters) at a **fixed 20%** — each abstaining where none
+> of its books has a line; ESPN 10 / FantasyPros 20 / The Athletic 20 share the rest
+> (`WEEKLY_WEIGHTS`). A player ESPN projects at zero with a non-Active injury status gets ESPN
+> alone. The season board below is unchanged. See `docs/plans/52-more-prop-books.md`.
 
 Five external sources — **ESPN**, **FantasyPros**, **The Athletic**, **BetOnline** and
 **Pinnacle** — on **both** grains since 2026-09-09, when The Athletic began publishing a

@@ -55,6 +55,28 @@ Six books as six equal votes would count one opinion six times against ESPN's on
 Measured effect on Winfield Football week 6, old code against new on the same inputs:
 125 of 242 rows move, median 0.25 points, largest 1.56; kickers unmoved.
 
+## Revised the same day: sharp and square, and touchdown margins
+
+**Two pools instead of one.** FanDuel and Novig are the sharp prop books (owner's call —
+Pinnacle is the classic sharp book but has not been for props in a year or two), and on
+the snapshot they sat closest to the consensus. So `SHARP_` = median of FD/NV, held at a
+**fixed 30%**, and `SQUARE_` = median of BOL/PINNY/DK/C4, held at a **fixed 20%**; ESPN 10 /
+FP 20 / ATH 20 renormalise into the rest. Each pool abstains where none of its books
+prices the stat, so a player priced only by BetOnline — most anytime touchdowns — is 20%
+market, not 50%. Measured before the change: using the sharp books' median wherever
+either has a line moved the pooled number by a median 0.23 rec yds (max 1.6) and 0.01 TD.
+The app's weekly tables, sidebar and the Sheets show `SHARP`/`SQUARE` where they showed
+`PINNY`/`BOL`; the draft board is the season path and keeps the individual books.
+
+**Each book's anytime-touchdown margin is now its own.** A touchdown ladder is one-sided
+with no two-way market to measure a hold from, so it borrowed the book's general props
+margin. Against Novig's fair price (the exchange's two taker prices at the 0.5 strike,
+de-vigged): **BetOnline 1.1375** (n=42), not the 1.064 it was de-vigged by — its touchdown
+projections were ~7% high, the lean visible on every player compared; **FanDuel 1.0242**
+(n=41), not 1.065 — ~4% low. Stored as `Scripts.market.TD_OVERROUND`; after the fix BOL's
+median deviation from the book consensus on touchdowns went 0.044 → 0.003. Re-measure with
+`python -m Scripts.books.compare_props --td-margin`.
+
 ## Owed
 
 * **A backtest.** Every pull's raw prices are archived

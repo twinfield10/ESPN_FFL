@@ -239,6 +239,12 @@ def absent_weekly_source(label: str, path) -> pd.DataFrame:
 #: (`docs/plans/19-weekly-usage-model.md`), and reporting our own unbuilt model beside
 #: sources that failed to arrive answers a different question and makes the key set
 #: unstable for every consumer. It joins here when it ships; see `clean_usage_weekly`.
+def _book_props_parquet(book_dir: str, season: int):
+    """Season props file for one of :data:`NEW_WEEKLY_BOOKS`."""
+    from Scripts.books.weekly_props import season_file
+    return season_file(book_dir, season, create=False)
+
+
 WEEKLY_SOURCE_FILES = {
     "fantasypros": fantasypros_parquet,
     "pinnacle": pinnacle_parquet,
@@ -248,6 +254,12 @@ WEEKLY_SOURCE_FILES = {
     # is a reason to watch it, not to leave it out: it carries an equal vote on every
     # player it covers. See `clean_ath_weekly` for its own staleness window.
     "theathletic": theathletic_weekly_parquet,
+    # The four books added 2026-10-13 (plan 52). Watched one by one, so a dead scraper
+    # is visible even while its pool still has another book speaking for it.
+    "fanduel": lambda season: _book_props_parquet("FanDuel", season),
+    "draftkings": lambda season: _book_props_parquet("DraftKings", season),
+    "novig": lambda season: _book_props_parquet("Novig", season),
+    "fourcasters": lambda season: _book_props_parquet("FourCasters", season),
 }
 
 
@@ -519,11 +531,11 @@ ESPN_PUBLISHED_POINTS = "espn_published_points"
 #: ``present_prefixes`` keeps the prefix because they are real, and ``proj_to_score``
 #: prices them. It needed no ``WEIGHTS`` entry -- there has been one since the season
 #: path registered it on 2026-09-01.
-#: **``FD``, ``DK``, ``NV``, ``C4`` and ``MKT`` joined on 2026-10-13** with the four books
+#: **``FD``, ``DK``, ``NV``, ``C4``, ``SHARP`` and ``SQUARE`` joined on 2026-10-13** with the four books
 #: in :data:`NEW_WEEKLY_BOOKS`. The books are scored so each one's line is visible on the
-#: board; only ``MKT`` -- their consensus -- carries weight. See :data:`WEEKLY_WEIGHTS`.
+#: board; only the two pools of them carry weight. See :data:`WEEKLY_WEIGHTS`.
 WEEKLY_PREFIXES: Tuple[str, ...] = ("ESPN", "FP", "MEAN", "PINNY", "BOL", "FD", "DK",
-                                    "NV", "C4", "MKT", "ATH", "USG", "TRUE")
+                                    "NV", "C4", "SHARP", "SQUARE", "ATH", "USG", "TRUE")
 
 
 def present_prefixes(df, candidates=WEEKLY_PREFIXES) -> list:
@@ -603,41 +615,52 @@ NEW_WEEKLY_BOOKS: Tuple[Tuple[str, str, str], ...] = (
     ("C4", "FourCasters", "4Casters"),
 )
 
-#: Every book whose real lines feed the ``MKT_`` consensus.
-MARKET_BOOKS: Tuple[str, ...] = ("BOL", "PINNY", "FD", "DK", "NV", "C4")
+#: The sharp books: their real lines feed ``SHARP_``. FanDuel and Novig, owner's call on
+#: 2026-10-13 -- Pinnacle is the classic sharp book but has not been for props in a year
+#: or two. On the week-6 snapshot these two sat closest to the books' consensus, and
+#: Novig is the reference the touchdown margins are measured against.
+SHARP_BOOKS: Tuple[str, ...] = ("FD", "NV")
+
+#: The rest, whose real lines feed ``SQUARE_``.
+SQUARE_BOOKS: Tuple[str, ...] = ("BOL", "PINNY", "DK", "C4")
+
+#: Every book on the weekly path.
+MARKET_BOOKS: Tuple[str, ...] = SHARP_BOOKS + SQUARE_BOOKS
 
 #: The weekly blend, from 2026-10-13. **Owner decision, not a fitted result** -- there is
 #: no outcome history for four of the six books yet, so the backtest plan 20 asks for is
 #: owed after the fact.
 #:
-#: **Why one market source rather than six book votes.** Measured on the 2026 week-6
+#: **Why pooled sources rather than six book votes.** Measured on the 2026 week-6
 #: Tuesday snapshot (``python -m Scripts.books.compare_props --week 6``): where three or
 #: more books price the same player, FanDuel, Novig, Pinnacle and BetOnline sit a median
 #: **0.0-0.3 receiving yards** from the books' own median. They post the same line. Six
-#: equal votes would have been one opinion counted six times against ESPN's one, so the
-#: books are pooled into ``MKT_`` -- the per-stat median of whichever books have a real
-#: line for that player -- and the pool carries one share.
+#: equal votes would have been one opinion counted six times against ESPN's one.
 #:
-#: **The share is fixed at half** (:data:`WEEKLY_FIXED_SHARES`): whenever ``MKT_`` is real
-#: for a player-stat it is exactly 50% of ``TRUE_``, and ESPN, FantasyPros and The
-#: Athletic split the other half 10/20/20, renormalised over whichever of them are real.
-#: Under plain renormalisation the market would drift to two-thirds on every row
-#: FantasyPros misses. Where no book prices the stat the market abstains and the three
-#: split the whole.
+#: **Two pools, sharp and square, at fixed shares** (:data:`WEEKLY_FIXED_SHARES`).
+#: ``SHARP_`` is the per-stat median of FanDuel and Novig where either has a real line,
+#: held at exactly **30%** of ``TRUE_``; ``SQUARE_`` the median of the rest, held at
+#: **20%**. Each abstains where none of its books prices the stat, and its share goes to
+#: ESPN, FantasyPros and The Athletic, who split whatever is left 10/20/20,
+#: renormalised over whichever of them are real. So a player priced only by BetOnline
+#: -- most anytime touchdowns -- is 20% market, not 50%. This replaced a single ``MKT_``
+#: pool held at 50% on the same day; the split moved the pool's number by a median of
+#: 0.23 receiving yards, so the change is in how much the market weighs where only the
+#: square books have spoken, not in its level.
 #:
 #: Separate from :data:`WEIGHTS` on purpose: that dict is shared with the season path,
 #: where BetOnline and Pinnacle still vote individually and none of this applies.
 WEEKLY_WEIGHTS = {
-    'default': {'ESPN': 0.10, 'FP': 0.20, 'ATH': 0.20, 'MKT': 0.50},
+    'default': {'ESPN': 0.10, 'FP': 0.20, 'ATH': 0.20, 'SHARP': 0.30, 'SQUARE': 0.20},
 }
 
 #: Sources whose share of ``TRUE_`` is held fixed wherever they are real. See
 #: :func:`compute_weighted_stats`.
-WEEKLY_FIXED_SHARES: Dict[str, float] = {'MKT': 0.50}
+WEEKLY_FIXED_SHARES: Dict[str, float] = {'SHARP': 0.30, 'SQUARE': 0.20}
 
 #: Sources the coverage report lists, in display order.
 COVERAGE_SOURCES: Tuple[str, ...] = ("ESPN", "FP", "PINNY", "BOL", "FD", "DK", "NV",
-                                     "C4", "MKT", "ATH")
+                                     "C4", "SHARP", "SQUARE", "ATH")
 
 
 def impute_columns(df, target_prefix, source_prefix, track=True):
@@ -913,7 +936,7 @@ def source_contributed(df, prefix, stats, *, points_fallback=True,
     return contributed
 
 
-def player_coverage(df, sources=('ESPN', 'FP', 'PINNY', 'BOL', 'ATH'), stats=None,
+def player_coverage(df, sources=COVERAGE_SOURCES, stats=None,
                     root='ESPN'):
     """Per source: the share of *players* it really has a line for.
 
@@ -1358,10 +1381,11 @@ def withdraw_books_for_unavailable(df: pd.DataFrame, season: int, current_week=N
 
 
 def build_market_consensus(df: pd.DataFrame, stats, books=MARKET_BOOKS,
-                           prefix: str = "MKT") -> pd.DataFrame:
+                           prefix: str = "SHARP") -> pd.DataFrame:
     """The books' consensus line: per stat, the median of every *real* book value.
 
-    The ``MKT_`` source the weekly blend weights in place of the individual books
+    The ``SHARP_`` and ``SQUARE_`` sources the weekly blend weights in place of the
+    individual books, one call per pool
     (:data:`WEEKLY_WEIGHTS`). A book's cell counts only where it is not flagged
     imputed, so a book that is silent on a player cannot vote through the
     ``MEAN_`` fill it was given; where no book is real the cell is left for
@@ -2377,7 +2401,7 @@ def clean_lineups(df, lg, season=None):
     # Same chain as the two books above: aligned onto ESPN's names, imputed from
     # `MEAN_` where silent and flagged, so the flags say which cells are real. Unlike
     # the two books above they carry no weight of their own -- they reach `TRUE_`
-    # only through the `MKT_` consensus built below. See `WEEKLY_WEIGHTS`.
+    # only through the `SHARP_` and `SQUARE_` consensus built below. See `WEEKLY_WEIGHTS`.
     for book_prefix, book_dir, book_label in NEW_WEEKLY_BOOKS:
         book_proj = clean_book_props(book_dir, book_label, season)
         book_proj = align_to_espn_names(book_proj, espn_universe, book_label)
@@ -2440,7 +2464,8 @@ def clean_lineups(df, lg, season=None):
     ## weekly path since 2026-10-13. After the touchdown re-split, so the median is
     ## taken over consensus-split columns. See `build_market_consensus`.
     base = withdraw_books_for_unavailable(base, season, current_week=curr_week)
-    base = build_market_consensus(base, blend_cols)
+    base = build_market_consensus(base, blend_cols, books=SHARP_BOOKS, prefix="SHARP")
+    base = build_market_consensus(base, blend_cols, books=SQUARE_BOOKS, prefix="SQUARE")
 
 
     ## 4b) Report how much of each source is real rather than imputed.
@@ -2582,8 +2607,8 @@ def check_week(lu, week, own, curr_week=None):
 
     # Get My Team
     df = lu[(lu['week'] == week) & (lu['team_owner'] == own)][['week', 'team_name', 'player_name', 'slotPosition', 'primaryPosition',
-                                                               'points', 'projPoints', 'FP_Points', 'PINNY_Points', 'BOL_Points', 'ATH_Points', 'TRUE_Points', 'trueDiff',
-                                                               'PosRank', 'ESPN_PosRank', 'FP_PosRank', 'PINNY_PosRank', 'BOL_PosRank', 'ATH_PosRank', 'TRUE_PosRank']]
+                                                               'points', 'projPoints', 'FP_Points', 'SHARP_Points', 'SQUARE_Points', 'ATH_Points', 'TRUE_Points', 'trueDiff',
+                                                               'PosRank', 'ESPN_PosRank', 'FP_PosRank', 'SHARP_PosRank', 'SQUARE_PosRank', 'ATH_PosRank', 'TRUE_PosRank']]
     
     df = df.rename(columns={
         'team_name': 'team',
@@ -2593,16 +2618,16 @@ def check_week(lu, week, own, curr_week=None):
         'points': 'Actual_PTS',
         'projPoints': 'ESPN_PTS',
         'FP_Points': 'FP_PTS',
-        'PINNY_Points': 'PINNY_PTS',
-        'BOL_Points': 'BOL_PTS',
+        'SHARP_Points': 'SHARP_PTS',
+        'SQUARE_Points': 'SQUARE_PTS',
         'ATH_Points': 'ATH_PTS',
         'TRUE_Points': 'TRUE_PTS',
         'trueDiff': 'DIFF_PTS',
         'PosRank': 'Actual',
         'ESPN_PosRank': 'ESPN',
         'FP_PosRank': 'FP',
-        'PINNY_PosRank': 'PINNY',
-        'BOL_PosRank': 'BOL',
+        'SHARP_PosRank': 'SHARP',
+        'SQUARE_PosRank': 'SQUARE',
         'ATH_PosRank': 'ATH',
         'TRUE_PosRank': 'TRUE',
     })
@@ -2617,16 +2642,16 @@ def check_week(lu, week, own, curr_week=None):
         'Actual_PTS': df[~df['rosPos'].isin(['BE', 'IR'])]['Actual_PTS'].sum(),
         'ESPN_PTS': df[~df['rosPos'].isin(['BE', 'IR'])]['ESPN_PTS'].sum(),
         'FP_PTS': df[~df['rosPos'].isin(['BE', 'IR'])]['FP_PTS'].sum(),
-        'PINNY_PTS': df[~df['rosPos'].isin(['BE', 'IR'])]['PINNY_PTS'].sum(),
-        'BOL_PTS': df[~df['rosPos'].isin(['BE', 'IR'])]['BOL_PTS'].sum(),
+        'SHARP_PTS': df[~df['rosPos'].isin(['BE', 'IR'])]['SHARP_PTS'].sum(),
+        'SQUARE_PTS': df[~df['rosPos'].isin(['BE', 'IR'])]['SQUARE_PTS'].sum(),
         'ATH_PTS': df[~df['rosPos'].isin(['BE', 'IR'])]['ATH_PTS'].sum(),
         'TRUE_PTS': df[~df['rosPos'].isin(['BE', 'IR'])]['TRUE_PTS'].sum(),
         'DIFF_PTS': df[~df['rosPos'].isin(['BE', 'IR'])]['DIFF_PTS'].sum(),
         'Actual': '',
         'ESPN': '',
         'FP': '',
-        'PINNY': '',
-        'BOL': '',
+        'SHARP': '',
+        'SQUARE': '',
         'ATH': '',
         'TRUE': ''
         
@@ -2640,16 +2665,16 @@ def check_week(lu, week, own, curr_week=None):
         'Actual_PTS': df[df['rosPos'].isin(['BE', 'IR'])]['Actual_PTS'].sum(),
         'ESPN_PTS': df[df['rosPos'].isin(['BE', 'IR'])]['ESPN_PTS'].sum(),
         'FP_PTS': df[df['rosPos'].isin(['BE', 'IR'])]['FP_PTS'].sum(),
-        'PINNY_PTS': df[df['rosPos'].isin(['BE', 'IR'])]['PINNY_PTS'].sum(),
-        'BOL_PTS': df[df['rosPos'].isin(['BE', 'IR'])]['BOL_PTS'].sum(),
+        'SHARP_PTS': df[df['rosPos'].isin(['BE', 'IR'])]['SHARP_PTS'].sum(),
+        'SQUARE_PTS': df[df['rosPos'].isin(['BE', 'IR'])]['SQUARE_PTS'].sum(),
         'ATH_PTS': df[df['rosPos'].isin(['BE', 'IR'])]['ATH_PTS'].sum(),
         'TRUE_PTS': df[df['rosPos'].isin(['BE', 'IR'])]['TRUE_PTS'].sum(),
         'DIFF_PTS': df[df['rosPos'].isin(['BE', 'IR'])]['DIFF_PTS'].sum(),
         'Actual': '',
         'ESPN': '',
         'FP': '',
-        'PINNY': '',
-        'BOL': '',
+        'SHARP': '',
+        'SQUARE': '',
         'ATH': '',
         'TRUE': ''
         
@@ -2663,7 +2688,7 @@ def check_week(lu, week, own, curr_week=None):
     df = df.sort_values(by=['rosPos', 'TRUE_PTS'], key=lambda x: x.map(order_mapping))
 
     # Round
-    df = df.round(decimals={'FP_PTS': 2, 'PINNY_PTS': 2, 'BOL_PTS': 2, 'ATH_PTS': 2, 'TRUE_PTS': 2, 'DIFF_PTS': 3})
+    df = df.round(decimals={'FP_PTS': 2, 'SHARP_PTS': 2, 'SQUARE_PTS': 2, 'ATH_PTS': 2, 'TRUE_PTS': 2, 'DIFF_PTS': 3})
 
     # Drop Actual if Current Week
     if week == curr_week:
@@ -2674,7 +2699,7 @@ def check_week(lu, week, own, curr_week=None):
 
 def get_league_projections(week, lu):
     df = lu[(lu['week'] == week) & (lu['team_owner'] != FREE_AGENT_OWNER) & (~lu['slotPosition'].isin(['BE', 'IR']))][['week', 'team_owner', 'team_name',
-             'points', 'projPoints', 'FP_Points', 'BOL_Points', 'PINNY_Points', 'ATH_Points', 'TRUE_Points']]
+             'points', 'projPoints', 'FP_Points', 'SHARP_Points', 'SQUARE_Points', 'ATH_Points', 'TRUE_Points']]
     
     df['TRUE_Points'] = df['TRUE_Points'].fillna(df['projPoints'])
 
@@ -2682,8 +2707,8 @@ def get_league_projections(week, lu):
         'points': 'sum',
         'projPoints': 'sum',
         'FP_Points': 'sum',
-        'BOL_Points': 'sum',
-        'PINNY_Points': 'sum',
+        'SQUARE_Points': 'sum',
+        'SHARP_Points': 'sum',
         'ATH_Points': 'sum',
         'TRUE_Points': 'sum'
         })
@@ -2713,8 +2738,8 @@ def get_rankings(pos, week, lu, primary_owner=None, visualize=False, check_fa=Fa
     """
     df = lu[(lu['primaryPosition'].isin(pos)) & (lu['week'] == week)]
     df = df[['week', 'primaryPosition','player_name', 'team_owner', 'team_name',
-                  'points', 'projPoints', 'FP_Points', 'BOL_Points', 'PINNY_Points', 'ATH_Points', 'TRUE_Points',
-                  'PosRank', 'ESPN_PosRank', 'FP_PosRank', 'BOL_PosRank', 'PINNY_PosRank', 'ATH_PosRank', 'TRUE_PosRank']]
+                  'points', 'projPoints', 'FP_Points', 'SHARP_Points', 'SQUARE_Points', 'ATH_Points', 'TRUE_Points',
+                  'PosRank', 'ESPN_PosRank', 'FP_PosRank', 'SHARP_PosRank', 'SQUARE_PosRank', 'ATH_PosRank', 'TRUE_PosRank']]
     df = df.drop(columns=['points', 'PosRank']).sort_values(by=['TRUE_Points'], ascending=False)
 
     if visualize == False:

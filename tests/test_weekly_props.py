@@ -198,28 +198,31 @@ def test_market_consensus_is_the_median_of_real_books_only():
         "FD_receivingYards": [54.0, 40.0], "FD_receivingYards" + IMPUTED_SUFFIX: [False, True],
         "NV_receivingYards": [52.0, 40.0], "NV_receivingYards" + IMPUTED_SUFFIX: [False, True],
     })
-    out = build_market_consensus(df, ["receivingYards"])
-    assert out["MKT_receivingYards"].tolist() == [52.0, 40.0]
-    assert out["MKT_receivingYards" + IMPUTED_SUFFIX].tolist() == [False, True]
+    out = build_market_consensus(df, ["receivingYards"], books=("BOL", "FD", "NV"),
+                                 prefix="POOL")
+    assert out["POOL_receivingYards"].tolist() == [52.0, 40.0]
+    assert out["POOL_receivingYards" + IMPUTED_SUFFIX].tolist() == [False, True]
 
 
-def test_fixed_market_share_is_half_whatever_else_is_missing():
+def test_sharp_and_square_hold_their_shares_whatever_else_is_missing():
+    flag = IMPUTED_SUFFIX
     df = pd.DataFrame({
-        "ESPN_receivingYards": [60.0, 60.0, 60.0],
-        "FP_receivingYards": [40.0, 40.0, 40.0],
-        "FP_receivingYards" + IMPUTED_SUFFIX: [False, True, False],
-        "ATH_receivingYards": [50.0, 50.0, 50.0],
-        "ATH_receivingYards" + IMPUTED_SUFFIX: [False, True, False],
-        "MKT_receivingYards": [70.0, 70.0, 45.0],
-        "MKT_receivingYards" + IMPUTED_SUFFIX: [False, False, True],
+        "ESPN_receivingYards": [60.0, 60.0, 60.0, 60.0],
+        "FP_receivingYards": [40.0] * 4, "FP_receivingYards" + flag: [False, True, False, False],
+        "ATH_receivingYards": [50.0] * 4, "ATH_receivingYards" + flag: [False, True, False, False],
+        "SHARP_receivingYards": [70.0] * 4, "SHARP_receivingYards" + flag: [False, False, True, True],
+        "SQUARE_receivingYards": [80.0] * 4, "SQUARE_receivingYards" + flag: [False, False, False, True],
     })
     out = compute_weighted_stats(df, ["receivingYards"], WEEKLY_WEIGHTS, fixed=WEEKLY_FIXED_SHARES)
     rest = (60 * 0.1 + 40 * 0.2 + 50 * 0.2) / 0.5
-    assert out["TRUE_receivingYards"][0] == pytest.approx(0.5 * 70 + 0.5 * rest)
-    # FP and ATH missing: the market stays at half, ESPN takes the rest.
-    assert out["TRUE_receivingYards"][1] == pytest.approx(0.5 * 70 + 0.5 * 60)
-    # No book: the market abstains and the three renormalise.
-    assert out["TRUE_receivingYards"][2] == pytest.approx(rest)
+    true = out["TRUE_receivingYards"]
+    assert true[0] == pytest.approx(0.3 * 70 + 0.2 * 80 + 0.5 * rest)
+    # FP and ATH missing: the books keep 30/20 and ESPN takes the rest.
+    assert true[1] == pytest.approx(0.3 * 70 + 0.2 * 80 + 0.5 * 60)
+    # Only the square books priced him: 20% market, not 50%.
+    assert true[2] == pytest.approx(0.2 * 80 + 0.8 * rest)
+    # No book: the three renormalise over the whole.
+    assert true[3] == pytest.approx(rest)
 
 
 def test_no_fixed_share_is_the_historical_renormalisation():

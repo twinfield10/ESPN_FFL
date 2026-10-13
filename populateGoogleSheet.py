@@ -107,7 +107,7 @@ def write_to_google(df_dict, league_name, primary_owner):
             published Sheet was affected -- but nothing would have reported it.
     """
     # Get Min and Max
-    points_cols = ['projPoints', 'FP_Points', 'BOL_Points', 'PINNY_Points', 'ATH_Points', 'TRUE_Points']
+    points_cols = ['projPoints', 'FP_Points', 'SHARP_Points', 'SQUARE_Points', 'ATH_Points', 'TRUE_Points']
     scale_dict = {
         "MAX": {
             "TEAM": df_dict["League_Projections"][points_cols].max().max(),
@@ -532,7 +532,7 @@ def write_to_google(df_dict, league_name, primary_owner):
             # ACTUAL and DIFF sit either side of the block.
             proj_start, proj_end = points_span(
                 data_df,
-                lambda c: c in ("ESPN", "FP", "BOL", "PINNY", "ATH", "TRUE"))
+                lambda c: c in ("ESPN", "FP", "SHARP", "SQUARE", "ATH", "TRUE"))
             requests.append({
                 "repeatCell": {
                     "range": {
@@ -720,12 +720,12 @@ def write_to_google(df_dict, league_name, primary_owner):
             worksheet.spreadsheet.batch_update({"requests": requests + [rule]})
 
         if sheet_name == "Lineup":
-            df.columns = ['WK', 'TEAM', 'PLAYER', 'SLOT', 'POS', 'ESPN_PTS', 'FP_PTS', 'PINNY_PTS', 'BOL_PTS', 'ATH_PTS', 'TRUE_PTS', 'DIFF_PTS', 'ESPN', 'FP', 'PINNY', 'BOL', 'ATH', 'TRUE']
+            df.columns = ['WK', 'TEAM', 'PLAYER', 'SLOT', 'POS', 'ESPN_PTS', 'FP_PTS', 'SHARP_PTS', 'SQUARE_PTS', 'ATH_PTS', 'TRUE_PTS', 'DIFF_PTS', 'ESPN', 'FP', 'SHARP', 'SQUARE', 'ATH', 'TRUE']
             set_with_dataframe(worksheet, df, include_index=False)
             format_lineup_rows(worksheet, df)
             time.sleep(5)
         elif sheet_name == "League_Projections":
-            df.columns = ['WK', 'OWNER', 'TEAM', 'ACTUAL', 'ESPN', 'FP', 'BOL', 'PINNY', 'ATH', 'TRUE', 'DIFF']
+            df.columns = ['WK', 'OWNER', 'TEAM', 'ACTUAL', 'ESPN', 'FP', 'SHARP', 'SQUARE', 'ATH', 'TRUE', 'DIFF']
             set_with_dataframe(worksheet, df, include_index=False)
             format_league_projections(worksheet, df)
             time.sleep(5)
@@ -743,7 +743,7 @@ def write_to_google(df_dict, league_name, primary_owner):
             position = sheet_name.split("FA_")[1]
             try:
                 fa_df = df[df["team_owner"].isin(["Free Agent", primary_owner])]
-                fa_df.columns = ['WK', 'POS', 'PLAYER', 'OWNER', 'TEAM', 'ESPN_PTS', 'FP_PTS', 'BOL_PTS', 'PINNY_PTS', 'ATH_PTS', 'TRUE_PTS', 'ESPN', 'FP', 'BOL', 'PINNY', 'ATH', 'TRUE']
+                fa_df.columns = ['WK', 'POS', 'PLAYER', 'OWNER', 'TEAM', 'ESPN_PTS', 'FP_PTS', 'SHARP_PTS', 'SQUARE_PTS', 'ATH_PTS', 'TRUE_PTS', 'ESPN', 'FP', 'SHARP', 'SQUARE', 'ATH', 'TRUE']
                 set_with_dataframe(worksheet, fa_df, include_index=False)
                 format_free_agents(worksheet, fa_df, position)
                 print(f"Written {sheet_name} to Google Sheets")
