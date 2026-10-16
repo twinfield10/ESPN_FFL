@@ -210,6 +210,10 @@ NAME_ALIASES = {
     "SCOTT MILLER": "SCOTTY MILLER",
     "IRVIN CHARLES": "IRV CHARLES",
     "ANDREW OGLETREE": "DREW OGLETREE",
+    # Pinnacle's weekly props, weeks 2-5 2026: surfaced by `python -m
+    # Scripts.name_audit` on 2026-10-16 as `review:surname`. A 14-17 point starter
+    # took his Pinnacle line from the ESPN/FantasyPros mean every week he played.
+    "JEREMIAH LOVE": "JEREMIYAH LOVE",
 }
 
 _SUFFIXES = re.compile(r"\b(JR|SR|II|III|IV|V)\b")

@@ -70,6 +70,9 @@ PyYAML==6.0.1
 # store moved to S3 the render path is no longer offline by default; set
 # ESPN_FFL_STORE_SOURCE=local to read the local copy instead.
 streamlit==1.61.1
+# Streamlit's file watcher. Without it the app polls for changes, and a long-running
+# app went on serving pre-merge code for days after a PR landed.
+watchdog==6.0.0
 
 # --- S3 -----------------------------------------------------------------
 # The store lives in s3://espn-ffl-data. Scripts/s3_store.py is the boundary and
