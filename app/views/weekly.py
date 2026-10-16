@@ -445,9 +445,12 @@ def render_matchup(rows: Sequence[ltab.SlotRow], info: Sequence[ltab.Col],
 #: Critical is an ``st.error`` because it is the one sentence on this page that means
 #: *the lineup you are about to play is worse than one you could field today*. Depth
 #: is a warning: it is the same comparison one rung down, and nothing about Sunday
-#: changes.
+#: changes. Streaming is a warning too: a starter beaten at D/ST, K or an IDP slot,
+#: which are streamed off the wire as a matter of course -- see
+#: :data:`lineup.UPGRADE_STREAMING`.
 UPGRADE_CALLOUTS = {
     lu.UPGRADE_CRITICAL: ("🚨", "starting"),
+    lu.UPGRADE_STREAMING: ("🔄", "streaming"),
     lu.UPGRADE_DEPTH: ("↕️", "carrying on the bench"),
 }
 
@@ -507,7 +510,7 @@ def _upgrade_frame(upgrades: Sequence[lu.Upgrade]) -> pl.DataFrame:
 
 
 def render_upgrades(upgrades: Sequence[lu.Upgrade], *, owner: str) -> None:
-    """Draw the two waiver flags, or say the roster is clean.
+    """Draw the waiver flags, or say the roster is clean.
 
     Args:
         upgrades: From :func:`lineup.upgrades`, over the **unfiltered** pool.
@@ -520,13 +523,15 @@ def render_upgrades(upgrades: Sequence[lu.Upgrade], *, owner: str) -> None:
             f"trusting.", icon="✅")
         return
 
-    for severity in (lu.UPGRADE_CRITICAL, lu.UPGRADE_DEPTH):
+    for severity in lu.UPGRADE_ORDER:
         found = [u for u in upgrades if u.severity == severity]
         if not found:
             continue
         icon, where = UPGRADE_CALLOUTS[severity]
         headline = (f"**{len(found)} slot{'s' if len(found) > 1 else ''}** where an "
                     f"available player out-projects someone {owner} is {where}.")
+        if severity == lu.UPGRADE_STREAMING:
+            headline = f"**Streaming alert** — {headline}"
         (st.error if severity == lu.UPGRADE_CRITICAL else st.warning)(
             headline, icon=icon)
         st.dataframe(_upgrade_frame(found), width="stretch", hide_index=True,

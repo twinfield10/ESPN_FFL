@@ -214,6 +214,9 @@ def coverage_summary(lineups: pd.DataFrame, *,
 
     * ``overall`` -- the mean over each source's stat columns, unchanged, so a
       reader written against the old shape still works.
+    * ``by_week`` -- ``players`` again, one week at a time, keyed by the week as a
+      string (JSON keys are strings), each with its own ``rows``/``rostered``/
+      ``free_agents``. The sidebar reads the selected week's entry.
     * ``players`` -- :func:`Scripts.projection_utils.player_coverage`: the share of
       the population that source really has a line for. This is what the sidebar
       renders. Measured on the 2026 stores, FantasyPros reads 12.4% of cells and
@@ -230,7 +233,8 @@ def coverage_summary(lineups: pd.DataFrame, *,
 
     ``scope_population`` narrows *both* to
     :func:`Scripts.projection_utils.coverage_population` -- every rostered player
-    plus the best twenty free agents per position, IDP excluded. Before it, the
+    plus the best twenty free agents per position, QB/RB/WR/TE only
+    (:data:`Scripts.projection_utils.COVERAGE_POSITIONS`). Before it, the
     denominator was every row of ``lineups.parquet``, of which the free-agent pool
     is 12-100% depending on the league, so a source was being graded on the
     thirtieth-best available tight end.
@@ -242,13 +246,14 @@ def coverage_summary(lineups: pd.DataFrame, *,
 
     Returns:
         dict: ``{"overall": {...}, "players": {...}, "key_stats": {...},
-        "population": {...}}``. ``overall`` and ``key_stats`` are empty dicts when
-        the frame carries no coverage information, as before.
+        "population": {...}, "by_week": {...}}``. ``overall`` and ``key_stats``
+        are empty dicts when the frame carries no coverage information, as before.
     """
     # Deferred: projection_utils pulls in the ESPN and scoring stack, and the app
     # imports this module purely to read parquet.
     from Scripts.projection_utils import (
         COVERAGE_FREE_AGENTS_PER_POSITION,
+        COVERAGE_POSITIONS,
         FREE_AGENT_OWNER,
         IDP_POSITIONS,
         coverage_population,
@@ -256,26 +261,49 @@ def coverage_summary(lineups: pd.DataFrame, *,
         player_coverage,
     )
 
-    scoped = coverage_population(lineups) if scope_population else lineups
+    scoped = (coverage_population(lineups, include_positions=COVERAGE_POSITIONS)
+              if scope_population else lineups)
 
     population: Dict[str, Any] = {"rows": int(len(scoped)),
                                   "rows_before": int(len(lineups))}
     if scope_population:
         population["free_agents_per_position"] = COVERAGE_FREE_AGENTS_PER_POSITION
-        population["excluded_positions"] = list(IDP_POSITIONS)
+        population["positions"] = list(COVERAGE_POSITIONS)
+        population["excluded_positions"] = list(IDP_POSITIONS) + ["K", "D/ST"]
         if "team_owner" in scoped.columns:
             is_fa = scoped["team_owner"] == FREE_AGENT_OWNER
             population["rostered"] = int((~is_fa).sum())
             population["free_agents"] = int(is_fa.sum())
 
-    players = player_coverage(scoped)
-    players_pct = ({row.source: float(row.real_pct)
-                    for row in players.itertuples()} if not players.empty else {})
+    def players_pct_of(frame) -> Dict[str, float]:
+        players = player_coverage(frame)
+        return ({row.source: float(row.real_pct)
+                 for row in players.itertuples()} if not players.empty else {})
+
+    players_pct = players_pct_of(scoped)
+
+    # Per week, so the sidebar can answer for the week the toolbar has picked. The
+    # season-wide figure divides each source by every week in the frame, and a book
+    # that started publishing in week 6 then reads as five weeks of absence: on
+    # Winfield week 6 the sharp books read 8.6% season-wide and priced 91 of the 112
+    # backs, receivers and ends ESPN projects at 5+ points. The current week also
+    # carries the whole free-agent pool and past weeks do not, which is a second
+    # reason the season-wide average describes no week at all.
+    by_week: Dict[str, Dict[str, Any]] = {}
+    if "week" in scoped.columns:
+        for week, frame in scoped.groupby("week", sort=True):
+            entry: Dict[str, Any] = {"players": players_pct_of(frame),
+                                     "rows": int(len(frame))}
+            if "team_owner" in frame.columns:
+                is_fa = frame["team_owner"] == FREE_AGENT_OWNER
+                entry["rostered"] = int((~is_fa).sum())
+                entry["free_agents"] = int(is_fa.sum())
+            by_week[str(int(week))] = entry
 
     report = coverage_report(scoped)
     if report.empty:
         return {"overall": {}, "key_stats": {}, "players": players_pct,
-                "population": population}
+                "population": population, "by_week": by_week}
 
     overall = report.groupby("source")["real_pct"].mean().round(1).to_dict()
     by_stat = report.set_index(["stat", "source"])["real_pct"]
@@ -289,7 +317,8 @@ def coverage_summary(lineups: pd.DataFrame, *,
     return {"overall": {k: round(float(v), 1) for k, v in overall.items()},
             "key_stats": key_stats,
             "players": players_pct,
-            "population": population}
+            "population": population,
+            "by_week": by_week}
 
 
 #: ADP bands the ESPN calibration is broken out over.

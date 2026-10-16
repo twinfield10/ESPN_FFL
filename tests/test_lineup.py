@@ -647,6 +647,28 @@ def test_better_counts_only_candidates_who_could_take_the_place():
     assert kicker[0].better == 1          # the other kicker, not the backs
 
 
+@pytest.mark.parametrize("slot, position", [("D/ST", "D/ST"), ("K", "K"),
+                                            ("DP", "LB")])
+def test_beating_a_streaming_starter_is_streaming_not_critical(slot, position):
+    """D/ST, kicker and IDP are streamed off the wire as a matter of course, so a
+    better one available is a warning, never a red alert."""
+    roster = [player("Mine", position, 4.0, slot=slot)]
+    pool = [free_agent("Better", position, 9.0)]
+    upgrade, = lu.upgrades(pool, roster, {slot: 1}, "TRUE_Points")
+    assert upgrade.severity == lu.UPGRADE_STREAMING
+
+
+def test_streaming_sorts_between_critical_and_depth():
+    roster = [player("QB1", "QB", 10.0, slot="QB"),
+              player("K1", "K", 2.0, slot="K"),
+              player("WR1", "WR", 2.0, slot="BE")]
+    pool = [free_agent("QB2", "QB", 11.0), free_agent("K2", "K", 20.0),
+            free_agent("WR2", "WR", 12.0)]
+    found = lu.upgrades(pool, roster, {"QB": 1, "K": 1, "WR": 1}, "TRUE_Points")
+    assert [u.severity for u in found] == [lu.UPGRADE_CRITICAL, lu.UPGRADE_STREAMING,
+                                           lu.UPGRADE_DEPTH]
+
+
 def test_the_weakest_man_beaten_is_the_one_named():
     """He is the one you would actually replace, so the margin is the whole gap."""
     roster = [player("Good", "WR", 14.0, slot="WR"),

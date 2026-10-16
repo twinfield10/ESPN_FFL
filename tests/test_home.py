@@ -293,6 +293,28 @@ def test_depth_alone_is_a_warning():
     assert "bench slot" in action.headline
 
 
+def test_a_streaming_slot_is_a_warning_of_its_own():
+    """A better defence on the wire must not turn the card red, nor hide inside the
+    red line for a beaten receiver."""
+    found = [upgrade(lu.UPGRADE_CRITICAL, 2.0, name="Start Him"),
+             upgrade(lu.UPGRADE_STREAMING, 6.0, slot="D/ST", name="Bears D/ST")]
+    waiver = home.waiver_action(found)
+    assert waiver.severity == home.ACTION_CRITICAL
+    assert "Bears" not in waiver.headline
+
+    streaming = home.streaming_action(found)
+    assert streaming.severity == home.ACTION_WARNING
+    assert "Streaming alert" in streaming.headline
+    assert "Bears D/ST" in streaming.headline
+    assert streaming.route == home.ROUTE_FREE_AGENTS
+
+
+def test_streaming_alone_raises_no_waiver_action():
+    found = [upgrade(lu.UPGRADE_STREAMING, 6.0, slot="K", name="Kicker")]
+    assert home.waiver_action(found) is None
+    assert home.streaming_action(found).severity == home.ACTION_WARNING
+
+
 def test_the_headline_names_the_biggest_margin():
     """Not the first one found. A card has room for one name, so it should be the
     one worth acting on."""

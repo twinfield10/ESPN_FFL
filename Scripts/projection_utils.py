@@ -2014,10 +2014,19 @@ DST_POSITIONS = ['D/ST']
 #: about the depth a waiver claim ever reaches.
 COVERAGE_FREE_AGENTS_PER_POSITION = 20
 
+#: The positions the store's coverage panel is measured over.
+#:
+#: Where the sources actually compete. Kickers and D/STs were counted until
+#: 2026-10-16, and no source but ESPN prices a kicker while the sharp books and The
+#: Athletic price no defence either: on Winfield week 6 they were 53 of 216 rows, and
+#: they held the sharp books at 60% when they had a line for ~80% of skill players.
+COVERAGE_POSITIONS = ('QB', 'RB', 'WR', 'TE')
+
 
 def coverage_population(df, *,
                         free_agents_per_position=COVERAGE_FREE_AGENTS_PER_POSITION,
                         exclude_positions=tuple(IDP_POSITIONS),
+                        include_positions=None,
                         owner_col="team_owner", position_col="primaryPosition",
                         rank_col="ESPN_Points", group_cols=("week",)):
     """The players a coverage number should be measured over.
@@ -2046,6 +2055,9 @@ def coverage_population(df, *,
         free_agents_per_position: How many free agents to keep at each position.
         exclude_positions: Positions dropped entirely, before the ranking, so the
             top-N is taken from what survives.
+        include_positions: When given, only these positions are kept, before the
+            ranking -- :data:`COVERAGE_POSITIONS` for the store's panel. None keeps
+            every position ``exclude_positions`` leaves.
         owner_col: Column separating rostered players from the pool. **When it is
             absent the frame is returned unchanged** -- that is what makes this safe
             to call on a frame that has no notion of ownership.
@@ -2069,6 +2081,8 @@ def coverage_population(df, *,
     scoped = df
     if position_col in scoped.columns and exclude_positions:
         scoped = scoped[~scoped[position_col].isin(list(exclude_positions))]
+    if position_col in scoped.columns and include_positions:
+        scoped = scoped[scoped[position_col].isin(list(include_positions))]
 
     if owner_col not in scoped.columns:
         return scoped.reset_index(drop=True)
