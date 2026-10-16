@@ -734,6 +734,49 @@ def ir_eligible(row: dict) -> bool:
     return (row.get("injury_status") or "") in IR_ELIGIBLE_STATUSES
 
 
+class IrMove(NamedTuple):
+    """An open IR slot, and the rostered players who could fill it.
+
+    Attributes:
+        open_slots: IR slots the league allows minus those already filled.
+        candidates: IR-eligible players outside an IR slot, highest projection
+            first -- each one moved frees a bench spot for a free agent.
+    """
+
+    open_slots: int
+    candidates: List[dict]
+
+
+def ir_moves(roster: Sequence[dict], roster_slots: Dict[str, int],
+             points_column: str = f"{BLEND}_Points") -> Optional[IrMove]:
+    """Players who could move to an empty IR slot, freeing a roster spot.
+
+    Only when both halves hold: the league has an IR slot nobody is in, and someone
+    on the roster carries a designation ESPN lets into it (:data:`IR_ELIGIBLE_STATUSES`).
+    A player whose game has kicked off is left out, since ESPN will not move him.
+
+    Args:
+        roster: One team's rows for the week, carrying ``injury_status``.
+        roster_slots: ``meta["roster_slots"]`` -- the one place the IR count lives,
+            since :func:`slot_counts` deliberately drops it.
+        points_column: Orders the candidates.
+
+    Returns:
+        IrMove | None: None when there is no open slot or nobody to put in it.
+    """
+    filled = sum(1 for row in roster if (row.get("slotPosition") or "") == "IR")
+    open_slots = int((roster_slots or {}).get("IR", 0)) - filled
+    if open_slots <= 0:
+        return None
+    candidates = [row for row in roster
+                  if (row.get("slotPosition") or "") != "IR"
+                  and ir_eligible(row) and not _is_locked(row)]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda r: -float(r.get(points_column) or 0.0))
+    return IrMove(open_slots=open_slots, candidates=candidates)
+
+
 def droppable_for(drop: dict, candidate: dict) -> bool:
     """Whether dropping ``drop`` actually makes room for ``candidate``.
 

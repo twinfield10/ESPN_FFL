@@ -21,6 +21,7 @@ import _bootstrap  # noqa: F401  -- must precede the Scripts imports
 import polars as pl
 import streamlit as st
 
+import home
 import lineup as lu
 import lineup_table as ltab
 import session
@@ -157,6 +158,15 @@ with right:
     else:
         st.subheader("Availability")
         st.success("Everyone on this roster can play.", icon="✅")
+
+    ir = lu.ir_moves(rows, selection.meta.get("roster_slots") or {}, points_col)
+    if ir:
+        names = ", ".join(f"**{r.get('player_name')}** (`{r.get('injury_status')}`)"
+                          for r in ir.candidates)
+        st.warning(
+            f"**{ir.open_slots} open IR slot{'s' if ir.open_slots > 1 else ''}.** "
+            f"Move {names} to IR to free a roster spot for a free agent.",
+            icon=home.IR_ICON)
 
 note = weekly.missing_sources_note(selection.meta)
 if note:

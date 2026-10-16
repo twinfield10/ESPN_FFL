@@ -139,6 +139,17 @@ REPL_SCORING = {
 IGNORED_SCORING_IDS = [201, 206, 209]
 
 
+def injury_status(player) -> Optional[str]:
+    """ESPN's injury designation for a player, or None when it has none.
+
+    espn_api's ``json_parsing`` returns ``[]`` rather than None for a missing
+    key -- every D/ST and some players -- and a list in a string column fails
+    the parquet write.
+    """
+    value = getattr(player, "injuryStatus", None)
+    return value if isinstance(value, str) and value else None
+
+
 def fetch_scoring_overrides(league: League) -> Dict[int, Dict[str, float]]:
     """Read each scoring rule's per-slot point values straight from ESPN.
 
@@ -532,7 +543,11 @@ def extract_player_stats(
             "pro_team": player.proTeam,
             "current_team_id": player.onTeamId,
             "player_position": player.position,
-            "player_active_status": status
+            "player_active_status": status,
+            # ESPN's fantasy designation (ACTIVE, QUESTIONABLE, OUT,
+            # INJURY_RESERVE, ...): what decides IR-slot eligibility, which
+            # `player_active_status` does not carry. See app/lineup.py.
+            "injury_status": injury_status(player)
         }
 
 
@@ -700,7 +715,11 @@ def extract_fa_stats(
             "pro_team": player.proTeam,
             "current_team_id": player.onTeamId,
             "player_position": player.position,
-            "player_active_status": status
+            "player_active_status": status,
+            # ESPN's fantasy designation (ACTIVE, QUESTIONABLE, OUT,
+            # INJURY_RESERVE, ...): what decides IR-slot eligibility, which
+            # `player_active_status` does not carry. See app/lineup.py.
+            "injury_status": injury_status(player)
         }
 
 
