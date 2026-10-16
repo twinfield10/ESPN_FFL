@@ -2242,6 +2242,10 @@ def clean_lineups(df, lg, season=None):
     blend_cols = blended_stats(actual_scoring_cols)
     volume_actuals = [c for c in VOLUME_STATS
                       if c in df.columns and c not in actual_scoring_cols]
+    # ESPN's injury designation, where the scrape carried it (from 2026-10-16). What
+    # `app.lineup.ir_eligible` reads; `player_active_status` cannot tell OUT from IR.
+    if 'injury_status' in df.columns:
+        base_cols = base_cols + ['injury_status']
     base = df[base_cols + actual_scoring_cols + volume_actuals]
 
     curr_week = lg.current_week
@@ -2594,6 +2598,13 @@ def clean_lineups(df, lg, season=None):
         final[f'{live.LIVE_PREFIX}_PosRank'] = final.groupby(
             ['week', 'primaryPosition'])[live.LIVE_POINTS].rank(
             ascending=False, method='dense')
+
+    # The zero-fills above reach every object column, and turned a D/ST's missing
+    # designation into an int 0 that fails the parquet write. A status is a string
+    # or nothing.
+    if 'injury_status' in final.columns:
+        final['injury_status'] = final['injury_status'].where(
+            final['injury_status'].map(lambda v: isinstance(v, str) and v != ''), None)
 
     return final
 

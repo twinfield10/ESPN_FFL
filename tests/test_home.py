@@ -315,6 +315,21 @@ def test_streaming_alone_raises_no_waiver_action():
     assert home.streaming_action(found).severity == home.ACTION_WARNING
 
 
+def test_an_open_ir_slot_is_a_roster_warning():
+    move = lu.IrMove(open_slots=1, candidates=[
+        {"player_name": "Hurt Guy", "injury_status": "OUT"},
+        {"player_name": "Other", "injury_status": "INJURY_RESERVE"}])
+    action = home.ir_action(move)
+    assert action.severity == home.ACTION_WARNING
+    assert action.route == home.ROUTE_ROSTER
+    assert "Hurt Guy" in action.headline
+    assert "1 more" in action.headline
+
+
+def test_no_ir_move_raises_no_action():
+    assert home.ir_action(None) is None
+
+
 def test_the_headline_names_the_biggest_margin():
     """Not the first one found. A card has room for one name, so it should be the
     one worth acting on."""

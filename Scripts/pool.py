@@ -39,7 +39,7 @@ from Scripts.scrape_player_stats import FREE_AGENT_OWNER
 BASE_COLUMNS: Sequence[str] = (
     "league_id", "year", "week", "player_id", "player_name", "player_position",
     "primaryPosition", "eligiblePositions", "pro_team", "player_active_status",
-    "game_state", "game_elapsed", "game_locked", "points",
+    "game_state", "game_elapsed", "game_locked", "points", "injury_status",
 )
 
 #: Projection columns kept, where the frame has them.
@@ -90,7 +90,9 @@ def snapshot(lineups: pd.DataFrame, week: int,
     out = pool[keep].copy()
 
     if board is not None and not board.empty and "player_id" in board.columns:
-        carry = [c for c in BOARD_COLUMNS if c in board.columns]
+        # Only what the weekly frame lacks: since 2026-10-16 it carries a current
+        # `injury_status` from ESPN, and the board's is as old as its last build.
+        carry = [c for c in BOARD_COLUMNS if c in board.columns and c not in out.columns]
         if carry:
             out = out.merge(
                 board[["player_id", *carry]].drop_duplicates(subset=["player_id"]),

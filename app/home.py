@@ -50,6 +50,9 @@ ACTION_WARNING = "warning"
 #: What a streaming alert leads with, on Home and on the Free Agents tab alike.
 STREAMING_ICON = "🔄"
 
+#: What an open-IR-slot alert leads with, on Home and on the Roster tab alike.
+IR_ICON = "🏥"
+
 #: Severities in the order a card lists them.
 SEVERITY_ORDER = (ACTION_CRITICAL, ACTION_WARNING)
 
@@ -492,6 +495,32 @@ def streaming_action(upgrades: Sequence[lu.Upgrade]) -> Optional[Action]:
         route=ROUTE_FREE_AGENTS, button="Free Agents")
 
 
+def ir_action(move: Optional[lu.IrMove]) -> Optional[Action]:
+    """An open IR slot someone on the roster could fill, as one line.
+
+    A warning: it frees a bench spot, and nothing about Sunday changes if you leave
+    it. See :func:`lineup.ir_moves`.
+
+    Args:
+        move: From :func:`lineup.ir_moves`.
+
+    Returns:
+        Action | None: None when there is nothing to move.
+    """
+    if move is None:
+        return None
+    first = move.candidates[0]
+    extra = (f" and {len(move.candidates) - 1} more"
+             if len(move.candidates) > 1 else "")
+    return Action(
+        severity=ACTION_WARNING, icon=IR_ICON,
+        headline=(f"**{move.open_slots} open IR slot"
+                  f"{'s' if move.open_slots > 1 else ''}** — move "
+                  f"**{first.get('player_name')}** (`{first.get('injury_status')}`)"
+                  f"{extra} to IR and free a roster spot"),
+        route=ROUTE_ROSTER, button="Roster")
+
+
 def summarise(league_key: str, display_name: str, week: int, meta: dict,
               lineups: pl.DataFrame, team_stats: Optional[pl.DataFrame],
               fitted: Optional[dict], free_agent_owner: str,
@@ -555,7 +584,9 @@ def summarise(league_key: str, display_name: str, week: int, meta: dict,
 
     found = lu.upgrades(pool.to_dicts(), rows, slots, points_column)
     actions = [a for a in (lineup_action(changes, len(unavailable)),
-                           waiver_action(found), streaming_action(found))
+                           waiver_action(found), streaming_action(found),
+                           ir_action(lu.ir_moves(rows, meta.get("roster_slots") or {},
+                                                 points_column)))
                if a is not None]
     actions.sort(key=lambda a: SEVERITY_ORDER.index(a.severity))
 

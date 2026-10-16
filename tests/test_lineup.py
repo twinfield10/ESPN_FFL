@@ -1235,3 +1235,37 @@ def test_a_pool_where_everyone_has_played_is_empty_not_nearly_empty():
             locked(free_agent("Played B", "RB", 9.0)),
             locked(free_agent("On Bye", "TE", 0.0), state="bye")]
     assert lu.playable_pool(pl.DataFrame(rows)).is_empty()
+
+
+# --- open IR slots ---------------------------------------------------------
+
+def injured(name, status, *, slot="BE", points=0.0):
+    """A rostered row carrying ESPN's injury designation."""
+    return {**player(name, "WR", points, slot=slot), "injury_status": status}
+
+
+def test_an_out_player_and_an_open_ir_slot_is_a_move():
+    roster = [injured("Hurt", "OUT"), injured("Fine", "ACTIVE", points=9.0)]
+    move = lu.ir_moves(roster, {"IR": 1, "BE": 6})
+    assert move.open_slots == 1
+    assert [r["player_name"] for r in move.candidates] == ["Hurt"]
+
+
+def test_injured_reserve_is_eligible_and_questionable_is_not():
+    roster = [injured("Reserve", "INJURY_RESERVE"), injured("Maybe", "QUESTIONABLE")]
+    move = lu.ir_moves(roster, {"IR": 1})
+    assert [r["player_name"] for r in move.candidates] == ["Reserve"]
+
+
+def test_a_full_ir_slot_is_no_move():
+    roster = [injured("Parked", "INJURY_RESERVE", slot="IR"), injured("Hurt", "OUT")]
+    assert lu.ir_moves(roster, {"IR": 1}) is None
+
+
+def test_a_league_without_ir_is_no_move():
+    assert lu.ir_moves([injured("Hurt", "OUT")], {"BE": 7}) is None
+
+
+def test_a_player_whose_game_has_started_is_not_a_move():
+    locked = {**injured("Hurt", "OUT"), "game_state": "in", "game_locked": True}
+    assert lu.ir_moves([locked], {"IR": 1}) is None
