@@ -47,6 +47,9 @@ ACTION_CRITICAL = "critical"
 #: Worth knowing, and nothing about Sunday changes if you ignore it.
 ACTION_WARNING = "warning"
 
+#: What a streaming alert leads with, on Home and on the Free Agents tab alike.
+STREAMING_ICON = "🔄"
+
 #: Severities in the order a card lists them.
 SEVERITY_ORDER = (ACTION_CRITICAL, ACTION_WARNING)
 
@@ -424,6 +427,10 @@ def waiver_action(upgrades: Sequence[lu.Upgrade]) -> Optional[Action]:
     claim from a bench player being out-projected, and the card leads with the
     stronger one, exactly as :func:`views.weekly.render_upgrades` does.
 
+    Streaming slots are not counted here. A better defence or kicker on the wire is
+    :func:`streaming_action`'s line, a warning of its own, so it cannot turn this one
+    red or be buried inside it.
+
     Args:
         upgrades: From :func:`lineup.upgrades`, over the **whole** pool.
 
@@ -435,6 +442,8 @@ def waiver_action(upgrades: Sequence[lu.Upgrade]) -> Optional[Action]:
 
     critical = [u for u in upgrades if u.severity == lu.UPGRADE_CRITICAL]
     depth = [u for u in upgrades if u.severity == lu.UPGRADE_DEPTH]
+    if not critical and not depth:
+        return None   # streaming slots only -- :func:`streaming_action` has them
 
     if critical:
         best = max(critical, key=lambda u: u.margin)
@@ -452,6 +461,32 @@ def waiver_action(upgrades: Sequence[lu.Upgrade]) -> Optional[Action]:
         severity=ACTION_WARNING, icon="↕️",
         headline=(f"**{len(depth)} bench slot{'s' if len(depth) > 1 else ''}** "
                   f"beaten by the wire — best is "
+                  f"**{best.best.get('player_name')}** at `{best.slot}`, "
+                  f"`{best.margin:+.1f}`"),
+        route=ROUTE_FREE_AGENTS, button="Free Agents")
+
+
+def streaming_action(upgrades: Sequence[lu.Upgrade]) -> Optional[Action]:
+    """The streaming slots, as one line, or None when none of them can be improved.
+
+    **Always a warning.** D/ST, kicker and IDP slots are streamed off the wire week to
+    week as a matter of course, so a better one being available is a normal week, not
+    the lineup error a beaten quarterback is. See :data:`lineup.UPGRADE_STREAMING`.
+
+    Args:
+        upgrades: From :func:`lineup.upgrades`, over the **whole** pool.
+
+    Returns:
+        Action | None: None when no streaming starter is out-projected.
+    """
+    streaming = [u for u in upgrades if u.severity == lu.UPGRADE_STREAMING]
+    if not streaming:
+        return None
+    best = max(streaming, key=lambda u: u.margin)
+    slots = ", ".join(f"`{u.slot}`" for u in streaming)
+    return Action(
+        severity=ACTION_WARNING, icon=STREAMING_ICON,
+        headline=(f"**Streaming alert** at {slots} — best is "
                   f"**{best.best.get('player_name')}** at `{best.slot}`, "
                   f"`{best.margin:+.1f}`"),
         route=ROUTE_FREE_AGENTS, button="Free Agents")
@@ -518,9 +553,9 @@ def summarise(league_key: str, display_name: str, week: int, meta: dict,
     unavailable = [r for r in lu.bye_and_out(rows)
                    if r.get("player_id") in starting_ids]
 
+    found = lu.upgrades(pool.to_dicts(), rows, slots, points_column)
     actions = [a for a in (lineup_action(changes, len(unavailable)),
-                           waiver_action(lu.upgrades(pool.to_dicts(), rows, slots,
-                                                     points_column)))
+                           waiver_action(found), streaming_action(found))
                if a is not None]
     actions.sort(key=lambda a: SEVERITY_ORDER.index(a.severity))
 

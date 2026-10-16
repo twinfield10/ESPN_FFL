@@ -881,6 +881,20 @@ UPGRADE_CRITICAL = "critical"
 #: nothing about Sunday changes.
 UPGRADE_DEPTH = "depth"
 
+#: A starter at a streaming slot -- D/ST, kicker, an IDP slot -- is out-projected.
+#:
+#: The critical comparison, at a slot that is not a priority. These positions are
+#: streamed week to week off the wire as a matter of course, so a better one being
+#: available is a normal Tuesday, not a lineup error: it reads as a warning, never
+#: alongside a quarterback or a back being beaten.
+UPGRADE_STREAMING = "streaming"
+
+#: Slots whose beaten starter is :data:`UPGRADE_STREAMING` rather than critical.
+STREAMING_SLOTS = frozenset({"D/ST", "K", "DP"}) | IDP_SLOTS
+
+#: Severities in the order they are listed, most urgent first.
+UPGRADE_ORDER = (UPGRADE_CRITICAL, UPGRADE_STREAMING, UPGRADE_DEPTH)
+
 
 #: How much better an available player must project before it is worth saying.
 #:
@@ -907,8 +921,10 @@ class Upgrade(NamedTuple):
     Attributes:
         slot: The starting slot the candidate would fill.
         severity: :data:`UPGRADE_CRITICAL` when a **starter** at this slot is
-            out-projected, :data:`UPGRADE_DEPTH` when only a bench player is. One or
-            the other, never both -- critical wins and the depth row is suppressed.
+            out-projected, :data:`UPGRADE_STREAMING` when that slot is in
+            :data:`STREAMING_SLOTS`, :data:`UPGRADE_DEPTH` when only a bench player
+            is. One per slot, never two -- a beaten starter wins and the depth row is
+            suppressed.
         best: The highest-projecting available player eligible for the slot.
         over: The weakest of your players at this slot that he out-projects **and
             could actually replace** -- see :func:`_can_replace`. A starter qualifies
@@ -1010,8 +1026,8 @@ def upgrades(pool: Sequence[dict], roster: Sequence[dict], slots: Dict[str, int]
 
     Returns:
         list: At most one :class:`Upgrade` per available player -- and so never more
-        than the league has slots -- criticals first and by margin within a
-        severity. Empty is the common answer and the one worth trusting.
+        than the league has slots -- in :data:`UPGRADE_ORDER`, and by margin
+        within a severity. Empty is the common answer and the one worth trusting.
     """
     def points(row: dict) -> float:
         return float(row.get(points_column) or 0.0)
@@ -1072,7 +1088,9 @@ def upgrades(pool: Sequence[dict], roster: Sequence[dict], slots: Dict[str, int]
                     if r.get("slotPosition") not in NON_STARTING_SLOTS
                     and (r.get("slotPosition") or "") in best_slots]
         benched = [r for r in mine if r.get("slotPosition") in NON_STARTING_SLOTS]
-        for severity, group in ((UPGRADE_CRITICAL, starting),
+        starter_severity = (UPGRADE_STREAMING if slot in STREAMING_SLOTS
+                            else UPGRADE_CRITICAL)
+        for severity, group in ((starter_severity, starting),
                                 (UPGRADE_DEPTH, benched)):
             beaten = [r for r in group if points(best) - points(r) >= min_margin]
             if not beaten:
@@ -1094,7 +1112,7 @@ def upgrades(pool: Sequence[dict], roster: Sequence[dict], slots: Dict[str, int]
                            if points(c) - points(over) >= min_margin
                            and _can_replace(c, over, slots)),
             ))
-            break  # critical wins; the two tiers are mutually exclusive
+            break  # a beaten starter wins; the tiers are mutually exclusive
 
     # One row per candidate, at the slot where he does the most good. Without this a
     # superflex league reports the same free-agent quarterback at ``OP`` and again at
@@ -1105,7 +1123,7 @@ def upgrades(pool: Sequence[dict], roster: Sequence[dict], slots: Dict[str, int]
     # Ordered before deduplicating, so a candidate who is critical somewhere keeps
     # his critical row even when a depth slot shows a wider gap.
     ordered = sorted(found,
-                     key=lambda u: (u.severity != UPGRADE_CRITICAL, -u.margin))
+                     key=lambda u: (UPGRADE_ORDER.index(u.severity), -u.margin))
     seen, kept = set(), []
     for upgrade in ordered:
         if upgrade.best.get("player_id") in seen:
