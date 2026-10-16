@@ -414,7 +414,7 @@ def render_sidebar_health(selection) -> None:
     viewer = auth.current_viewer()
     with st.sidebar:
         _render_freshness(selection.meta, selection.season, selection.display_name)
-        _render_coverage(selection.meta)
+        _render_coverage(selection.meta, selection.week)
 
         built = store.list_leagues(selection.season)
         _render_missing_leagues(viewer, configured_leagues(),
@@ -481,7 +481,38 @@ COVERAGE_LABELS = {"FP": "FantasyPros", "SHARP": "Sharp books", "SQUARE": "Squar
                    "ATH": "The Athletic", "USG": "TOMCAT"}
 
 
-def _render_coverage(meta: dict) -> None:
+def coverage_for_week(meta: dict, week: Optional[int]) -> tuple:
+    """The coverage numbers the panel shows, and whether they are for ``week``.
+
+    The selected week's own entry when the store has one, because a season-wide
+    share divides a source by every week in the frame -- the sharp books, which
+    began in week 6, read 8.6% season-wide on Winfield while pricing 91 of 112
+    startable skill players that week. Falls back to the season-wide numbers for a
+    store built before ``by_week`` existed, or a week it does not hold.
+
+    Args:
+        meta: The store's ``meta.json``.
+        week: The toolbar's week, or None.
+
+    Returns:
+        tuple: ``(shown, population, week_or_none)``. ``shown`` maps source to
+        percent and is empty when there is nothing to show; ``week_or_none`` is the
+        week the numbers are for, or None when they are season-wide.
+    """
+    coverage = meta.get("coverage") or {}
+    entry = ((coverage.get("by_week") or {}).get(str(int(week)))
+             if week is not None else None)
+    if entry and entry.get("players"):
+        population = dict(coverage.get("population") or {})
+        population.update({k: entry[k] for k in ("rows", "rostered", "free_agents")
+                           if k in entry})
+        return entry["players"], population, int(week)
+    players = coverage.get("players") or {}
+    return (players or coverage.get("overall") or {},
+            coverage.get("population") or {}, None)
+
+
+def _render_coverage(meta: dict, week: Optional[int] = None) -> None:
     """Per-source projection coverage, so a dead source cannot hide.
 
     The blend imputes a missing source from the ESPN/FantasyPros mean, which
@@ -500,17 +531,22 @@ def _render_coverage(meta: dict) -> None:
     counted as always real. A store built before that fix has no ``players`` key and
     falls back to the old number rather than showing nothing.
 
+    **Answers for the toolbar's week** where the store carries ``by_week`` -- see
+    :func:`coverage_for_week`.
+
     Args:
         meta: The store's ``meta.json``.
+        week: The selected week.
     """
     coverage = meta.get("coverage") or {}
     players = coverage.get("players") or {}
-    shown = players or coverage.get("overall") or {}
+    shown, population, for_week = coverage_for_week(meta, week)
     if not shown:
         return
 
     st.divider()
-    st.caption("Projection Sources (% of Players With a Real Line)" if players
+    scope = f"Week {for_week}" if for_week is not None else "Season"
+    st.caption(f"Projection Sources, {scope} (% of Players With a Real Line)" if players
                else "Projection Sources (% Real, Not Imputed)")
 
     ordered = [s for s in COVERAGE_ORDER if s in shown]
@@ -521,17 +557,17 @@ def _render_coverage(meta: dict) -> None:
         st.progress(min(max(pct / 100.0, 0.0), 1.0),
                     text=f"{COVERAGE_LABELS.get(source, source)} {pct:.0f}%")
 
-    population = coverage.get("population") or {}
     if players and population.get("rows"):
         rostered = population.get("rostered")
         per_position = population.get("free_agents_per_position")
-        detail = f"{population['rows']} players"
+        detail = (f"{population['rows']} quarterbacks, backs, receivers and "
+                  f"tight ends")
         if rostered is not None and per_position:
-            detail = (f"{population['rows']} players — {rostered} rostered plus the "
-                      f"top {per_position} free agents at each position")
+            detail += (f" — {rostered} rostered plus the top {per_position} free "
+                       f"agents at each position")
         st.caption(
-            f"Measured over {detail}. Individual defensive players are excluded: no "
-            f"source but ESPN publishes a line for them."
+            f"Measured over {detail}. Kickers, D/STs and individual defenders are "
+            f"left out: most sources publish no line for them."
         )
 
     absent = [name for name, present

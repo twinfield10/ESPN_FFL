@@ -217,6 +217,17 @@ def test_meta_carries_player_coverage_beside_the_cell_coverage(lineups):
     assert coverage["players"]["PINNY"] == pytest.approx(0.0)
 
 
+def test_meta_carries_player_coverage_for_each_week(lineups):
+    """The sidebar answers for the toolbar's week. A season-wide share divides a
+    source that began in week 6 by five weeks it did not exist for."""
+    store.write_league_store(2026, "knights_ffl", lineups=lineups)
+    by_week = store.read_meta(2026, "knights_ffl")["coverage"]["by_week"]
+    assert sorted(by_week) == ["1", "2"]
+    assert by_week["1"]["rows"] == 2
+    assert by_week["2"]["rows"] == 1
+    assert by_week["2"]["players"]["ESPN"] == pytest.approx(100.0)
+
+
 # --- the coverage population ---------------------------------------------
 
 @pytest.fixture
@@ -250,6 +261,20 @@ def test_the_coverage_denominator_is_rostered_plus_the_top_free_agents(
     assert population["rostered"] == 1
     assert population["free_agents"] == 20
     assert population["free_agents_per_position"] == 20
+
+
+def test_kickers_and_defences_are_excluded_from_the_coverage_denominator(
+        lineups_with_owners):
+    """The panel is measured where the sources compete: QB/RB/WR/TE."""
+    extra = pd.DataFrame([
+        {"week": 1, "team_owner": "Tommy", "primaryPosition": pos,
+         "player_name": f"Rostered {pos}", "ESPN_rushingYards": 0.0,
+         "ESPN_Points": 8.0, "TRUE_Points": 8.0} for pos in ("K", "D/ST")])
+    store.write_league_store(2026, "knights_ffl",
+                             lineups=pd.concat([lineups_with_owners, extra]))
+    population = store.read_meta(2026, "knights_ffl")["coverage"]["population"]
+    assert population["rostered"] == 1       # only the receiver
+    assert population["positions"] == ["QB", "RB", "WR", "TE"]
 
 
 def test_idp_rows_are_excluded_from_the_coverage_denominator(lineups_with_owners):
