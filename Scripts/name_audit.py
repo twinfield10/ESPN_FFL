@@ -526,7 +526,7 @@ def espn_universes(season: int, root: Optional[Path] = None
 #: Every source that joins by name, how to read its names, and which discipline
 #: its pipeline joins under.
 #:
-#: The weekly three are read *through their own loaders* -- ``clean_pinny`` and
+#: The weekly sources are read *through their own loaders* -- ``clean_pinny`` and
 #: ``clean_bol`` apply their rename maps first -- so the audit measures the join
 #: that ships rather than the file on disk. Auditing the raw file instead would
 #: report every entry those maps already fix.
@@ -585,6 +585,13 @@ def source_readers() -> List[Tuple[str, str, str, Callable[[int], pd.DataFrame]]
     def bol_weekly(season: int) -> pd.DataFrame:
         return _named(pu.clean_bol(season=season))
 
+    def book_weekly(book_dir: str, label: str) -> Callable[[int], pd.DataFrame]:
+        """One of :data:`Scripts.projection_utils.NEW_WEEKLY_BOOKS`, read through
+        ``clean_book_props`` -- the loader the weekly blend uses."""
+        def load(season: int) -> pd.DataFrame:
+            return _named(pu.clean_book_props(book_dir, label, season))
+        return load
+
     def pinny_season(season: int) -> pd.DataFrame:
         return _named(pd.read_parquet(season_dir(
             "Pinnacle", season, "Pinnacle_SeasonProps.parquet", create=False)))
@@ -622,7 +629,7 @@ def source_readers() -> List[Tuple[str, str, str, Callable[[int], pd.DataFrame]]
             "Usage", season, "Usage_SeasonProjections.parquet", create=False)),
             column="full_name")
 
-    # The weekly four are JOIN_NORMALISED rather than JOIN_RAW, and the reason is
+    # The weekly sources are JOIN_NORMALISED rather than JOIN_RAW, and the reason is
     # `align_to_espn_names`: `clean_lineups` still merges on the raw string, but it
     # rewrites every source name to ESPN's spelling of that player first, so a
     # difference `normalise_name` can bridge no longer costs the join. Before that
@@ -633,6 +640,11 @@ def source_readers() -> List[Tuple[str, str, str, Callable[[int], pd.DataFrame]]
         ("Pinnacle weekly", "weekly", JOIN_NORMALISED, pinny_weekly),
         ("BetOnline weekly", "weekly", JOIN_NORMALISED, bol_weekly),
         ("The Athletic weekly", "weekly", JOIN_NORMALISED, athletic_weekly),
+        # The four prop books added 2026-10-13. Unaudited until 2026-10-16, when a
+        # hand sweep had to cover them; they join through `align_to_espn_names`
+        # like the rest.
+        *[(f"{label} weekly", "weekly", JOIN_NORMALISED, book_weekly(book_dir, label))
+          for _, book_dir, label in pu.NEW_WEEKLY_BOOKS],
         ("FantasyPros season", "season", JOIN_NORMALISED, fp_season),
         ("FantasyPros ROS", "season", JOIN_NORMALISED, fp_ros),
         ("Pinnacle season", "season", JOIN_NORMALISED, pinny_season),
