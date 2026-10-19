@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch: {}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest
+
+      # config.yaml is gitignored (it holds credentials); the example has the same shape.
+      - name: Use example config
+        run: cp config.example.yaml config.yaml
+
+      # Tests that need a populated Data/ or the real league config are listed in
+      # tests/ci_deselect.txt. pytest.ini already deselects the `live` marker.
+      - name: Run tests
+        run: |
+          args=()
+          while IFS= read -r node; do
+            [[ -z "$node" || "$node" == \#* ]] && continue
+            args+=("--deselect=$node")
+          done < tests/ci_deselect.txt
+          pytest \
+            --ignore=tests/test_ros.py \
+            --ignore=tests/test_scrape_fp.py \
+            "${args[@]}"
