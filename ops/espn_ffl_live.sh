@@ -46,6 +46,8 @@ set -uo pipefail
 NIGHTLY="/Users/tommywinfield/GitRepos/ESPN_FFL-nightly"
 PYTHON="/usr/local/bin/python3.11"
 LOG="${HOME}/logs/espn_ffl_live.log"
+# Touched on the closed-gate exit, the one path that writes nothing. See below.
+HEARTBEAT="${HOME}/logs/espn_ffl_live.heartbeat"
 
 mkdir -p "$(dirname "${LOG}")"
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >>"${LOG}"; }
@@ -111,6 +113,14 @@ REV="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 GATE=$?
 if [ "${GATE}" -eq 3 ]; then
   # Not an error: most of the week there is no football on.
+  #
+  # But it is silent, and it is most of the week -- so from Tuesday to Thursday
+  # the log does not move whether this job is firing or not, which is the same
+  # "stops answering, output looks normal" shape as the lock above. The heartbeat's
+  # mtime says the gate was asked and answered "closed" (OpsView reads it). A log
+  # line here instead would be 144 lines a day of nothing. Only on exit 3: a broken
+  # gate logs FAILED below, and a run that never gets this far touches nothing.
+  touch "${HEARTBEAT}"
   exit 0
 elif [ "${GATE}" -ne 0 ]; then
   log "FAILED: Scripts.game_state --if-live exited ${GATE} -- the gate is broken, not closed. Nothing was refreshed."
