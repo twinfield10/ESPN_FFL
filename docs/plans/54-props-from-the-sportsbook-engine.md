@@ -2,7 +2,13 @@
 
 **Status:** IN PROGRESS
 
-**Where it stands:** Evidence gathered 2026-10-21, nothing built. The engine
+**Where it stands:** **Phase 1 built 2026-10-21.** `Scripts/books/engine.py` reads the
+engine into a shadow every night (nightly stage 2g, non-fatal), and `--compare` scores it.
+Measured the same day against the mini's own scrapes, through the same `project_book`:
+**FanDuel's projections are identical** (median gap 0.0 on every stat, weeks 6 and 7),
+Novig and 4Casters are within 0.01-0.4%, and **BetOnline fails G1**, because the
+engine's widget walk captured yardage props for only 4 of week 7's 14 games (see
+[Phase 1 findings](#phase-1-findings-2026-10-21)). The engine
 (`~/GitRepos/SportsbookScrapers`, publishing to `s3://tmw-sportsbook-data`) already carries
 every prop this repo scrapes for FanDuel, Novig, 4Casters and BetOnline, rung for rung and
 usually wider. Its owner mapped this repo on 2026-10-16 in
@@ -98,6 +104,12 @@ report will replace them with `python -m Scripts.books.engine --compare`.
 - Our BetOnline raw rows store ladder rungs with `type = "1"` (the widget's condition
   code), not `"Over"`. That's harmless today, but the adapter must write `"Over"`, and
   `project_stat` should be checked for depending on `"1"`.
+- `is_alternate` is **false on every NFL prop row at every book**. The contract says
+  it marks every rung but the book's main line.
+- The contract says "was the market still up?" comes from the listing spells, but
+  neither their location (`spells/`, `state/<book>/<sport>/spells.parquet`) nor their
+  schema is in it, and `sportsbook.read.board()` doesn't apply them. Every consumer of
+  `board()` gets the delisted series described under Phase 1 findings.
 
 ---
 
@@ -108,7 +120,8 @@ s3://tmw-sportsbook-data/lines/NFL/props/season=S/date=D/   (changes only, UTC)
 s3://tmw-sportsbook-data/lines/NFL/odds/season=S/date=D/
         │  scan: season = S, date ≥ the week's first capture; check _contract.json major = 1
         ▼
-as-of board at T (the nightly's start): last row per series, GAME, not in-play
+as-of board at T (the nightly's start): last row per series, GAME, not in-play,
+        │  and only series a listing spell covers at T (spells/ closed + state/ open)
         │
         ├─▶ props → RAW_SCHEMA per book  → Data/Projections/<Dir>/Season/S/Raw/<Dir>_Raw_Week_W_<T>.parquet
         │     book: LowVig→BetOnline, 4Casters→FourCasters, FanDuel, Novig (+ Bovada, Kalshi, Polymarket)
@@ -134,19 +147,20 @@ as-of board at T (the nightly's start): last row per series, GAME, not in-play
 - **Book lists come from the data** (the engine's transition rule 1). The new books are
   written to their own `Dir`s and prefixes, and their pool membership is a constant set by
   measurement (Decision 3), not by which scrapers exist.
-- **Freshness gate.** If a book's newest `captured_at` in the scan is over 12 hours older
-  than `T`, it's withheld for that run and reported, the way plan 52 withdraws a dark
-  book. This matters because a changes-only table never goes "empty": a dead collector
-  looks like a quiet market. The engine's `polls/` listing is the evidence a book was
-  actually asked.
+- **Freshness gate.** If a book's last poll (the newest `last_seen` among its spells)
+  is over 12 hours older than `T`, it's withheld for that run and reported, the way plan
+  52 withdraws a dark book. This matters because a changes-only table never goes
+  "empty": a dead collector looks like a quiet market.
 
 ---
 
 ## Phases and gates
 
 **Phase 1: build the adapter, shadow only.** The nightly keeps scraping. After stage 2f, it
-also runs the adapter into a shadow directory (`Data/Projections/_engine/...`) and
-writes `engine_shadow.json`. Nothing reads the shadow.
+also runs the adapter into `Data/Engine/Shadow/<Dir>/Season/<s>/`, with the same file
+names as the real books, and appends the run to `Data/Engine/Shadow/engine_shadow.json`:
+each book's age at `T`, outcome, and the agreement table. Nothing reads the shadow, and
+it's outside `Data/Projections/`, so `Scripts.sync` doesn't mirror it.
 - **G1, coverage.** On every night of a full week, including one Sunday, the adapter's
   `(player, stat)` set covers ≥ 99% of the scrape's for FanDuel, Novig and 4Casters, and
   ≥ 95% for BetOnline. The BetOnline bar is lower because of the widget-walk timing.
@@ -157,6 +171,29 @@ writes `engine_shadow.json`. Nothing reads the shadow.
 - **G3, the board.** `SHARP_` and `SQUARE_` per stat, then `TRUE_Points`, for the same
   population. Any player moving > 1 point is explained, by timing, a rung or a name,
   before the switch.
+
+### Phase 1 findings (2026-10-21)
+
+**The spell filter isn't optional.** On week 6's last pre-kickoff board, 511 of FanDuel's
+7,262 series (7%) and 1,164 of Novig's 9,276 (12.5%) had been delisted. Unfiltered,
+137 FanDuel player-stats show two main lines, because the line moved and nothing closed
+the old series. Filtered, that number is **0**.
+
+**`project_book` on the engine's raw vs our own raw, same moment** (median `|gap|` / mean,
+players both have):
+
+| Book | Week 6 (Sun 06:07 ET) | Week 7 (Wed 12:06 ET) | Coverage of our player-stats |
+|---|---|---|---|
+| FanDuel | 0.0 on every stat | 0.0 on every stat | 100% (wk 6), 93-100% (wk 7) |
+| Novig | 0.2-0.8% | 0.01-0.2% | 97.5-100% |
+| 4Casters | 0.01-0.6% | — | 93-99% |
+| BetOnline | — | 0.05-1.1% where present | **39-62%** for yards and attempts, 100% for TDs |
+
+**BetOnline's gap is the engine's DST walk, not the adapter.** Week 7's listed board has
+LowVig receiving-yard props for 4 games (GB-DET, KC-SEA, NE-CHI, PIT-NO), while our walk
+had players from 22 teams. Whole games are missing, so it's tile coverage in
+SportsbookScrapers' `lowvig_dst` fetch. It's reported there. BetOnline stays our own
+scrape until G1 passes.
 
 **Phase 2: switch the weekly props.** Stage 2e (`scrape_BOL`) and 2f
 (`weekly_props --book all`) become `python -m Scripts.books.engine --week W` plus

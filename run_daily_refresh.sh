@@ -542,6 +542,22 @@ the blend's market consensus abstains where no book has a line. Check: ${PYTHON}
 Scripts.books.weekly_props --book all --dry-run"
 fi
 
+# --- 2g. The same books from the sportsbook engine, in shadow --------------------
+# Added 2026-10-21 (docs/plans/54-props-from-the-sportsbook-engine.md, phase 1). Reads
+# s3://tmw-sportsbook-data as of now and writes Data/Engine/Shadow/, which nothing in
+# the blend reads and Scripts.sync does not mirror. It runs straight after 2e-2f so
+# the two sources are compared at nearly the same moment; `--compare` scores them.
+# Never fatal: phase 1 is measurement, and a missing shadow costs one night of it.
+log "reading the sportsbook engine into the shadow (plan 54)"
+if "${PYTHON}" -m Scripts.books.engine --season "${SEASON}" --week "${WEEK}" \
+    >>"${LOG}" 2>&1; then
+  log "engine shadow: ok"
+else
+  log "NOTE: the engine shadow read failed or projected no book (the log above says \
+which). Not fatal -- nothing reads the shadow yet. Check: ${PYTHON} -m \
+Scripts.books.engine --dry-run"
+fi
+
 # --- 3. Re-project the usage head ---------------------------------------
 # Reads the fresh depth chart and roster. Refits only if the stored model is stale;
 # otherwise it reloads the fitted coefficients and re-predicts, which is what makes

@@ -396,15 +396,19 @@ def archive_raw(raw: pl.DataFrame, book_dir: str, season: int, week: int) -> Non
     raw.write_parquet(path)
 
 
-def reconcile(book_dir: str, projected: pl.DataFrame, season: int) -> pl.DataFrame:
+def reconcile(book_dir: str, projected: pl.DataFrame, season: int,
+              path=None) -> pl.DataFrame:
     """Merge a fresh pull into the season file, the latest pull winning per player-week.
 
     Keyed on ``(week, player_name)`` alone -- not on position as BetOnline's is --
     because an inferred position can change between pulls as a book posts more of a
     player's markets, and keying on it would keep both rows and double the player at
     the blend's merge.
+
+    ``path`` overrides the season file, which is how ``Scripts.books.engine`` writes
+    its shadow copy (plan 54) without the blend ever reading it.
     """
-    path = season_file(book_dir, season)
+    path = season_file(book_dir, season) if path is None else path
     combined = projected
     if path.exists():
         existing = pl.read_parquet(path)
