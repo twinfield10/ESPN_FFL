@@ -209,3 +209,23 @@ def test_a_future_contract_major_is_refused():
 
     with pytest.raises(en.EngineError, match="2.0"):
         en.check_contract(Client())
+
+
+def test_series_age_reads_each_series_last_poll_not_the_books_newest():
+    """LowVig's two collectors: an hourly sportsbook poll and a widget walked four times
+    a day. The book's newest poll is minutes old; its ladder is not."""
+    line = [prop("LowVig", "receptions", "P", 6.5, s, -110) for s in ("over", "under")]
+    ladder = [prop("LowVig", "receptions", "P", 8.5, "over", 200)]
+    spells = pl.concat([spells_for(line, last_seen=T - timedelta(minutes=10)),
+                        spells_for(ladder, last_seen=T - timedelta(hours=4))])
+    board = en.listed_board(frame(line + ladder), spells, T)
+    assert en.book_age_hours(spells, T)["LowVig"] == pytest.approx(10 / 60)
+    ages = en.series_age_hours(board, T)["LowVig"]
+    assert ages["max"] == pytest.approx(4.0)
+    assert ages["p50"] == pytest.approx(10 / 60, abs=0.01)  # rounded to 0.01h
+
+
+def test_a_series_seen_after_t_counts_as_fresh():
+    rows = [prop("FanDuel", "receptions", "P", 6.5, "over", -110)]
+    board = en.listed_board(frame(rows), spells_for(rows, last_seen=T + timedelta(hours=2)), T)
+    assert en.series_age_hours(board, T)["FanDuel"]["max"] == 0.0
