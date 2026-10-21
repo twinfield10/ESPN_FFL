@@ -152,7 +152,7 @@ and 7 are pure functions with fixture sitemaps and fixture HTML under `tests/`, 
 ## Running on the Mac mini
 
 The nightly runs on the mini. Interactive work happens on the MacBook. Everything in this
-section is done **on the mini, over Screen Sharing**.
+section is done **on the mini, over SSH** (`ssh mini.local`).
 
 **A visible browser window needs a logged-in desktop session.** A job started by `cron`
 runs outside the desktop session, and a visible Chromium window launched from it isn't
@@ -164,15 +164,18 @@ separate decision.
 
 The mini needs:
 
-- **Automatic login** for the user who owns the job (System Settings → Users & Groups),
-  so a reboot doesn't leave the machine with no session. A locked screen or a sleeping
-  display is probably fine, but G0 has to confirm it.
-- **Playwright's Chromium**, installed with whichever Python the mini's nightly
-  uses. Check that first rather than assuming `/usr/local/bin/python3.11`:
-  `<that python> -m playwright install chromium`.
-- `ops/com.espn_ffl.athletic_fetch.plist`, tracked in the repo and copied to
-  `~/Library/LaunchAgents/`, the same pattern as `ops/espn_ffl_nightly.sh`. It runs
-  inside the `ESPN_FFL-nightly` worktree, so the code is always the reviewed `origin/main`.
+- **The user logged in at the desktop.** FileVault is on, so automatic login isn't
+  available, and it isn't needed either: after a reboot nothing runs until the
+  FileVault password is typed, and typing it logs the user in. See the runbook.
+- **Playwright's Chromium** for `/usr/local/bin/python3.11`, the interpreter
+  `run_daily_refresh.sh` pins. It was already installed on 2026-10-21.
+- `ops/com.espn_ffl.athletic_fetch.plist`, copied to `~/Library/LaunchAgents/` and
+  bootstrapped into `gui/501`, running `ops/espn_ffl_athletic_fetch.sh` from `~/bin`
+  inside the `ESPN_FFL-nightly` worktree. Installed over SSH on 2026-10-21. The
+  launchd mechanics worked: the job ran in the session, resolved week 7 from the mini's
+  current schedule, and the browser opened with the display asleep. The page returned
+  403, but that was about 30 minutes after the MacBook's burst from the same public
+  IP, so it isn't counted. G0's first run that counts is 2026-10-22 05:45.
 
 **The schedule (open, see below):** daily at 05:45, ahead of the nightly, which picks up
 Wednesday's upload on Thursday morning before the Thursday night game. Game-day pulls
@@ -183,8 +186,9 @@ come on top of that.
 ## Gates
 
 - **G0 — headed fetch works on the mini, as scheduled, at one load a day.**
-  `launchctl kickstart` the agent with the screen locked and the display asleep, and
-  check that it reads the week-7 href and that the file's SHA-256 matches
+  The scheduled 05:45 run, with the display asleep and nothing else loading the site
+  from the home IP that day. Each run must read the week's href, so `--status` shows
+  `unchanged` or `imported` and never `failed`. For week 7 the file's SHA-256 is
   `0fb8fa0a…d920c8`. It must pass from the LaunchAgent, not from a Terminal window, and
   keep passing for a week of daily runs. Given the 403s on 2026-10-21, a single pass
   doesn't count. **If it fails, the browser hop is retired** and `--href` is the

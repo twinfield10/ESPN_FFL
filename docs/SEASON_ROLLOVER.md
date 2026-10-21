@@ -287,44 +287,62 @@ themselves. See [Injuries: before the draft](#injuries-before-the-draft).
 `ops/espn_ffl_athletic_fetch.sh` runs `Scripts.fetch_athletic --push` at 05:45 from a
 **LaunchAgent**, not cron, because the article returns 403 to headless Chromium and a
 visible window needs the login session. [Plan 53](plans/53-athletic-weekly-fetch.md)
-has the evidence. Everything below is done **on the mini, over Screen Sharing**, as
-the user the nightly runs as.
+has the evidence. **All of it is done over SSH** (`ssh mini.local`, as
+`tommywinfield`). The one requirement is that the user is logged in at the mini's
+desktop, because that's the session the agent runs in and the window opens in. It was
+first installed this way on 2026-10-21.
 
 ```bash
+cd ~/GitRepos/ESPN_FFL-nightly
+
 # 0. The interpreter the nightly uses (run_daily_refresh.sh pins it) needs Chromium.
 /usr/local/bin/python3.11 -m playwright --version          # 1.57.0, from requirements.txt
 /usr/local/bin/python3.11 -m playwright install chromium
 
 # 1. The code is in the nightly checkout once it's on origin/main. Normally the 06:00
-#    run pins it; to get it today:
-git -C ~/GitRepos/ESPN_FFL-nightly fetch origin main && git -C ~/GitRepos/ESPN_FFL-nightly reset --hard FETCH_HEAD
+#    run pins it; to get it today (check `pgrep -fl Scripts.` is empty first):
+git fetch -q origin main && git reset -q --hard FETCH_HEAD
 
-# 2. A visible-window run by hand, before scheduling anything. A Chromium window opens
-#    and closes; expect "link https://static01.nyt.com/...".
-cd ~/GitRepos/ESPN_FFL-nightly && /usr/local/bin/python3.11 -m Scripts.fetch_athletic --dry-run
+# 2. Is there a desktop session? Expect a console line for the user.
+who | grep console
 
-# 3. Install the wrapper and the agent.
-cp ops/espn_ffl_athletic_fetch.sh ~/bin/espn_ffl_athletic_fetch.sh
-chmod +x ~/bin/espn_ffl_athletic_fetch.sh
+# 3. Install the wrapper and the agent, into that session's launchd domain.
+cp ops/espn_ffl_athletic_fetch.sh ~/bin/ && chmod +x ~/bin/espn_ffl_athletic_fetch.sh
 cp ops/com.espn_ffl.athletic_fetch.plist ~/Library/LaunchAgents/
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.espn_ffl.athletic_fetch.plist
+launchctl print gui/$(id -u)/com.espn_ffl.athletic_fetch | grep -E 'state|Hour|Minute'
 
-# 4. Fire it once through launchd -- not Terminal -- with the screen locked, which is
-#    what 05:45 looks like. Over Screen Sharing you can't type once it's locked, so
-#    delay it, then lock with ctrl-cmd-Q inside the minute. Unlock and read the log.
-(sleep 60 && launchctl kickstart gui/$(id -u)/com.espn_ffl.athletic_fetch) &
-tail -20 ~/logs/espn_ffl_athletic.log
+# 4. Fire it once through launchd, with the display asleep -- what 05:45 looks like.
+pmset displaysleepnow
+launchctl kickstart gui/$(id -u)/com.espn_ffl.athletic_fetch
+sleep 60; tail -12 ~/logs/espn_ffl_athletic.log
 ```
 
-Also in System Settings → Users & Groups, set **Automatically log in as** to this user.
-Without it, a reboot (a macOS update, a power cut) leaves no session and every run
-fails until someone logs in. Display sleep is fine to leave on. Step 4 is how you find
-out whether a locked screen is.
+**Don't test with `--dry-run` straight from the SSH shell.** A visible browser started
+there can't reach the desktop session, so it fails for reasons that have nothing to do
+with NYT. Step 4 goes through `launchctl` so it runs where 05:45 does. If `bootstrap`
+answers `5: Input/output error`, rerun it with `sudo`.
+
+**Don't count a 403 that comes right after test loads from the same network.** The
+MacBook and the mini share a public IP, and a burst of loads from either one blocks
+both. The 2026-10-21 install's step 4 got a 403 about 30 minutes after one, so G0's
+first run that counts was the next 05:45.
+
+**FileVault is on, so there's no automatic login, and none is needed.** After a reboot
+nothing runs until the FileVault password is typed at the mini: not the nightly, not
+SSH, not this agent. Typing it also logs the user in to the desktop, so one unlock
+brings back the session both jobs need. The only gap is a **logout** without a reboot:
+the nightly carries on and this agent doesn't, which shows up as `failed` in
+`--status` and, after eight days, as the `ATH weekly` warning. For a planned restart
+(a macOS update), `sudo fdesetup authrestart` skips the FileVault screen once, so the
+mini comes back without anyone at it.
 
 **The one-command check**, any morning:
 
 ```bash
 python -m Scripts.fetch_athletic --status      # last_run, the last 60 outcomes, each imported week
+# from the MacBook:
+ssh mini.local 'cd ~/GitRepos/ESPN_FFL-nightly && /usr/local/bin/python3.11 -m Scripts.fetch_athletic --status'
 ```
 
 `runs` reads `... unchanged` most days, `... imported` after an upload,
