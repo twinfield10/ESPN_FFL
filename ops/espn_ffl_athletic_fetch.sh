@@ -18,7 +18,10 @@
 # outside the login session, where a window is not guaranteed to open. A LaunchAgent
 # runs inside it (gui/<uid>). That makes two requirements of the Mac mini:
 #
-#   * automatic login for this user, so a reboot does not leave no session, and
+#   * this user logged in at the desktop. FileVault is on, so there is no automatic
+#     login -- but after a reboot nothing runs until the FileVault password is typed,
+#     and typing it logs the user in. Only a logout leaves the nightly running and
+#     this agent not; and
 #   * the agent loaded in that session -- `launchctl bootstrap gui/$(id -u) ...`.
 #
 # Why 05:45. Fifteen minutes ahead of the 06:00 nightly, which reads the Athletic file
