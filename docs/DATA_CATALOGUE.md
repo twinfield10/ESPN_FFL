@@ -37,6 +37,7 @@ bound it.
 | nflverse | `Data/NFL/` | `nfl/` |
 | Projections | `Data/Projections/<source>/` | `projections/` |
 | Scoring, injuries | `Data/Scoring/`, `Data/Injuries/` | `scoring/`, `injuries/` |
+| Engine cache and shadow | `Data/Engine/` | — (a read cache of `s3://tmw-sportsbook-data`, and plan 54's shadow; not mirrored) |
 
 `Data/Equivalence/` is in neither git nor S3. It is before/after debug snapshots from
 the espn-api 0.46.0 migration — evidence about a bug that is fixed, not live data.
@@ -309,8 +310,9 @@ current-week-only file would blank that source for prior weeks retroactively.
 | **Usage** | The season model's own stat lines | Current |
 | **FantasyPros** | Weekly and season projections (`week=draft` gives season lines) | Working |
 | **FantasyPros ROS** | A rest-of-season *consensus ranking* — `pos_rank`, `rank_ecr`, the expert spread, and `r2p_pts` — for QB/RB/WR/TE/K/D/ST, from `/nfl/rankings/ros-<pos>.php` | Working, and **not a blend source**. It supplies an ordering, never a level: `r2p_pts` is a total over *FantasyPros'* assumed games and is denominated in STD, and `total_experts` is 2–3. **No IDP at all.** The file appends a dated capture each night because nothing archives what a consensus said in a past week. `python -m Scripts.scrape_FP --what ros` ([plan 49](plans/49-rest-of-season-waivers.md)) |
-| **The Athletic** | Season stat lines for ~430 offensive players plus his hand ranking of 290 of them, and — since 2026-09-09 — a weekly slate of 232 offensive players in nine stats | **Manual, twice** — two paid `.xlsx` downloads with no API, imported by `python -m Scripts.load_athletic --what season\|weekly`. Nothing refreshes either; `Scripts.refresh_status` reports both ages, the weekly one on an eight-day clock because a weekly workbook is correctly days old. One season import writes both season files, so the ranking cannot go stale beside fresh projections. The weekly file is cumulative over every week imported and the newest download wins for the week it names ([plan 47](plans/47-athletic-weekly.md)) |
+| **The Athletic** | Season stat lines for ~430 offensive players plus his hand ranking of 290 of them, and — since 2026-09-09 — a weekly slate of 232 offensive players in nine stats | **Season manual; weekly fetched** — the weekly slate by `python -m Scripts.fetch_athletic` since 2026-10-21 ([plan 53](plans/53-athletic-weekly-fetch.md)); otherwise paid `.xlsx` downloads with no API, imported by `python -m Scripts.load_athletic --what season\|weekly`. Nothing refreshes either; `Scripts.refresh_status` reports both ages, the weekly one on an eight-day clock because a weekly workbook is correctly days old. One season import writes both season files, so the ranking cannot go stale beside fresh projections. The weekly file is cumulative over every week imported and the newest download wins for the week it names ([plan 47](plans/47-athletic-weekly.md)) |
 | **Pinnacle** | Sportsbook props, weekly and season | Working, Selenium |
+| **Engine shadow** | The same weekly prop books, read from `s3://tmw-sportsbook-data` and projected by the same `project_book`, plus Bovada, Kalshi and Polymarket | **Shadow only, not blended** ([plan 54](plans/54-props-from-the-sportsbook-engine.md)). Written nightly to `Data/Engine/Shadow/<Dir>/Season/<s>/` by stage 2g; `python -m Scripts.books.engine --compare` scores it against our own scrape, `--agreement` against Novig's fair price |
 | **BetOnline** | Sportsbook props | **Weekly is broken** — 403, their API now wants a signed header. Season props still work |
 
 ESPN is the source that is *not* here: its projections arrive with the league fetch
