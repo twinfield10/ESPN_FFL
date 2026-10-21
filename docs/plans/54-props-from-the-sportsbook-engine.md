@@ -98,7 +98,8 @@ report will replace them with `python -m Scripts.books.engine --compare`.
 | **Season-long player props** (draft board) | `R/GetSeasonProps.R`, `scrape_pinnacle_season.py` | The engine's futures tables have no player-stat markets. These stay here, and they only run while the board is warm, so nothing changes until next August. |
 | **Raw history before 2026-10-16** | `compare_props`, `Scripts/lab/market.py`, plan 52's backtest | Our `Raw/` archives stay readable. History is ours before 10/16 and the engine's after. |
 
-**Contract mismatches found, for SportsbookScrapers' owner:**
+**Contract mismatches found, filed 2026-10-21:** [#5](https://github.com/twinfield10/SportsbookScrapers/issues/5) DST coverage, [#6](https://github.com/twinfield10/SportsbookScrapers/issues/6)
+`is_alternate`, [#7](https://github.com/twinfield10/SportsbookScrapers/issues/7) spells and `board()`, [#8](https://github.com/twinfield10/SportsbookScrapers/issues/8) reference key case.
 - The contract says `reference/{sport}/...` with sport `NFL`, but the bucket has
   `reference/nfl/...` (lowercase). `reference/NFL/` is empty.
 - Our BetOnline raw rows store ladder rungs with `type = "1"` (the widget's condition
@@ -192,8 +193,8 @@ players both have):
 **BetOnline's gap is the engine's DST walk, not the adapter.** Week 7's listed board has
 LowVig receiving-yard props for 4 games (GB-DET, KC-SEA, NE-CHI, PIT-NO), while our walk
 had players from 22 teams. Whole games are missing, so it's tile coverage in
-SportsbookScrapers' `lowvig_dst` fetch. It's reported there. BetOnline stays our own
-scrape until G1 passes.
+SportsbookScrapers' `lowvig_dst` fetch, filed as [SportsbookScrapers#5](https://github.com/twinfield10/SportsbookScrapers/issues/5). BetOnline
+stays our own scrape until G1 passes.
 
 **Phase 2: switch the weekly props.** Stage 2e (`scrape_BOL`) and 2f
 (`weekly_props --book all`) become `python -m Scripts.books.engine --week W` plus
