@@ -244,7 +244,8 @@ def listed_board(props: pl.DataFrame, spells: pl.DataFrame, t: datetime) -> pl.D
 
     Returns:
         pl.DataFrame: One row per listed series, full-game markets of games not yet
-        started, not in-play.
+        started, not in-play, with the covering spell's ``last_seen`` -- the last poll
+        that actually saw the series, which :func:`series_age_hours` reads.
     """
     if props.is_empty():
         return props
@@ -254,8 +255,8 @@ def listed_board(props: pl.DataFrame, spells: pl.DataFrame, t: datetime) -> pl.D
                   .unique(subset=SERIES_KEY, keep="last", maintain_order=True))
     live = (spells.filter(pl.col("started_at") <= t,
                           pl.col("ended_at").is_null() | (pl.col("ended_at") > t))
-                  .select(SERIES_KEY).unique())
-    return board.join(live, on=SERIES_KEY, how="semi")
+                  .group_by(SERIES_KEY).agg(pl.col("last_seen").max()))
+    return board.join(live, on=SERIES_KEY, how="inner")
 
 
 def book_age_hours(spells: pl.DataFrame, t: datetime) -> Dict[str, float]:
@@ -265,6 +266,33 @@ def book_age_hours(spells: pl.DataFrame, t: datetime) -> Dict[str, float]:
     last = (spells.filter(pl.col("last_seen") <= t)
                   .group_by("book").agg(pl.col("last_seen").max()))
     return {b: (t - seen).total_seconds() / 3600.0 for b, seen in last.iter_rows()}
+
+
+def series_age_hours(board: pl.DataFrame, t: datetime) -> Dict[str, Dict[str, float]]:
+    """How stale each book's projected props are at ``t``, series by series.
+
+    :func:`book_age_hours` answers "is the collector alive" and is the gate. It cannot
+    answer "how old are the prices", because one book can have two collectors: LowVig's
+    hourly sportsbook poll keeps its newest ``last_seen`` minutes old while its ladders
+    come from the DST widget, walked four times a day, and both are ``player_prop``.
+    Each listed series' own ``last_seen`` can: a ladder last seen at the 07:52 walk is
+    four hours old at noon whatever else the book was polled for. A series seen after
+    ``t`` (a backtest reading the past) counts as zero.
+
+    Returns:
+        dict: book -> ``{"p50": h, "p90": h, "max": h}`` over its listed series in
+        :data:`STAT_MAP` markets.
+    """
+    rows = board.filter(pl.col("market").is_in(list(STAT_MAP)))
+    if rows.is_empty() or "last_seen" not in rows.columns:
+        return {}
+    hours = ((pl.lit(t) - pl.min_horizontal(pl.col("last_seen"), pl.lit(t)))
+             .dt.total_seconds() / 3600.0)
+    ages = rows.group_by("book").agg(hours.quantile(0.5).alias("p50"),
+                                     hours.quantile(0.9).alias("p90"),
+                                     hours.max().alias("max"))
+    return {b: {"p50": round(p50, 2), "p90": round(p90, 2), "max": round(mx, 2)}
+            for b, p50, p90, mx in ages.iter_rows()}
 
 
 def _decimal(price: pl.Expr) -> pl.Expr:
@@ -408,12 +436,14 @@ def run(season: int, week: int, t: Optional[datetime] = None, *, write: bool = T
     if not board.is_empty():
         board = board.filter(pl.col("game_id").is_in(sched["NFL_game_id"].to_list()))
     ages = book_age_hours(spells, t)
+    series_ages = series_age_hours(board, t)
     status: Dict = {"at": t.isoformat(timespec="seconds"), "season": season, "week": week,
                     "contract": contract, "board_series": board.height, "books": {}}
 
     for book in BOOKS:
         age = ages.get(book.engine)
-        entry = {"age_hours": None if age is None else round(age, 2), "pooled": book.pooled}
+        entry = {"age_hours": None if age is None else round(age, 2),
+                 "series_age_hours": series_ages.get(book.engine), "pooled": book.pooled}
         status["books"][book.name] = entry
         if age is None or age > MAX_AGE_HOURS:
             entry["outcome"] = "withheld"
@@ -429,8 +459,10 @@ def run(season: int, week: int, t: Optional[datetime] = None, *, write: bool = T
             continue
         projected = project_book(raw, sched, model=model, td_hold=mk.TD_OVERROUND.get(book.name))
         entry["outcome"] = "projected"
+        sa = entry["series_age_hours"] or {}
         print(f"  {book.name:<11} {raw.height:>6} prices, {entry['players']:>4} players, "
-              f"last poll {age:.1f}h before t")
+              f"last poll {age:.1f}h before t, prices {sa.get('p50', 0):.1f}h old "
+              f"(p90 {sa.get('p90', 0):.1f}h)")
         if write:
             path = shadow_file(book, season)
             raw_path = path.parent / "Raw" / f"{book.dir}_Raw_Week_{week}_{_stamp(t)}.parquet"
