@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  LaunchAgent for The Athletic weekly fetch. Tracked copy; the live one is
+  ~/Library/LaunchAgents/com.espn_ffl.athletic_fetch.plist on the Mac mini.
+  See ops/espn_ffl_athletic_fetch.sh for why this is launchd and not cron, and
+  "The Athletic fetch, on the Mac mini" in docs/SEASON_ROLLOVER.md to install it.
+
+  launchd expands no ~ and no $HOME, so every path is absolute.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.espn_ffl.athletic_fetch</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/tommywinfield/bin/espn_ffl_athletic_fetch.sh</string>
+  </array>
+
+  <!-- Daily at 05:45, ahead of the 06:00 nightly. A slot missed while asleep runs on wake. -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>5</integer>
+    <key>Minute</key>
+    <integer>45</integer>
+  </dict>
+
+  <!-- Only in the logged-in session: the browser needs a window. -->
+  <key>LimitLoadToSessionType</key>
+  <string>Aqua</string>
+
+  <key>RunAtLoad</key>
+  <false/>
+
+  <!-- The script logs to ~/logs/espn_ffl_athletic.log itself; this catches anything
+       that dies before it can, such as a missing ~/bin copy. -->
+  <key>StandardOutPath</key>
+  <string>/Users/tommywinfield/logs/espn_ffl_athletic.launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/tommywinfield/logs/espn_ffl_athletic.launchd.log</string>
+</dict>
+</plist>
