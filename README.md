@@ -599,6 +599,9 @@ Five external sources — **ESPN**, **FantasyPros**, **The Athletic**, **BetOnli
 weekly slate and joined the weekly blend it had been absent from
 (`docs/plans/47-athletic-weekly.md`). Before that the draft board had five votes and the
 weekly board four.
+The weekly slate is fetched by `Scripts/fetch_athletic.py`: a 05:45 LaunchAgent on the
+Mac mini, or `--href <copied link>` when the article page blocks the browser
+(`docs/plans/53-athletic-weekly-fetch.md`).
 
 **TOMCAT**, our own model, was the sixth from 2026-08-17 until **2026-09-07, when it was
 withdrawn from the season-long blend.** It projects every position through three

@@ -220,3 +220,12 @@ def test_href_must_be_the_cdn_xlsx(wired, href):
     with pytest.raises(fa.FetchError):
         _run(wired, href=href)
     assert wired["imports"] == []
+
+
+def test_runs_keep_a_bounded_history(wired, monkeypatch):
+    monkeypatch.setattr(fa, "RUN_HISTORY", 3)
+    for _ in range(5):
+        _run(wired)
+    runs = fa.load_status(wired["status"])["runs"]
+    assert len(runs) == 3
+    assert all(r.endswith("week 7 unchanged") for r in runs)

@@ -8,7 +8,7 @@ unreliable.** The article loaded in a visible window once, then returned 403 to 
 kind of client after about six automated loads in an hour (see
 [What happened on the first live run](#what-happened-on-the-first-live-run)). So
 `--href` is the supported path today: copy the link and the rest is automatic. Whether
-the browser hop works at one load a day from the Mac mini is G0, still unanswered.
+the browser hop works at one load a day from the Mac mini is G0, still unanswered. The LaunchAgent and wrapper are in `ops/`, and the install steps are in `docs/SEASON_ROLLOVER.md` under "The Athletic fetch, on the Mac mini". `--status` keeps the last 60 run outcomes, so the week of G0 runs can be read with one command.
 
 **What it is:** [Plan 47](47-athletic-weekly.md) made The Athletic the fifth weekly vote,
 but the slate still comes from a hand download. `docs/SEASON_ROLLOVER.md` describes it as

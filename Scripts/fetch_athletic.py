@@ -71,6 +71,9 @@ STATUS_PATH = PROJECTIONS_DIR / SOURCE / "fetch_status.json"
 #: The start of every .xlsx -- it is a zip archive.
 XLSX_MAGIC = b"PK\x03\x04"
 
+#: How many run outcomes the status file keeps.
+RUN_HISTORY = 60
+
 HTTP_TIMEOUT = 30
 PAGE_TIMEOUT_MS = 45_000
 
@@ -291,10 +294,17 @@ def record(status: Dict, season: int, week: int, outcome: str, **fields) -> Dict
 
     ``last_run`` is every run; ``weeks`` only moves on an import, so an unchanged href
     is always compared against the last one that actually reached the blend.
+    ``runs`` keeps the last :data:`RUN_HISTORY` outcomes, one line each -- G0 asks
+    whether the browser hop survives a week of daily loads, and that is a question
+    about a sequence, not the latest run.
     """
     now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
     status["last_run"] = {"at": now, "season": season, "week": week,
                           "outcome": outcome, **fields}
+    line = f"{now} week {week} {outcome}"
+    if fields.get("error"):
+        line += f" -- {fields['error']}"
+    status["runs"] = (status.get("runs", []) + [line])[-RUN_HISTORY:]
     if outcome == "imported":
         status.setdefault("weeks", {})[f"{season}-{week:02d}"] = {
             "imported_at": now, **fields}

@@ -253,13 +253,19 @@ For 2026: last draft Tue 09-08 20:30, first game Wed 09-09. See
 
 **Most of this is now nightly.** As of 2026-09-08 `run_daily_refresh.sh` runs the
 schedule, both FantasyPros pulls, the weekly Pinnacle props, the injury report, the
-boards **and** `--what lineups`. What is left by hand each week is the one thing the
-nightly cannot do: a paid download nothing can fetch.
+boards **and** `--what lineups`. What is left each week is The Athletic's slate. The
+`.xlsx` itself is public, but the link to it only appears on the week's article, and
+that page blocks scripts. [The Athletic fetch, on the Mac mini](#the-athletic-fetch-on-the-mac-mini)
+tries the page every morning, and as of 2026-10-21 whether that keeps working is
+still being tested. Until it's proven, check `--status` and, if this week isn't in,
+paste the link:
 
 ```bash
-# Download this week's Athletic slate first -- it is a paid .xlsx with no API behind
-# it, so nothing can fetch it for you. The sheet name carries the week; --week only
-# confirms it.
+# On the Mac mini. Did this morning's fetch get this week?
+python -m Scripts.fetch_athletic --status
+# If not: on the article, right-click "Projections Download Link" -> Copy Link Address.
+python -m Scripts.fetch_athletic --href '<the static01.nyt.com link>' --push
+# ...which replaces the old hand download (still works, from any file):
 python -m Scripts.load_athletic --what weekly --file ~/Downloads/Week_<n>_Proj_<MMDD>.xlsx
 python -m Scripts.refresh --all --what lineups,team_stats   # team_stats is the weekly bit
 python -m Scripts.sync --push          # publish it to S3 -- the app reads from there
@@ -275,6 +281,65 @@ anything in season: `config/injuries/<season>.yaml` is read only by the board bu
 which the nightly skips once the boards are cold, and the weekly lineups never read
 it -- ESPN, FantasyPros, The Athletic and the books each price a known absence
 themselves. See [Injuries: before the draft](#injuries-before-the-draft).
+
+### The Athletic fetch, on the Mac mini
+
+`ops/espn_ffl_athletic_fetch.sh` runs `Scripts.fetch_athletic --push` at 05:45 from a
+**LaunchAgent**, not cron, because the article returns 403 to headless Chromium and a
+visible window needs the login session. [Plan 53](plans/53-athletic-weekly-fetch.md)
+has the evidence. Everything below is done **on the mini, over Screen Sharing**, as
+the user the nightly runs as.
+
+```bash
+# 0. The interpreter the nightly uses (run_daily_refresh.sh pins it) needs Chromium.
+/usr/local/bin/python3.11 -m playwright --version          # 1.57.0, from requirements.txt
+/usr/local/bin/python3.11 -m playwright install chromium
+
+# 1. The code is in the nightly checkout once it's on origin/main. Normally the 06:00
+#    run pins it; to get it today:
+git -C ~/GitRepos/ESPN_FFL-nightly fetch origin main && git -C ~/GitRepos/ESPN_FFL-nightly reset --hard FETCH_HEAD
+
+# 2. A visible-window run by hand, before scheduling anything. A Chromium window opens
+#    and closes; expect "link https://static01.nyt.com/...".
+cd ~/GitRepos/ESPN_FFL-nightly && /usr/local/bin/python3.11 -m Scripts.fetch_athletic --dry-run
+
+# 3. Install the wrapper and the agent.
+cp ops/espn_ffl_athletic_fetch.sh ~/bin/espn_ffl_athletic_fetch.sh
+chmod +x ~/bin/espn_ffl_athletic_fetch.sh
+cp ops/com.espn_ffl.athletic_fetch.plist ~/Library/LaunchAgents/
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.espn_ffl.athletic_fetch.plist
+
+# 4. Fire it once through launchd -- not Terminal -- with the screen locked, which is
+#    what 05:45 looks like. Over Screen Sharing you can't type once it's locked, so
+#    delay it, then lock with ctrl-cmd-Q inside the minute. Unlock and read the log.
+(sleep 60 && launchctl kickstart gui/$(id -u)/com.espn_ffl.athletic_fetch) &
+tail -20 ~/logs/espn_ffl_athletic.log
+```
+
+Also in System Settings → Users & Groups, set **Automatically log in as** to this user.
+Without it, a reboot (a macOS update, a power cut) leaves no session and every run
+fails until someone logs in. Display sleep is fine to leave on. Step 4 is how you find
+out whether a locked screen is.
+
+**The one-command check**, any morning:
+
+```bash
+python -m Scripts.fetch_athletic --status      # last_run, the last 60 outcomes, each imported week
+```
+
+`runs` reads `... unchanged` most days, `... imported` after an upload,
+`... not_published` early in the week, and `... failed -- FetchError: article returned
+403` when the page blocks the browser. That last one is what G0 is watching for.
+**After a week of daily runs:** no 403s means keep it. Any 403 means retire the browser
+hop and paste the link with `--href` each week:
+
+```bash
+launchctl bootout gui/$(id -u)/com.espn_ffl.athletic_fetch
+rm ~/Library/LaunchAgents/com.espn_ffl.athletic_fetch.plist ~/bin/espn_ffl_athletic_fetch.sh
+```
+
+A failed run never stops the nightly. It uses the last import, and `refresh_status`'s
+eight-day `ATH weekly` clock is the alert you'll see in the app.
 
 ### Live scoring, which needs nothing from you
 
@@ -336,7 +401,7 @@ python -m Scripts.scrape_espn_injuries   # nightly
 python -m Scripts.refresh --all --what board    # nightly
 python -m Scripts.refresh --all --what lineups  # nightly since 2026-09-08
 python -m Scripts.scrape_BOL             # never -- permanently 403, see the warning
-python -m Scripts.load_athletic --what weekly   # never -- a paid .xlsx, no API to call
+python -m Scripts.fetch_athletic --push         # 05:45 LaunchAgent since 2026-10-21, on trial (plan 53)
 ```
 
 **`R/GetNFL.R` was the urgent one, and it is step 0 of the nightly rather than a

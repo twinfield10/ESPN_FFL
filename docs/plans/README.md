@@ -58,7 +58,7 @@ a `**Status:**` line under the plan's own title, and the section it sits in belo
 
 The two copies are checked against each other by `tests/test_plan_status.py`, so changing one and not the other fails the suite rather than going quiet — which is how 31 and 32 came to read *"not started"* while phase 1 of each sat built in an open PR.
 
-## IN PROGRESS (15)
+## IN PROGRESS (16)
 
 Partly built, with work still owed. The **Status** column says what landed; the last column says what is left.
 
