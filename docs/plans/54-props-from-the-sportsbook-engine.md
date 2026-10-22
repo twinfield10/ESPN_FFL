@@ -8,7 +8,9 @@ Measured the same day against the mini's own scrapes, through the same `project_
 **FanDuel's projections are identical** (median gap 0.0 on every stat, weeks 6 and 7),
 Novig and 4Casters are within 0.01-0.4%, and **BetOnline fails G1**, because the
 engine's widget walk captured yardage props for only 4 of week 7's 14 games (see
-[Phase 1 findings](#phase-1-findings-2026-10-21)). The engine
+[Phase 1 findings](#phase-1-findings-2026-10-21)). **Bet105 went live in Pinnacle's
+place on 2026-10-23**, ahead of phase 2, and the Selenium Pinnacle scrape retired (see
+[the Bet105 swap](#the-bet105-swap-2026-10-23)). The engine
 (`~/GitRepos/SportsbookScrapers`, publishing to `s3://tmw-sportsbook-data`) already carries
 every prop this repo scrapes for FanDuel, Novig, 4Casters and BetOnline, rung for rung and
 usually wider. Its owner mapped this repo on 2026-10-16 in
@@ -196,6 +198,57 @@ had players from 22 teams. Whole games are missing, so it's tile coverage in
 SportsbookScrapers' `lowvig_dst` fetch, filed as [SportsbookScrapers#5](https://github.com/twinfield10/SportsbookScrapers/issues/5). BetOnline
 stays our own scrape until G1 passes.
 
+### The Bet105 swap (2026-10-23)
+
+Pulled ahead of phase 2 for one book, because the Pinnacle weekly scrape was the only
+Selenium/Chrome dependency left in the nightly, and Chrome is what hung it on 2026-10-21.
+Pinnacle's game lines (`Scripts/books/pinnacle.py`) and season props
+(`scrape_pinnacle_season.py`) use the guest API with no browser, so they stay.
+
+**Measured 2026-10-22, week 7**, live board against that afternoon's Pinnacle scrape:
+
+| Stat | Pinnacle players | Also in Bet105 | Median gap |
+|---|---|---|---|
+| Passing yds / att / cmp / TD | 28 | 27 | 0 to 0.018% |
+| Receiving yds / receptions | 125 | 124 / 123 | 0 to 0.008% |
+| Rushing yds / att | 60 / 5 | 59 / 5 | 0 to 0.007% |
+
+The owed depth check came back the other way round: **Pinnacle posted no anytime
+touchdown or interception that week**, and Bet105 had 18 and 2 players. So Bet105 is
+held to Pinnacle's eight stats (`Book.stats`), and the swap is like for like. Widen
+it when there's enough depth to measure a margin on.
+
+**What changed:**
+- `engine.Book` gained `live` and `stats`. A live book is written to
+  `Data/Projections/<dir>/` (and its `Raw/`), where the blend reads it, not into the
+  shadow. Bet105 is the only live book. Stage 2g is still non-fatal: a failed read
+  costs the square pool one of five books for a night, as an empty Pinnacle scrape did.
+- `B105` is in `NEW_WEEKLY_BOOKS`, `SQUARE_BOOKS`, `WEEKLY_PREFIXES` and the
+  coverage lists. The app's SQUARE pool and `weekly_sources_present` answer to
+  `bet105` rather than `pinnacle`.
+- **`PINNY` stays in `SQUARE_BOOKS` (owner, 2026-10-22).** It carries its D/ST rows,
+  priced off Pinnacle's guest-API game lines, until phase 3 moves game lines to the
+  engine, and its prop lines for weeks 1-6. `drop_weeks_bet105_covers` drops
+  Pinnacle's lines for any week Bet105 has, so the switch week isn't voted twice.
+- `PINNY` stays in `TD_ALLOCATION_BOOKS` for the weeks it has. Bet105 isn't added,
+  because it carries no touchdowns.
+- Nightly stage 2b''' is removed, along with `Scripts/scrape_pinnacle.py`, its
+  `prop_to_stat` test and `selenium` in `requirements.txt`. `refresh_status` watches
+  `B105 weekly`, advisory as Pinnacle was.
+- `NAME_ALIASES`: `KEVIN CONCEPCION -> KC CONCEPCION`.
+
+**Gate, `winfield_football`, week 7** (2026-10-22 inputs pulled from the mirror,
+`build_league_frame` run twice: A without the Bet105 file, so Pinnacle votes; B with
+it). Of 243 week-7 players, **4 moved by more than 0.01 `TRUE_Points`, and the largest
+move was 0.02** (George Pickens, whose Bet105 receiving line sits 1 yard off the
+Pinnacle scrape, taken a few hours earlier). Weeks 1-6 are identical, because Pinnacle
+still votes there. The `SQUARE_` medians moved a median 0.0003-0.07 per stat.
+
+**Also fixed:** `engine._write_status` bound `STATUS_PATH` as a default argument, so
+the test fixture's monkeypatch never reached it, and every pytest run appended fixture
+runs to the real `Data/Engine/Shadow/engine_shadow.json` (22 on the MacBook). Clear
+them on the mini as well: they're the runs stamped `2026-10-18T10:00:00+00:00`.
+
 **Phase 2: switch the weekly props.** Stage 2e (`scrape_BOL`) and 2f
 (`weekly_props --book all`) become `python -m Scripts.books.engine --week W` plus
 `weekly_props --book draftkings` (Decision 2). `PINNY_` leaves the pools (Decision 1).
@@ -209,7 +262,8 @@ DraftKings, Novig and 4Casters had no freshness check at all.
 
 **Phase 4: retire (category H).**
 - Delete `Scripts/books/{pinnacle,betonline,fourcasters,fanduel_props,novig_props,fourcasters_props}.py`,
-  `pull.py`, `scrape_BOL.py`, `bol_widget.py` and `scrape_pinnacle.py`.
+  `pull.py`, `scrape_BOL.py` and `bol_widget.py`. (`scrape_pinnacle.py` went
+  early, with the Bet105 swap.)
   `draftkings_props.py` and the `weekly_props` driver stay until the engine carries
   DraftKings props (Decision 2).
 - Remove the `PROPS_ENV_FILES` cross-repo `.env` reads from `run_daily_refresh.sh`.
@@ -246,7 +300,8 @@ DraftKings, Novig and 4Casters had no freshness check at all.
    `--compare` measures it against the Pinnacle scrape until that scrape retires.
    Owed before it votes: an alias for "Kevin Concepcion" (Bet105's spelling of KC
    Concepcion) in `NAME_ALIASES`, and a check of anytime-TD and interception depth.
-   Bet105 had 36 and 4 rows on the first day. The trigger was practical: on
+   Bet105 had 36 and 4 rows on the first day. **Both done, and it votes from
+   2026-10-23**. See [the Bet105 swap](#the-bet105-swap-2026-10-23). The trigger was practical: on
    2026-10-21 Homebrew re-quarantined the Chrome install `scrape_pinnacle.py` drives, and
    the next nightly hung on the Gatekeeper prompt until it was approved by hand.
 2. **DraftKings props stay, as our own scrape, for now.** The owner is scoping DraftKings

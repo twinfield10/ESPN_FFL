@@ -391,27 +391,11 @@ if [ "${ROS_ROWS}" -le 60 ]; then
   fail "FantasyPros ROS returned ${ROS_ROWS} rows against a teaser threshold of 60 -- the registration fence is back, which means the session cookie in config.yaml has expired. Log in again and replace it."
 fi
 
-# --- 2b'''. Pinnacle weekly player props --------------------------------
-# **Non-fatal, deliberately, and it is the only stage here that is.**
-#
-# Plan 36 step 3 deferred retiring this Selenium path because Pinnacle had posted
-# zero weekly player props across all sixteen week-1 games. Re-probed 2026-09-08 it
-# answers: **165 props over 165 players and all 16 games, in 35 seconds**. So it goes
-# in -- but not with `|| fail`, because a book's weekly board is genuinely empty
-# some of the time (early in a week, or once it winds a market down) and an empty
-# scrape must not stop the boards rebuilding. `scrape_pinnacle` exits 1 on an empty
-# result, which is the right contract for a human running it and the wrong one for
-# cron.
-#
-# What watches it instead is `Scripts.refresh_status`, which now names every weekly
-# file. Advisory there for the same reason: a check that is red every Tuesday is one
-# nobody reads.
-log "pulling Pinnacle weekly player props"
-if "${PYTHON}" -m Scripts.scrape_pinnacle >>"${LOG}" 2>&1; then
-  log "Pinnacle weekly props: ok"
-else
-  log "NOTE: Pinnacle weekly props returned nothing or the Selenium path failed. Not fatal -- a book's weekly board is empty some of the time, and the weekly blend renormalises around an absent source. Scripts.refresh_status reports the file's age; plan 36 step 3 has the history."
-fi
+# --- 2b'''. Pinnacle weekly player props: retired 2026-10-23 ------------
+# The Selenium scrape that ran here was replaced by Bet105 from the sportsbook engine,
+# written in stage 2g (docs/plans/54-props-from-the-sportsbook-engine.md, decision 1).
+# On 2026-10-21 Homebrew re-quarantined the Chrome install it drove, and the nightly
+# hung on the Gatekeeper prompt until someone approved it by hand.
 
 # --- 2c. Pinnacle season-long player props ------------------------------
 # Added 2026-08-27. Both books that vote on the draft board were last written
@@ -542,20 +526,23 @@ the blend's market consensus abstains where no book has a line. Check: ${PYTHON}
 Scripts.books.weekly_props --book all --dry-run"
 fi
 
-# --- 2g. The same books from the sportsbook engine, in shadow --------------------
+# --- 2g. The sportsbook engine: Bet105 live, the other books in shadow -----------
 # Added 2026-10-21 (docs/plans/54-props-from-the-sportsbook-engine.md, phase 1). Reads
-# s3://tmw-sportsbook-data as of now and writes Data/Engine/Shadow/, which nothing in
-# the blend reads and Scripts.sync does not mirror. It runs straight after 2e-2f so
-# the two sources are compared at nearly the same moment; `--compare` scores them.
-# Never fatal: phase 1 is measurement, and a missing shadow costs one night of it.
-log "reading the sportsbook engine into the shadow (plan 54)"
+# s3://tmw-sportsbook-data as of now. Most books go to Data/Engine/Shadow/, which
+# nothing in the blend reads and Scripts.sync does not mirror; it runs straight after
+# 2e-2f so the two sources are compared at nearly the same moment, and `--compare`
+# scores them. **Bet105 is live from 2026-10-23**: it replaced the Pinnacle weekly
+# scrape (2b''') and is written to Data/Projections/Bet105/, where the blend reads it.
+# Still never fatal: if it fails, the square pool loses one of its five books for a
+# night, which is what an empty Pinnacle scrape did before.
+log "reading the sportsbook engine (Bet105 live, the rest in shadow; plan 54)"
 if "${PYTHON}" -m Scripts.books.engine --season "${SEASON}" --week "${WEEK}" \
     >>"${LOG}" 2>&1; then
-  log "engine shadow: ok"
+  log "engine: ok (Bet105 live, the rest in shadow; per-book outcomes above)"
 else
   log "NOTE: the engine shadow read failed or projected no book (the log above says \
-which). Not fatal -- nothing reads the shadow yet. Check: ${PYTHON} -m \
-Scripts.books.engine --dry-run"
+which). Not fatal -- the square pool votes without Bet105 tonight, and nothing reads \
+the shadow. Check: ${PYTHON} -m Scripts.books.engine --dry-run"
 fi
 
 # --- 2h. Import The Athletic's landed weekly slate ------------------------------

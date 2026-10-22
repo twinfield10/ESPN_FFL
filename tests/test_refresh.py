@@ -146,7 +146,7 @@ def test_refresh_writes_a_complete_store(fake_ingest):
     # Recorded so the app can show a degraded source rather than an ESPN-only
     # number wearing a four-source badge.
     assert set(meta["weekly_sources_present"]) == {
-        "fantasypros", "pinnacle", "betonline", "theathletic",
+        "fantasypros", "bet105", "betonline", "theathletic",
         "fanduel", "draftkings", "novig", "fourcasters"}
 
 

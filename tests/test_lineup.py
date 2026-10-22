@@ -768,7 +768,7 @@ def test_an_absent_source_is_dropped_rather_than_shown_as_agreement():
     book arrives looking unanimous rather than silent. On Knights week 1
     `PINNY_Points` and `BOL_Points` are both exactly `MEAN_Points`.
     """
-    meta = {"weekly_sources_present": {"fantasypros": True, "fanduel": False, "novig": False, "pinnacle": False, "betonline": False, "draftkings": False, "fourcasters": False}}
+    meta = {"weekly_sources_present": {"fantasypros": True, "fanduel": False, "novig": False, "bet105": False, "betonline": False, "draftkings": False, "fourcasters": False}}
     # `theathletic` is not in the metadata at all, and `real_sources` reads a missing
     # key as present -- see `test_no_metadata_assumes_present_rather_than_absent` for
     # why that default is deliberate.
@@ -776,7 +776,7 @@ def test_an_absent_source_is_dropped_rather_than_shown_as_agreement():
 
 
 def test_every_source_present_keeps_all_of_them():
-    meta = {"weekly_sources_present": {"fantasypros": True, "fanduel": True, "novig": True, "pinnacle": True, "betonline": True, "draftkings": True, "fourcasters": True, "theathletic": True}}
+    meta = {"weekly_sources_present": {"fantasypros": True, "fanduel": True, "novig": True, "bet105": True, "betonline": True, "draftkings": True, "fourcasters": True, "theathletic": True}}
     assert lu.real_sources(meta) == ["ESPN", "FP", "SHARP", "SQUARE", "ATH"]
 
 
@@ -789,7 +789,7 @@ def test_one_real_source_reports_no_spread():
     """One number cannot disagree with itself."""
     frame = pl.DataFrame([{**player("A", "RB", 10.0), "ESPN_Points": 10.0}])
     out = lu.with_source_spread(frame, {"weekly_sources_present":
-                                        {"fantasypros": False, "fanduel": False, "novig": False, "pinnacle": False, "betonline": False, "draftkings": False, "fourcasters": False}})
+                                        {"fantasypros": False, "fanduel": False, "novig": False, "bet105": False, "betonline": False, "draftkings": False, "fourcasters": False}})
     assert out["sources_real"][0] == 1
     assert out["source_spread"][0] is None
 
@@ -798,7 +798,7 @@ def test_two_real_sources_report_their_spread():
     frame = pl.DataFrame([{**player("A", "RB", 10.0),
                            "ESPN_Points": 8.0, "FP_Points": 12.0}])
     out = lu.with_source_spread(
-        frame, {"weekly_sources_present": {"fantasypros": True, "pinnacle": False,
+        frame, {"weekly_sources_present": {"fantasypros": True, "bet105": False,
                                            "betonline": False}})
     assert out["sources_real"][0] == 2
     assert out["source_spread"][0] == pytest.approx(2.0)
@@ -820,7 +820,7 @@ def test_a_source_imputed_for_this_player_does_not_count_as_real():
          "FP_rushingYards": 45.0, "FP_rushingYards_is_imputed": True},
     ])
     out = lu.with_source_spread(
-        frame, {"weekly_sources_present": {"fantasypros": True, "pinnacle": False,
+        frame, {"weekly_sources_present": {"fantasypros": True, "bet105": False,
                                            "betonline": False}})
     assert out["sources_real"].to_list() == [2, 1]
     assert out["source_spread"][1] is None
@@ -839,7 +839,7 @@ def test_a_structural_zero_is_not_a_real_line():
                            "FP_Points": 8.0, "FP_passingYards": 0.0,
                            "FP_rushingYards": 0.0}])
     out = lu.with_source_spread(
-        frame, {"weekly_sources_present": {"fantasypros": True, "pinnacle": False,
+        frame, {"weekly_sources_present": {"fantasypros": True, "bet105": False,
                                            "betonline": False}})
     assert out["sources_real"][0] == 1
     assert out["source_spread"][0] is None
@@ -865,7 +865,7 @@ def test_a_source_with_more_flags_than_it_ever_fills_still_counts_as_real():
         row[f"FP_stat{i}_is_imputed"] = i >= 2
     out = lu.with_source_spread(
         pl.DataFrame([row]),
-        {"weekly_sources_present": {"fantasypros": True, "pinnacle": False,
+        {"weekly_sources_present": {"fantasypros": True, "bet105": False,
                                     "betonline": False}})
     assert out["sources_real"][0] == 2
     assert out["source_spread"][0] == pytest.approx(2.0)

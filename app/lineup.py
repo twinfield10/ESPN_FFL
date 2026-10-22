@@ -45,12 +45,13 @@ from Scripts.live import state_counts
 #: was written and is the kind of fact that stops being true without anything breaking.
 #: ``SHARP`` and ``SQUARE`` replaced ``PINNY`` and ``BOL`` on 2026-10-13: the books reach
 #: the blend as two pools (plan 52), so those are the columns worth reading. Each answers
-#: to its books' keys, present when any one of them is.
+#: to its books' keys, present when any one of them is. Bet105 replaced Pinnacle's key
+#: on 2026-10-23, when it took Pinnacle's weekly props.
 WEEKLY_SOURCES: Tuple[Tuple[str, Union[None, str, Tuple[str, ...]]], ...] = (
     ("ESPN", None),
     ("FP", "fantasypros"),
     ("SHARP", ("fanduel", "novig")),
-    ("SQUARE", ("pinnacle", "betonline", "draftkings", "fourcasters")),
+    ("SQUARE", ("bet105", "betonline", "draftkings", "fourcasters")),
     ("ATH", "theathletic"),
 )
 

@@ -7,6 +7,7 @@ with two lines once delisted series go), and Novig's most balanced rung. The
 fixtures are small boards built to pin each one.
 """
 
+import json
 from datetime import datetime, timedelta, timezone
 
 import polars as pl
@@ -198,29 +199,46 @@ def test_the_shadow_never_touches_the_real_book_files(shadow, monkeypatch, tmp_p
     assert not real.exists()
 
 
-def test_bet105_is_shadowed_but_not_pooled():
-    """Pinnacle's replacement is measured nightly before anything votes with it."""
-    b105 = next(b for b in en.BOOKS if b.name == "Bet105")
-    assert b105.slug == "bet105" and b105.pooled is False
+B105 = next(b for b in en.BOOKS if b.name == "Bet105")
 
 
-def test_bet105_is_compared_against_the_pinnacle_scrape(shadow, monkeypatch, tmp_path):
-    """There is no Bet105 scrape of ours; the book it replaces is the comparison."""
-    pinnacle = tmp_path / "Pinnacle_Props_Week_All.parquet"
-    monkeypatch.setattr(en, "season_dir", lambda source, season, name, create=True:
-                        pinnacle if source == "Pinnacle" else tmp_path / "absent")
-    pl.DataFrame({"week": [7, 7], "player_name": ["J.J. McCarthy", "Puka Nacua"],
-                  "proj_receivingReceptions": [0.0, 7.5]}).write_parquet(pinnacle)
-    b105 = next(b for b in en.BOOKS if b.name == "Bet105")
-    path = en.shadow_file(b105, 2026)
-    path.parent.mkdir(parents=True)
-    pl.DataFrame({"week": [7], "player_name": ["Puka Nacua"],
-                  "proj_receivingReceptions": [7.4]}).write_parquet(path)
+def test_the_status_log_follows_a_patched_path(shadow):
+    """It was a default argument bound at import, so tests wrote to the real log."""
+    en._write_status({"at": "x"})
+    assert json.loads((shadow / "engine_shadow.json").read_text())["runs"] == [{"at": "x"}]
 
-    out = en.compare(2026, 7, books=[b105]).row(0, named=True)
-    assert out["book"] == "Bet105" and out["stat"] == "receivingReceptions"
-    assert (out["ours"], out["engine"], out["both"]) == (1, 1, 1)
-    assert out["rel_gap"] == pytest.approx(0.1 / 7.5)
+
+def test_bet105_is_live_and_pooled():
+    """Pinnacle's replacement: no scrape of ours, so the engine is its only source."""
+    assert B105.slug == "bet105" and B105.pooled and B105.live
+
+
+def test_bet105_carries_only_the_stats_pinnacle_did():
+    """Anytime touchdowns and interceptions were too thin on 2026-10-22 to measure."""
+    rows = ([prop("Bet105", "receptions", "Puka Nacua", 7.5, s, -110) for s in ("over", "under")]
+            + [prop("Bet105", "touchdowns", "Puka Nacua", 0.5, "yes", 120)]
+            + [prop("Bet105", "interceptions", "Matthew Stafford", 0.5, s, -110)
+               for s in ("over", "under")])
+    raw = en.to_raw(frame(rows), B105)
+    assert set(raw["espn_stat"]) == {"receivingReceptions"}
+
+
+def test_a_live_book_writes_where_the_blend_reads(shadow, monkeypatch, tmp_path):
+    from Scripts import paths
+    real = tmp_path / "Projections"
+    monkeypatch.setattr(paths, "PROJECTIONS_DIR", real)
+    rows = [prop("Bet105", "receptions", "Puka Nacua", 7.5, s, -110) for s in ("over", "under")]
+    status = en.run(2026, 6, T, props=frame(rows), spells=spells_for(rows), sched=_sched(),
+                    model=None)
+    assert status["books"]["Bet105"]["outcome"] == "projected"
+    out = pl.read_parquet(real / "Bet105" / "Season" / "2026" / "Bet105_AllProps.parquet")
+    assert out["player_name"].to_list() == ["Puka Nacua"]
+    assert list((real / "Bet105" / "Season" / "2026" / "Raw").glob("Bet105_Raw_Week_6_*.parquet"))
+    assert not en.shadow_file(B105, 2026).exists()
+
+
+def test_compare_skips_a_live_book(shadow):
+    assert en.compare(2026, 7, books=[B105]).is_empty()
 
 
 def test_a_future_contract_major_is_refused():

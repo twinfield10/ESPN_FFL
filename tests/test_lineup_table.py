@@ -48,7 +48,7 @@ COLUMNS = (
 
 #: Every source present, which is what 2026 stores say.
 ALL_PRESENT = {"weekly_sources_present":
-               {"fantasypros": True, "fanduel": True, "novig": True, "pinnacle": True, "betonline": True, "draftkings": True, "fourcasters": True}}
+               {"fantasypros": True, "fanduel": True, "novig": True, "bet105": True, "betonline": True, "draftkings": True, "fourcasters": True}}
 
 
 def player(name, position, points, *, slot="BE", espn=None, sources=4, spread=0.5):
@@ -133,7 +133,7 @@ def test_an_absent_book_is_dropped_rather_than_shown_as_agreement():
     no weekly props arrives as a column that agrees with the mean exactly. Rendering
     it turns silence into unanimity.
     """
-    meta = {"weekly_sources_present": {"fantasypros": True, "fanduel": False, "novig": False, "pinnacle": False, "betonline": False, "draftkings": False, "fourcasters": False}}
+    meta = {"weekly_sources_present": {"fantasypros": True, "fanduel": False, "novig": False, "bet105": False, "betonline": False, "draftkings": False, "fourcasters": False}}
     labels = [c.label for c in lt.points_columns(COLUMNS, meta)]
     assert labels == ["ESPN", "FP", "TRUE", "Δ", "Sources"]
 

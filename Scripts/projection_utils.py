@@ -247,7 +247,9 @@ def _book_props_parquet(book_dir: str, season: int):
 
 WEEKLY_SOURCE_FILES = {
     "fantasypros": fantasypros_parquet,
-    "pinnacle": pinnacle_parquet,
+    # Bet105, not Pinnacle, from 2026-10-23: Pinnacle's weekly props scrape retired and
+    # its file stopped growing, so watching it would flag a missing source every week.
+    "bet105": lambda season: _book_props_parquet("Bet105", season),
     "betonline": betonline_parquet,
     # A hand-dropped .xlsx rather than a scrape, so it cannot go quiet because a
     # nightly stage failed -- it goes quiet because nobody downloaded a new one. That
@@ -534,8 +536,10 @@ ESPN_PUBLISHED_POINTS = "espn_published_points"
 #: **``FD``, ``DK``, ``NV``, ``C4``, ``SHARP`` and ``SQUARE`` joined on 2026-10-13** with the four books
 #: in :data:`NEW_WEEKLY_BOOKS`. The books are scored so each one's line is visible on the
 #: board; only the two pools of them carry weight. See :data:`WEEKLY_WEIGHTS`.
+#: **``B105`` joined on 2026-10-23**, in Pinnacle's place in the square pool.
 WEEKLY_PREFIXES: Tuple[str, ...] = ("ESPN", "FP", "MEAN", "PINNY", "BOL", "FD", "DK",
-                                    "NV", "C4", "SHARP", "SQUARE", "ATH", "USG", "TRUE")
+                                    "NV", "C4", "B105", "SHARP", "SQUARE", "ATH", "USG",
+                                    "TRUE")
 
 
 def present_prefixes(df, candidates=WEEKLY_PREFIXES) -> list:
@@ -613,7 +617,14 @@ NEW_WEEKLY_BOOKS: Tuple[Tuple[str, str, str], ...] = (
     ("DK", "DraftKings", "DraftKings"),
     ("NV", "Novig", "Novig"),
     ("C4", "FourCasters", "4Casters"),
+    # Pinnacle's replacement, from 2026-10-23 (plan 54, decision 1). Written by
+    # `Scripts.books.engine`, not `weekly_props`: there is no scrape of ours.
+    ("B105", "Bet105", "Bet105"),
 )
+
+#: The command that refreshes a book in :data:`NEW_WEEKLY_BOOKS`, where it is not
+#: ``weekly_props``.
+BOOK_REFRESH_HINTS: Dict[str, str] = {"Bet105": "python -m Scripts.books.engine"}
 
 #: The sharp books: their real lines feed ``SHARP_``. FanDuel and Novig, owner's call on
 #: 2026-10-13 -- Pinnacle is the classic sharp book but has not been for props in a year
@@ -622,7 +633,14 @@ NEW_WEEKLY_BOOKS: Tuple[Tuple[str, str, str], ...] = (
 SHARP_BOOKS: Tuple[str, ...] = ("FD", "NV")
 
 #: The rest, whose real lines feed ``SQUARE_``.
-SQUARE_BOOKS: Tuple[str, ...] = ("BOL", "PINNY", "DK", "C4")
+#:
+#: **Bet105 took Pinnacle's weekly props on 2026-10-23**, after its stat lines matched
+#: our Pinnacle scrape to a median 0.02% or less on week 7, and that Selenium scrape
+#: retired. ``PINNY`` stays for two things: its **D/ST rows**, priced off Pinnacle's
+#: game lines, which come from the guest API with no browser (plan 54 phase 3 moves
+#: them to the engine), and its **prop lines for the weeks before Bet105's first**.
+#: :func:`drop_weeks_bet105_covers` keeps the two books from voting on the same week.
+SQUARE_BOOKS: Tuple[str, ...] = ("BOL", "PINNY", "DK", "C4", "B105")
 
 #: Every book on the weekly path.
 MARKET_BOOKS: Tuple[str, ...] = SHARP_BOOKS + SQUARE_BOOKS
@@ -660,7 +678,7 @@ WEEKLY_FIXED_SHARES: Dict[str, float] = {'SHARP': 0.30, 'SQUARE': 0.20}
 
 #: Sources the coverage report lists, in display order.
 COVERAGE_SOURCES: Tuple[str, ...] = ("ESPN", "FP", "PINNY", "BOL", "FD", "DK", "NV",
-                                     "C4", "SHARP", "SQUARE", "ATH")
+                                     "C4", "B105", "SHARP", "SQUARE", "ATH")
 
 
 def impute_columns(df, target_prefix, source_prefix, track=True):
@@ -1204,8 +1222,8 @@ def clean_pinny(pinny_path=None, season=None):
         pinny_path = pinnacle_parquet(season)
         if not pinny_path.exists():
             return absent_weekly_source("Pinnacle", pinny_path)
-        check_source_freshness("Pinnacle weekly props", pinny_path,
-                               "python -m Scripts.scrape_pinnacle")
+        # No freshness check: the scrape retired on 2026-10-23 and Bet105 holds its
+        # place (`NEW_WEEKLY_BOOKS`), so this file is history and old by design.
     else:
         raise ValueError("clean_pinny requires either pinny_path or season")
 
@@ -1315,10 +1333,34 @@ def clean_book_props(book_dir: str, label: str, season: int) -> pd.DataFrame:
     if not path.exists():
         return absent_weekly_source(label, path)
     check_source_freshness(f"{label} weekly props", path,
-                           "python -m Scripts.books.weekly_props --book all")
+                           BOOK_REFRESH_HINTS.get(book_dir,
+                                                  "python -m Scripts.books.weekly_props --book all"))
     raw = pd.read_parquet(path)
     keep = ["week", "player_name"] + [c for c in raw.columns if c.startswith("proj_")]
     return raw[keep]
+
+
+def drop_weeks_bet105_covers(pinny: pd.DataFrame, season: int) -> pd.DataFrame:
+    """Pinnacle's weekly prop lines, without the weeks Bet105 has.
+
+    Bet105 replaced the Pinnacle scrape on 2026-10-23 mid-week, so for that week
+    both files hold the same lines (a median 0.02% apart), and both in
+    :data:`SQUARE_BOOKS` would count one opinion twice in the pool's median.
+    Earlier weeks keep Pinnacle's lines, so history rebuilds as it was.
+
+    Args:
+        pinny: :func:`clean_pinny`'s frame.
+        season: Season year.
+
+    Returns:
+        pd.DataFrame: ``pinny`` less every week in Bet105's season file. Unchanged
+        when either is empty or Bet105 has no file.
+    """
+    path = _book_props_parquet("Bet105", season)
+    if pinny.empty or "week" not in pinny.columns or not path.exists():
+        return pinny
+    covered = set(pd.read_parquet(path, columns=["week"])["week"])
+    return pinny[~pinny["week"].isin(covered)].reset_index(drop=True)
 
 
 #: Injury-report statuses under which an ESPN zero means "not playing". Anything but
@@ -2339,7 +2381,7 @@ def clean_lineups(df, lg, season=None):
 
     # 2) Combine Pinnacle Data With ESPN and Impute
     ## a) Clean Pinnacle Data
-    pinny_proj = clean_pinny(season=season)
+    pinny_proj = drop_weeks_bet105_covers(clean_pinny(season=season), season)
     pinny_proj = align_to_espn_names(pinny_proj, espn_universe, "Pinnacle")
     ## Each book's D/ST line is the D/ST model priced off that book's own spread and
     ## total -- neither posts a defence market. See `book_dst_rows`.

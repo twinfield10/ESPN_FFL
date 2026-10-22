@@ -442,7 +442,8 @@ prints how many rows it replaced.
 Rscript R/GetNFL.R                       # nightly since 2026-09-08 -- see below
 python -m Scripts.scrape_FP --what season   # nightly since 2026-08-24
 python -m Scripts.scrape_FP --what weekly   # nightly since 2026-09-08
-python -m Scripts.scrape_pinnacle        # nightly since 2026-09-08, non-fatal
+python -m Scripts.scrape_pinnacle        # nightly 2026-09-08 to 2026-10-22; retired, Bet105 replaced it
+python -m Scripts.books.engine           # nightly since 2026-10-21 (shadow); Bet105 live since 2026-10-23, non-fatal
 python -m Scripts.scrape_espn_injuries   # nightly
 python -m Scripts.refresh --all --what board    # nightly
 python -m Scripts.refresh --all --what lineups  # nightly since 2026-09-08
@@ -472,10 +473,17 @@ first capture, so re-running is safe and never rewrites what the blend voted wit
 is what the authenticated re-scrape of week 1 had to do, because the file on disk was
 the 60-row anonymous teaser from 2026-08-03.
 
-**Pinnacle weekly is non-fatal on purpose.** `scrape_pinnacle` exits 1 on an empty
-result, which is right for a human and wrong for cron: a book's weekly board is
-genuinely empty some of the time. `python -m Scripts.refresh_status` now names every
-weekly file, advisory for the two books so the exit code is not red every night.
+**Pinnacle's weekly props come from Bet105 since 2026-10-23.** The Selenium scrape
+(`scrape_pinnacle`) retired after Homebrew re-quarantined its Chrome install and the
+nightly hung on the Gatekeeper prompt. Stage 2g (`Scripts.books.engine`) writes Bet105
+from the sportsbook engine to `Data/Projections/Bet105/`, and `B105` votes in the
+square pool where `PINNY` did. Bet105's stat lines matched the Pinnacle scrape to a
+median 0.02% or less on week 7, and the week-7 board moved by 0.02 points at most.
+`PINNY_` still carries the D/ST rows priced off Pinnacle's game lines (guest API, no
+browser), and Pinnacle's prop lines for weeks 1-6. The stage is non-fatal: a night
+without it, the square pool votes without Bet105. `python -m Scripts.refresh_status`
+reports `B105 weekly`, advisory as Pinnacle was. See
+[plan 54](plans/54-props-from-the-sportsbook-engine.md), decision 1.
 
 </details>
 
@@ -832,6 +840,7 @@ not.
 | **`Data/` emptied itself after a `git checkout`, and tests that read real data now fail** | You checked out a commit from before `42bd2c4` and came back. Those files were *tracked* then and are untracked now, so returning to a commit that deletes them from the index deletes them from the working tree too. Git is behaving correctly; it looks exactly like data loss. **`python -m Scripts.sync --pull` restores all of it** — this is the case S3-as-record exists for. Watch for `test_crosswalk`, `test_lab_g2` and `test_nfl_utils` failing together, which is the signature: they are the guards that read real data rather than fixtures. |
 | A league is missing from the app's picker | Only leagues with a complete store are selectable; the sidebar lists the rest. Its last refresh failed, or it was never refreshed. |
 | Freshness badge says stale | The store is over an hour old. Refresh from the sidebar or the CLI. It also reads stale when `built_at` is unparseable, which is deliberate — an unreadable build time is not evidence of freshness. |
+| `Bet105 has no weekly projections` or `B105 weekly` stale | The engine read in stage 2g failed, or Bet105 was withheld (its last poll over 12 hours old). The log line says which. `python -m Scripts.books.engine --dry-run` re-reads the board; if Bet105 shows `withheld`, the collector is down in SportsbookScrapers, not here. |
 | `MissingProjectionSourceWarning` during a refresh | That source has no weekly props file for the season. Expected pre-season and whenever a scraper is broken; the blend imputes those columns from the ESPN/FP mean and renormalises them out. The sidebar shows it. |
 | Sidebar coverage shows a source at 0% | Same cause as above, measured rather than inferred. It is the number to watch when re-tuning blend weights. |
 | Team coherence looks like phase 1 after merging plan 31 | Expected until the projections parquet is rebuilt. Phase 2's allocation needs `depth_rank`, which only reaches the parquet once `python -m Scripts.usage.project --season <y>` re-runs; until then `make_coherent` falls back to the phase 1 cap by design. `MODEL_VERSION` is unchanged, so that re-run **loads** the fitted model rather than refitting — it is cheap, and it does not move the model's own lines. Confirm with `usg_qb_allocated_starts` appearing on the board frame. |

@@ -100,7 +100,8 @@ Scripts/
   scrape_player_stats.py     # ESPN player stats + build_scoring_table()
   scrape_team_stats.py       # ESPN team/matchup history
   scrape_FP.py               # FantasyPros projections
-  scrape_pinnacle.py         # Pinnacle props (Selenium)
+  scrape_pinnacle_season.py  # Pinnacle season props (guest API)
+  books/engine.py            # weekly props from the sportsbook engine; Bet105 live (plan 54)
   scrape_BOL.py              # BetOnline weekly props  [BROKEN - see docs]
   books/weekly_props.py      # FanDuel, DraftKings, Novig, 4Casters weekly props (plan 52)
   projection_utils.py        # the projection blend pipeline
@@ -665,7 +666,7 @@ See [docs/SEASON_ROLLOVER.md](docs/SEASON_ROLLOVER.md) for the full runbook.
 ```bash
 Rscript R/GetNFL.R                     # refresh schedule + stats
 python -m Scripts.scrape_FP            # FantasyPros
-python -m Scripts.scrape_pinnacle
+python -m Scripts.books.engine         # Bet105 weekly props, from the sportsbook engine
 python -m Scripts.scrape_espn_injuries # injury report + a dated snapshot
 python -m Scripts.refresh --all        # build the store, once
 python populateGoogleSheet.py          # render it to Sheets
