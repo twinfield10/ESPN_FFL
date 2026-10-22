@@ -3,11 +3,12 @@
 **Status:** IN PROGRESS
 
 **Where it stands:** Scoped and measured 2026-10-22, with decisions taken the same day.
-**Steps 1 and 2 are built**: the one-week ESPN fetch, and `--what reblend`, which
-splices it into the store behind the kickoff freeze and writes only what moved. **G1
-passes in full** (all nine leagues, every cell) and **G2 passes on the MacBook at 73
-seconds** ([step 2, as built](#step-2-as-built-2026-10-22)). Steps 3-5 (the gate, the
-cron wrapper, the runbook) are owed, and so are G3 and G4, which need a live week. The two numbers that shape the plan were measured on the MacBook (the mini is
+**All five steps are built**: the one-week ESPN fetch, `--what reblend`, the
+`--if-pending` gate, `ops/espn_ffl_reblend.sh` and the runbook. **G1 passes in full**
+(all nine leagues, every cell), and **G2 passes on the MacBook**: 73 seconds for the
+re-blend, 86 for a whole firing ([steps 3-5, as built](#steps-3-5-as-built-2026-10-22)).
+**Owed:** installing the cron line on the mini, then G2 there, and G3 and G4 over a
+live week. The two numbers that shape the plan were measured on the MacBook (the mini is
 owed the same measurement):
 - **A full lineups rebuild is 149 seconds for nine leagues, and 93% of it is ESPN.**
 - **A current-week-only blend matches the full rebuild exactly**, in 0.7 seconds.
@@ -183,6 +184,32 @@ roster changes (5 and 2) against a rebuild three minutes older: managers setting
 lineups before Thursday's game. Those two were written with `built_at` kept and
 `reblended_at` set, and the other seven weren't touched.
 
+### Steps 3-5, as built (2026-10-22)
+
+- **`python -m Scripts.game_state --if-pending`** exits 0 while any game this week is
+  still `pre` (a postponed game counts), 3 when none is, and argparse's 2 or a
+  traceback's 1 when broken. It can't be combined with `--if-live`.
+- **`python -m Scripts.books.engine --intraday`** reads live books only and writes
+  their season files only. No raw archive (the engine's bucket keeps every price
+  change), no shadow books, and no status entry, so 32 firings a day don't push the
+  nightly's runs out of the 60-run log decision 4 reads. About 9 seconds.
+- **`ops/espn_ffl_reblend.sh`** is modelled on the live wrapper: rotating log,
+  heartbeat on the closed-gate exit, no `git reset`. It **takes the live job's lock**
+  (`/tmp/espn_ffl_live.lock`, same 30-minute staleness expiry), and a test pins the two
+  wrappers to the same path. It skips while `run_daily_refresh.sh` is still running,
+  because the nightly takes no lock. The order is gate, engine, Athletic import, then
+  re-blend with push. The engine and the import are non-fatal.
+- **Runbook:** `docs/SEASON_ROLLOVER.md` has the install, the check and a
+  troubleshooting row; `README.md` lists it as the fourth scheduled job; and
+  `docs/DATA_CATALOGUE.md` records the intraday rewrite and `reblended_at`.
+
+**End to end on the MacBook, 2026-10-22 22:43Z** (a copy pointed at this checkout,
+without `--push`): **86 seconds** for the whole firing. The engine read updated the four
+live books, which still held that morning's scrapes, so the re-blend wrote all nine
+leagues: 31-49 pre-game players moved per league, by at most 0.78 points. That's the
+afternoon's line moves plus the Novig crossed-quote corrections from plan 54's phase 2.
+A second firing with the lock held logged `skipped` and exited 0.
+
 ---
 
 ## Gates
@@ -193,7 +220,8 @@ lineups before Thursday's game. Those two were written with `built_at` kept and
   2026-10-22 in all nine leagues**, blend and splice both (steps 1 and 2, as built).
 - **G2, cost.** At most 90 seconds for nine leagues on the mini, and flat from week to
   week: measured at week 8 and again at week 12, while the full rebuild grows. **73
-  seconds on the MacBook at week 7**; the mini and the later weeks are owed.
+  seconds on the MacBook at week 7 (86 for the whole firing)**; the mini and the later
+  weeks are owed.
 - **G3, S3 growth.** Over one full game week, non-current bytes added under `store/`
   stay within twice what the live job alone adds. The materiality gate is the lever.
 - **G4, safety.** Over a Sunday: no started game's projection columns change after

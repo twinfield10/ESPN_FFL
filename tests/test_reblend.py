@@ -132,3 +132,30 @@ def test_a_moved_week_is_spliced_in_and_built_at_kept(reblend_ingest):
 def test_reblend_pushes_only_lineups():
     from Scripts import refresh
     assert refresh.PUSH_ARTIFACTS["reblend"] == ("lineups",)
+
+
+# --- the cron wrapper ----------------------------------------------------
+
+def _shell_var(path, name):
+    import re
+    text = (paths.REPO_ROOT / path).read_text()
+    found = re.findall(rf'^{name}="?([^"\n]+)"?$', text, re.M)
+    assert len(found) == 1, f"{path} should set {name} exactly once"
+    return found[0]
+
+
+def test_the_reblend_and_live_wrappers_share_one_lock():
+    """Both rewrite lineups.parquet; atomic writes are not ordered writes."""
+    assert (_shell_var("ops/espn_ffl_reblend.sh", "LOCK")
+            == _shell_var("ops/espn_ffl_live.sh", "LOCK"))
+    assert (_shell_var("ops/espn_ffl_reblend.sh", "LOCK_STALE_MINUTES")
+            == _shell_var("ops/espn_ffl_live.sh", "LOCK_STALE_MINUTES"))
+
+
+def test_the_reblend_wrapper_runs_from_the_nightly_checkout_and_gates_first():
+    text = (paths.REPO_ROOT / "ops/espn_ffl_reblend.sh").read_text()
+    assert (_shell_var("ops/espn_ffl_reblend.sh", "NIGHTLY")
+            == _shell_var("ops/espn_ffl_nightly.sh", "NIGHTLY"))
+    gate = text.index("--if-pending")
+    assert gate < text.index("Scripts.books.engine --intraday")
+    assert gate < text.index("--what reblend --push")

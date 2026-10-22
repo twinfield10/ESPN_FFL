@@ -446,6 +446,7 @@ def _stamp(t: datetime) -> str:
 
 
 def run(season: int, week: int, t: Optional[datetime] = None, *, write: bool = True,
+        intraday: bool = False,
         model=None, client=None, props: Optional[pl.DataFrame] = None,
         spells: Optional[pl.DataFrame] = None, sched: Optional[pl.DataFrame] = None) -> Dict:
     """Read the engine's board at ``t`` and project every book into the shadow.
@@ -455,6 +456,11 @@ def run(season: int, week: int, t: Optional[datetime] = None, *, write: bool = T
         week: NFL week.
         t: The moment to read, UTC. Defaults to now.
         write: False derives without touching disk.
+        intraday: The re-blend's read (docs/plans/56-intraday-reblend.md): live books
+            only, written to their season files and nothing else. No raw archive,
+            because the engine's bucket already keeps every price change. No shadow
+            books, which nothing reads. No status entry, so 30 runs a day don't push
+            the nightly's runs out of the log decision 4 reads.
         model: Loaded market model; None loads it.
         client, props, spells, sched: Injected for tests; read from the bucket and
             the schedule when None.
@@ -483,7 +489,7 @@ def run(season: int, week: int, t: Optional[datetime] = None, *, write: bool = T
     status: Dict = {"at": t.isoformat(timespec="seconds"), "season": season, "week": week,
                     "contract": contract, "board_series": board.height, "books": {}}
 
-    for book in BOOKS:
+    for book in (b for b in BOOKS if b.live or not intraday):
         age = ages.get(book.engine)
         entry = {"age_hours": None if age is None else round(age, 2),
                  "series_age_hours": series_ages.get(book.engine), "pooled": book.pooled}
@@ -508,13 +514,14 @@ def run(season: int, week: int, t: Optional[datetime] = None, *, write: bool = T
               f"(p90 {sa.get('p90', 0):.1f}h)")
         if write:
             path = book_file(book, season)
-            raw_path = path.parent / "Raw" / f"{book.dir}_Raw_Week_{week}_{_stamp(t)}.parquet"
-            raw_path.parent.mkdir(parents=True, exist_ok=True)
-            raw.write_parquet(raw_path)
+            if not intraday:
+                raw_path = path.parent / "Raw" / f"{book.dir}_Raw_Week_{week}_{_stamp(t)}.parquet"
+                raw_path.parent.mkdir(parents=True, exist_ok=True)
+                raw.write_parquet(raw_path)
             reconcile(book.dir, projected, season, path=path)
 
     status["agreement"] = agreement(board).to_dicts()
-    if write:
+    if write and not intraday:
         _write_status(status)
     return status
 
@@ -604,6 +611,9 @@ def main(argv=None) -> int:
     p.add_argument("--week", type=int)
     p.add_argument("--at", help="read the board as of this UTC time (default: now)")
     p.add_argument("--dry-run", action="store_true", help="derive without writing")
+    p.add_argument("--intraday", action="store_true",
+                   help="live books only, season files only: no raw archive, shadow or "
+                        "status entry (the intraday re-blend, plan 56)")
     p.add_argument("--compare", action="store_true", help="shadow vs our scrape for the week")
     p.add_argument("--agreement", action="store_true",
                    help="print the last run's agreement with Novig")
@@ -628,12 +638,14 @@ def main(argv=None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     print(f"===== engine props: {season} week {week} =====")
     try:
-        status = run(season, week, _parse_at(args.at), write=not args.dry_run)
+        status = run(season, week, _parse_at(args.at), write=not args.dry_run,
+                     intraday=args.intraday)
     except EngineError as exc:
         print(f"FAILED: {exc}")
         return 1
     projected = [b for b, e in status["books"].items() if e.get("outcome") == "projected"]
-    print(f"done: {len(projected)} of {len(BOOKS)} books projected ({', '.join(projected)})")
+    print(f"done: {len(projected)} of {len(status['books'])} books projected "
+          f"({', '.join(projected)})")
     return 0 if projected else 1
 
 

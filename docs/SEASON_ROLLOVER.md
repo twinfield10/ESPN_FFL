@@ -387,6 +387,37 @@ rm ~/Library/LaunchAgents/com.espn_ffl.athletic_fetch.plist ~/bin/espn_ffl_athle
 A failed run never stops the nightly. It uses the last import, and `refresh_status`'s
 eight-day `ATH weekly` clock is the alert you'll see in the app.
 
+### The intraday re-blend, every 30 minutes
+
+**Installed by hand on the Mac mini, once** (plan 56). Between nightlies, the
+projections for games not yet played follow the market and ESPN: line moves, Friday's
+injury reports, Sunday's inactives. `ops/espn_ffl_reblend.sh` re-reads the sportsbook
+engine (`--intraday`: live books only, season files only), imports any Athletic slate
+the 17:45 or Sunday 12:00 fetch landed, and runs `python -m Scripts.refresh --all
+--what reblend --push`. That rebuilds the current week only, behind the kickoff freeze.
+A league is written and pushed only when a pre-game player moved at least 0.1 points or
+a roster fact changed.
+
+```bash
+cp ops/espn_ffl_reblend.sh ~/bin/espn_ffl_reblend.sh
+chmod +x ~/bin/espn_ffl_reblend.sh
+crontab -e
+# ESPN FFL intraday re-blend -- every 30 min, 08:00-23:30; self-gates on a game still to play
+0,30 8-23 * * * /Users/tommywinfield/bin/espn_ffl_reblend.sh
+```
+
+It **shares the live job's lock** (`/tmp/espn_ffl_live.lock`), because both rewrite
+`lineups.parquet`, and whichever finds it held skips that firing. It also skips while
+the nightly is still running. It asks `python -m Scripts.game_state --if-pending`
+first, which exits 3 once every game this week has kicked off, so Monday night to
+Tuesday's nightly costs one request a firing.
+
+The one-command check is `python -m Scripts.game_state`. Its last line says whether a
+re-blend is due. Then read `~/logs/espn_ffl_reblend.log`: each league logs a `reblend`
+line with how many pre-game players moved and by how much, then `wrote` or `nothing
+material moved; not written`. `meta.json` records `reblended_at`, and `built_at` stays
+the nightly's, so the app's stale badge still means "the nightly was missed".
+
 ### Live scoring, which needs nothing from you
 
 Since 2026-09-10 the store carries **`LIVE_Points`** — the blend before kickoff, ESPN's
@@ -845,6 +876,7 @@ not.
 | A league is missing from the app's picker | Only leagues with a complete store are selectable; the sidebar lists the rest. Its last refresh failed, or it was never refreshed. |
 | Freshness badge says stale | The store is over an hour old. Refresh from the sidebar or the CLI. It also reads stale when `built_at` is unparseable, which is deliberate — an unreadable build time is not evidence of freshness. |
 | `FD weekly` or `NV weekly` stale in `refresh_status` | The engine read failed or the book was withheld (no poll for 12 hours). The blend is voting that week's last pull. `python -m Scripts.books.engine --dry-run` shows each book's age; a `withheld` book means its collector is down in SportsbookScrapers. If it's down long enough to matter, `python -m Scripts.books.weekly_props --book fanduel` (or `novig`) scrapes it directly, until phase 4 deletes that path. |
+| Projections didn't move during the day | Check `~/logs/espn_ffl_reblend.log`. `skipped` lines mean the live job held the lock, which is normal on a game day at most every other firing. No lines at all and a fresh `~/logs/espn_ffl_reblend.heartbeat` mean the gate said no game is left this week. Neither means the cron line isn't installed on the mini (`crontab -l`). `FAILED: ... --if-pending` means the gate itself is broken. |
 | `Bet105 has no weekly projections` or `B105 weekly` stale | The engine read in stage 2g failed, or Bet105 was withheld (its last poll over 12 hours old). The log line says which. `python -m Scripts.books.engine --dry-run` re-reads the board; if Bet105 shows `withheld`, the collector is down in SportsbookScrapers, not here. |
 | `MissingProjectionSourceWarning` during a refresh | That source has no weekly props file for the season. Expected pre-season and whenever a scraper is broken; the blend imputes those columns from the ESPN/FP mean and renormalises them out. The sidebar shows it. |
 | Sidebar coverage shows a source at 0% | Same cause as above, measured rather than inferred. It is the number to watch when re-tuning blend weights. |

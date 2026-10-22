@@ -308,3 +308,16 @@ def test_a_series_seen_after_t_counts_as_fresh():
     rows = [prop("FanDuel", "receptions", "P", 6.5, "over", -110)]
     board = en.listed_board(frame(rows), spells_for(rows, last_seen=T + timedelta(hours=2)), T)
     assert en.series_age_hours(board, T)["FanDuel"]["max"] == 0.0
+
+
+def test_an_intraday_read_writes_the_live_season_files_and_nothing_else(shadow, tmp_path):
+    """Plan 56: no raw archive, no shadow books, no status entry, 30 times a day."""
+    rows = ([prop("FanDuel", "receptions", "Puka Nacua", 7.5, s, -110) for s in ("over", "under")]
+            + [prop("Bovada", "receptions", "Puka Nacua", 7.5, s, -110) for s in ("over", "under")])
+    status = en.run(2026, 6, T, props=frame(rows), spells=spells_for(rows), sched=_sched(),
+                    model=None, intraday=True)
+    assert "Bovada" not in status["books"]
+    assert en.book_file(FD, 2026).exists()
+    assert not list((tmp_path / "Projections" / "FanDuel" / "Season" / "2026").glob("Raw/*"))
+    assert not en.shadow_file(BOV, 2026).exists()
+    assert not (shadow / "engine_shadow.json").exists()
