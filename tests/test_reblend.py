@@ -99,6 +99,12 @@ def reblend_ingest(monkeypatch, tmp_path):
     meta["built_at"] = "2026-10-22T10:00:00+00:00"
     store.meta_path(2026, "knights_ffl").write_text(json.dumps(meta))
 
+    # CI runs on config.example.yaml, which has no `knights_ffl`; nothing here needs
+    # the real league config, so resolve it without one.
+    monkeypatch.setattr(refresh, "resolve_league", lambda name: {
+        "key": "knights_ffl", "display_name": "Knights_FFL", "ID": 1,
+        "SWID": "s", "ESPN_S2": "e", "primary_own": "Someone"})
+
     state = {"fresh": frame(7, ["A", "B"], [10.0, 7.0])}
     monkeypatch.setattr(eq, "build_week_frame",
                         lambda name, season, return_league=False:
