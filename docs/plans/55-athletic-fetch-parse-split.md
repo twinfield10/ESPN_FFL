@@ -97,6 +97,31 @@ which reads ok for eight days.
 sources shouldn't hold back ESPN, injuries and the other four sources. This is the same
 treatment as the Pinnacle and engine-shadow stages.
 
+## Injury-report runs
+
+Added the same day. The slate is re-uploaded when injury reports change it, and those
+land late in the week, so the LaunchAgent also runs at **17:45 Thursday, Friday and
+Saturday and 12:00 Sunday**. These runs are a consequence of the split: a file they land
+would otherwise wait for the next 06:00 nightly, which for a Sunday upload is after the
+games. So when a run after 06:00 reads `fetched`, the wrapper (`ops/espn_ffl_athletic_fetch.sh`)
+publishes it itself:
+
+1. `Scripts.parse_athletic` (a refusal stops here, with the board unchanged);
+2. `Scripts.refresh --all --what lineups --push`, about 2m40s for all leagues, pushing
+   only the lineups;
+3. `Scripts.sync --push --what archive --no-snapshot`;
+4. the Knights Sheet.
+
+It holds `/tmp/espn_ffl_live.lock` for the whole publish. The live job writes
+`lineups.parquet` every ten minutes during games, which on a London Sunday includes
+noon, so it skips a tick instead of racing. If the lock isn't free within 10 minutes,
+the wrapper gives up and the nightly imports the file. Games that have already kicked
+off are carried forward by `kickoff_freeze`, not rebuilt. A run that reads `unchanged`,
+which is most of them, does nothing more than before.
+
+The four extra page loads a week are spread across days, far from the roughly six an
+hour that drew a 403 in plan 53.
+
 ## Migration
 
 The mini's `fetch_status.json` holds week 7 as the old code wrote it: `imported_at`,

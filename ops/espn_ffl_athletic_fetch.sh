@@ -26,8 +26,22 @@
 #     this agent not; and
 #   * the agent loaded in that session -- `launchctl bootstrap gui/$(id -u) ...`.
 #
-# Why 05:45. Fifteen minutes ahead of the 06:00 nightly, which reads the Athletic file
-# while it builds the lineups. A run takes under a minute; the gap is the margin.
+# Why 05:45. Fifteen minutes ahead of the 06:00 nightly, which imports what this lands
+# and builds the lineups from it. A run takes under a minute; the gap is the margin.
+#
+# Why also 17:45 Thu/Fri/Sat and 12:00 Sun (added 2026-10-22). The slate is re-uploaded
+# when injury reports move it, and those land late in the week. A file landed by one of
+# these runs would otherwise wait for the next 06:00 nightly -- Monday's, for Sunday's
+# -- so a run after 06:00 that lands new bytes publishes them itself: import, rebuild
+# and push the lineups, republish the Knights Sheet. Most of these runs read
+# "unchanged" and do nothing more. The 05:45 run never publishes: the nightly starts 15
+# minutes later and resets this checkout.
+#
+# Why it takes the live job's lock to publish. espn_ffl_live.sh writes lineups.parquet
+# every ten minutes while games are on -- which on a London Sunday includes noon -- and
+# two writers to one parquet race. Holding /tmp/espn_ffl_live.lock for the ~3-minute
+# rebuild makes the live job skip a tick instead. Games already kicked off are carried
+# forward, not rebuilt (Scripts/kickoff_freeze.py).
 #
 # Deliberately no `git fetch`/`reset`, like espn_ffl_live.sh: this runs off whatever
 # origin/main the previous 06:00 nightly pinned, so it cannot race that reset. A
@@ -77,3 +91,60 @@ else
   notify "Scripts.fetch_athletic --push"
   exit 1
 fi
+
+# --- publish a new file landed outside the nightly's window -------------------------
+OUTCOME="$("${PYTHON}" -c "
+from Scripts.fetch_athletic import load_status
+print(load_status().get('last_run', {}).get('outcome', ''))
+" 2>/dev/null)"
+if [ "${OUTCOME}" != "fetched" ]; then
+  exit 0
+fi
+if [ "$((10#$(date +%H)))" -lt 6 ]; then
+  log "new slate landed; the 06:00 nightly imports it"
+  exit 0
+fi
+
+LOCK="/tmp/espn_ffl_live.lock"
+LOCK_STALE_MINUTES=30
+HAVE_LOCK=0
+for _ in $(seq 1 40); do            # up to 10 minutes; a live run takes about one
+  if [ -d "${LOCK}" ] && [ -n "$(find "${LOCK}" -maxdepth 0 -mmin "+${LOCK_STALE_MINUTES}" 2>/dev/null)" ]; then
+    log "WARNING: lock ${LOCK} is older than ${LOCK_STALE_MINUTES}m; taking it"
+    rmdir "${LOCK}" 2>/dev/null || true
+  fi
+  if mkdir "${LOCK}" 2>/dev/null; then
+    HAVE_LOCK=1
+    break
+  fi
+  sleep 15
+done
+if [ "${HAVE_LOCK}" != "1" ]; then
+  log "FAILED: could not take ${LOCK} in 10 minutes; the 06:00 nightly imports the slate"
+  notify "live refresh lock held; slate not published"
+  exit 1
+fi
+trap 'rmdir "${LOCK}" 2>/dev/null || true' EXIT
+
+log "new slate landed after 06:00; publishing it"
+if ! "${PYTHON}" -m Scripts.parse_athletic >>"${LOG}" 2>&1; then
+  # The board keeps the last good import; the nightly retries and warns too.
+  log "FAILED: Scripts.parse_athletic refused the slate (see above); nothing published"
+  notify "Athletic slate refused by the parser"
+  exit 1
+fi
+if ! "${PYTHON}" -m Scripts.refresh --all --what lineups --push >>"${LOG}" 2>&1; then
+  log "FAILED: Scripts.refresh --what lineups --push; the 06:00 nightly rebuilds"
+  notify "lineups rebuild after the Athletic import"
+  exit 1
+fi
+"${PYTHON}" -m Scripts.sync --push --what archive --no-snapshot >>"${LOG}" 2>&1 \
+  || log "NOTE: archive push failed; the nightly's push is the second chance"
+if [ -e "${NIGHTLY}/gs4creds.json" ]; then
+  "${PYTHON}" -c "
+import sys
+import populateGoogleSheet as p
+sys.exit(0 if p.run(['Knights_FFL']) == {'Knights_FFL': 'ok'} else 1)
+" >>"${LOG}" 2>&1 || log "NOTE: Knights Sheet publish failed; the nightly republishes it"
+fi
+log "athletic slate published"
