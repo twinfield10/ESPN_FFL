@@ -1,0 +1,7 @@
+# Players nflverse's load_ff_playerids() does not carry yet, appended to the crosswalk by
+# Scripts/crosswalk.py. A row is ignored once upstream has the same espn_id or gsis_id,
+# so entries retire themselves; delete them at the season rollover anyway.
+# Ids from nflverse's weekly roster (Data/NFL/<season>/rosters_weekly.parquet).
+name,merge_name,position,team,birthdate,draft_year,gsis_id,espn_id,fantasypros_id,sleeper_id,yahoo_id,sportradar_id,pfr_id
+# 2026-10-22: CIN WR, undrafted rookie; first in The Athletic's week-7 slate of 10-22.
+Dohnte Meyers,dohnte meyers,WR,CIN,2000-07-06,,00-0040785,4384852,,13264,,adf036f0-ebe3-11f0-b9c8-cb8413f2962c,MeyeDo00
