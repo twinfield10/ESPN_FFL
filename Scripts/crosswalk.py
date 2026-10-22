@@ -40,13 +40,23 @@ from typing import Dict, List, NamedTuple, Optional
 
 import pandas as pd
 
-from Scripts.paths import PLAYER_IDS_PARQUET
+from Scripts.paths import PLAYER_IDS_PARQUET, REPO_ROOT
 
 #: Provider id columns the crosswalk carries. All held as strings: ESPN's own
 #: payloads use integers, but an id is an opaque label rather than a number, and
 #: round-tripping through int turns a missing one into a silent 0.
 ID_COLUMNS = ("gsis_id", "espn_id", "fantasypros_id", "sleeper_id", "yahoo_id",
               "sportradar_id", "pfr_id")
+
+#: Players upstream does not carry yet, added by hand and appended on load.
+#:
+#: Tracked, not written into ``player_ids.parquet``: ``R/GetPlayerIDs.R`` rewrites
+#: that file whole from ``load_ff_playerids()``, so a row added there is gone at the
+#: next regeneration. A row here is dropped as soon as upstream has the same
+#: ``espn_id`` or ``gsis_id``, so upstream always wins and an entry retires itself.
+#: First entry 2026-10-22: Dohnte Meyers, an undrafted Bengals rookie The Athletic
+#: began projecting before nflverse's id table had him.
+ADDITIONS_CSV = REPO_ROOT / "config" / "player_id_additions.csv"
 
 
 class CrosswalkWarning(UserWarning):
@@ -64,28 +74,70 @@ def _warn(msg: str) -> None:
         warnings.warn(msg, CrosswalkWarning, stacklevel=3)
 
 
-@functools.lru_cache(maxsize=4)
-def _load_cached(path: str, mtime: float) -> pd.DataFrame:
-    """Read and normalise the crosswalk, memoised on path and mtime.
-
-    Keying on ``mtime`` means re-running ``R/GetPlayerIDs.R`` invalidates the cache
-    with no explicit clear -- the same trick :mod:`Scripts.scoring` uses for the
-    scoring registry.
+def _normalise_ids(df: pd.DataFrame) -> pd.DataFrame:
+    """Id columns as stripped nullable strings, with upstream's blanks as missing.
 
     Args:
-        path: Parquet location, as a string so it is hashable.
-        mtime: The file's modification time.
+        df: A crosswalk-shaped frame.
 
     Returns:
-        pd.DataFrame: The crosswalk, id columns as nullable strings.
+        pd.DataFrame: ``df``, changed in place and returned.
     """
-    df = pd.read_parquet(path)
     for column in ID_COLUMNS:
         if column in df.columns:
             df[column] = df[column].astype("string").str.strip()
             # Upstream writes empty strings as well as nulls.
             df.loc[df[column].isin(["", "NA", "nan", "None"]), column] = pd.NA
     return df
+
+
+def _with_additions(df: pd.DataFrame, path) -> pd.DataFrame:
+    """Append the :data:`ADDITIONS_CSV` rows upstream does not already carry.
+
+    Args:
+        df: The normalised upstream crosswalk.
+        path: The additions file; absent means none.
+
+    Returns:
+        pd.DataFrame: ``df`` plus each addition whose ``espn_id`` and ``gsis_id`` are
+        both new to it, in ``df``'s column types.
+    """
+    if not path.exists():
+        return df
+    extra = _normalise_ids(pd.read_csv(path, dtype=str, comment="#", skip_blank_lines=True))
+    if extra.empty:
+        return df
+    known = pd.Series(False, index=extra.index)
+    for column in ("espn_id", "gsis_id"):
+        if column in df.columns and column in extra.columns:
+            known |= extra[column].isin(df[column].dropna())
+    extra = extra.loc[~known, [c for c in df.columns if c in extra.columns]]
+    if extra.empty:
+        return df
+    if "draft_year" in extra.columns:
+        extra["draft_year"] = pd.to_numeric(extra["draft_year"], errors="coerce")
+    if "birthdate" in extra.columns:
+        extra["birthdate"] = pd.to_datetime(extra["birthdate"], errors="coerce").dt.date
+    return pd.concat([df, extra], ignore_index=True)
+
+
+@functools.lru_cache(maxsize=4)
+def _load_cached(path: str, mtime: float, additions_mtime: float = 0.0) -> pd.DataFrame:
+    """Read and normalise the crosswalk, memoised on path and mtime.
+
+    Keying on ``mtime`` means re-running ``R/GetPlayerIDs.R`` invalidates the cache
+    with no explicit clear -- the same trick :mod:`Scripts.scoring` uses for the
+    scoring registry. ``additions_mtime`` does the same for :data:`ADDITIONS_CSV`.
+
+    Args:
+        path: Parquet location, as a string so it is hashable.
+        mtime: The file's modification time.
+        additions_mtime: :data:`ADDITIONS_CSV`'s modification time, 0 when absent.
+
+    Returns:
+        pd.DataFrame: The crosswalk plus any additions, id columns as nullable strings.
+    """
+    return _with_additions(_normalise_ids(pd.read_parquet(path)), ADDITIONS_CSV)
 
 
 def load_crosswalk() -> pd.DataFrame:
@@ -104,7 +156,9 @@ def load_crosswalk() -> pd.DataFrame:
             f"{PLAYER_IDS_PARQUET} is missing. Generate it with "
             f"`Rscript R/GetPlayerIDs.R`."
         )
-    return _load_cached(str(PLAYER_IDS_PARQUET), PLAYER_IDS_PARQUET.stat().st_mtime)
+    additions = ADDITIONS_CSV.stat().st_mtime if ADDITIONS_CSV.exists() else 0.0
+    return _load_cached(str(PLAYER_IDS_PARQUET), PLAYER_IDS_PARQUET.stat().st_mtime,
+                        additions)
 
 
 def reset_cache() -> None:

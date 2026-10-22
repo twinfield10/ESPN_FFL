@@ -168,6 +168,11 @@ off-season as rookies are assigned ids. `python -m Scripts.crosswalk` prints
 coverage against every built board; expect ~99% of individual players, with team
 D/ST units never matching.
 
+A player upstream doesn't carry yet goes in `config/player_id_additions.csv`, with ids
+from `Data/NFL/<season>/rosters_weekly.parquet`. `Scripts.crosswalk` appends those
+rows on load and drops any whose `espn_id` or `gsis_id` upstream already has, so
+entries retire themselves. Clear out the retired ones here.
+
 ### 7. Build the draft boards
 
 ```bash

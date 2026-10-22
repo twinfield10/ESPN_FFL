@@ -48,6 +48,7 @@ def synthetic(tmp_path, monkeypatch):
     table.to_parquet(path)
     monkeypatch.setattr(paths, "PLAYER_IDS_PARQUET", path)
     monkeypatch.setattr(crosswalk, "PLAYER_IDS_PARQUET", path)
+    monkeypatch.setattr(crosswalk, "ADDITIONS_CSV", tmp_path / "player_id_additions.csv")
     crosswalk.reset_cache()
     crosswalk._mapping.cache_clear()
     yield path
@@ -167,3 +168,48 @@ def test_the_real_crosswalk_has_few_ambiguous_ids():
     changed shape and the id columns no longer mean what this module assumes."""
     for column in ("gsis_id", "espn_id"):
         assert len(crosswalk.ambiguous_ids(column)) < 50, column
+
+
+# --- hand additions --------------------------------------------------------
+
+def _additions(path, *rows):
+    header = ("name,merge_name,position,team,birthdate,draft_year,gsis_id,espn_id,"
+              "fantasypros_id,sleeper_id,yahoo_id,sportradar_id,pfr_id")
+    path.write_text("# a comment line\n" + header + "\n" + "\n".join(rows) + "\n")
+
+
+def test_an_addition_upstream_lacks_is_appended(synthetic, tmp_path):
+    _additions(crosswalk.ADDITIONS_CSV,
+               "Dohnte Meyers,dohnte meyers,WR,CIN,2000-07-06,,00-0040785,4384852,,13264,,,MeyeDo00")
+    crosswalk.reset_cache()
+    table = crosswalk.load_crosswalk()
+    row = table[table["espn_id"] == "4384852"]
+    assert row["name"].tolist() == ["Dohnte Meyers"]
+    assert row["gsis_id"].tolist() == ["00-0040785"]
+    assert pd.isna(row["fantasypros_id"].iloc[0])
+    assert crosswalk.id_map("espn_id", "gsis_id")["4384852"] == "00-0040785"
+
+
+def test_an_addition_upstream_already_has_is_ignored(synthetic):
+    """Upstream wins: an entry retires itself once nflverse carries the player."""
+    _additions(crosswalk.ADDITIONS_CSV,
+               "Puka Nacua (hand),puka nacua,WR,LAR,,,00-0039075,4426515,,,,,")
+    crosswalk.reset_cache()
+    table = crosswalk.load_crosswalk()
+    assert table[table["espn_id"] == "4426515"]["name"].tolist() == ["Puka Nacua"]
+
+
+def test_an_edited_additions_file_is_picked_up_without_a_reset(synthetic):
+    """The cache is keyed on the file's mtime, as it is for the parquet."""
+    before = len(crosswalk.load_crosswalk())
+    _additions(crosswalk.ADDITIONS_CSV,
+               "New Guy,new guy,TE,SEA,,,00-0049999,9876543,,,,,")
+    assert len(crosswalk.load_crosswalk()) == before + 1
+
+
+def test_the_real_additions_file_is_well_formed():
+    """Every hand row needs the two ids the joins run on, and none may collide."""
+    extra = pd.read_csv(crosswalk.ADDITIONS_CSV, dtype=str, comment="#")
+    assert not extra.empty
+    assert extra[["name", "gsis_id", "espn_id"]].notna().all().all()
+    assert extra["espn_id"].is_unique and extra["gsis_id"].is_unique
