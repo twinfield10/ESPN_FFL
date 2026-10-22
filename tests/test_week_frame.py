@@ -75,7 +75,8 @@ def ingest(monkeypatch):
                         lambda name: {"ID": 1, "SWID": "s", "ESPN_S2": "e"})
     monkeypatch.setattr(fu, "fetch_league", lambda **kw: lg)
 
-    def matchup(league_id, year, swid, espn_s2, weeks=None):
+    def matchup(league_id, year, swid, espn_s2, weeks=None, league=None):
+        assert league is lg, "the league fetched once is handed on, not fetched again"
         asked.append(weeks)
         return pd.DataFrame({"week": [7, 7], "player_name": ["A", "B"]})
 

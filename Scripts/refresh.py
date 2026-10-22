@@ -38,6 +38,7 @@ they have to be passed in for ``team_score_adj`` to keep its meaning.
 import argparse
 import sys
 import time
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import pandas as pd
@@ -57,7 +58,7 @@ from Scripts.paths import REPO_ROOT
 #: it cannot go stale and it cannot move what the blend voted with. It is what runs
 #: every ten minutes on a Sunday; ``lineups`` is what runs at 06:00.
 WHAT_CHOICES = ("lineups", "team_stats", "board", "draft", "results", "live",
-                "pool")
+                "pool", "reblend")
 
 #: Built unless ``--what`` says otherwise. ``team_stats`` stays out even now that it
 #: is cheap, because this default is what a bare ``--league X`` builds and that is
@@ -85,6 +86,7 @@ DEFAULT_WHAT = ("lineups",)
 PUSH_ARTIFACTS: Dict[str, Tuple[str, ...]] = {
     "lineups": ("lineups",),
     "live": ("lineups",),
+    "reblend": ("lineups",),
     "board": ("board",),
     "draft": ("draft", "tendencies"),
     "team_stats": ("team_stats",),
@@ -212,7 +214,34 @@ def refresh_league(
             _log(f"  freeze      FAILED ({type(e).__name__}: {e}) -- every "
                  f"projection was rebuilt, including for games already played.")
 
-    if "live" in what and "lineups" not in what:
+    reblended_at = None
+    if "reblend" in what and "lineups" not in what:
+        # The intraday re-blend (docs/plans/56-intraday-reblend.md). Skipped when
+        # `lineups` is also requested, which rebuilds the same week and every other.
+        # It rewrites only the current week's rows, behind the kickoff freeze, and
+        # writes nothing at all when no pre-game number or roster fact moved -- the
+        # bucket keeps every PUT for 90 days.
+        from Scripts import kickoff_freeze, reblend
+        from Scripts.equivalence import build_week_frame
+
+        start = time.time()
+        stored = store.read_league_store(season, league_key, "lineups")
+        fresh, league = build_week_frame(name, season, return_league=True)
+        week = int(pd.to_numeric(fresh["week"]).max())
+        in_week = pd.to_numeric(stored["week"]).astype("Int64") == week
+        fresh, frozen = kickoff_freeze.apply(fresh, stored[in_week])
+        material, counts = reblend.material_change(stored[in_week], fresh)
+        timings["reblend"] = time.time() - start
+        _log(f"  reblend     week {week}: {reblend.summary(counts)}   "
+             f"{timings['reblend']:.2f}s")
+        _log(f"  freeze      {kickoff_freeze.summary(frozen)}")
+        if material:
+            lineups = reblend.splice(stored, fresh, week)
+            reblended_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        else:
+            _log("  reblend     nothing material moved; not written")
+
+    if "live" in what and "lineups" not in what and "reblend" not in what:
         # Skipped when `lineups` is also requested: the full build resolves the same
         # columns from fresher inputs, so patching its output would be a second
         # ESPN round-trip to arrive at the same numbers.
@@ -427,7 +456,12 @@ def refresh_league(
         season, league_key,
         lineups=lineups, team_stats=team_stats, board=board, draft=draft,
         tendencies=tendencies, results=results, pool=pool_history, league=league,
+        # A re-blend is not a build: `built_at` is what the app's stale badge reads
+        # to say "the nightly was missed", and a re-blend every 30 minutes would hide
+        # exactly that. It records `reblended_at` instead.
+        preserve_built_at=reblended_at is not None,
         meta_extra={
+            **({"reblended_at": reblended_at} if reblended_at else {}),
             "display_name": cfg["display_name"],
             "primary_owner": cfg["primary_own"],
             "league_id": int(cfg["ID"]),

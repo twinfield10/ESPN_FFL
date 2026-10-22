@@ -3,9 +3,11 @@
 **Status:** IN PROGRESS
 
 **Where it stands:** Scoped and measured 2026-10-22, with decisions taken the same day.
-**Step 1 (the one-week ESPN fetch) is built**, and on the real fetch it matched the full
-rebuild in all nine leagues ([step 1, as built](#step-1-as-built-2026-10-22)). Steps 2-5
-are owed. The two numbers that shape the plan were measured on the MacBook (the mini is
+**Steps 1 and 2 are built**: the one-week ESPN fetch, and `--what reblend`, which
+splices it into the store behind the kickoff freeze and writes only what moved. **G1
+passes in full** (all nine leagues, every cell) and **G2 passes on the MacBook at 73
+seconds** ([step 2, as built](#step-2-as-built-2026-10-22)). Steps 3-5 (the gate, the
+cron wrapper, the runbook) are owed, and so are G3 and G4, which need a live week. The two numbers that shape the plan were measured on the MacBook (the mini is
 owed the same measurement):
 - **A full lineups rebuild is 149 seconds for nine leagues, and 93% of it is ESPN.**
 - **A current-week-only blend matches the full rebuild exactly**, in 0.7 seconds.
@@ -149,17 +151,49 @@ and flat by construction. It's less than the 93% figure suggested, because fixed
 per-league costs now dominate: free agents (4.5-6 s), two `fetch_league` calls, and
 one week of box scores. Step 2's two levers address them.
 
+### Step 2, as built (2026-10-22)
+
+`python -m Scripts.refresh --all --what reblend [--push]`, in `Scripts/refresh.py` with
+the rules in `Scripts/reblend.py`. Per league: read the stored lineups, build the
+current week (`build_week_frame`), apply `kickoff_freeze.apply` against the stored week,
+then decide. **`material_change`** publishes when a pre-game player's `TRUE_Points`
+moved at least 0.1, any roster or availability fact changed (`team_owner`,
+`slotPosition`, `player_active_status`, `injury_status`), or a player was added or
+dropped. If nothing qualifies, **nothing is written**, so there's nothing to push.
+Otherwise **`splice`** keeps every other week's rows exactly as stored, in stored order,
+and appends the new week. It doesn't re-sort, because a full rebuild writes its rows in
+two passes over the weeks. The store keeps `built_at` (`preserve_built_at`, the rule
+`pool` already had) and records `reblended_at`, so the app's "nightly missed" badge
+keeps its meaning. `--push` sends `lineups` only.
+
+**G1, all nine leagues, 2026-10-22 ~22:25Z.** A forced splice of a fresh week onto a
+full rebuild made minutes earlier, round-tripped through parquet as the store does:
+**every other week identical, and zero differing cells in the current week.** The run
+right after, with nothing changed, wrote nothing in all nine leagues (largest move
+0.0).
+
+**G2, MacBook.** 95.6 seconds at first, because the matchup fetch fetched the league a
+second time. `get_ply_stats_by_matchup` now takes the caller's `League`. Built old-way,
+shared and old-way again back to back in three leagues, all three are cell-for-cell
+identical. **The re-blend took 73.2 seconds** for nine leagues (7.6-10 s each). Running
+the leagues concurrently is still available if the mini is slower.
+
+**The materiality rule, seen working.** In that 73-second run, two leagues reported
+roster changes (5 and 2) against a rebuild three minutes older: managers setting
+lineups before Thursday's game. Those two were written with `built_at` kept and
+`reblended_at` set, and the other seven weren't touched.
+
 ---
 
 ## Gates
 
 - **G1, identity.** For every league, `--what reblend` at a fixed moment equals a full
   `--what lineups` rebuild at the same moment on the current week's rows (all numeric
-  columns within 1e-9), and leaves every other week byte-identical. **The blend half
-  passed 2026-10-22** on the real one-week fetch in all nine leagues (step 1, as built).
-  Splice and freeze are owed with step 2.
+  columns within 1e-9), and leaves every other week byte-identical. **Passed
+  2026-10-22 in all nine leagues**, blend and splice both (steps 1 and 2, as built).
 - **G2, cost.** At most 90 seconds for nine leagues on the mini, and flat from week to
-  week: measured at week 8 and again at week 12, while the full rebuild grows.
+  week: measured at week 8 and again at week 12, while the full rebuild grows. **73
+  seconds on the MacBook at week 7**; the mini and the later weeks are owed.
 - **G3, S3 growth.** Over one full game week, non-current bytes added under `store/`
   stay within twice what the live job alone adds. The materiality gate is the lever.
 - **G4, safety.** Over a Sunday: no started game's projection columns change after
