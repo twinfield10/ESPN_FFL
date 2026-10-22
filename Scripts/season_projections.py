@@ -214,6 +214,10 @@ NAME_ALIASES = {
     # Scripts.name_audit` on 2026-10-16 as `review:surname`. A 14-17 point starter
     # took his Pinnacle line from the ESPN/FantasyPros mean every week he played.
     "JEREMIAH LOVE": "JEREMIYAH LOVE",
+    # Bet105's weekly props, from the sportsbook engine: his legal first name where
+    # every other source writes `KC`. Found when Bet105 was first compared with the
+    # Pinnacle scrape on 2026-10-22.
+    "KEVIN CONCEPCION": "KC CONCEPCION",
 }
 
 _SUFFIXES = re.compile(r"\b(JR|SR|II|III|IV|V)\b")

@@ -38,7 +38,6 @@ scipy==1.17.1
 requests==2.32.5
 beautifulsoup4==4.12.2
 lxml==5.3.1
-selenium==4.20.0          # Pinnacle only; needs a local Chrome + chromedriver
 
 # BetOnline weekly player props only -- Scripts/bol_widget.py. Needs a one-off
 # `playwright install chromium` after pip; the wheel ships no browser.

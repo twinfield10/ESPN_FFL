@@ -219,7 +219,7 @@ def test_an_overdue_odds_pull_is_stale(tmp_path, monkeypatch, capsys):
 
 def test_every_weekly_source_is_named_in_the_weekly_manifest():
     named = {entry[0] for entry in rs.WEEKLY_PROJECTION_SOURCES}
-    assert named == {"FP weekly", "PINNY weekly", "BOL weekly", "ATH weekly"}
+    assert named == {"FP weekly", "B105 weekly", "BOL weekly", "ATH weekly"}
 
 
 def test_a_source_on_its_own_clock_is_not_judged_by_the_nightly_window():
@@ -261,12 +261,12 @@ def test_the_weekly_manifest_resolves_paths_without_creating_directories():
 
 
 def test_a_dead_weekly_source_is_advisory_rather_than_stale_making(tmp_path, capsys):
-    """Pinnacle's weekly Selenium path and BetOnline's 403 will both be missing for
+    """A dead engine read and BetOnline's 403 will both be missing for
     stretches of the season, and a check that is red every night is one nobody
     reads -- which this module's own docstring warns about."""
     missing = tmp_path / "nope.parquet"
     advisory_only = (
-        ("PINNY weekly", lambda s: missing, "python -m Scripts.scrape_pinnacle", True),
+        ("B105 weekly", lambda s: missing, "python -m Scripts.books.engine", True),
         ("BOL weekly", lambda s: missing, "blocked, see docs/plans/02", True),
     )
     assert rs._report_sources(2026, 25.0, sources=advisory_only) is False

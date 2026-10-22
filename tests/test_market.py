@@ -472,13 +472,9 @@ def test_load_model_returns_none_rather_than_raising(tmp_path):
     assert mk.load_model(tmp_path / "absent.json") is None
 
 
-#: Every stat name the two scrapers can hand the conversion.
-#:
-#: The duplication is the point of the test below -- it fails if a scraper grows a
-#: market the market table has no entry or alias for. It used to be duplicated for a
-#: second reason too: ``Scripts.scrape_pinnacle`` started a browser at import time, so
-#: a test could not read its ``prop_to_stat`` without scraping the web. That is fixed
-#: (plan 36), and the test below now imports the mapping instead of parsing source.
+#: Every stat name the scrapers can hand the conversion. A test here used to check it
+#: against ``Scripts.scrape_pinnacle``'s own mapping; that scraper retired on
+#: 2026-10-23, when Bet105 from the sportsbook engine took its place.
 SCRAPED_STATS = (
     "passingYards", "passingAttempts", "passingCompletions", "passingTouchdowns",
     "passingInterceptions", "rushingYards", "rushingAttempts", "rushingTouchdowns",
@@ -494,19 +490,6 @@ def test_every_scraped_stat_resolves_to_a_market():
     which is what made the Pinnacle touchdown bug invisible."""
     for stat in SCRAPED_STATS:
         assert mk.resolve_stat(stat) in mk.MARKET_STATS, stat
-
-
-def test_scraped_stats_matches_the_pinnacle_mapping():
-    """The hardcoded list above against the scraper's own.
-
-    Imported rather than parsed out of the source text. That the import is safe is
-    itself the assertion -- it holds only because the scrape now lives behind
-    ``main()``, and ``tests/test_scraper_import_safety.py`` keeps it that way.
-    """
-    from Scripts import scrape_pinnacle
-
-    mapped = set(scrape_pinnacle.prop_to_stat.values())
-    assert mapped <= set(SCRAPED_STATS), mapped - set(SCRAPED_STATS)
 
 
 def test_panel_columns_cover_every_market():

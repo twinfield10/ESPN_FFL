@@ -161,10 +161,12 @@ WEEKLY_PROJECTION_SOURCES = (
      lambda s: season_dir("FantasyPros", s,
                           "FantasyPros_Projections_Week_All.parquet", create=False),
      "python -m Scripts.scrape_FP --what weekly", False),
-    ("PINNY weekly",
-     lambda s: season_dir("Pinnacle", s, "Pinnacle_Props_Week_All.parquet",
-                          create=False),
-     "python -m Scripts.scrape_pinnacle", True),
+    # Bet105 replaced the Pinnacle weekly scrape on 2026-10-23, written by the engine
+    # adapter. Advisory as Pinnacle was: it is one book of five in the square pool, and
+    # a night it is missing the pool still speaks.
+    ("B105 weekly",
+     lambda s: season_dir("Bet105", s, "Bet105_AllProps.parquet", create=False),
+     "python -m Scripts.books.engine", True),
     ("BOL weekly",
      lambda s: season_dir("BetOnline", s, "BetOnline_AllProps.parquet", create=False),
      "python -m Scripts.scrape_BOL --week <week>", False),

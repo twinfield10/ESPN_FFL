@@ -474,7 +474,7 @@ COVERAGE_ORDER = ("ESPN", "FP", "SHARP", "SQUARE", "ATH", "USG")
 
 #: Individual books, not shown on the sidebar since 2026-10-13: they reach the weekly
 #: blend only through the ``SHARP`` and ``SQUARE`` pools, which are shown instead.
-COVERAGE_HIDDEN = frozenset({"PINNY", "BOL", "FD", "DK", "NV", "C4"})
+COVERAGE_HIDDEN = frozenset({"PINNY", "BOL", "FD", "DK", "NV", "C4", "B105"})
 
 #: How a source prefix is labelled on the sidebar.
 COVERAGE_LABELS = {"FP": "FantasyPros", "SHARP": "Sharp books", "SQUARE": "Square books",

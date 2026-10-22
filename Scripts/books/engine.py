@@ -16,7 +16,9 @@ it run unchanged.
 **Phase 1 is shadow only.** Output goes under ``Data/Engine/Shadow/``, which
 nothing in the blend reads and ``Scripts.sync`` does not mirror. Plan 54's gates
 (G1 coverage, G2 stat lines, G3 board) are measured from it with ``--compare``
-before anything switches.
+before anything switches. **The exception is a ``live`` book** -- Bet105 from
+2026-10-23, Pinnacle's replacement -- which has no scrape of ours to shadow, so its
+output goes to ``Data/Projections/<dir>/`` where the blend reads it.
 
 **Reading a changes-only table needs two things the contract's reader skips:**
 
@@ -58,13 +60,13 @@ import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import polars as pl
 
 from Scripts import market as mk
 from Scripts.books.weekly_props import RAW_SCHEMA, project_book, raw_frame, reconcile
-from Scripts.paths import DATA_DIR, season_dir
+from Scripts.paths import DATA_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +116,10 @@ class Book:
     ``ladder`` is ``"one_sided"`` where the adapter it replaces read alt markets only
     (FanDuel), and ``"every_rung"`` where it read the over side of every rung.
     ``pooled`` is False for a book that is shadowed but not yet in any pool (plan 54,
-    decision 3).
+    decision 3). ``live`` writes the book where the blend reads it,
+    ``Data/Projections/<dir>/``, instead of into the shadow: the engine is that book's
+    only source. ``stats`` limits it to those ESPN stats; None keeps every one in
+    :data:`STAT_MAP`.
     """
 
     engine: str
@@ -124,6 +129,8 @@ class Book:
     prefix: str
     ladder: str = "every_rung"
     pooled: bool = True
+    live: bool = False
+    stats: Optional[Tuple[str, ...]] = None
 
 
 BOOKS: List[Book] = [
@@ -136,12 +143,17 @@ BOOKS: List[Book] = [
     Book("Bovada", "bovada", "Bovada", "Bovada", "BOV", pooled=False),
     Book("Kalshi", "kalshi", "Kalshi", "Kalshi", "KAL", pooled=False),
     Book("Polymarket", "polymarket", "Polymarket", "Polymarket", "PM", pooled=False),
-    # Shadowed 2026-10-22 as Pinnacle's replacement, so the square pool stops depending
-    # on a Selenium scrape of a Chrome install Homebrew can quarantine. On that day's
-    # week-7 board its derived stat lines matched our Pinnacle scrape to a median 0.02%
-    # on every shared stat, 163 of 166 players in both. `--compare` measures it against
-    # that scrape, not against a Bet105 scrape of ours -- there is none.
-    Book("Bet105", "bet105", "Bet105", "Bet105", "B105", pooled=False),
+    # Pinnacle's replacement in the square pool, live from 2026-10-23, so the blend
+    # stops depending on a Selenium scrape of a Chrome install Homebrew can quarantine.
+    # On 2026-10-22's week-7 board its derived stat lines matched our Pinnacle scrape to
+    # a median 0.02% or less on every shared stat, 96-100% of Pinnacle's players in
+    # both. Held to Pinnacle's eight stats: that scrape posted no anytime touchdown or
+    # interception that week, and Bet105 had 18 and 2 players, too few to measure a
+    # margin on. Widen it when there is depth to measure.
+    Book("Bet105", "bet105", "Bet105", "Bet105", "B105", live=True,
+         stats=("passingYards", "passingAttempts", "passingCompletions",
+                "passingTouchdowns", "rushingYards", "rushingAttempts",
+                "receivingYards", "receivingReceptions")),
 ]
 
 #: The fair price every other book is measured against (plan 54, decision 3).
@@ -317,6 +329,8 @@ def to_raw(board: pl.DataFrame, book: Book) -> pl.DataFrame:
                         pl.col("market").is_in(list(STAT_MAP)),
                         pl.col("price").is_not_null(), pl.col("price") != 0,
                         pl.col("line").is_not_null())
+    if book.stats is not None:
+        rows = rows.filter(pl.col("market").replace_strict(STAT_MAP).is_in(list(book.stats)))
     if rows.is_empty():
         return raw_frame([])
     rows = rows.with_columns(
@@ -404,6 +418,14 @@ def shadow_file(book: Book, season: int) -> Path:
     return SHADOW_DIR / book.dir / "Season" / str(season) / f"{book.dir}_AllProps.parquet"
 
 
+def book_file(book: Book, season: int) -> Path:
+    """Where a run writes ``book``: the real season file if it is live, else the shadow."""
+    if book.live:
+        from Scripts.books.weekly_props import season_file
+        return season_file(book.dir, season)
+    return shadow_file(book, season)
+
+
 def _stamp(t: datetime) -> str:
     return t.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
@@ -470,7 +492,7 @@ def run(season: int, week: int, t: Optional[datetime] = None, *, write: bool = T
               f"last poll {age:.1f}h before t, prices {sa.get('p50', 0):.1f}h old "
               f"(p90 {sa.get('p90', 0):.1f}h)")
         if write:
-            path = shadow_file(book, season)
+            path = book_file(book, season)
             raw_path = path.parent / "Raw" / f"{book.dir}_Raw_Week_{week}_{_stamp(t)}.parquet"
             raw_path.parent.mkdir(parents=True, exist_ok=True)
             raw.write_parquet(raw_path)
@@ -482,8 +504,14 @@ def run(season: int, week: int, t: Optional[datetime] = None, *, write: bool = T
     return status
 
 
-def _write_status(status: Dict, path: Path = STATUS_PATH, keep: int = 60) -> None:
-    """Keep the last ``keep`` runs; the schedule discussion needs the ages as a series."""
+def _write_status(status: Dict, path: Optional[Path] = None, keep: int = 60) -> None:
+    """Keep the last ``keep`` runs; the schedule discussion needs the ages as a series.
+
+    ``path`` defaults to :data:`STATUS_PATH` looked up at call time. As a default
+    argument it was bound at import, so the tests' monkeypatch never reached it and
+    every pytest run appended fixture runs to the real log.
+    """
+    path = STATUS_PATH if path is None else path
     path.parent.mkdir(parents=True, exist_ok=True)
     runs = json.loads(path.read_text())["runs"] if path.exists() else []
     path.write_text(json.dumps({"runs": (runs + [status])[-keep:]}, indent=1, default=str) + "\n")
@@ -508,12 +536,10 @@ def compare(season: int, week: int, books: Sequence[Book] = BOOKS) -> pl.DataFra
 
     out = []
     for book in books:
+        if book.live:
+            continue  # no scrape of ours to compare against, and no shadow
         if book.name == "BetOnline":
             ours_path = Path(betonline_parquet(season))
-        elif book.name == "Bet105":
-            # The scrape it replaces, which writes under its own file name.
-            ours_path = season_dir("Pinnacle", season, "Pinnacle_Props_Week_All.parquet",
-                                   create=False)
         else:
             ours_path = season_file(book.dir, season, create=False)
         theirs_path = shadow_file(book, season)
@@ -558,7 +584,7 @@ def main(argv=None) -> int:
     from Scripts.nfl_utils import current_season, current_week
 
     p = argparse.ArgumentParser(prog="python -m Scripts.books.engine",
-                                description="Weekly props from the sportsbook engine (plan 54, shadow).")
+                                description="Weekly props from the sportsbook engine (plan 54).")
     p.add_argument("--season", type=int)
     p.add_argument("--week", type=int)
     p.add_argument("--at", help="read the board as of this UTC time (default: now)")

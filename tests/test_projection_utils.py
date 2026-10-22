@@ -574,11 +574,11 @@ def test_get_match_details_tolerates_a_source_with_no_data(capsys):
 
 def test_weekly_sources_present_reports_each_file():
     present = pu.weekly_sources_present(UNSCRAPED_SEASON)
-    assert present == {"fantasypros": False, "pinnacle": False, "betonline": False,
+    assert present == {"fantasypros": False, "bet105": False, "betonline": False,
                        "theathletic": False, "fanduel": False, "draftkings": False,
                        "novig": False, "fourcasters": False}
     assert set(pu.weekly_sources_present(2025)) == {
-        "fantasypros", "pinnacle", "betonline", "theathletic", "fanduel", "draftkings", "novig", "fourcasters"}
+        "fantasypros", "bet105", "betonline", "theathletic", "fanduel", "draftkings", "novig", "fourcasters"}
 
 
 # --- a weekly source has to be usable, not merely present ----------------
@@ -645,7 +645,7 @@ def test_the_source_presence_keys_are_the_external_weekly_sources():
     feed that went quiet, it is a head nobody has built, and reporting our own
     unbuilt model beside sources that failed to arrive answers a different question.
     """
-    assert set(pu.WEEKLY_SOURCE_FILES) == {"fantasypros", "pinnacle", "betonline",
+    assert set(pu.WEEKLY_SOURCE_FILES) == {"fantasypros", "bet105", "betonline",
                                            "theathletic", "fanduel", "draftkings", "novig", "fourcasters"}
     assert "usage" not in pu.WEEKLY_SOURCE_FILES
     assert "tomcat" not in pu.WEEKLY_SOURCE_FILES
@@ -899,3 +899,30 @@ def test_the_stale_warning_survives_the_global_filter(tmp_path):
         pu.check_source_freshness("Book", _aged_file(tmp_path, 200), "run it")
     assert len(caught) == 1
     assert issubclass(caught[0].category, pu.StaleProjectionSourceWarning)
+
+
+# --- Bet105 in Pinnacle's place (plan 54, decision 1) --------------------
+
+def test_pinnacle_keeps_only_the_weeks_bet105_does_not_have(monkeypatch, tmp_path):
+    """The switch landed mid-week, so for that week both files hold the same lines,
+    and both in the square pool would count one opinion twice in its median."""
+    path = tmp_path / "Bet105_AllProps.parquet"
+    pd.DataFrame({"week": [7, 7], "player_name": ["A", "B"]}).to_parquet(path)
+    monkeypatch.setattr(pu, "_book_props_parquet", lambda book_dir, season: path)
+    pinny = pd.DataFrame({"week": [5, 6, 7], "player_name": ["A", "A", "A"],
+                          "proj_receivingYards": [60.5, 61.5, 62.5]})
+    out = pu.drop_weeks_bet105_covers(pinny, 2026)
+    assert out["week"].tolist() == [5, 6]
+
+
+def test_pinnacle_is_untouched_until_bet105_has_a_file(monkeypatch, tmp_path):
+    monkeypatch.setattr(pu, "_book_props_parquet",
+                        lambda book_dir, season: tmp_path / "absent.parquet")
+    pinny = pd.DataFrame({"week": [7], "player_name": ["A"]})
+    assert pu.drop_weeks_bet105_covers(pinny, 2026).equals(pinny)
+
+
+def test_bet105_votes_in_the_square_pool_and_pinnacle_keeps_its_dst_seat():
+    assert "B105" in pu.SQUARE_BOOKS and "PINNY" in pu.SQUARE_BOOKS
+    assert ("B105", "Bet105", "Bet105") in pu.NEW_WEEKLY_BOOKS
+    assert "B105" in pu.WEEKLY_PREFIXES
