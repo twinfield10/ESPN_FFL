@@ -11,6 +11,7 @@ the teaser, which is this repo's recurring failure mode of an absent source read
 agreement. So the loud paths matter more than the happy one.
 """
 
+import json
 import re
 
 import pandas as pd
@@ -389,59 +390,124 @@ def test_an_empty_season_capture_leaves_the_snapshot_alone(monkeypatch,
 
 
 # ---------------------------------------------------------------------------
-# Column selection is by header, not by position. The headers below are what
-# FantasyPros served on 2026-09-23: the season-long (`week=draft`) tables carry a
-# BYE column after Player and the weekly ones do not -- the shift that failed the
-# nightly with "Length mismatch: Expected axis has 12 elements, new values have 11".
+# The projections come out of the page's `FP.reportConfig` JSON, not a table. On
+# 2026-10-22 FantasyPros stopped server-rendering `<table id="data">`; the 06:00
+# nightly failed as "Missing optional dependency 'html5lib'" because the scraper
+# handed pandas the string "None". The shapes below are trimmed from that morning's
+# pages: the season-long (`week=draft`) fields carry `bye`, the weekly ones do not,
+# and a D/ST row's `team` is blank.
 # ---------------------------------------------------------------------------
 
-def _qb_table(with_bye, rows=1):
-    """A QB table shaped the way `pd.read_html` returns it."""
-    cols = [("Unnamed: 0_level_0", "Player")]
-    if with_bye:
-        cols.append(("Unnamed: 1_level_0", "BYE"))
-    cols += [("PASSING", s) for s in ("ATT", "CMP", "YDS", "TDS", "INTS")]
-    cols += [("RUSHING", s) for s in ("ATT", "YDS", "TDS")]
-    cols += [("MISC", "FL"), ("MISC", "FPTS")]
-    row = ["Josh Allen BUF"] + ([7] if with_bye else []) + [
-        504.5, 341.7, 3889.0, 26.8, 11.7, 115.5, 577.8, 11.1, 4.1, 367.1]
-    return pd.DataFrame([row] * rows, columns=pd.MultiIndex.from_tuples(cols))
+def _page(fields, rows, *, prefix="<script>var FP = FP || {};\nFP.reportConfig = ",
+          suffix=';\nFP.other = {"a": "b;c"};</script>'):
+    """A projections page carrying one `FP.reportConfig` table."""
+    config = {"type": "report", "title": "Projections",
+              "table": {"fields": [{"key": "player", "label": "Player"},
+                                   *({"key": k, "label": k.upper()} for k in fields)],
+                        "rows": rows, "emptyMessage": "No data"}}
+    return "<html><body>" + prefix + json.dumps(config) + suffix + "</body></html>"
+
+
+_QB_FIELDS = ["pass_att", "pass_cmp", "pass_yds", "pass_tds", "pass_ints",
+              "rush_att", "rush_yds", "rush_tds", "fumbles", "fpts"]
+
+
+def _qb_row(**extra):
+    return {"id": 17298, "player": {"id": 17298, "name": "Josh Allen", "team": "BUF"},
+            "_filterGame": "", "pass_att": 504.5, "pass_cmp": 341.7, "pass_yds": 3889,
+            "pass_tds": 26.8, "pass_ints": 11.7, "rush_att": 115.5, "rush_yds": 577.8,
+            "rush_tds": 11.1, "fumbles": 4.1, "fpts": 367.14, **extra}
 
 
 @pytest.mark.parametrize("with_bye", [True, False], ids=["season", "weekly"])
-def test_a_qb_table_reads_the_same_with_or_without_a_bye_column(with_bye):
-    out = fp._select_stat_columns(_qb_table(with_bye), "qb")
-    assert list(out.columns) == ["player_name", *fp.STAT_COLUMNS["qb"].values()]
-    assert out.loc[0, "player_name"] == "Josh Allen BUF"
-    # Rushing and passing yards share the header YDS; the group keeps them apart.
-    assert out.loc[0, "proj_passingYards"] == 3889.0
-    assert out.loc[0, "proj_rushingYards"] == 577.8
-    assert out.loc[0, "STD_FantasyPoints"] == 367.1
+def test_a_qb_page_reads_the_same_with_or_without_a_bye_field(with_bye):
+    fields = (["bye"] if with_bye else []) + _QB_FIELDS
+    row = _qb_row(**({"bye": 7} if with_bye else {}))
+    out = fp.parse_report_table(_page(fields, [row]), "qb")
+    assert list(out.columns) == ["player_name", "playerTeam",
+                                 *fp.FIELD_COLUMNS["qb"].values()]
+    assert out.loc[0, "player_name"] == "Josh Allen"
+    assert out.loc[0, "playerTeam"] == "BUF"
+    # Rushing and passing attempts are separate keys, not two `ATT` headers.
+    assert out.loc[0, "proj_passingAttempts"] == 504.5
+    assert out.loc[0, "proj_rushingAttempts"] == 115.5
+    assert out.loc[0, "STD_FantasyPoints"] == 367.14
 
 
 def test_an_empty_table_still_has_its_columns():
-    out = fp._select_stat_columns(_qb_table(False, rows=0), "qb")
+    """The Tuesday-rollover hour: fields served, no rows."""
+    out = fp.parse_report_table(_page(_QB_FIELDS, []), "qb")
     assert out.empty
-    assert "player_name" in out.columns
+    assert {"player_name", "playerTeam", "proj_passingYards"} <= set(out.columns)
 
 
-def test_the_single_row_dst_header_ignores_columns_it_does_not_use():
-    df = pd.DataFrame([["Denver Broncos", 12, 45.1, 13.0, 8.2, 9.9, 1.9, 0.4,
-                        330.0, 5400.0, 120.0]],
-                      columns=["Player", "BYE", "SACK", "INT", "FR", "FF", "TD",
-                               "SAFETY", "PA", "YDS AGN", "FPTS"])
-    out = fp._select_stat_columns(df, "dst")
-    assert out.loc[0, "proj_defensiveFumbles"] == 8.2  # FR, not FF
-    assert out.loc[0, "STD_FantasyPoints"] == 120.0
+def test_dst_ignores_fields_it_does_not_use():
+    fields = ["bye", "def_sack", "def_int", "def_fr", "def_ff", "def_td",
+              "def_safety", "def_pa", "def_tyda", "fpts"]
+    row = {"id": 8120, "player": {"id": 8120, "name": "Houston Texans", "team": "",
+                                  "shortName": "HOU DST"},
+           "bye": 8, "def_sack": 49.6, "def_int": 14.4, "def_fr": 11.6, "def_ff": 18.3,
+           "def_td": 2.8, "def_safety": 1, "def_pa": 322.2, "def_tyda": 5400.0,
+           "fpts": 120.0}
+    out = fp.parse_report_table(_page(fields, [row]), "dst")
+    assert out.loc[0, "proj_defensiveFumbles"] == 11.6  # def_fr, not def_ff
+    assert out.loc[0, "proj_defensiveYardsAllowed"] == 5400.0
+    assert out.loc[0, "player_name"] == "Houston Texans"
 
 
-def test_a_renamed_stat_header_fails_loudly_rather_than_publishing_zeros():
-    df = _qb_table(False)
-    df.columns = pd.MultiIndex.from_tuples(
-        [("MISC", "FUM") if c == ("MISC", "FL") else c for c in df.columns])
-    with pytest.raises(ValueError, match="MISC FL"):
-        fp._select_stat_columns(df, "qb")
+def test_get_fp_names_a_defence_and_its_team_off_the_club_name(monkeypatch):
+    """A D/ST row's `team` is blank; `get_fp` maps the club name, as it always has."""
+    fields = ["def_sack", "def_int", "def_fr", "def_td", "def_safety", "def_pa",
+              "def_tyda", "fpts"]
+    dst = {"player": {"name": "Houston Texans", "team": ""}, "def_sack": 2.9,
+           "def_int": 1.1, "def_fr": 0.6, "def_td": 0.2, "def_safety": 0,
+           "def_pa": 19.2, "def_tyda": 311.7, "fpts": 7.4}
+    pages = {"dst": _page(fields, [dst]), "qb": _page(_QB_FIELDS, [_qb_row()])}
+    empty = {"rb": ["rush_att", "rush_yds", "rush_tds", "rec_att", "rec_yds",
+                    "rec_tds", "fumbles", "fpts"],
+             "wr": ["rec_att", "rec_yds", "rec_tds", "rush_att", "rush_yds",
+                    "rush_tds", "fumbles", "fpts"],
+             "te": ["rec_att", "rec_yds", "rec_tds", "fumbles", "fpts"],
+             "k": ["fg", "fga", "xpt", "fpts"]}
+    pages.update({pos: _page(f, []) for pos, f in empty.items()})
+
+    class _Resp:
+        def __init__(self, text):
+            self.text = text
+
+        def raise_for_status(self):
+            pass
+
+    monkeypatch.setattr(fp.requests, "get", lambda url, **k: _Resp(
+        pages[url.split("/projections/")[1].split(".php")[0]]))
+    monkeypatch.setattr(fp.time, "sleep", lambda s: None)
+    monkeypatch.setattr(fp, "_session_cookie", lambda: "cookie")
+
+    out = fp.get_fp(wk=7)
+    row = out[out["player_name"] == "Texans D/ST"].iloc[0]
+    assert row["playerTeam"] == "HOU" and row["proj_defensiveSacks"] == 2.9
+    allen = out[out["player_name"] == "Josh Allen"].iloc[0]
+    assert allen["playerTeam"] == "BUF" and allen["proj_receivingYards"] == 0
 
 
-def test_every_scraped_position_has_a_column_map():
-    assert set(fp.STAT_COLUMNS) >= set(fp.pos_list)
+def test_a_renamed_field_fails_loudly_rather_than_publishing_zeros():
+    fields = ["fumbles_lost" if f == "fumbles" else f for f in _QB_FIELDS]
+    with pytest.raises(ValueError, match="fumbles"):
+        fp.parse_report_table(_page(fields, [_qb_row()]), "qb")
+
+
+def test_a_page_without_the_config_is_a_failure_not_an_empty_week():
+    with pytest.raises(ValueError, match="FP.reportConfig"):
+        fp.parse_report_table("<html><table id='data'></table></html>", "qb")
+
+
+def test_semicolons_inside_the_json_do_not_end_it():
+    """Decoded from the opening brace, not cut at the first `};`."""
+    row = _qb_row()
+    row["player"]["url"] = "/nfl/projections/josh-allen.php?a=1;b=2};"
+    out = fp.parse_report_table(_page(_QB_FIELDS, [row]), "qb")
+    assert out.loc[0, "proj_passingYards"] == 3889
+
+
+def test_every_scraped_position_has_a_field_map():
+    assert set(fp.FIELD_COLUMNS) >= set(fp.pos_list)

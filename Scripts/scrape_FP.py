@@ -6,10 +6,7 @@ from datetime import datetime
 import requests
 import polars as pl
 import pandas as pd
-from io import StringIO
 
-# Scrape
-from bs4 import BeautifulSoup
 
 # Get Schedule and Active Week
 from Scripts.nfl_utils import current_season, current_week
@@ -135,85 +132,99 @@ dst_map = {'Kansas City Chiefs': 'Chiefs D/ST',
            'Minnesota Vikings': 'Vikings D/ST'
            }
 
-#: FantasyPros header -> our column, per position. Keyed by header rather than by
-#: position in the table because the table's shape is not stable: on 2026-09-23 the
-#: season-long (``week=draft``) tables grew a ``BYE`` column after ``Player``, the QB
-#: table went from 11 columns to 12, and the positional ``df.columns = [...]`` that
-#: used to live in `get_fp` raised a length mismatch and took the whole nightly down.
-#: The weekly tables did not grow it, so both shapes are live at once. Skill positions
-#: carry a two-row header (``PASSING`` / ``ATT``), flattened to ``"PASSING ATT"``;
-#: K and DST have one row.
-STAT_COLUMNS = {
-    "qb": {"PASSING ATT": "proj_passingAttempts", "PASSING CMP": "proj_passingCompletions",
-           "PASSING YDS": "proj_passingYards", "PASSING TDS": "proj_passingTouchdowns",
-           "PASSING INTS": "proj_passingInterceptions",
-           "RUSHING ATT": "proj_rushingAttempts", "RUSHING YDS": "proj_rushingYards",
-           "RUSHING TDS": "proj_rushingTouchdowns",
-           "MISC FL": "proj_lostFumbles", "MISC FPTS": "STD_FantasyPoints"},
-    "rb": {"RUSHING ATT": "proj_rushingAttempts", "RUSHING YDS": "proj_rushingYards",
-           "RUSHING TDS": "proj_rushingTouchdowns",
-           "RECEIVING REC": "proj_receivingReceptions", "RECEIVING YDS": "proj_receivingYards",
-           "RECEIVING TDS": "proj_receivingTouchdowns",
-           "MISC FL": "proj_lostFumbles", "MISC FPTS": "STD_FantasyPoints"},
-    "wr": {"RECEIVING REC": "proj_receivingReceptions", "RECEIVING YDS": "proj_receivingYards",
-           "RECEIVING TDS": "proj_receivingTouchdowns",
-           "RUSHING ATT": "proj_rushingAttempts", "RUSHING YDS": "proj_rushingYards",
-           "RUSHING TDS": "proj_rushingTouchdowns",
-           "MISC FL": "proj_lostFumbles", "MISC FPTS": "STD_FantasyPoints"},
-    "te": {"RECEIVING REC": "proj_receivingReceptions", "RECEIVING YDS": "proj_receivingYards",
-           "RECEIVING TDS": "proj_receivingTouchdowns",
-           "MISC FL": "proj_lostFumbles", "MISC FPTS": "STD_FantasyPoints"},
-    "k": {"FPTS": "STD_FantasyPoints"},
-    "dst": {"SACK": "proj_defensiveSacks", "INT": "proj_defensiveInterceptions",
-            "FR": "proj_defensiveFumbles", "TD": "proj_defensiveTouchdowns",
-            "SAFETY": "proj_defensiveSafeties", "PA": "proj_defensivePointsAllowed",
-            "YDS AGN": "proj_defensiveYardsAllowed", "FPTS": "STD_FantasyPoints"},
+#: FantasyPros field key -> our column, per position.
+#:
+#: **Keyed by the JSON field, not the column header, since 2026-10-22.** That morning
+#: FantasyPros stopped server-rendering the projection tables: the page still returns
+#: 200 with every number in it, but as rows in the ``FP.reportConfig`` object the
+#: browser draws the table from, and there is no ``<table>`` in the HTML at all. The
+#: 06:00 nightly failed on it as ``Missing optional dependency 'html5lib'`` -- the
+#: scraper handed pandas the string ``"None"``, lxml found no table in it, and pandas'
+#: fallback parser was the one that complained.
+#:
+#: The keys are better than the headers were. ``pass_att``, ``rush_att`` and
+#: ``rec_att`` are distinct, where the table needed its two-row ``PASSING``/``RUSHING``
+#: header to tell three ``ATT`` columns apart. Fields FantasyPros adds (``bye`` on the
+#: season-long pages, DST's ``def_ff``, K's ``fg``) are ignored; a field it drops or
+#: renames raises, because `get_fp` zero-fills whatever is absent and a missing stat
+#: would otherwise publish as a projection of 0.
+FIELD_COLUMNS = {
+    "qb": {"pass_att": "proj_passingAttempts", "pass_cmp": "proj_passingCompletions",
+           "pass_yds": "proj_passingYards", "pass_tds": "proj_passingTouchdowns",
+           "pass_ints": "proj_passingInterceptions",
+           "rush_att": "proj_rushingAttempts", "rush_yds": "proj_rushingYards",
+           "rush_tds": "proj_rushingTouchdowns",
+           "fumbles": "proj_lostFumbles", "fpts": "STD_FantasyPoints"},
+    "rb": {"rush_att": "proj_rushingAttempts", "rush_yds": "proj_rushingYards",
+           "rush_tds": "proj_rushingTouchdowns",
+           "rec_att": "proj_receivingReceptions", "rec_yds": "proj_receivingYards",
+           "rec_tds": "proj_receivingTouchdowns",
+           "fumbles": "proj_lostFumbles", "fpts": "STD_FantasyPoints"},
+    "wr": {"rec_att": "proj_receivingReceptions", "rec_yds": "proj_receivingYards",
+           "rec_tds": "proj_receivingTouchdowns",
+           "rush_att": "proj_rushingAttempts", "rush_yds": "proj_rushingYards",
+           "rush_tds": "proj_rushingTouchdowns",
+           "fumbles": "proj_lostFumbles", "fpts": "STD_FantasyPoints"},
+    "te": {"rec_att": "proj_receivingReceptions", "rec_yds": "proj_receivingYards",
+           "rec_tds": "proj_receivingTouchdowns",
+           "fumbles": "proj_lostFumbles", "fpts": "STD_FantasyPoints"},
+    "k": {"fpts": "STD_FantasyPoints"},
+    "dst": {"def_sack": "proj_defensiveSacks", "def_int": "proj_defensiveInterceptions",
+            "def_fr": "proj_defensiveFumbles", "def_td": "proj_defensiveTouchdowns",
+            "def_safety": "proj_defensiveSafeties", "def_pa": "proj_defensivePointsAllowed",
+            "def_tyda": "proj_defensiveYardsAllowed", "fpts": "STD_FantasyPoints"},
 }
 
-
-def _header_label(col) -> str:
-    """Flatten one `read_html` column label to the key `STAT_COLUMNS` uses.
-
-    Args:
-        col: A plain string, or a ``(group, stat)`` tuple from a two-row header.
-            pandas names an empty group cell ``"Unnamed: 0_level_0"``, which is
-            dropped so ``Player`` stays ``"Player"``.
-
-    Returns:
-        str: ``"PASSING ATT"`` for a grouped column, the bare header otherwise.
-    """
-    if not isinstance(col, tuple):
-        return str(col).strip()
-    parts = [str(p).strip() for p in col if not str(p).startswith("Unnamed:")]
-    return " ".join(parts)
+#: Where the projections page assigns its table definition. Decoded with
+#: ``raw_decode`` from the opening brace rather than matched to a closing ``};``,
+#: because the object is one line of JSON with ``;`` inside its strings.
+_REPORT_CONFIG = re.compile(r"FP\.reportConfig\s*=\s*")
 
 
-def _select_stat_columns(df: pd.DataFrame, pos: str) -> pd.DataFrame:
-    """Keep and rename the columns `get_fp` uses, by header name.
-
-    Columns FantasyPros adds (``BYE``, DST's ``FF``, K's ``FG``) are ignored. A
-    column it *drops or renames* raises instead: `get_fp` zero-fills whatever is
-    absent, so a missing stat would otherwise publish as a projection of 0.
+def parse_report_table(html, pos):
+    """One position's projections out of the page's ``FP.reportConfig`` object.
 
     Args:
-        df: One position's table as `pd.read_html` returns it.
+        html: The projections page source.
         pos: FantasyPros position slug (``qb``, ``rb``, ``wr``, ``te``, ``k``, ``dst``).
 
     Returns:
-        pd.DataFrame: ``player_name`` followed by that position's ``proj_`` columns
-        and ``STD_FantasyPoints``.
+        pd.DataFrame: ``player_name``, ``playerTeam`` and that position's
+        :data:`FIELD_COLUMNS` targets, one row per player. Empty, with those
+        columns, when the table has no rows -- FantasyPros serves that for an hour
+        or so at the Tuesday rollover.
 
     Raises:
-        ValueError: If ``Player`` or any expected stat header is missing.
+        ValueError: When the object is absent or will not decode, or a field in
+            :data:`FIELD_COLUMNS` is missing from it. Either means the page has been
+            restructured, which is a build failure rather than an empty result.
     """
-    wanted = {"Player": "player_name", **STAT_COLUMNS[pos]}
-    df = df.copy()
-    df.columns = [_header_label(c) for c in df.columns]
-    missing = [h for h in wanted if h not in df.columns]
+    wanted = FIELD_COLUMNS[pos]
+    columns = ["player_name", "playerTeam", *wanted.values()]
+    found = _REPORT_CONFIG.search(html or "")
+    if not found:
+        raise ValueError(
+            f"no `FP.reportConfig` on the FantasyPros {pos} page. The projections "
+            f"template has changed, or the response was an interstitial.")
+    try:
+        config, _ = json.JSONDecoder().raw_decode(html, found.end())
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"FP.reportConfig did not decode as JSON: {exc}") from exc
+
+    table = config.get("table") or {}
+    fields = [f.get("key") for f in table.get("fields", [])]
+    missing = [k for k in wanted if k not in fields]
     if missing:
         raise ValueError(f"FantasyPros {pos} table is missing {missing}; "
-                         f"it has {list(df.columns)}")
-    return df[list(wanted)].rename(columns=wanted)
+                         f"it has {fields}")
+
+    records = []
+    for row in table.get("rows", []):
+        player = row.get("player") or {}
+        record = {"player_name": player.get("name"), "playerTeam": player.get("team")}
+        record.update({column: row.get(key) for key, column in wanted.items()})
+        records.append(record)
+    return pd.DataFrame(records, columns=columns)
 
 
 def get_fp(wk, year=None):
@@ -263,13 +274,7 @@ def get_fp(wk, year=None):
         if 'id="registration-fence"' in response.text or "registration-fence" in response.text:
             print(f"  NOTE: {pos} still served the registration fence -- the session "
                   "cookie is missing or expired, and this position is capped at 10.")
-        soup = BeautifulSoup(response.content, "lxml")
-
-        # Find the table and extract HTML
-        table_html = str(soup.find('table', id='data'))
-
-        # Read the table into a pandas DataFrame
-        df = pd.read_html(StringIO(table_html))[0]
+        df = parse_report_table(response.text, pos)
 
         final_cols = ['week', 'player_name', 'playerTeam',
                       'proj_passingAttempts', 'proj_passingCompletions', 'proj_passingYards', 'proj_passingTouchdowns', 'proj_passingInterceptions',
@@ -280,16 +285,14 @@ def get_fp(wk, year=None):
                       'STD_FantasyPoints'
                       ]
 
-        df = _select_stat_columns(df, pos)
-
-        # Split Name and Team
+        # A D/ST row's `name` is the club ("Houston Texans") and its `team` is blank,
+        # so both columns come off the name, exactly as they did off the old table's
+        # Player cell. Everyone else's team is its own field now -- the table used to
+        # append it to the name ("Drake Maye NE") for this loop to split off.
         if pos == 'dst':
              df['playerTeam'] = df['player_name']
              df.replace({"playerTeam": team_map}, inplace=True)
              df.replace({'player_name': dst_map}, inplace=True)
-        else:
-            df['playerTeam'] = df['player_name'].str.split().str[-1]
-            df['player_name'] = df['player_name'].str.rsplit(' ', n=1).str[0]
 
         # Add missing columns with 0 value
         for col in final_cols:
