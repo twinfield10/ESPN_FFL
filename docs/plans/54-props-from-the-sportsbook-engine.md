@@ -333,8 +333,12 @@ there.
    likely source.
 3. **`clean_bol` assumes the scrape's columns.** It drops `team`, and `pos` after the
    tackle merge, unconditionally, so it would raise on engine output. It also needs
-   decision 4: the widget walk runs at 01:52, 07:52, 13:52 and 19:52 ET, so the 06:00
-   nightly would read a four-hour-old walk.
+   decision 4, though that's narrower than it reads: only the **ladders** come from the
+   widget walk (01:52, 07:52, 13:52 and 19:52 ET), so the 06:00 nightly would read
+   ladders four hours old. LowVig's **two-way lines** come from the sportsbook
+   collector and change through the day (2026-10-22: latest change 21:34Z, with the
+   last ladder change 17:52Z, the 13:52 ET walk). For [plan 56](56-intraday-reblend.md)'s
+   intraday re-blend, that means fresh BetOnline main lines once 2b ships.
 
 **Phase 3: switch the game lines.** `read_current(source="engine")` becomes the default.
 `run_odds_refresh_nfl.sh` and its 06:45 cron line are retired. `dst/books.py` swaps
