@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 import warnings
 
 import pandas as pd
@@ -583,8 +583,27 @@ def extract_player_stats(
     return df
 
 
+def current_matchup_period(league: League) -> int:
+    """The matchup period in progress, which bounds every week loop over box scores.
+
+    League 521152 runs weeks 15 and 17 as their own periods, which ESPN's
+    ``week_to_matchup_period`` does not say.
+
+    Args:
+        league: A fetched ESPN ``League``.
+
+    Returns:
+        int: The current matchup period.
+    """
+    period = league.settings.week_to_matchup_period[league.current_week]
+    if league.league_id == 521152 and league.current_week in [15, 17]:
+        period = league.current_week
+    return period
+
+
 def get_ply_stats_by_matchup(
-    league_id: int, year: int, swid: str, espn_s2: str
+    league_id: int, year: int, swid: str, espn_s2: str,
+    weeks: Optional[Sequence[int]] = None,
 ) -> pd.DataFrame:
     """This function creates a historical dataframe for the league in a given year.
     The data is based on player-level stats, and is organized by week and matchup.
@@ -601,9 +620,17 @@ def get_ply_stats_by_matchup(
         year (int): Year of the league
         swid (str): User credential
         espn_s2 (str): User credential
+        weeks (Sequence[int], optional): Matchup periods to fetch. None fetches every
+            one from 1 to the current period, which is the full rebuild and grows each
+            week. The intraday re-blend passes the current period alone
+            (docs/plans/56-intraday-reblend.md): a current-week blend needs no earlier
+            week's rows, and ESPN is 93% of a rebuild's time.
 
     Returns:
         pd.DataFrame: Historical player stats dataframe
+
+    Raises:
+        ValueError: A requested week is outside 1 to the current matchup period.
     """
     # Deferred: Scripts.scoring imports this module, so a top-level import cycles.
     from Scripts.scoring import get_scoring_table
@@ -621,14 +648,18 @@ def get_ply_stats_by_matchup(
     df = pd.DataFrame()
 
     # Loop through each week that has happened
-    current_matchup_period = league.settings.week_to_matchup_period[league.current_week]
-    if league.league_id == 521152 and league.current_week in [15, 17]:
-        current_matchup_period = league.current_week
-        
-    print(f"Current Week: {league.current_week}")
-    print(f"Current Matchup Period: {current_matchup_period}")
+    current_period = current_matchup_period(league)
 
-    for week in range(current_matchup_period):
+    print(f"Current Week: {league.current_week}")
+    print(f"Current Matchup Period: {current_period}")
+
+    periods = range(1, current_period + 1) if weeks is None else [int(w) for w in weeks]
+    outside = [w for w in periods if not 1 <= w <= current_period]
+    if outside:
+        raise ValueError(f"weeks {outside} are outside 1..{current_period}, the matchup "
+                         f"periods ESPN has box scores for")
+
+    for week in (w - 1 for w in periods):
         league.load_roster_week(week + 1)
         box_scores = league.box_scores(week + 1)
 
@@ -641,12 +672,12 @@ def get_ply_stats_by_matchup(
 
             # Get stats for home team
             df_home_team = extract_player_stats(
-                matchup.home_team, matchup.home_lineup, week + 1, score_cols=scored_columns(score_settings), curr_week=current_matchup_period
+                matchup.home_team, matchup.home_lineup, week + 1, score_cols=scored_columns(score_settings), curr_week=current_period
             )
 
             # Get stats for away team
             df_away_team = extract_player_stats(
-                matchup.away_team, matchup.away_lineup, week + 1, score_cols=scored_columns(score_settings), curr_week=current_matchup_period
+                matchup.away_team, matchup.away_lineup, week + 1, score_cols=scored_columns(score_settings), curr_week=current_period
             )
 
             # Append to week data frame

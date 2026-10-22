@@ -78,18 +78,62 @@ def build_league_frame(
         about 1s of duplicated ESPN round-trip per league. Fixing it means
         changing that signature; see ``docs/plans/06-performance.md``.
     """
+    final, league = _ingest(league_key_or_name, season, current_week_only=False)
+    return (final, league) if return_league else final
+
+
+def build_week_frame(
+    league_key_or_name: str, season: int, *, return_league: bool = False
+):
+    """The current matchup period alone, through the same pipeline.
+
+    What the intraday re-blend rebuilds (docs/plans/56-intraday-reblend.md). On
+    2026-10-22 a week-7 blend of winfield_football matched the full rebuild's week-7
+    rows on all 1,327 numeric columns: no current-week projection reads an earlier
+    week's rows. Fetching one week of box scores instead of every week since week 1 is
+    where the time goes, since ESPN is 93% of a full rebuild.
+
+    Args:
+        league_key_or_name: Display name or config key.
+        season: Season year.
+        return_league: Also return the ``League`` object.
+
+    Returns:
+        pd.DataFrame: ``clean_lineups`` output for the current matchup period only,
+        rostered players and the free-agent sample. When ``return_league``, a
+        ``(frame, league)`` tuple instead.
+    """
+    final, league = _ingest(league_key_or_name, season, current_week_only=True)
+    return (final, league) if return_league else final
+
+
+def _ingest(league_key_or_name: str, season: int, *, current_week_only: bool):
+    """Fetch, merge the free-agent sample, and blend: the one ingest path.
+
+    Args:
+        league_key_or_name: Display name or config key.
+        season: Season year.
+        current_week_only: Fetch box scores for the current matchup period alone,
+            rather than every period since week 1.
+
+    Returns:
+        tuple: ``(clean_lineups output, League)``.
+    """
     # Deferred so `compare` does not pay for ESPN imports.
     from Scripts.fetch_utils import fetch_league
     from Scripts.projection_utils import clean_lineups
-    from Scripts.scrape_player_stats import build_fa_market, get_ply_stats_by_matchup
+    from Scripts.scrape_player_stats import (build_fa_market, current_matchup_period,
+                                             get_ply_stats_by_matchup)
 
     cfg = resolve_league(league_key_or_name)
 
     league = fetch_league(
         league_id=cfg["ID"], year=season, swid=cfg["SWID"], espn_s2=cfg["ESPN_S2"],
     )
+    weeks = [current_matchup_period(league)] if current_week_only else None
     lineups = get_ply_stats_by_matchup(
         league_id=cfg["ID"], year=season, swid=cfg["SWID"], espn_s2=cfg["ESPN_S2"],
+        weeks=weeks,
     )
     free_agents = build_fa_market(league=league)
 
@@ -97,8 +141,7 @@ def build_league_frame(
     df.fillna(0, inplace=True)
     df = df.drop_duplicates(subset=["week", "player_name"])
 
-    final = clean_lineups(df=df, lg=league)
-    return (final, league) if return_league else final
+    return clean_lineups(df=df, lg=league), league
 
 
 def take_snapshot(

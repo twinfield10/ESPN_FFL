@@ -1,11 +1,12 @@
 # 56 — The blend, re-read through the day
 
-**Status:** TO DO
+**Status:** IN PROGRESS
 
-**Where it stands:** Scoped and measured 2026-10-22, decisions taken the same day,
-nothing built yet. The two numbers
-that shape it were measured that day on the MacBook (the mini is owed the same
-measurement):
+**Where it stands:** Scoped and measured 2026-10-22, with decisions taken the same day.
+**Step 1 (the one-week ESPN fetch) is built**, and on the real fetch it matched the full
+rebuild in all nine leagues ([step 1, as built](#step-1-as-built-2026-10-22)). Steps 2-5
+are owed. The two numbers that shape the plan were measured on the MacBook (the mini is
+owed the same measurement):
 - **A full lineups rebuild is 149 seconds for nine leagues, and 93% of it is ESPN.**
 - **A current-week-only blend matches the full rebuild exactly**, in 0.7 seconds.
 
@@ -113,7 +114,10 @@ cron (every 30 min, 08:00-23:30 ET)
    every column `clean_lineups` reads, projections included, not just the actuals the
    live path patches.
 2. **`--what reblend` in `Scripts/refresh.py`.** Splice, freeze, apply the materiality
-   check, write. The meta records `reblended_at` beside `built_at`, so the app can say
+   check, write. Two levers on cost, from step 1's timing: fetch the league once (the
+   matchup fetch currently calls `fetch_league` a second time, 1-2 seconds a league),
+   and run the leagues concurrently. They're independent, and the time is ESPN round
+   trips, not CPU. The meta records `reblended_at` beside `built_at`, so the app can say
    "projections as of 14:30" truthfully.
 3. **`Scripts.game_state --if-pending`**: exit 0 while any game this week is still
    `pre`, 3 when none is (Tuesday morning after Monday night), anything else when
@@ -124,15 +128,36 @@ cron (every 30 min, 08:00-23:30 ET)
 5. **Runbook:** `docs/SEASON_ROLLOVER.md` gets the crontab line, the one-command check,
    and a troubleshooting row. `README.md` gets the schedule.
 
+### Step 1, as built (2026-10-22)
+
+`get_ply_stats_by_matchup` takes `weeks=`. None keeps the full loop, and anything
+outside 1 to the current period is refused. The current-period logic, including
+league 521152's special case, moved to `current_matchup_period` so both paths share
+it. `Scripts.equivalence.build_week_frame` runs the one ingest path (`_ingest`, now
+shared with `build_league_frame`) with the current period alone. The live job's
+`week_box_scores` wasn't used: it would have been a second row-building path, and it
+skips the 521152 case.
+
+**G1 on the real fetch, all nine leagues, week 7** (each league built both ways back to
+back, 2026-10-22 ~22:30Z, before that night's game): same rows, same columns, and **no
+differing cell**, numeric or text, nulls included. That's 1,119-1,509 numeric columns a
+league. Splice and freeze are step 2's half of G1.
+
+**Cost.** One-week builds took 7.8-11.0 seconds a league, **83 seconds for nine**,
+against 143 seconds for the full builds in the same run. That's under G2's 90 seconds
+and flat by construction. It's less than the 93% figure suggested, because fixed
+per-league costs now dominate: free agents (4.5-6 s), two `fetch_league` calls, and
+one week of box scores. Step 2's two levers address them.
+
 ---
 
 ## Gates
 
 - **G1, identity.** For every league, `--what reblend` at a fixed moment equals a full
   `--what lineups` rebuild at the same moment on the current week's rows (all numeric
-  columns within 1e-9), and leaves every other week byte-identical. The week-7
-  winfield check above is the first instance. The gate is all nine leagues, on the
-  real one-week fetch from step 1.
+  columns within 1e-9), and leaves every other week byte-identical. **The blend half
+  passed 2026-10-22** on the real one-week fetch in all nine leagues (step 1, as built).
+  Splice and freeze are owed with step 2.
 - **G2, cost.** At most 90 seconds for nine leagues on the mini, and flat from week to
   week: measured at week 8 and again at week 12, while the full rebuild grows.
 - **G3, S3 growth.** Over one full game week, non-current bytes added under `store/`
