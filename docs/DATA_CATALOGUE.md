@@ -54,13 +54,13 @@ and a point in the superflex league mean what they say. Nothing downstream re-sc
 | Artifact | One row is | Built by |
 |---|---|---|
 | `board.parquet` | A **draftable player** — the draft board | `--what board` |
-| `lineups.parquet` | A **player-week** — the weekly blend | default |
+| `lineups.parquet` | A **player-week** — the weekly blend | default; the current week is also rewritten intraday by `--what reblend` ([plan 56](plans/56-intraday-reblend.md)) |
 | `draft.parquet` | A **pick**, across every season the league has existed | `--what draft` |
 | `tendencies.parquet` | A **manager**, and what they reliably do that the room does not | `--what draft` |
 | `team_stats.parquet` | A **team-week** of matchup history | `--what team_stats`, opt-in |
 | `board_frozen.parquet` | A **draftable player**, as the board stood when the drafts finished | `python -m Scripts.freeze`, once a season |
 | `pool.parquet` | An **available player-week** — the waiver wire as it stood | `--what pool`, and the only artifact that **accumulates** |
-| `meta.json` | Build time, current week, roster slots, source coverage, versions, git sha | always, **last** |
+| `meta.json` | Build time, current week, roster slots, source coverage, versions, git sha; `reblended_at` once a re-blend has written (it leaves `built_at` alone) | always, **last** |
 
 `pool.parquet` is the only artifact that **accumulates**, and it exists because the
 nightly destroys what it reads. `league.free_agents()` serves the wire only as it is

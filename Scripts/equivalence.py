@@ -73,10 +73,10 @@ def build_league_frame(
         ``(frame, league)`` tuple instead.
 
     Note:
-        ``fetch_league`` is called here and again inside
-        ``get_ply_stats_by_matchup``, which takes ids rather than a ``League`` --
-        about 1s of duplicated ESPN round-trip per league. Fixing it means
-        changing that signature; see ``docs/plans/06-performance.md``.
+        ``fetch_league`` is called once and the ``League`` handed to
+        ``get_ply_stats_by_matchup``, which used to fetch it again -- about 1s of
+        duplicated ESPN round-trip per league (``docs/plans/06-performance.md``),
+        removed 2026-10-22 for the intraday re-blend.
     """
     final, league = _ingest(league_key_or_name, season, current_week_only=False)
     return (final, league) if return_league else final
@@ -133,7 +133,7 @@ def _ingest(league_key_or_name: str, season: int, *, current_week_only: bool):
     weeks = [current_matchup_period(league)] if current_week_only else None
     lineups = get_ply_stats_by_matchup(
         league_id=cfg["ID"], year=season, swid=cfg["SWID"], espn_s2=cfg["ESPN_S2"],
-        weeks=weeks,
+        weeks=weeks, league=league,
     )
     free_agents = build_fa_market(league=league)
 

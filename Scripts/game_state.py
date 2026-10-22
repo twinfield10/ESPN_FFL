@@ -731,7 +731,8 @@ def anything_live(frame: pl.DataFrame) -> bool:
     return bool(frame.filter(pl.col("state") == IN).height)
 
 
-#: Exit code for ``--if-live`` when the week is not worth refreshing.
+#: Exit code for ``--if-live`` (and ``--if-pending``) when the week is not worth
+#: refreshing.
 #:
 #: **Three, not one.** The cron wrapper branches on this, and "there is no football on"
 #: has to be distinguishable from "the gate itself is broken" -- an unhandled exception
@@ -787,6 +788,25 @@ def in_window(frame: pl.DataFrame, *, hours: float = POLL_WINDOW_HOURS,
     return False
 
 
+def any_pending(frame: pl.DataFrame) -> bool:
+    """Whether any game this week has yet to kick off.
+
+    The intraday re-blend's gate (docs/plans/56-intraday-reblend.md). A re-blend can
+    only move a projection whose game hasn't started -- the kickoff freeze holds the
+    rest -- so once every game is ``in`` or ``post`` there's nothing for it to do. That
+    is Monday night after kickoff until the nightly turns the week over. A postponed
+    game reads ``pre``, so it keeps the gate open, which is right: its projection can
+    still move.
+
+    Args:
+        frame: :func:`states` output.
+
+    Returns:
+        bool: True when at least one row is :data:`PRE`.
+    """
+    return bool(frame.filter(pl.col("state") == PRE).height)
+
+
 def summary(frame: pl.DataFrame) -> str:
     """A printable description of the week's board."""
     counts = dict(frame.group_by("state").len().rows())
@@ -825,12 +845,18 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help="Week number. Defaults to the current week.")
     parser.add_argument("--cached", action="store_true",
                         help="Read the cache if it is fresh, instead of ESPN.")
-    parser.add_argument("--if-live", action="store_true",
-                        help=f"Print nothing and exit 0 when this week is worth a "
-                             f"live refresh, {NOT_LIVE_EXIT} when it is not. What the "
-                             f"cron wrapper branches on, so a quiet day costs one "
-                             f"request. Any other code is a failure, and the wrapper "
-                             f"treats it as one.")
+    gate = parser.add_mutually_exclusive_group()
+    gate.add_argument("--if-live", action="store_true",
+                      help=f"Print nothing and exit 0 when this week is worth a "
+                           f"live refresh, {NOT_LIVE_EXIT} when it is not. What the "
+                           f"cron wrapper branches on, so a quiet day costs one "
+                           f"request. Any other code is a failure, and the wrapper "
+                           f"treats it as one.")
+    gate.add_argument("--if-pending", action="store_true",
+                      help=f"Print nothing and exit 0 while any game this week has "
+                           f"yet to kick off, {NOT_LIVE_EXIT} when none has. The "
+                           f"intraday re-blend's gate (plan 56), with the same "
+                           f"three-code contract as --if-live.")
     args = parser.parse_args(argv)
 
     season = args.season if args.season is not None else current_season()
@@ -839,12 +865,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.if_live:
         live = in_window(states(season, week, refresh=not args.cached))
         return 0 if live else NOT_LIVE_EXIT
+    if args.if_pending:
+        pending = any_pending(states(season, week, refresh=not args.cached))
+        return 0 if pending else NOT_LIVE_EXIT
 
     print(f"\n===== NFL game state: {season} week {week} =====")
     frame = states(season, week, refresh=not args.cached)
     print(summary(frame))
     print(f"\n  in progress now: {anything_live(frame)}")
     print(f"  worth a live refresh: {in_window(frame)}")
+    print(f"  worth a re-blend (a game still to play): {any_pending(frame)}")
     return 0
 
 

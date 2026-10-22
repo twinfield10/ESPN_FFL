@@ -603,7 +603,7 @@ def current_matchup_period(league: League) -> int:
 
 def get_ply_stats_by_matchup(
     league_id: int, year: int, swid: str, espn_s2: str,
-    weeks: Optional[Sequence[int]] = None,
+    weeks: Optional[Sequence[int]] = None, league: Optional[League] = None,
 ) -> pd.DataFrame:
     """This function creates a historical dataframe for the league in a given year.
     The data is based on player-level stats, and is organized by week and matchup.
@@ -625,6 +625,8 @@ def get_ply_stats_by_matchup(
             week. The intraday re-blend passes the current period alone
             (docs/plans/56-intraday-reblend.md): a current-week blend needs no earlier
             week's rows, and ESPN is 93% of a rebuild's time.
+        league (League, optional): An already-fetched league, so the caller's fetch
+            is not repeated here (1-2 seconds a league).
 
     Returns:
         pd.DataFrame: Historical player stats dataframe
@@ -635,11 +637,12 @@ def get_ply_stats_by_matchup(
     # Deferred: Scripts.scoring imports this module, so a top-level import cycles.
     from Scripts.scoring import get_scoring_table
 
-    # Fetch league for year
-    league = fetch_league(league_id=league_id,
-                    year=year,
-                    espn_s2=espn_s2,
-                    swid=swid)
+    # Fetch league for year, unless the caller already has
+    if league is None:
+        league = fetch_league(league_id=league_id,
+                        year=year,
+                        espn_s2=espn_s2,
+                        swid=swid)
 
     score_settings = get_scoring_table(league)
 

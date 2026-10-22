@@ -486,6 +486,7 @@ def write_league_store(
     pool: Optional[pd.DataFrame] = None,
     league=None,
     meta_extra: Optional[Dict[str, Any]] = None,
+    preserve_built_at: bool = False,
 ) -> Path:
     """Write one league-season's artifacts and its ``meta.json``.
 
@@ -515,6 +516,9 @@ def write_league_store(
             given, like every other artifact, and the merge belongs to the caller.
         league: The live ESPN ``League``, for metadata.
         meta_extra: Extra keys for ``meta.json``.
+        preserve_built_at: Keep the previous ``built_at``. True for the intraday
+            re-blend, which rewrites one week of a store the nightly built
+            (docs/plans/56-intraday-reblend.md); see the ``pool`` case below.
 
     Returns:
         Path: The league-season store directory.
@@ -559,7 +563,7 @@ def write_league_store(
     # nightly was missed". Harmless in the designed path, where `--what pool` runs
     # minutes after `--what lineups`; actively misleading on a `--what pool`
     # backfill run on a day the nightly failed, which is the day the badge matters.
-    if set(written) <= {"pool"} and previous.get("built_at"):
+    if (preserve_built_at or set(written) <= {"pool"}) and previous.get("built_at"):
         meta["built_at"] = previous["built_at"]
 
     # And carry forward every other key this call could not compute, for the same

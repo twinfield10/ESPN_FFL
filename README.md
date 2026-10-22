@@ -688,11 +688,14 @@ and stops before clearing anything if that read fails. Open rows are yellow for 
 latest week and red for older ones, as conditional formatting, so a `YES` clears its
 row straight away. See `Scripts/zero_starters.py`.
 
-**Three jobs run themselves, so they are not in that list.** `run_daily_refresh.sh` at
+**Four jobs run themselves, so they are not in that list.** `run_daily_refresh.sh` at
 06:00 pulls the season's projection sources and rebuilds the boards;
 `run_odds_refresh_nfl.sh` at 07:00 pulls NFL sportsbook game lines into `Data/Odds/`
-and stores only what moved, so line history accumulates for free; and
-`ops/espn_ffl_live.sh` every ten minutes keeps the week's **actual** scores current.
+and stores only what moved, so line history accumulates for free;
+`ops/espn_ffl_live.sh` every ten minutes keeps the week's **actual** scores current;
+and `ops/espn_ffl_reblend.sh` every 30 minutes from 08:00 to 23:30 re-blends the
+current week's **projections** from the sportsbook engine and ESPN, publishing only
+leagues where something moved ([plan 56](docs/plans/56-intraday-reblend.md)).
 The nightly also republishes the **Knights FFL** Sheet, so the punishment log picks up
 each finished week by the next morning; every other league's Sheet is still published
 by hand.
@@ -708,6 +711,7 @@ else. See [docs/plans/48-live-scoring.md](docs/plans/48-live-scoring.md).
 ```bash
 python -m Scripts.game_state                    # the week's board; the one-command check
 python -m Scripts.refresh --all --what live      # patch the actuals by hand
+python -m Scripts.refresh --all --what reblend   # re-blend this week's projections by hand
 python -m Scripts.lab.accuracy --season 2026 --week 1   # how each source did, finished games only
 ```
 

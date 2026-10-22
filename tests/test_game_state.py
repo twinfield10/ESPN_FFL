@@ -385,3 +385,43 @@ def test_not_live_has_its_own_exit_code():
     stop for the season without a line in the log."""
     assert gs.NOT_LIVE_EXIT == 3
     assert gs.NOT_LIVE_EXIT not in (0, 1, 2)
+
+
+# --- the re-blend gate (plan 56) ------------------------------------------
+
+def test_a_game_still_to_play_keeps_the_reblend_gate_open():
+    sunday = gs.parse(payload(
+        event("SEA", "NE", "post", home_score=24, away_score=17),
+        event("KC", "BUF", "pre", date="2026-09-13T20:25Z")), 2026, 1)
+    assert gs.any_pending(sunday)
+
+
+def test_once_every_game_has_kicked_off_the_reblend_has_nothing_to_move():
+    monday_night = gs.parse(payload(
+        event("SEA", "NE", "post", home_score=24, away_score=17),
+        event("KC", "BUF", "in", name="STATUS_IN_PROGRESS", period=1, clock="9:00")),
+        2026, 1)
+    assert not gs.any_pending(monday_night)
+
+
+def test_a_postponed_game_keeps_the_gate_open():
+    """It reads pre, and its projection can still move."""
+    postponed = gs.parse(payload(event("SEA", "NE", "pre", name="STATUS_POSTPONED")),
+                         2026, 1)
+    assert gs.any_pending(postponed)
+
+
+def test_if_pending_exits_three_when_nothing_is_left(monkeypatch):
+    done = gs.parse(payload(event("SEA", "NE", "post", home_score=24, away_score=17)),
+                    2026, 1)
+    monkeypatch.setattr(gs, "states", lambda season, week, refresh=False: done)
+    assert gs.main(["--season", "2026", "--week", "1", "--if-pending"]) == gs.NOT_LIVE_EXIT
+    upcoming = gs.parse(payload(event("SEA", "NE", "pre")), 2026, 1)
+    monkeypatch.setattr(gs, "states", lambda season, week, refresh=False: upcoming)
+    assert gs.main(["--season", "2026", "--week", "1", "--if-pending"]) == 0
+
+
+def test_the_two_gates_cannot_be_asked_at_once():
+    with pytest.raises(SystemExit) as exc:
+        gs.main(["--if-live", "--if-pending"])
+    assert exc.value.code == 2
