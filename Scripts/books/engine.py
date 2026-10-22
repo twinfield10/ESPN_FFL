@@ -16,9 +16,10 @@ it run unchanged.
 **Phase 1 is shadow only.** Output goes under ``Data/Engine/Shadow/``, which
 nothing in the blend reads and ``Scripts.sync`` does not mirror. Plan 54's gates
 (G1 coverage, G2 stat lines, G3 board) are measured from it with ``--compare``
-before anything switches. **The exception is a ``live`` book** -- Bet105 from
-2026-10-23, Pinnacle's replacement -- which has no scrape of ours to shadow, so its
-output goes to ``Data/Projections/<dir>/`` where the blend reads it.
+before anything switches. **A ``live`` book** goes to ``Data/Projections/<dir>/``
+instead, where the blend reads it: Bet105 (Pinnacle's replacement) and, from phase 2
+on 2026-10-23, FanDuel, Novig and 4Casters, whose own scrapes stopped. BetOnline
+stays in the shadow until its defensive props carry positions (phase 2b).
 
 **Reading a changes-only table needs two things the contract's reader skips:**
 
@@ -43,7 +44,9 @@ output goes to ``Data/Projections/<dir>/`` where the blend reads it.
 **Which rows become the line and which the ladder** follows each adapter it
 replaces. ``is_alternate`` is false on every engine prop row (2026-10-21), so the
 main line is found from the prices: the most balanced two-sided rung, as
-``novig_props.normalize`` does. Once delisted series are dropped, FanDuel has
+``novig_props.normalize`` does, among pairs whose margin is believable
+(:data:`Scripts.market.OVERROUND_BOUNDS`). The scrape had no such guard, and an
+exchange's crossed quotes won it. Once delisted series are dropped, FanDuel has
 exactly one two-sided rung per player-stat, so the rule reproduces its main line.
 FanDuel's ladder is its one-sided rungs only, as its adapter reads alt markets
 only. Every other book's ladder is the over side of every rung. The anytime
@@ -134,9 +137,13 @@ class Book:
 
 
 BOOKS: List[Book] = [
-    Book("FanDuel", "fanduel", "FanDuel", "FanDuel", "FD", ladder="one_sided"),
-    Book("Novig", "novig", "Novig", "Novig", "NV"),
-    Book("4Casters", "4casters", "4Casters", "FourCasters", "C4"),
+    # Live from 2026-10-23 (plan 54, phase 2): the engine replaces our own scrapes of
+    # these three. On 2026-10-22's week-7 board FanDuel's projections matched the scrape
+    # exactly and Novig's and 4Casters' within 0.6% on every stat. All three are polled
+    # every minute, so the 06:00 nightly reads prices minutes old.
+    Book("FanDuel", "fanduel", "FanDuel", "FanDuel", "FD", ladder="one_sided", live=True),
+    Book("Novig", "novig", "Novig", "Novig", "NV", live=True),
+    Book("4Casters", "4casters", "4Casters", "FourCasters", "C4", live=True),
     # BetOnline and LowVig are one book behind two skins; its props come from the same
     # DST widget Scripts/scrape_BOL.py walks (SportsbookScrapers docs/books/lowvig_dst.md).
     Book("LowVig", "lowvig", "BetOnline", "BetOnline", "BOL"),
@@ -361,6 +368,14 @@ def to_raw(board: pl.DataFrame, book: Book) -> pl.DataFrame:
                             .select(who + ["line", pl.col("odds").alias("odds_u"),
                                            pl.col("impProb").alias("imp_u")]),
                         on=who + ["line"], how="inner")
+                  # A crossed pair is not a line. Novig is an exchange, and on 2026-10-22
+                  # 564 of its 1,518 two-way rungs had both sides favourites -- Tucker
+                  # Kraft at 19.5 receiving yards, over -1567 and under -2400, summing
+                  # to 1.90 -- from stale resting orders far from the market. Rescaled
+                  # to sum to one, such a pair reads as perfectly balanced and won the
+                  # rung choice below, projecting 32 of 471 Novig players at a third of
+                  # their FanDuel line. Healthy Novig pairs never summed under 1.004.
+                  .filter((pl.col("impProb") + pl.col("imp_u")).is_between(*mk.OVERROUND_BOUNDS))
                   .with_columns((pl.col("impProb") / (pl.col("impProb") + pl.col("imp_u"))
                                  - 0.5).abs().alias("_tilt"))
                   .sort("_tilt")

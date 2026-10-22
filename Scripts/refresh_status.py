@@ -167,6 +167,21 @@ WEEKLY_PROJECTION_SOURCES = (
     ("B105 weekly",
      lambda s: season_dir("Bet105", s, "Bet105_AllProps.parquet", create=False),
      "python -m Scripts.books.engine", True),
+    # The engine's live books from plan 54's phase 2 (2026-10-23), watched one by one
+    # as the plan asks: nothing checked FanDuel, Novig or 4Casters before. FanDuel and
+    # Novig are the whole sharp pool, so a night without them is a real fault, and a
+    # file that stops moving is what a withheld book (over 12 hours since its last
+    # poll) looks like from here. 4Casters is advisory, one book of five in the square.
+    ("FD weekly",
+     lambda s: season_dir("FanDuel", s, "FanDuel_AllProps.parquet", create=False),
+     "python -m Scripts.books.engine", False),
+    ("NV weekly",
+     lambda s: season_dir("Novig", s, "Novig_AllProps.parquet", create=False),
+     "python -m Scripts.books.engine", False),
+    ("C4 weekly",
+     lambda s: season_dir("FourCasters", s, "FourCasters_AllProps.parquet",
+                          create=False),
+     "python -m Scripts.books.engine", True),
     ("BOL weekly",
      lambda s: season_dir("BetOnline", s, "BetOnline_AllProps.parquet", create=False),
      "python -m Scripts.scrape_BOL --week <week>", False),

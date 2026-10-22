@@ -165,8 +165,15 @@ def test_book_age_is_the_last_poll_before_t():
 
 @pytest.fixture
 def shadow(tmp_path, monkeypatch):
+    """The shadow, the status log and the real book files, all under ``tmp_path``.
+
+    The real files too, because FanDuel, Novig, 4Casters and Bet105 are live: a run
+    over their rows writes where the blend reads.
+    """
+    from Scripts import paths
     monkeypatch.setattr(en, "SHADOW_DIR", tmp_path / "Shadow")
     monkeypatch.setattr(en, "STATUS_PATH", tmp_path / "Shadow" / "engine_shadow.json")
+    monkeypatch.setattr(paths, "PROJECTIONS_DIR", tmp_path / "Projections")
     return tmp_path / "Shadow"
 
 
@@ -175,28 +182,48 @@ def _sched():
                          "Away": ["LA"], "Home": ["JAX"]})
 
 
+BOV = next(b for b in en.BOOKS if b.name == "Bovada")
+
+
 def test_run_writes_the_shadow_and_withholds_a_stale_book(shadow):
-    fresh = [prop("FanDuel", "receptions", "Puka Nacua", 7.5, s, -110) for s in ("over", "under")]
+    fresh = [prop("Bovada", "receptions", "Puka Nacua", 7.5, s, -110) for s in ("over", "under")]
     stale = [prop("Novig", "receptions", "Puka Nacua", 7.5, s, -110) for s in ("over", "under")]
     spells = pl.concat([spells_for(fresh),
                         spells_for(stale, last_seen=T - timedelta(hours=en.MAX_AGE_HOURS + 1))])
     status = en.run(2026, 6, T, props=frame(fresh + stale), spells=spells, sched=_sched(), model=None)
-    assert status["books"]["FanDuel"]["outcome"] == "projected"
+    assert status["books"]["Bovada"]["outcome"] == "projected"
     assert status["books"]["Novig"]["outcome"] == "withheld"
-    out = pl.read_parquet(en.shadow_file(FD, 2026))
+    out = pl.read_parquet(en.shadow_file(BOV, 2026))
     assert out["player_name"].to_list() == ["Puka Nacua"]
     assert out["proj_receivingReceptions"][0] == pytest.approx(7.5, abs=0.6)
-    assert list((shadow / "FanDuel" / "Season" / "2026" / "Raw").glob("FanDuel_Raw_Week_6_*.parquet"))
-    assert not en.shadow_file(NV, 2026).exists()
+    assert list((shadow / "Bovada" / "Season" / "2026" / "Raw").glob("Bovada_Raw_Week_6_*.parquet"))
+    assert not en.book_file(NV, 2026).exists()
 
 
-def test_the_shadow_never_touches_the_real_book_files(shadow, monkeypatch, tmp_path):
-    from Scripts import paths
-    real = tmp_path / "Projections"
-    monkeypatch.setattr(paths, "PROJECTIONS_DIR", real)
-    rows = [prop("FanDuel", "receptions", "P", 7.5, s, -110) for s in ("over", "under")]
+def test_the_shadow_never_touches_the_real_book_files(shadow, tmp_path):
+    rows = [prop("Bovada", "receptions", "P", 7.5, s, -110) for s in ("over", "under")]
     en.run(2026, 6, T, props=frame(rows), spells=spells_for(rows), sched=_sched(), model=None)
-    assert not real.exists()
+    assert not (tmp_path / "Projections").exists()
+
+
+def test_phase_2_books_are_live_and_betonline_is_not():
+    """FanDuel, Novig and 4Casters replaced our scrapes on 2026-10-23; BetOnline waits
+    for positions on its defensive props (plan 54, phase 2b)."""
+    live = {b.name for b in en.BOOKS if b.live}
+    assert live == {"FanDuel", "Novig", "4Casters", "Bet105"}
+
+
+def test_a_withheld_live_book_keeps_its_last_pull(shadow, tmp_path):
+    """A failed night votes yesterday's lines rather than none: nothing is written."""
+    first = [prop("FanDuel", "receptions", "Puka Nacua", 7.5, s, -110) for s in ("over", "under")]
+    en.run(2026, 6, T, props=frame(first), spells=spells_for(first), sched=_sched(), model=None)
+    path = en.book_file(FD, 2026)
+    before = path.read_bytes()
+    later = T + timedelta(hours=en.MAX_AGE_HOURS + 2)
+    status = en.run(2026, 6, later, props=frame(first), spells=spells_for(first),
+                    sched=_sched(), model=None)
+    assert status["books"]["FanDuel"]["outcome"] == "withheld"
+    assert path.read_bytes() == before
 
 
 B105 = next(b for b in en.BOOKS if b.name == "Bet105")
@@ -223,10 +250,8 @@ def test_bet105_carries_only_the_stats_pinnacle_did():
     assert set(raw["espn_stat"]) == {"receivingReceptions"}
 
 
-def test_a_live_book_writes_where_the_blend_reads(shadow, monkeypatch, tmp_path):
-    from Scripts import paths
+def test_a_live_book_writes_where_the_blend_reads(shadow, tmp_path):
     real = tmp_path / "Projections"
-    monkeypatch.setattr(paths, "PROJECTIONS_DIR", real)
     rows = [prop("Bet105", "receptions", "Puka Nacua", 7.5, s, -110) for s in ("over", "under")]
     status = en.run(2026, 6, T, props=frame(rows), spells=spells_for(rows), sched=_sched(),
                     model=None)
@@ -239,6 +264,17 @@ def test_a_live_book_writes_where_the_blend_reads(shadow, monkeypatch, tmp_path)
 
 def test_compare_skips_a_live_book(shadow):
     assert en.compare(2026, 7, books=[B105]).is_empty()
+
+
+def test_a_crossed_pair_is_never_the_main_line():
+    """Novig, 2026-10-22: Kraft's 19.5 had both sides favourites and won the rung
+    choice, because rescaled to sum to one it looked perfectly balanced."""
+    rows = [prop("Novig", "receiving_yards", "Tucker Kraft", 19.5, "over", -1567),
+            prop("Novig", "receiving_yards", "Tucker Kraft", 19.5, "under", -2400),
+            prop("Novig", "receiving_yards", "Tucker Kraft", 49.5, "over", -105),
+            prop("Novig", "receiving_yards", "Tucker Kraft", 49.5, "under", -115)]
+    line = en.to_raw(frame(rows), NV).filter(pl.col("prop_source") == "OverUnder")
+    assert set(line["value"]) == {49.5}
 
 
 def test_a_future_contract_major_is_refused():

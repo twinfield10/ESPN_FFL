@@ -219,7 +219,8 @@ def test_an_overdue_odds_pull_is_stale(tmp_path, monkeypatch, capsys):
 
 def test_every_weekly_source_is_named_in_the_weekly_manifest():
     named = {entry[0] for entry in rs.WEEKLY_PROJECTION_SOURCES}
-    assert named == {"FP weekly", "B105 weekly", "BOL weekly", "ATH weekly"}
+    assert named == {"FP weekly", "B105 weekly", "BOL weekly", "ATH weekly",
+                     "FD weekly", "NV weekly", "C4 weekly"}
 
 
 def test_a_source_on_its_own_clock_is_not_judged_by_the_nightly_window():

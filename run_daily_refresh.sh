@@ -496,53 +496,44 @@ drives a headless Chromium, so a DST page restructure or a missing browser surfa
 first: ${PYTHON} -m Scripts.scrape_BOL --week ${WEEK} --dry-run. See Scripts/bol_widget.py."
 fi
 
-# --- 2f. FanDuel, DraftKings, Novig and 4Casters weekly player props -----
-# Added 2026-10-13 (docs/plans/52-more-prop-books.md). Never fatal, same contract as
-# the two books above: books post props through the week, so a thin Tuesday pull is
-# normal, and the blend's `MKT_` consensus abstains wherever no book has a line.
-#
-# Credentials are parsed rather than sourced, as run_odds_refresh_nfl.sh does: only
-# the named keys are read out of PROPS_ENV_FILES. 4Casters' live in Rebirtha's .env
-# and Novig's read key in NHL-Data's. Without them 4Casters is skipped and Novig
-# falls back to its public routes (slower, budgeted); FanDuel and DraftKings need none.
-PROPS_ENV_FILES="${PROPS_ENV_FILES:-${HOME}/GitRepos/Rebirtha/.env ${HOME}/GitRepos/NHL-Data/.env}"
-for env_file in ${PROPS_ENV_FILES}; do
-  [ -f "${env_file}" ] || continue
-  while IFS='=' read -r key value; do
-    case "${key}" in
-      CAST4_USER|CAST4_PASS|CAST4_AUTH_TOKEN|NOVIG_KEY_ID|NOVIG_PEM)
-        export "${key}=$(printf '%s' "${value}" | tr -d '"'"'"'\r')" ;;
-    esac
-  done < "${env_file}"
-done
-log "pulling FanDuel, DraftKings, Novig and 4Casters weekly player props"
-if "${PYTHON}" -m Scripts.books.weekly_props --book all --season "${SEASON}" --week "${WEEK}" \
-    >>"${LOG}" 2>&1; then
-  log "more prop books: ok"
+# --- 2f. DraftKings weekly player props ---------------------------------
+# Added 2026-10-13 for four books (docs/plans/52-more-prop-books.md). From 2026-10-23
+# FanDuel, Novig and 4Casters come from the sportsbook engine in 2g (plan 54, phase 2),
+# and DraftKings is the one book still fetched here: the engine has its game lines but
+# not its props (plan 54, decision 2). It needs no credentials, so the cross-repo
+# .env reads for 4Casters and Novig went with the other three. Never fatal: books post
+# props through the week, and the consensus abstains wherever no book has a line.
+log "pulling DraftKings weekly player props"
+if "${PYTHON}" -m Scripts.books.weekly_props --book draftkings --season "${SEASON}" \
+    --week "${WEEK}" >>"${LOG}" 2>&1; then
+  log "DraftKings props: ok"
 else
-  log "NOTE: one or more of the four added prop books returned nothing (the log above \
-names which). Not fatal -- early in the week most games have no props posted yet, and \
-the blend's market consensus abstains where no book has a line. Check: ${PYTHON} -m \
-Scripts.books.weekly_props --book all --dry-run"
+  log "NOTE: DraftKings props returned nothing. Not fatal -- early in the week most \
+games have no props posted yet. Check: ${PYTHON} -m Scripts.books.weekly_props \
+--book draftkings --dry-run"
 fi
 
-# --- 2g. The sportsbook engine: Bet105 live, the other books in shadow -----------
+# --- 2g. The sportsbook engine: FanDuel, Novig, 4Casters and Bet105 live --------
 # Added 2026-10-21 (docs/plans/54-props-from-the-sportsbook-engine.md, phase 1). Reads
-# s3://tmw-sportsbook-data as of now. Most books go to Data/Engine/Shadow/, which
-# nothing in the blend reads and Scripts.sync does not mirror; it runs straight after
-# 2e-2f so the two sources are compared at nearly the same moment, and `--compare`
-# scores them. **Bet105 is live from 2026-10-23**: it replaced the Pinnacle weekly
-# scrape (2b''') and is written to Data/Projections/Bet105/, where the blend reads it.
-# Still never fatal: if it fails, the square pool loses one of its five books for a
-# night, which is what an empty Pinnacle scrape did before.
-log "reading the sportsbook engine (Bet105 live, the rest in shadow; plan 54)"
+# s3://tmw-sportsbook-data as of now. **Live books are written to Data/Projections/,
+# where the blend reads them**: Bet105 from 2026-10-23 in place of the Pinnacle scrape
+# (2b'''), and FanDuel, Novig and 4Casters from the same day in place of our own
+# scrapes (plan 54, phase 2). BetOnline, Bovada, Kalshi and Polymarket stay in
+# Data/Engine/Shadow/, which nothing in the blend reads.
+#
+# Still not fatal, but this is now the stage the sharp pool depends on. What a failure
+# costs: a book's season file keeps its last pull for the week (reconcile keeps the
+# newest row per player-week), so a failed night votes yesterday's lines rather than
+# none. A new week with no successful read has no FanDuel or Novig, and SHARP_
+# abstains. `python -m Scripts.refresh_status` goes red on FD or NV weekly.
+log "reading the sportsbook engine (FanDuel, Novig, 4Casters, Bet105 live; plan 54)"
 if "${PYTHON}" -m Scripts.books.engine --season "${SEASON}" --week "${WEEK}" \
     >>"${LOG}" 2>&1; then
-  log "engine: ok (Bet105 live, the rest in shadow; per-book outcomes above)"
+  log "engine: ok (per-book outcomes above; a withheld live book votes yesterday's lines)"
 else
   log "NOTE: the engine shadow read failed or projected no book (the log above says \
-which). Not fatal -- the square pool votes without Bet105 tonight, and nothing reads \
-the shadow. Check: ${PYTHON} -m Scripts.books.engine --dry-run"
+which). Not fatal -- FanDuel, Novig, 4Casters and Bet105 keep their last pull for \
+the week. Check: ${PYTHON} -m Scripts.books.engine --dry-run"
 fi
 
 # --- 2h. Import The Athletic's landed weekly slate ------------------------------

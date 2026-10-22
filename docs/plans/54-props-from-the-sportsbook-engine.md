@@ -9,8 +9,11 @@ Measured the same day against the mini's own scrapes, through the same `project_
 Novig and 4Casters are within 0.01-0.4%, and **BetOnline fails G1**, because the
 engine's widget walk captured yardage props for only 4 of week 7's 14 games (see
 [Phase 1 findings](#phase-1-findings-2026-10-21)). **Bet105 went live in Pinnacle's
-place on 2026-10-23**, ahead of phase 2, and the Selenium Pinnacle scrape retired (see
-[the Bet105 swap](#the-bet105-swap-2026-10-23)). The engine
+place on 2026-10-23**, and the Selenium Pinnacle scrape retired (see
+[the Bet105 swap](#the-bet105-swap-2026-10-23)). **Phase 2 went live the same day for
+FanDuel, Novig and 4Casters** ([phase 2, as built](#phase-2-as-built-2026-10-23)). It
+also fixed a Novig rung-choice defect that our own scrape had been shipping. BetOnline
+waits for phase 2b. The engine
 (`~/GitRepos/SportsbookScrapers`, publishing to `s3://tmw-sportsbook-data`) already carries
 every prop this repo scrapes for FanDuel, Novig, 4Casters and BetOnline, rung for rung and
 usually wider. Its owner mapped this repo on 2026-10-16 in
@@ -254,14 +257,92 @@ them on the mini as well: they're the runs stamped `2026-10-18T10:00:00+00:00`.
 `weekly_props --book draftkings` (Decision 2). `PINNY_` leaves the pools (Decision 1).
 Non-fatal, like today's stages. Weekly freshness in `refresh_status` is read from the
 engine's newest `captured_at` per book, which also fixes the existing gap where FanDuel,
-DraftKings, Novig and 4Casters had no freshness check at all.
+DraftKings, Novig and 4Casters had no freshness check at all. *(As planned. What was
+built differs; see below.)*
+
+### Phase 2, as built (2026-10-23)
+
+**FanDuel, Novig and 4Casters are live. BetOnline isn't (phase 2b).** For the three,
+the engine's output has this repo's schema exactly, lands on the same
+`Data/Projections/<Dir>/Season/<s>/<Dir>_AllProps.parquet` the scrapes wrote, and comes
+from collectors that poll every minute. So decision 4 doesn't bind them: at 06:00 their
+prices are minutes old. BetOnline differs on all three points (below), and decision 4
+was really about its four-times-a-day widget walk.
+
+**What changed:**
+- `engine.BOOKS`: FanDuel, Novig and 4Casters are `live=True`, so `reconcile` merges
+  each night's engine pull into the season file the blend has always read. Weeks 1-7
+  keep their scraped rows; from here on the newest pull wins per player-week.
+- Stage 2f is DraftKings only (decision 2), and the cross-repo `.env` reads for
+  4Casters and Novig went with it. Stage 2e (BetOnline) is unchanged.
+- `refresh_status` watches `FD weekly` and `NV weekly` (stale-making, because the two
+  are the whole sharp pool) and `C4 weekly` (advisory). It reads file age rather than
+  the engine's `captured_at`: a withheld book writes nothing, so a file that stops
+  moving is exactly what a dead collector looks like from here.
+- `clean_book_props` names the engine as the fix for a stale FanDuel, Novig or
+  4Casters file.
+
+**What a failed night costs:** less than a failed scrape did. A withheld book (no poll
+for 12 hours) or a failed read writes nothing, so the season file keeps that week's last
+pull and the blend votes yesterday's lines. Only a new week with no successful read is
+empty, and then `SHARP_` abstains.
+
+**A defect found on the way, in production since plan 52:** Novig is an exchange, and
+stale resting orders leave crossed two-way quotes at far-off rungs. On 2026-10-22, 564 of
+Novig's 1,518 two-way rungs had both sides favourites (Tucker Kraft at 19.5 receiving
+yards: over -1567, under -2400, summing to 1.90). The most-balanced-rung rule rescales a
+pair to sum to one before judging balance, so a crossed pair reads as perfect and wins.
+**32 of 471 Novig lines** came out at about a third of FanDuel's. Our scrape
+(`novig_props.py:356-360`) has the same rule and was shipping it on different players:
+McMillan 24 receiving yards against FanDuel's 69.5, McCaffrey 14 against 44.5, every QB's
+passing TDs at about half of FanDuel's and 4Casters'. `engine.to_raw` now chooses a main
+line only from pairs inside `mk.OVERROUND_BOUNDS` (1.0-1.25). Healthy Novig pairs never
+summed below 1.004. FanDuel, BetOnline, Bovada and Bet105 had no crossed pairs, 4Casters
+had one (at 1.26), and Kalshi and Polymarket have the same exchange problem (20 and 13);
+both are still shadow-only.
+
+**Gate (G3), weeks 1-7, `winfield_football` and `knights_ffl`.** The engine was read
+**as of 2026-10-22 18:05Z, the moment that day's scrapes ran**, so line movement is
+excluded. `build_league_frame` ran with the scraped files (A) and with the engine's
+reconciled in (B), and the files were restored afterwards.
+
+| | winfield (243 wk-7 players) | knights (342) |
+|---|---|---|
+| `TRUE_Points` move > 0.1 / > 0.5 / > 1 | 16 / 2 / 0 | 22 / 2 / 0 |
+| Largest move | 0.675 | 0.675 |
+| Weeks 1-6 | identical | identical |
+
+Every move over 0.3 is the engine correcting a crossed Novig line in the scrape:
+McMillan +0.67, Coker +0.65, McCaffrey +0.47 and Sutton +0.42 (receiving yards), and Geno
+Smith, McKee, Brissett, Mahomes and Watson +0.35 to +0.49 (passing TDs). The rest are
+FanDuel identical, 4Casters a ladder rung's difference, and Novig's wider coverage.
+
+**Not met: G1's full week.** The coverage gate asks for every night of a week including
+a Sunday. This was built on one day's measurement, on the owner's call (2026-10-22). The
+shadow log on the mini records every night's ages and agreement, so a regression shows
+there.
+
+**Phase 2b: BetOnline.** Three things to build before it goes live:
+1. **IDP.** The scrape carries `defensiveTotalTackles` and `defensiveSacks`, which the
+   IDP leagues use. The engine's LowVig feed has both (`tackles` 73 players, `sacks` 78
+   on 2026-10-22, against the scrape's 8 and 7 that week), but `STAT_MAP` doesn't map
+   them, and `project_book` builds offensive stats only.
+2. **Positions.** `clean_bol` splits tackles into solo and assisted by position (LB,
+   DB, DL), which the widget supplies and the engine doesn't. `assign_positions` would
+   call every defender `REC`. The engine's gsis `player_id` plus the crosswalk is the
+   likely source.
+3. **`clean_bol` assumes the scrape's columns.** It drops `team`, and `pos` after the
+   tackle merge, unconditionally, so it would raise on engine output. It also needs
+   decision 4: the widget walk runs at 01:52, 07:52, 13:52 and 19:52 ET, so the 06:00
+   nightly would read a four-hour-old walk.
 
 **Phase 3: switch the game lines.** `read_current(source="engine")` becomes the default.
 `run_odds_refresh_nfl.sh` and its 06:45 cron line are retired. `dst/books.py` swaps
 `PINNY` for books the engine has (Decision 1).
 
 **Phase 4: retire (category H).**
-- Delete `Scripts/books/{pinnacle,betonline,fourcasters,fanduel_props,novig_props,fourcasters_props}.py`,
+- Delete `Scripts/books/{pinnacle,betonline,fourcasters,fanduel_props,novig_props,fourcasters_props}.py`
+  (the three props adapters stopped running nightly in phase 2),
   `pull.py`, `scrape_BOL.py` and `bol_widget.py`. (`scrape_pinnacle.py` went
   early, with the Bet105 swap.)
   `draftkings_props.py` and the `weekly_props` driver stay until the engine carries
@@ -274,8 +355,13 @@ DraftKings, Novig and 4Casters had no freshness check at all.
 - Playwright stays, for `fetch_athletic`.
 
 **Phase 5: what the engine makes cheap (later, separate gates).**
-- A game-day re-blend: read the board at 11:30 ET on Sunday, with no scraping, so the
-  blend sees the inactives-driven moves.
+- **The end goal (owner, 2026-10-22): the blend re-read through the day, not only at
+  06:00**, so the lineups and scoring follow the market as it moves. Phase 2 is what
+  makes this cheap. Reading the board is a bucket sync and seconds of arithmetic, with
+  no book scraped, so a re-blend costs the lineups rebuild and nothing more. The first
+  version is a game-day re-blend: read the board at 11:30 ET on Sunday so the blend
+  sees the inactives-driven moves. Its own plan settles the cadence, which stages
+  re-run, and how it sits with the kickoff freeze.
 - The engine's market line for team totals in `vegas.py`.
 - gsis `player_id` in place of `align_to_espn_names`.
 - Plan 52's backtest, run from the engine's history.
