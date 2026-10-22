@@ -19,14 +19,51 @@
     <string>/Users/tommywinfield/bin/espn_ffl_athletic_fetch.sh</string>
   </array>
 
-  <!-- Daily at 05:45, ahead of the 06:00 nightly. A slot missed while asleep runs on wake. -->
+  <!-- Daily at 05:45, ahead of the 06:00 nightly; and 17:45 Thu/Fri/Sat and 12:00 Sun,
+       for re-uploads after injury reports, which the wrapper publishes itself.
+       Weekday: 0 is Sunday. Local time, as launchd read it at boot -- after changing
+       the time zone, reboot. A slot missed while asleep runs on wake. -->
   <key>StartCalendarInterval</key>
-  <dict>
-    <key>Hour</key>
-    <integer>5</integer>
-    <key>Minute</key>
-    <integer>45</integer>
-  </dict>
+  <array>
+    <dict>
+      <key>Hour</key>
+      <integer>5</integer>
+      <key>Minute</key>
+      <integer>45</integer>
+    </dict>
+    <dict>
+      <key>Weekday</key>
+      <integer>4</integer>
+      <key>Hour</key>
+      <integer>17</integer>
+      <key>Minute</key>
+      <integer>45</integer>
+    </dict>
+    <dict>
+      <key>Weekday</key>
+      <integer>5</integer>
+      <key>Hour</key>
+      <integer>17</integer>
+      <key>Minute</key>
+      <integer>45</integer>
+    </dict>
+    <dict>
+      <key>Weekday</key>
+      <integer>6</integer>
+      <key>Hour</key>
+      <integer>17</integer>
+      <key>Minute</key>
+      <integer>45</integer>
+    </dict>
+    <dict>
+      <key>Weekday</key>
+      <integer>0</integer>
+      <key>Hour</key>
+      <integer>12</integer>
+      <key>Minute</key>
+      <integer>0</integer>
+    </dict>
+  </array>
 
   <!-- Only in the logged-in session: the browser needs a window. -->
   <key>LimitLoadToSessionType</key>

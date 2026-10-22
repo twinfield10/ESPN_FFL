@@ -293,7 +293,13 @@ themselves. See [Injuries: before the draft](#injuries-before-the-draft).
 
 ### The Athletic fetch, on the Mac mini
 
-`ops/espn_ffl_athletic_fetch.sh` runs `Scripts.fetch_athletic --push` at 05:45 from a
+`ops/espn_ffl_athletic_fetch.sh` runs `Scripts.fetch_athletic --push` daily at 05:45,
+and also at **17:45 Thursday, Friday and Saturday and 12:00 Sunday** (since 2026-10-22)
+to catch re-uploads after injury reports. When one of those later runs lands a new
+file, it publishes it right away: it imports the file, rebuilds and pushes the lineups,
+and republishes the Knights Sheet, holding the live job's lock while it does. Otherwise
+the file would wait for the next nightly (Monday's, for a Sunday upload). The 05:45 run
+leaves a new file to the 06:00 nightly. The job runs from a
 **LaunchAgent**, not cron, because the article returns 403 to headless Chromium and a
 visible window needs the login session. [Plan 53](plans/53-athletic-weekly-fetch.md)
 has the evidence. **All of it is done over SSH** (`ssh mini.local`, as
@@ -318,8 +324,9 @@ who | grep console
 # 3. Install the wrapper and the agent, into that session's launchd domain.
 cp ops/espn_ffl_athletic_fetch.sh ~/bin/ && chmod +x ~/bin/espn_ffl_athletic_fetch.sh
 cp ops/com.espn_ffl.athletic_fetch.plist ~/Library/LaunchAgents/
+launchctl bootout gui/$(id -u)/com.espn_ffl.athletic_fetch 2>/dev/null   # if already loaded: a changed schedule needs a reload
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.espn_ffl.athletic_fetch.plist
-launchctl print gui/$(id -u)/com.espn_ffl.athletic_fetch | grep -E 'state|Hour|Minute'
+launchctl print gui/$(id -u)/com.espn_ffl.athletic_fetch | grep -E 'state|Weekday|Hour|Minute'
 
 # 4. Fire it once through launchd, with the display asleep -- what 05:45 looks like.
 pmset displaysleepnow
@@ -435,7 +442,7 @@ python -m Scripts.scrape_espn_injuries   # nightly
 python -m Scripts.refresh --all --what board    # nightly
 python -m Scripts.refresh --all --what lineups  # nightly since 2026-09-08
 python -m Scripts.scrape_BOL             # never -- permanently 403, see the warning
-python -m Scripts.fetch_athletic --push         # 05:45 LaunchAgent since 2026-10-21, on trial (plan 53)
+python -m Scripts.fetch_athletic --push         # 05:45 LaunchAgent since 2026-10-21, on trial (plan 53); + Thu-Sat 17:45, Sun 12:00 since 2026-10-22
 python -m Scripts.parse_athletic                # nightly since 2026-10-22, non-fatal (plan 55)
 ```
 
