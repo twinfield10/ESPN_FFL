@@ -203,6 +203,27 @@ def test_a_real_line_gets_its_equal_vote():
 # is what actually turned the fifth weekly vote on. See docs/plans/47-athletic-weekly.md.
 
 
+def _default_weekly_blocks():
+    """The four-block shape of the 2026 week-1 download, as fresh lists on every call
+    so a test can alter one block without touching the next test's."""
+    return [
+        ("QB", ["Name", "Team", "Opp", "Pass YD", "Pass TD", "INT",
+                "Rush Att", "Rush YD", "Rush TD", "FPS"],
+         [["Joe Burrow", "CIN", "vs TB", 267.2, 2.3, 0.8, 2.5, 7.7, 0.1, 19.3]]),
+        ("RB", ["Name", "Team", "Opp", "Rush Att", "Rush YD", "Rush TD",
+                "REC", "REC YD", "REC TD", "FPS"],
+         [["Jahmyr Gibbs", "DET", "vs NO", 17.3, 90.7, 0.9, 4.6, 30.7, 0.2, 21.4],
+          ["Bijan Robinson", "ATL", "@ PIT", 19.1, 91.7, 0.6, 4.3, 32.8, 0.2, 19.4]]),
+        ("WR", ["Name", "Team", "Opp", "Rush YD", "Rush TD",
+                "REC", "REC YD", "REC TD", "FPS"],
+         [["Ja'Marr Chase", "CIN", "vs TB", 1, 0, 6.6, 85.7, 0.7, 16.4],
+          ["Puka Nacua", "LAR", "vs SF", 2.9, 0, 7.3, 96.1, 0.5, 16.8],
+          ["Malik Benson", "LV", "vs MIA", 0, 0, 0.4, 4.4, 0, 0.8]]),
+        ("TE", ["Name", "Team", "Opp", "REC", "REC YD", "REC TD", "FPS"],
+         [["Colston Loveland", "CHI", "@ CAR", 5.1, 62.8, 0.5, 11.6]]),
+    ]
+
+
 def _weekly_sheet_rows(blocks=None, week=1, season=2026):
     """A synthetic weekly sheet with the real geometry.
 
@@ -222,22 +243,7 @@ def _weekly_sheet_rows(blocks=None, week=1, season=2026):
         tuple: ``(sheet_name, rows)`` ready to hand to a fake workbook.
     """
     if blocks is None:
-        blocks = [
-            ("QB", ["Name", "Team", "Opp", "Pass YD", "Pass TD", "INT",
-                    "Rush Att", "Rush YD", "Rush TD", "FPS"],
-             [["Joe Burrow", "CIN", "vs TB", 267.2, 2.3, 0.8, 2.5, 7.7, 0.1, 19.3]]),
-            ("RB", ["Name", "Team", "Opp", "Rush Att", "Rush YD", "Rush TD",
-                    "REC", "REC YD", "REC TD", "FPS"],
-             [["Jahmyr Gibbs", "DET", "vs NO", 17.3, 90.7, 0.9, 4.6, 30.7, 0.2, 21.4],
-              ["Bijan Robinson", "ATL", "@ PIT", 19.1, 91.7, 0.6, 4.3, 32.8, 0.2, 19.4]]),
-            ("WR", ["Name", "Team", "Opp", "Rush YD", "Rush TD",
-                    "REC", "REC YD", "REC TD", "FPS"],
-             [["Ja'Marr Chase", "CIN", "vs TB", 1, 0, 6.6, 85.7, 0.7, 16.4],
-              ["Puka Nacua", "LAR", "vs SF", 2.9, 0, 7.3, 96.1, 0.5, 16.8],
-              ["Malik Benson", "LV", "vs MIA", 0, 0, 0.4, 4.4, 0, 0.8]]),
-            ("TE", ["Name", "Team", "Opp", "REC", "REC YD", "REC TD", "FPS"],
-             [["Colston Loveland", "CHI", "@ CAR", 5.1, 62.8, 0.5, 11.6]]),
-        ]
+        blocks = _default_weekly_blocks()
 
     width = sum(len(headers) + 1 for _, headers, _ in blocks) - 1
     depth = max(len(players) for _, _, players in blocks)
@@ -513,18 +519,19 @@ def test_the_newest_download_wins_for_its_own_week_only(fake_weekly, monkeypatch
     n2, r2 = _weekly_sheet_rows(week=2)
     la.build_weekly(fake_weekly({n2: r2}, filename="Week_2_Proj_0916.xlsx"))
 
-    # Week 1 again, with a different number in it.
-    _, revised = _weekly_sheet_rows(week=1, blocks=[
-        ("QB", ["Name", "Team", "Opp", "Pass YD", "Pass TD", "INT",
-                "Rush Att", "Rush YD", "Rush TD", "FPS"],
-         [["Joe Burrow", "CIN", "vs TB", 999.0, 9.9, 0.0, 0.0, 0.0, 0.0, 99.9]]),
-    ])
+    # Week 1 again, with a different number in it -- and one fewer receiver, so the
+    # row count proves the old week-1 rows were replaced rather than added to.
+    blocks = _default_weekly_blocks()
+    blocks[0][2][0][3] = 999.0                      # Burrow's passing yards
+    blocks[2][2].pop()                              # drop Malik Benson
+    _, revised = _weekly_sheet_rows(week=1, blocks=blocks)
     out = la.build_weekly(fake_weekly({n1: revised},
                                       filename="Week_1_Proj_0912.xlsx"))
 
     assert sorted(out["week"].unique()) == [1, 2]
     wk1 = out[out["week"] == 1]
-    assert len(wk1) == 1 and wk1.iloc[0]["proj_passingYards"] == 999.0
+    assert len(wk1) == 6
+    assert wk1[wk1["player_name"] == "Joe Burrow"].iloc[0]["proj_passingYards"] == 999.0
     assert len(out[out["week"] == 2]) == 7, "week 2 must be untouched"
 
 
@@ -546,6 +553,116 @@ def test_the_file_stays_cumulative(fake_weekly, monkeypatch, tmp_path):
     out = la.build_weekly(fake_weekly({name: rows}, filename="Week_4_Proj.xlsx"),
                           merge=False)
     assert sorted(out["week"].unique()) == [4]
+
+
+# --- the format check (plan 55) ------------------------------------------------
+#
+# `read_weekly_workbook` reads whatever headers it finds, so a renamed stat column
+# parsed to None for every player and imported without a word. These pin the check
+# that refuses it, and that it refuses before anything is written.
+
+
+def _check(fake_weekly, blocks):
+    name, rows = _weekly_sheet_rows(blocks=blocks)
+    path = fake_weekly({name: rows})
+    frame, _, _, _ = la.read_weekly_workbook(path)
+    la.check_weekly_format(frame, path)
+
+
+def test_the_default_slate_passes_the_format_check(fake_weekly):
+    _check(fake_weekly, _default_weekly_blocks())
+
+
+def test_a_stat_renamed_in_one_block_is_refused(fake_weekly):
+    """Renamed in the tight-end block alone: ``REC YD`` is still on the sheet, in the
+    receiver block, so a sheet-wide check would pass and every tight end would import
+    with no receiving yards."""
+    blocks = _default_weekly_blocks()
+    blocks[3][1][4] = "Rec Yds"
+    with pytest.raises(la.WeeklyFormatError, match=r"TE block has no REC YD"):
+        _check(fake_weekly, blocks)
+
+
+def test_a_blank_stat_column_is_refused(fake_weekly):
+    blocks = _default_weekly_blocks()
+    for player in blocks[2][2]:                     # every receiver's REC YD
+        player[6] = None
+    with pytest.raises(la.WeeklyFormatError, match=r"WR REC YD is filled for 0%"):
+        _check(fake_weekly, blocks)
+
+
+def test_zeros_are_not_blanks(fake_weekly):
+    """A receiver's rushing touchdowns are zero for nearly the whole block, correctly."""
+    blocks = _default_weekly_blocks()
+    for player in blocks[2][2]:
+        player[4] = 0
+    _check(fake_weekly, blocks)
+
+
+def test_a_missing_position_block_is_refused(fake_weekly):
+    blocks = _default_weekly_blocks()[:3]
+    with pytest.raises(la.WeeklyFormatError, match=r"no TE block"):
+        _check(fake_weekly, blocks)
+
+
+def test_every_problem_is_named_at_once(fake_weekly):
+    blocks = _default_weekly_blocks()[:3]
+    blocks[0][1][3] = "Passing Yards"
+    with pytest.raises(la.WeeklyFormatError) as err:
+        _check(fake_weekly, blocks)
+    assert "no TE block" in str(err.value) and "QB block has no Pass YD" in str(err.value)
+
+
+def test_a_new_column_is_noted_not_refused(fake_weekly, capsys):
+    """Nothing reads it, so it cannot put a wrong number on the board."""
+    blocks = _default_weekly_blocks()
+    blocks[3][1].append("Targets")
+    blocks[3][2][0].append(7.1)
+    _check(fake_weekly, blocks)
+    assert "TE block has column(s) nothing reads: Targets" in capsys.readouterr().out
+
+
+def test_the_points_columns_and_extra_blocks_are_not_a_format_change(fake_weekly,
+                                                                     capsys):
+    """``FPS`` became ``Proj`` in week 2 and Flex/Superflex/DST/K came and went; none of
+    that touched a stat column, and none of it may trip the check."""
+    blocks = _default_weekly_blocks()
+    for _, headers, players in blocks:
+        headers[headers.index("FPS")] = "Proj"
+    blocks.append(("DST", ["Name", "Proj", "Team", "Opp"],
+                   [["Minnesota Vikings", 8.7, "MIN", "vs MIA"]]))
+    _check(fake_weekly, blocks)
+    assert "NOTE" not in capsys.readouterr().out
+
+
+def test_a_refused_slate_writes_nothing(fake_weekly, monkeypatch, tmp_path):
+    """The last good import must survive a refusal untouched."""
+    monkeypatch.setattr(la, "season_dir", lambda *a, **k: _mk(tmp_path, a[-1]))
+    monkeypatch.setattr(la, "landing_dir", lambda *a, **k: _mk(tmp_path, a[-1]))
+    good_name, good = _weekly_sheet_rows(week=1)
+    la.build_weekly(fake_weekly({good_name: good}))
+    out = tmp_path / "out" / la.WEEKLY_FILENAME
+    before = out.read_bytes()
+
+    blocks = _default_weekly_blocks()
+    blocks[1][1][7] = "Receptions"
+    name, rows = _weekly_sheet_rows(week=1, blocks=blocks)
+    with pytest.raises(la.WeeklyFormatError):
+        la.build_weekly(fake_weekly({name: rows}, filename="Week_1_Proj_0912.xlsx"))
+    assert out.read_bytes() == before
+    assert not (tmp_path / "out" / "Week_1_Proj_0912.xlsx").exists()
+
+
+def test_every_landed_2026_slate_passes_the_format_check():
+    """The thresholds were measured on these; skipped where they are absent."""
+    from Scripts.paths import PROJECTIONS_DIR
+
+    landed = sorted((PROJECTIONS_DIR / la.SOURCE / "Landing" / "2026").glob("W*.xlsx"))
+    if not landed:
+        pytest.skip("no 2026 Athletic weekly slates landed")
+    for path in landed:
+        frame, _, _, _ = la.read_weekly_workbook(path)
+        la.check_weekly_format(frame, path)
 
 
 def test_an_absent_weekly_file_degrades_rather_than_raising(tmp_path, monkeypatch):

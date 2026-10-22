@@ -258,13 +258,22 @@ boards **and** `--what lineups`. What is left each week is The Athletic's slate.
 that page blocks scripts. [The Athletic fetch, on the Mac mini](#the-athletic-fetch-on-the-mac-mini)
 tries the page every morning, and as of 2026-10-21 whether that keeps working is
 still being tested. Until it's proven, check `--status` and, if this week isn't in,
-paste the link:
+paste the link.
+
+**Fetching and importing are separate steps** since 2026-10-22
+([plan 55](plans/55-athletic-fetch-parse-split.md)). The fetch only saves the raw
+`.xlsx` into `Data/Projections/TheAthletic/Landing/<season>/`, and the nightly's
+`Scripts.parse_athletic` imports it. The import refuses a slate whose stat columns were
+renamed or came through blank, keeps the last good week, and warns every night until
+the parser is fixed.
 
 ```bash
-# On the Mac mini. Did this morning's fetch get this week?
+# On the Mac mini. Did this morning's fetch get this week? And did the nightly import it?
 python -m Scripts.fetch_athletic --status
-# If not: on the article, right-click "Projections Download Link" -> Copy Link Address.
+python -m Scripts.parse_athletic --status
+# If the fetch missed: on the article, right-click "Projections Download Link" -> Copy Link Address.
 python -m Scripts.fetch_athletic --href '<the static01.nyt.com link>' --push
+python -m Scripts.parse_athletic       # import it now rather than at tomorrow's nightly
 # ...which replaces the old hand download (still works, from any file):
 python -m Scripts.load_athletic --what weekly --file ~/Downloads/Week_<n>_Proj_<MMDD>.xlsx
 python -m Scripts.refresh --all --what lineups,team_stats   # team_stats is the weekly bit
@@ -340,14 +349,21 @@ mini comes back without anyone at it.
 **The one-command check**, any morning:
 
 ```bash
-python -m Scripts.fetch_athletic --status      # last_run, the last 60 outcomes, each imported week
-# from the MacBook:
+python -m Scripts.fetch_athletic --status      # last_run, the last 60 outcomes, each landed week
+python -m Scripts.parse_athletic --status      # each imported week, and any refusal
+# from the MacBook (the MacBook's own copies of these files are not the mini's):
 ssh mini.local 'cd ~/GitRepos/ESPN_FFL-nightly && /usr/local/bin/python3.11 -m Scripts.fetch_athletic --status'
 ```
 
-`runs` reads `... unchanged` most days, `... imported` after an upload,
+`runs` reads `... unchanged` most days, `... fetched` after an upload,
 `... not_published` early in the week, and `... failed -- FetchError: article returned
 403` when the page blocks the browser. That last one is what G0 is watching for.
+
+**If the parse refuses a slate** (`ATH parse REFUSED` in `refresh_status`, a `WARNING`
+in `~/logs/espn_ffl_refresh.log`), the error names the block and column. Open the raw
+file it names in the landing folder, compare against `WEEKLY_BLOCK_STATS` in
+`Scripts/load_athletic.py`, fix the parser, and merge. The next nightly imports the file
+that was already landed.
 **After a week of daily runs:** no 403s means keep it. Any 403 means retire the browser
 hop and paste the link with `--href` each week:
 
@@ -420,6 +436,7 @@ python -m Scripts.refresh --all --what board    # nightly
 python -m Scripts.refresh --all --what lineups  # nightly since 2026-09-08
 python -m Scripts.scrape_BOL             # never -- permanently 403, see the warning
 python -m Scripts.fetch_athletic --push         # 05:45 LaunchAgent since 2026-10-21, on trial (plan 53)
+python -m Scripts.parse_athletic                # nightly since 2026-10-22, non-fatal (plan 55)
 ```
 
 **`R/GetNFL.R` was the urgent one, and it is step 0 of the nightly rather than a

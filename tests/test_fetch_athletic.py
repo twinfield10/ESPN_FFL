@@ -1,4 +1,4 @@
-"""The Athletic weekly fetch: finding the article, picking the link, and when to import.
+"""The Athletic weekly fetch: finding the article, picking the link, and when to land.
 
 The browser hop is not exercised here -- it needs a window and the live site, and that
 is what G0 in ``docs/plans/53-athletic-weekly-fetch.md`` is for. Everything either side
@@ -110,12 +110,16 @@ def test_unexpected_filenames_are_refused(href):
         fa.filename_from_href(href)
 
 
-# --- when to import --------------------------------------------------------
+# --- when to land a file ---------------------------------------------------
 
 @pytest.fixture
 def wired(monkeypatch, tmp_path):
-    """``run`` with every network hop and the import replaced; returns the call log."""
-    calls = {"imports": [], "pushes": [], "href": HREF, "bytes": fa.XLSX_MAGIC + b"v1"}
+    """``run`` with every network hop replaced and the landing folder in ``tmp_path``.
+
+    ``build_weekly`` is wired to fail: since plan 55 the fetch never parses, and a test
+    that let it would not notice the coupling coming back.
+    """
+    calls = {"pushes": [], "href": HREF, "bytes": fa.XLSX_MAGIC + b"v1"}
     monkeypatch.setattr(fa, "fetch_sitemaps",
                         lambda today, session: [sitemap(*WEEKLY.values(), *DECOYS)])
     monkeypatch.setattr(fa, "read_download_link", lambda article: calls["href"])
@@ -125,12 +129,19 @@ def wired(monkeypatch, tmp_path):
         path.write_bytes(calls["bytes"])
         return path
 
+    landing = tmp_path / "Landing"
+    landing.mkdir()
     monkeypatch.setattr(fa, "download", fake_download)
+    monkeypatch.setattr(fa, "landing_dir",
+                        lambda source, season, name: landing / name)
     import Scripts.load_athletic as la
-    monkeypatch.setattr(la, "build_weekly", lambda path, season, week:
-                        calls["imports"].append((path.name, season, week)))
+
+    def never_parse(*a, **k):
+        raise AssertionError("the fetch parsed the slate")
+    monkeypatch.setattr(la, "build_weekly", never_parse)
     monkeypatch.setattr(fa, "push_archive", lambda season: calls["pushes"].append(season))
     calls["status"] = tmp_path / "fetch_status.json"
+    calls["landed"] = lambda: sorted(p.name for p in landing.iterdir())
     return calls
 
 
@@ -139,51 +150,71 @@ def _run(wired, week=7, **kw):
                   status_path=wired["status"], **kw)
 
 
-def test_first_run_imports_and_records(wired):
-    assert _run(wired) == "imported"
-    assert wired["imports"] == [("Week7_Proj_1021.xlsx", 2026, 7)]
+def test_first_run_lands_the_raw_file_and_records_it(wired):
+    assert _run(wired) == "fetched"
+    digest = fa.hashlib.sha256(wired["bytes"]).hexdigest()
+    name = f"Week7_Proj_1021_{digest[:8]}.xlsx"
+    assert wired["landed"]() == [name]
     week = fa.load_status(wired["status"])["weeks"]["2026-07"]
-    assert week["href"] == HREF and week["file"] == "Week7_Proj_1021.xlsx"
+    assert week["href"] == HREF and week["file"] == name and week["sha256"] == digest
 
 
-def test_same_href_skips_the_download(wired):
+def test_same_bytes_land_nothing(wired):
     _run(wired)
     assert _run(wired) == "unchanged"
-    assert len(wired["imports"]) == 1
+    assert len(wired["landed"]()) == 1
 
 
-def test_a_reupload_is_imported(wired):
+def test_new_bytes_at_the_same_link_are_landed(wired):
+    """The gap plan 55 closes: a file replaced in place. Comparing links skipped it."""
+    _run(wired)
+    wired["bytes"] = fa.XLSX_MAGIC + b"v2"
+    assert _run(wired) == "fetched"
+    assert len(wired["landed"]()) == 2, "the earlier raw file must not be overwritten"
+
+
+def test_a_reupload_is_landed_beside_the_first(wired):
     _run(wired)
     wired["href"] = HREF.replace("21103756", "25091500")
     wired["bytes"] = fa.XLSX_MAGIC + b"v2"
-    assert _run(wired) == "imported"
-    assert len(wired["imports"]) == 2
+    assert _run(wired) == "fetched"
+    assert len(wired["landed"]()) == 2
 
 
-def test_new_href_same_bytes_is_not_reimported(wired):
+def test_new_href_same_bytes_is_not_landed_again(wired):
     _run(wired)
     wired["href"] = HREF.replace("21103756", "25091500")
     assert _run(wired) == "unchanged"
-    assert len(wired["imports"]) == 1
+    assert len(wired["landed"]()) == 1
 
 
-def test_not_published_records_and_imports_nothing(wired):
+def test_a_week_recorded_before_the_split_is_compared_by_its_hash(wired):
+    """The mini's status file has week 7 as the old code wrote it: ``imported_at``,
+    and a ``file`` with no hash in its name. The same bytes must still read unchanged."""
+    digest = fa.hashlib.sha256(wired["bytes"]).hexdigest()
+    fa.save_status({"weeks": {"2026-07": {
+        "imported_at": "2026-10-21T15:47:13+00:00", "href": HREF,
+        "file": "Week7_Proj_1021.xlsx", "sha256": digest}}}, wired["status"])
+    assert _run(wired) == "unchanged"
+    assert wired["landed"]() == []
+
+
+def test_not_published_records_and_lands_nothing(wired):
     assert _run(wired, week=8) == "not_published"
-    assert wired["imports"] == []
+    assert wired["landed"]() == []
     assert fa.load_status(wired["status"])["last_run"]["outcome"] == "not_published"
 
 
 def test_dry_run_writes_nothing(wired):
     assert _run(wired, dry_run=True) == "dry_run"
-    assert wired["imports"] == [] and not wired["status"].exists()
+    assert wired["landed"]() == [] and not wired["status"].exists()
 
 
-def test_push_only_when_asked_and_only_after_an_import(wired):
+def test_push_only_when_asked_and_only_after_a_new_file(wired):
     _run(wired)
     assert wired["pushes"] == []
     _run(wired, push=True)                      # unchanged: nothing to push
     assert wired["pushes"] == []
-    wired["href"] = HREF.replace("21103756", "25091500")
     wired["bytes"] = fa.XLSX_MAGIC + b"v2"
     _run(wired, push=True)
     assert wired["pushes"] == [2026]
@@ -207,8 +238,8 @@ def test_href_skips_the_sitemap_and_the_browser(wired, monkeypatch):
         raise AssertionError("hop 1 or 2 ran")
     monkeypatch.setattr(fa, "fetch_sitemaps", never)
     monkeypatch.setattr(fa, "read_download_link", never)
-    assert _run(wired, href=f"  {HREF}\n") == "imported"
-    assert wired["imports"] == [("Week7_Proj_1021.xlsx", 2026, 7)]
+    assert _run(wired, href=f"  {HREF}\n") == "fetched"
+    assert len(wired["landed"]()) == 1
 
 
 @pytest.mark.parametrize("href", [
@@ -219,7 +250,7 @@ def test_href_skips_the_sitemap_and_the_browser(wired, monkeypatch):
 def test_href_must_be_the_cdn_xlsx(wired, href):
     with pytest.raises(fa.FetchError):
         _run(wired, href=href)
-    assert wired["imports"] == []
+    assert wired["landed"]() == []
 
 
 def test_runs_keep_a_bounded_history(wired, monkeypatch):

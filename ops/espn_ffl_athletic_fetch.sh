@@ -10,8 +10,10 @@
 #
 # What it does. `Scripts.fetch_athletic --push`: find this week's rankings article in
 # the sitemap, read the "Projections Download Link" off it in a visible Chromium
-# window, and import + push only if the link changed. Most days that is one sitemap
-# read, one page load and "unchanged". See docs/plans/53-athletic-weekly-fetch.md.
+# window, download the slate, and land + push it only if its bytes changed. Most days
+# that is one sitemap read, one page load, one ~30 KB download and "unchanged". It does
+# not import: the nightly's `Scripts.parse_athletic` does (plan 55). See
+# docs/plans/53-athletic-weekly-fetch.md.
 #
 # Why launchd and not cron, unlike every other job here. The page returns 403 to
 # headless Chromium, so the browser has to open a real window -- and a cron job runs

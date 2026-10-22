@@ -558,6 +558,24 @@ which). Not fatal -- nothing reads the shadow yet. Check: ${PYTHON} -m \
 Scripts.books.engine --dry-run"
 fi
 
+# --- 2h. Import The Athletic's landed weekly slate ------------------------------
+# Added 2026-10-22 (docs/plans/55-athletic-fetch-parse-split.md). The 05:45 LaunchAgent
+# only downloads the raw .xlsx into the landing folder; this imports whatever it landed
+# that has not been imported yet, and refuses a slate whose stat columns were renamed
+# or came through blank. **Not fatal, and deliberately loud:** a refusal leaves the
+# last good import in the weekly parquet, so the board still builds -- but the week
+# stays pending, so this line and the notification repeat every night until the parser
+# is fixed. Check: ${PYTHON} -m Scripts.parse_athletic --status
+log "importing The Athletic's landed weekly slate"
+if "${PYTHON}" -m Scripts.parse_athletic >>"${LOG}" 2>&1; then
+  log "Athletic weekly parse: ok"
+else
+  log "WARNING: The Athletic's weekly slate was refused or could not be read (the log \
+above says why). The board keeps the last good import. The raw file is kept in \
+Data/Projections/TheAthletic/Landing; fix the parser and the next run imports it."
+  /usr/bin/osascript -e "display notification \"Athletic weekly slate refused — see ~/logs/espn_ffl_refresh.log\" with title \"ESPN FFL refresh warning\"" 2>/dev/null || true
+fi
+
 # --- 3. Re-project the usage head ---------------------------------------
 # Reads the fresh depth chart and roster. Refits only if the stored model is stale;
 # otherwise it reloads the fitted coefficients and re-predicts, which is what makes
