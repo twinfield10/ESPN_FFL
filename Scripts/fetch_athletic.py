@@ -1,6 +1,6 @@
-"""Fetch The Athletic's weekly projection slate and import it.
+"""Fetch The Athletic's weekly projection slate and keep the raw file.
 
-    python -m Scripts.fetch_athletic                 # this week: find, fetch, import
+    python -m Scripts.fetch_athletic                 # this week: find, fetch, land
     python -m Scripts.fetch_athletic --push          # ... then push the archive tier
     python -m Scripts.fetch_athletic --dry-run       # print the article and link only
     python -m Scripts.fetch_athletic --status        # what the last run recorded
@@ -22,11 +22,18 @@ under the text ``Projections Download Link``. See ``docs/plans/53-athletic-weekl
    nothing here spoofs a user agent, dresses up headless mode or retries around a 403.
    ``--href`` is the way past a blocked hop 2: copy the link address off the article
    ("Copy Link Address") and the rest runs as usual.
-3. The ``.xlsx``, plain HTTP, into :func:`Scripts.load_athletic.build_weekly`.
+3. The ``.xlsx``, plain HTTP, into the landing folder, unparsed.
 
-**A re-upload is a new URL**, because the folder is the upload time. So the last
-imported href per week is kept in :data:`STATUS_PATH` and an unchanged href skips the
-download -- a check on game day costs one sitemap read and one page load.
+**Fetching and parsing are separate steps** (plan 55). This module only lands the raw
+workbook, under a name carrying its content hash, and records it in
+:data:`STATUS_PATH`; ``Scripts.parse_athletic`` imports it from the nightly. The
+download is the hop that gets blocked and the parse is the one that can be rerun, so a
+format change the parser refuses must not cost the file that shows what changed.
+
+**New bytes, not a new link, is what counts as new.** The file is downloaded on every
+run and compared by SHA-256 with the last one landed for the week. A re-upload is
+usually a new URL (the folder is the upload time), but a file replaced at the same URL
+would be skipped forever by a link comparison. The file is ~30 KB.
 
 **``--push`` is opt-in on purpose.** It pushes the whole ``archive`` tier, and a copy
 of ``Data/`` that is not the nightly's -- the MacBook's, say -- would send its stale
@@ -41,6 +48,7 @@ import datetime
 import hashlib
 import json
 import re
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -50,7 +58,7 @@ from urllib.parse import urlparse
 import requests
 
 from Scripts.load_athletic import SOURCE
-from Scripts.paths import PROJECTIONS_DIR
+from Scripts.paths import PROJECTIONS_DIR, landing_dir
 
 #: Monthly article sitemap. Public, and answers plain HTTP.
 SITEMAP_URL = "https://www.nytimes.com/athletic/sitemap-pt-post-{year:04d}-{month:02d}.xml"
@@ -65,7 +73,7 @@ LINK_TEXT = re.compile(r"projections download link", re.IGNORECASE)
 #: Identifies us honestly. Both plain-HTTP hops answer it.
 USER_AGENT = "ESPN_FFL athletic weekly fetch (personal use)"
 
-#: Per-week record of what was last imported.
+#: Per-week record of what was last landed. ``Scripts.parse_athletic`` reads it.
 STATUS_PATH = PROJECTIONS_DIR / SOURCE / "fetch_status.json"
 
 #: The start of every .xlsx -- it is a zip archive.
@@ -274,6 +282,16 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def landed_name(href: str, digest: str) -> str:
+    """The landing filename: the upload's own name plus the first 8 hex of its hash.
+
+    The hash is in the name because a corrected re-upload can keep the filename, and
+    landing it under the old name would overwrite the raw file the last import came from.
+    """
+    stem = Path(filename_from_href(href)).stem
+    return f"{stem}_{digest[:8]}.xlsx"
+
+
 # --- status ----------------------------------------------------------------
 
 def load_status(path: Path = STATUS_PATH) -> Dict:
@@ -292,8 +310,9 @@ def save_status(status: Dict, path: Path = STATUS_PATH) -> None:
 def record(status: Dict, season: int, week: int, outcome: str, **fields) -> Dict:
     """Note this run in ``status``.
 
-    ``last_run`` is every run; ``weeks`` only moves on an import, so an unchanged href
-    is always compared against the last one that actually reached the blend.
+    ``last_run`` is every run; ``weeks`` only moves when a new file lands, so each
+    download is compared against the last bytes actually kept, and
+    ``Scripts.parse_athletic`` reads ``weeks`` for what is waiting to be imported.
     ``runs`` keeps the last :data:`RUN_HISTORY` outcomes, one line each -- G0 asks
     whether the browser hop survives a week of daily loads, and that is a question
     about a sequence, not the latest run.
@@ -305,9 +324,9 @@ def record(status: Dict, season: int, week: int, outcome: str, **fields) -> Dict
     if fields.get("error"):
         line += f" -- {fields['error']}"
     status["runs"] = (status.get("runs", []) + [line])[-RUN_HISTORY:]
-    if outcome == "imported":
+    if outcome == "fetched":
         status.setdefault("weeks", {})[f"{season}-{week:02d}"] = {
-            "imported_at": now, **fields}
+            "fetched_at": now, **fields}
     return status
 
 
@@ -316,26 +335,25 @@ def record(status: Dict, season: int, week: int, outcome: str, **fields) -> Dict
 def run(season: int, week: int, *, today: Optional[datetime.date] = None,
         dry_run: bool = False, push: bool = False, href: Optional[str] = None,
         status_path: Path = STATUS_PATH) -> str:
-    """Find, fetch and import week ``week``'s slate.
+    """Find, fetch and land week ``week``'s slate. Nothing is parsed here.
 
     Args:
-        season: Season year; passed to the import, which checks it against the sheet.
+        season: Season year; the landing folder, and checked against the sheet by the
+            parse step.
         week: NFL week; likewise.
         today: Date that picks the sitemap months. Defaults to today.
         dry_run: Stop after reading the link.
-        push: After an import, push the ``archive`` tier to S3.
-        href: A link copied by hand. Skips the sitemap and the browser; the import
-            still checks the sheet's week against ``week``.
+        push: After a new file lands, push the ``archive`` tier to S3 -- the raw file
+            and the status file, so the parse can be rerun from anywhere.
+        href: A link copied by hand. Skips the sitemap and the browser.
         status_path: Status file location.
 
     Returns:
-        str: ``not_published``, ``unchanged``, ``dry_run`` or ``imported``.
+        str: ``not_published``, ``unchanged``, ``dry_run`` or ``fetched``.
 
     Raises:
         FetchError: On any hop failing; recorded in the status file first.
     """
-    from Scripts import load_athletic
-
     today = today or datetime.date.today()
     status = load_status(status_path)
     key = f"{season}-{week:02d}"
@@ -362,22 +380,22 @@ def run(season: int, week: int, *, today: Optional[datetime.date] = None,
             return "dry_run"
 
         last = status.get("weeks", {}).get(key, {})
-        if last.get("href") == href:
-            _log(f"  unchanged since {last.get('imported_at')}; nothing to import")
-            return finish("unchanged", article=article, href=href)
-
         with tempfile.TemporaryDirectory(prefix="athletic_") as tmp:
             path = download(href, Path(tmp), session)
             digest = sha256(path)
             if digest == last.get("sha256"):
-                # Re-uploaded under a new folder with the same bytes.
-                _log("  new link, same bytes as the last import; nothing to import")
-                last["href"] = href
+                since = last.get("fetched_at") or last.get("imported_at")
+                _log(f"  same bytes as the file landed {since}; nothing new")
+                if last.get("href") != href:
+                    # Re-uploaded under a new folder with the same bytes.
+                    last["href"] = href
                 return finish("unchanged", article=article, href=href, sha256=digest)
-            load_athletic.build_weekly(path, season=season, week=week)
+            name = landed_name(href, digest)
+            shutil.copy2(path, landing_dir(SOURCE, season, name))
+        _log(f"  landed   {name} (sha256 {digest[:12]}); the nightly parses it")
 
-        outcome = finish("imported", article=article, href=href, sha256=digest,
-                         file=filename_from_href(href))
+        outcome = finish("fetched", article=article, href=href, sha256=digest,
+                         file=name)
     except Exception as exc:
         finish("failed", error=f"{type(exc).__name__}: {exc}")
         raise
@@ -388,11 +406,11 @@ def run(season: int, week: int, *, today: Optional[datetime.date] = None,
 
 
 def push_archive(season: int) -> None:
-    """Push the ``archive`` tier -- the slate, the weekly parquet and the status file.
+    """Push the ``archive`` tier -- the raw slate and the status file.
 
     Raises:
-        FetchError: If any upload failed. The import stands either way; the nightly's
-            own push is the second chance.
+        FetchError: If any upload failed. The landed file stands either way; the
+            nightly's own push is the second chance.
     """
     from Scripts import sync
 
@@ -409,7 +427,8 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     p = argparse.ArgumentParser(
         prog="python -m Scripts.fetch_athletic",
-        description="Fetch and import The Athletic's weekly projection slate.")
+        description="Fetch The Athletic's weekly projection slate and land the raw "
+                    "file; Scripts.parse_athletic imports it.")
     p.add_argument("--season", type=int, default=None,
                    help="defaults to the schedule's season")
     p.add_argument("--week", type=int, default=None,
@@ -417,8 +436,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--dry-run", action="store_true",
                    help="find the article and link, download and write nothing")
     p.add_argument("--push", action="store_true",
-                   help="after an import, push the archive tier to S3 (the nightly "
-                        "machine only)")
+                   help="after a new file lands, push the archive tier to S3 (the "
+                        "nightly machine only)")
     p.add_argument("--href", default=None,
                    help="the slate's static01.nyt.com link, copied off the article; "
                         "skips the sitemap and the browser")

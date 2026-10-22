@@ -601,7 +601,9 @@ weekly slate and joined the weekly blend it had been absent from
 weekly board four.
 The weekly slate is fetched by `Scripts/fetch_athletic.py`: a 05:45 LaunchAgent on the
 Mac mini, or `--href <copied link>` when the article page blocks the browser
-(`docs/plans/53-athletic-weekly-fetch.md`).
+(`docs/plans/53-athletic-weekly-fetch.md`). The fetch only saves the raw file, and the
+nightly imports it with `Scripts/parse_athletic.py`, which refuses a slate whose stat
+columns changed (`docs/plans/55-athletic-fetch-parse-split.md`).
 
 **TOMCAT**, our own model, was the sixth from 2026-08-17 until **2026-09-07, when it was
 withdrawn from the season-long blend.** It projects every position through three

@@ -28,6 +28,7 @@ Usage:
 import argparse
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import List, Optional
 
 from Scripts.config_utils import build_lg_vars, load_config
@@ -331,6 +332,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     if _report_sources(season, args.max_age_hours,
                        sources=WEEKLY_PROJECTION_SOURCES):
         stale = True
+    if _report_athletic_parse():
+        stale = True
 
     # --- the odds pull, on its own clock ----------------------------------
     if _report_odds(season):
@@ -390,6 +393,34 @@ def _report_sources(season: int, max_age_hours: float, sources=None,
         else:
             print(f"  {name:<13} ok, {_fmt(age)}")
     return stale
+
+
+def _report_athletic_parse(path: Optional[Path] = None) -> bool:
+    """Whether a landed Athletic weekly slate is waiting on a parser fix.
+
+    The ``ATH weekly`` line above cannot see this: a refused slate leaves the last good
+    import in place, so the file reads ``ok`` for up to eight days while the week the
+    board is voting on is the previous one. ``Scripts.parse_athletic`` records each
+    refusal until an import of that week succeeds.
+
+    Args:
+        path: Status file. ``None`` means ``Scripts.parse_athletic.STATUS_PATH``,
+            resolved here so a test can monkeypatch the module global.
+
+    Returns:
+        bool: True if any week is recorded as refused.
+    """
+    from Scripts import parse_athletic
+
+    path = parse_athletic.STATUS_PATH if path is None else path
+    if not path.is_file():
+        return False  # Never run: the nightly has not reached stage 2h yet.
+    failures = json.loads(path.read_text()).get("failures", {})
+    for key, failure in sorted(failures.items()):
+        first = str(failure.get("error", "?")).splitlines()[0]
+        print(f"  ATH parse     REFUSED {key} ({failure.get('file')}) — {first} — "
+              f"python -m Scripts.parse_athletic --status")
+    return bool(failures)
 
 
 def _report_odds(season: int) -> bool:

@@ -256,6 +256,46 @@ WEEKLY_ID_COLUMNS: Sequence[str] = ("Name", "Team", "Opp")
 #: a guard that cries wolf every week is one nobody reads.
 WEEKLY_TEAM_ALIASES: Dict[str, str] = {"JAC": "JAX", "WAS": "WSH"}
 
+#: Position block -> the stat headers it must carry, exactly as the publisher spells them.
+#:
+#: **Measured, not designed**: identical across all nine 2026 downloads for weeks 1-7,
+#: through the same weeks in which ``FPS`` became ``Proj`` and the ``Flex``,
+#: ``Superflex``, ``DST`` and ``K`` blocks came and went. Everything *around* the stat
+#: columns has drifted; the stat columns have not. That is what makes it safe to hold
+#: them to an exact list.
+#:
+#: Per block rather than "somewhere on the sheet", because a stat lives in more than
+#: one block: ``REC YD`` renamed in the tight-end block alone would still be found in the
+#: receiver block, and every tight end would import with no receiving yards. A header
+#: that :func:`_header_map` does not find reads as None for every row and imports
+#: without complaint -- this list is what turns that into an error.
+WEEKLY_BLOCK_STATS: Dict[str, Tuple[str, ...]] = {
+    "QB": ("Pass YD", "Pass TD", "INT", "Rush Att", "Rush YD", "Rush TD"),
+    "RB": ("Rush Att", "Rush YD", "Rush TD", "REC", "REC YD", "REC TD"),
+    "WR": ("Rush YD", "Rush TD", "REC", "REC YD", "REC TD"),
+    "TE": ("REC", "REC YD", "REC TD"),
+}
+
+#: Headers a position block may carry that are neither identity nor a stat we read.
+#: ``FPS`` (weeks 1-2) and ``Proj`` (week 2 on) are the workbook's own points.
+WEEKLY_IGNORED_HEADERS = frozenset({"FPS", "Proj"})
+
+#: Share of a block's players that must have a value in each of its stat columns.
+#:
+#: Every stat in every block of the nine 2026 downloads is **at least 99%** filled --
+#: zeros are written as zeros, not left blank -- so 90% is a column that has gone
+#: empty, not a thin week. Filled, not non-zero: a receiver's rushing touchdowns are
+#: zero for 96-100% of the block and that is correct.
+WEEKLY_MIN_FILLED = 0.90
+
+
+class WeeklyFormatError(ValueError):
+    """The weekly slate parsed, but not into what the blend can trust.
+
+    Raised by :func:`check_weekly_format` before anything is written, so the last good
+    import stays in place.
+    """
+
 
 def _header_map(row: Sequence) -> Dict[str, int]:
     """Column index for each header on a team tab.
@@ -721,12 +761,14 @@ def read_weekly_workbook(path: Path) -> Tuple["pd.DataFrame", int, int, str]:
     bounds = [i for i, _ in banners] + [len(rows[1])]
 
     records: List[dict] = []
+    block_headers: Dict[str, List[str]] = {}
     for start, position in starts:
         end = next(b for b in bounds if b > start)
         header = _header_map(rows[1][start:end])
         if "Name" not in header:
             raise KeyError(f"{path.name}: {sheet_name} {position} block has no Name "
                            f"column; found {sorted(header)}")
+        block_headers[position] = sorted(header)
         allowed = POSITION_STATS[position]
 
         for raw in rows[2:]:
@@ -777,7 +819,66 @@ def read_weekly_workbook(path: Path) -> Tuple["pd.DataFrame", int, int, str]:
     if len(frame) != rows_in:
         print(f"  dropped {rows_in - len(frame)} duplicate player row(s)")
 
-    return frame.reset_index(drop=True), season, week, flavor
+    frame = frame.reset_index(drop=True)
+    # Carried on the frame for `check_weekly_format`: a missing header and a blank
+    # column look the same once parsed -- all None -- and only the headers tell them
+    # apart in the error message.
+    frame.attrs["block_headers"] = block_headers
+    return frame, season, week, flavor
+
+
+def check_weekly_format(frame: "pd.DataFrame", path: Path) -> None:
+    """Refuse a parsed slate whose format has drifted under the parser.
+
+    :func:`read_weekly_workbook` reads what it finds, which is right for geometry and
+    wrong for content: a stat header the publisher renames is not found, reads as None
+    for every player, and the blend quietly drops The Athletic from that stat. This is
+    the check that makes that an error. Every problem is collected before raising, so
+    one run names all of them.
+
+    Args:
+        frame: Output of :func:`read_weekly_workbook`, with its ``block_headers`` attr.
+        path: The file, for the message.
+
+    Raises:
+        WeeklyFormatError: If a position block is missing, a block lacks one of its
+            :data:`WEEKLY_BLOCK_STATS` headers, or a stat column is less than
+            :data:`WEEKLY_MIN_FILLED` filled.
+    """
+    headers = frame.attrs.get("block_headers", {})
+    problems: List[str] = []
+
+    for position, stats in WEEKLY_BLOCK_STATS.items():
+        if position not in headers:
+            problems.append(f"no {position} block")
+            continue
+        missing = [h for h in stats if h not in headers[position]]
+        if missing:
+            problems.append(f"{position} block has no {', '.join(missing)} column -- "
+                            f"renamed or dropped? headers are {headers[position]}")
+        # Printed, not raised: a new column is a change worth seeing, but nothing it
+        # holds is read, so it cannot put a wrong number on the board.
+        extra = sorted(set(headers[position]) - set(stats) - set(WEEKLY_ID_COLUMNS)
+                       - WEEKLY_IGNORED_HEADERS)
+        if extra:
+            print(f"  NOTE: {position} block has column(s) nothing reads: "
+                  f"{', '.join(extra)}")
+
+        players = frame[frame["position"] == position]
+        for head in stats:
+            if head in missing or players.empty:
+                continue
+            column = f"proj_{WEEKLY_STAT_COLUMNS[head]}"
+            filled = players[column].notna().mean()
+            if filled < WEEKLY_MIN_FILLED:
+                problems.append(f"{position} {head} is filled for {filled:.0%} of "
+                                f"{len(players)} players (need "
+                                f"{WEEKLY_MIN_FILLED:.0%})")
+
+    if problems:
+        raise WeeklyFormatError(f"{path.name}: the weekly slate's format has changed; "
+                                f"nothing was imported.\n  - "
+                                + "\n  - ".join(problems))
 
 
 def _bye_teams(frame: "pd.DataFrame", season: int, week: int) -> List[str]:
@@ -915,8 +1016,11 @@ def build_weekly(path: Path, season: Optional[int] = None, week: Optional[int] =
     Raises:
         ValueError: If ``season`` or ``week`` disagrees with the sheet name and
             ``force`` is not set.
+        WeeklyFormatError: If :func:`check_weekly_format` refuses the slate. Raised
+            before anything is written, and not overridden by ``force``.
     """
     frame, sheet_season, sheet_week, flavor = read_weekly_workbook(path)
+    check_weekly_format(frame, path)
 
     for label, given, found in (("season", season, sheet_season),
                                 ("week", week, sheet_week)):
