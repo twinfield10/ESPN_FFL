@@ -624,7 +624,13 @@ NEW_WEEKLY_BOOKS: Tuple[Tuple[str, str, str], ...] = (
 
 #: The command that refreshes a book in :data:`NEW_WEEKLY_BOOKS`, where it is not
 #: ``weekly_props``.
-BOOK_REFRESH_HINTS: Dict[str, str] = {"Bet105": "python -m Scripts.books.engine"}
+BOOK_REFRESH_HINTS: Dict[str, str] = {
+    "Bet105": "python -m Scripts.books.engine",
+    # The engine, not `weekly_props`, from plan 54's phase 2 (2026-10-23).
+    "FanDuel": "python -m Scripts.books.engine",
+    "Novig": "python -m Scripts.books.engine",
+    "FourCasters": "python -m Scripts.books.engine",
+}
 
 #: The sharp books: their real lines feed ``SHARP_``. FanDuel and Novig, owner's call on
 #: 2026-10-13 -- Pinnacle is the classic sharp book but has not been for props in a year

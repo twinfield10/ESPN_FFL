@@ -443,7 +443,8 @@ Rscript R/GetNFL.R                       # nightly since 2026-09-08 -- see below
 python -m Scripts.scrape_FP --what season   # nightly since 2026-08-24
 python -m Scripts.scrape_FP --what weekly   # nightly since 2026-09-08
 python -m Scripts.scrape_pinnacle        # nightly 2026-09-08 to 2026-10-22; retired, Bet105 replaced it
-python -m Scripts.books.engine           # nightly since 2026-10-21 (shadow); Bet105 live since 2026-10-23, non-fatal
+python -m Scripts.books.engine           # nightly since 2026-10-21 (shadow); FanDuel, Novig, 4Casters, Bet105 live since 2026-10-23, non-fatal
+python -m Scripts.books.weekly_props --book draftkings   # nightly; the other three moved to the engine 2026-10-23
 python -m Scripts.scrape_espn_injuries   # nightly
 python -m Scripts.refresh --all --what board    # nightly
 python -m Scripts.refresh --all --what lineups  # nightly since 2026-09-08
@@ -540,20 +541,23 @@ It is in the nightly as a non-fatal stage. BetOnline's weekly host still answers
 `invalid_security_headers` and wants a signed request, which is an anti-bot control and
 is not circumvented.
 
-**FanDuel, DraftKings, Novig and 4Casters weekly props are nightly since 2026-10-13**
-(stage 2f of `run_daily_refresh.sh`, non-fatal; plan 52). Nothing to remember week to week.
-Credentials are read from `PROPS_ENV_FILES` (default: Rebirtha's `.env` for `CAST4_*`,
-NHL-Data's for `NOVIG_KEY_ID`/`NOVIG_PEM`); without them 4Casters is skipped and Novig uses
-its slower public routes. To pull mid-week before a waiver deadline and see what moved:
+**FanDuel, Novig and 4Casters weekly props come from the sportsbook engine since
+2026-10-23** (stage 2g, non-fatal; plan 54, phase 2). **DraftKings is still our own
+scrape** (stage 2f), because the engine has its game lines but not its props. Nothing
+to remember week to week, and no credentials: the engine's collectors hold them. To
+refresh mid-week before a waiver deadline:
 
 ```bash
-python -m Scripts.books.weekly_props --book all      # scrape + reconcile all four
-python -m Scripts.books.compare_props               # coverage and agreement vs BOL/PINNY
+python -m Scripts.books.engine                       # FanDuel, Novig, 4Casters, Bet105 as of now
+python -m Scripts.books.weekly_props --book draftkings
 python -m Scripts.refresh --all --what lineups --push
 ```
 
+`python -m Scripts.books.weekly_props --book all` still scrapes all four directly, which
+is useful if the engine is down. It will be deleted in plan 54's phase 4.
+
 Each book's lines appear on the board as `FD_`/`DK_`/`NV_`/`C4_`; only the two pools are
-weighted — `SHARP_` (FD/NV, fixed 30%) and `SQUARE_` (BOL/PINNY/DK/C4, fixed 20%). Re-measure
+weighted — `SHARP_` (FD/NV, fixed 30%) and `SQUARE_` (BOL/PINNY/DK/C4/B105, fixed 20%). Re-measure
 the per-book touchdown margins now and then (`python -m Scripts.books.compare_props
 --td-margin`) and update `Scripts.market.TD_OVERROUND` if they have moved. DraftKings arrives without prices -- ESPN strips them --
 so it contributes yardage, reception and attempt lines only.
@@ -840,6 +844,7 @@ not.
 | **`Data/` emptied itself after a `git checkout`, and tests that read real data now fail** | You checked out a commit from before `42bd2c4` and came back. Those files were *tracked* then and are untracked now, so returning to a commit that deletes them from the index deletes them from the working tree too. Git is behaving correctly; it looks exactly like data loss. **`python -m Scripts.sync --pull` restores all of it** — this is the case S3-as-record exists for. Watch for `test_crosswalk`, `test_lab_g2` and `test_nfl_utils` failing together, which is the signature: they are the guards that read real data rather than fixtures. |
 | A league is missing from the app's picker | Only leagues with a complete store are selectable; the sidebar lists the rest. Its last refresh failed, or it was never refreshed. |
 | Freshness badge says stale | The store is over an hour old. Refresh from the sidebar or the CLI. It also reads stale when `built_at` is unparseable, which is deliberate — an unreadable build time is not evidence of freshness. |
+| `FD weekly` or `NV weekly` stale in `refresh_status` | The engine read failed or the book was withheld (no poll for 12 hours). The blend is voting that week's last pull. `python -m Scripts.books.engine --dry-run` shows each book's age; a `withheld` book means its collector is down in SportsbookScrapers. If it's down long enough to matter, `python -m Scripts.books.weekly_props --book fanduel` (or `novig`) scrapes it directly, until phase 4 deletes that path. |
 | `Bet105 has no weekly projections` or `B105 weekly` stale | The engine read in stage 2g failed, or Bet105 was withheld (its last poll over 12 hours old). The log line says which. `python -m Scripts.books.engine --dry-run` re-reads the board; if Bet105 shows `withheld`, the collector is down in SportsbookScrapers, not here. |
 | `MissingProjectionSourceWarning` during a refresh | That source has no weekly props file for the season. Expected pre-season and whenever a scraper is broken; the blend imputes those columns from the ESPN/FP mean and renormalises them out. The sidebar shows it. |
 | Sidebar coverage shows a source at 0% | Same cause as above, measured rather than inferred. It is the number to watch when re-tuning blend weights. |
