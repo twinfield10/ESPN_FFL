@@ -64,7 +64,7 @@ import polars as pl
 
 from Scripts import market as mk
 from Scripts.books.weekly_props import RAW_SCHEMA, project_book, raw_frame, reconcile
-from Scripts.paths import DATA_DIR
+from Scripts.paths import DATA_DIR, season_dir
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +136,12 @@ BOOKS: List[Book] = [
     Book("Bovada", "bovada", "Bovada", "Bovada", "BOV", pooled=False),
     Book("Kalshi", "kalshi", "Kalshi", "Kalshi", "KAL", pooled=False),
     Book("Polymarket", "polymarket", "Polymarket", "Polymarket", "PM", pooled=False),
+    # Shadowed 2026-10-22 as Pinnacle's replacement, so the square pool stops depending
+    # on a Selenium scrape of a Chrome install Homebrew can quarantine. On that day's
+    # week-7 board its derived stat lines matched our Pinnacle scrape to a median 0.02%
+    # on every shared stat, 163 of 166 players in both. `--compare` measures it against
+    # that scrape, not against a Bet105 scrape of ours -- there is none.
+    Book("Bet105", "bet105", "Bet105", "Bet105", "B105", pooled=False),
 ]
 
 #: The fair price every other book is measured against (plan 54, decision 3).
@@ -502,8 +508,14 @@ def compare(season: int, week: int, books: Sequence[Book] = BOOKS) -> pl.DataFra
 
     out = []
     for book in books:
-        ours_path = (Path(betonline_parquet(season)) if book.name == "BetOnline"
-                     else season_file(book.dir, season, create=False))
+        if book.name == "BetOnline":
+            ours_path = Path(betonline_parquet(season))
+        elif book.name == "Bet105":
+            # The scrape it replaces, which writes under its own file name.
+            ours_path = season_dir("Pinnacle", season, "Pinnacle_Props_Week_All.parquet",
+                                   create=False)
+        else:
+            ours_path = season_file(book.dir, season, create=False)
         theirs_path = shadow_file(book, season)
         if not ours_path.exists() or not theirs_path.exists():
             continue
