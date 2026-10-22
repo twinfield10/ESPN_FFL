@@ -235,6 +235,20 @@ DraftKings, Novig and 4Casters had no freshness check at all.
    lines, where BetOnline stays and the engine's other books join. `scrape_pinnacle.py`
    is retired in phase 4. The shadow measures the blend **without** Pinnacle, so G3's
    board comparison includes the cost of dropping it, not only the adapter.
+
+   **Amended 2026-10-22: Bet105 takes Pinnacle's place.** The engine carries Bet105
+   (`state/bet105/`, first seen that day), and on that day's week-7 board its derived
+   stat lines matched our Pinnacle scrape to a median **0.02%** on every shared stat,
+   with 163 of 166 players in both. Against Novig it sits exactly where Pinnacle does,
+   including Pinnacle's +9–10% lean on passing TDs and receiving yards. So the switch
+   replaces `PINNY_` with Bet105 in the `SQUARE_` pool rather than dropping it, and the
+   blend keeps the vote it has today. It's shadowed (unpooled) from 2026-10-22, and
+   `--compare` measures it against the Pinnacle scrape until that scrape retires.
+   Owed before it votes: an alias for "Kevin Concepcion" (Bet105's spelling of KC
+   Concepcion) in `NAME_ALIASES`, and a check of anytime-TD and interception depth.
+   Bet105 had 36 and 4 rows on the first day. The trigger was practical: on
+   2026-10-21 Homebrew re-quarantined the Chrome install `scrape_pinnacle.py` drives, and
+   the next nightly hung on the Gatekeeper prompt until it was approved by hand.
 2. **DraftKings props stay, as our own scrape, for now.** The owner is scoping DraftKings
    props for the engine. Until they land in the bucket, `weekly_props --book draftkings`
    (ESPN's lines, even money) keeps running in stage 2f and is the one book this repo

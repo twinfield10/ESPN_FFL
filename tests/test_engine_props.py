@@ -198,6 +198,31 @@ def test_the_shadow_never_touches_the_real_book_files(shadow, monkeypatch, tmp_p
     assert not real.exists()
 
 
+def test_bet105_is_shadowed_but_not_pooled():
+    """Pinnacle's replacement is measured nightly before anything votes with it."""
+    b105 = next(b for b in en.BOOKS if b.name == "Bet105")
+    assert b105.slug == "bet105" and b105.pooled is False
+
+
+def test_bet105_is_compared_against_the_pinnacle_scrape(shadow, monkeypatch, tmp_path):
+    """There is no Bet105 scrape of ours; the book it replaces is the comparison."""
+    pinnacle = tmp_path / "Pinnacle_Props_Week_All.parquet"
+    monkeypatch.setattr(en, "season_dir", lambda source, season, name, create=True:
+                        pinnacle if source == "Pinnacle" else tmp_path / "absent")
+    pl.DataFrame({"week": [7, 7], "player_name": ["J.J. McCarthy", "Puka Nacua"],
+                  "proj_receivingReceptions": [0.0, 7.5]}).write_parquet(pinnacle)
+    b105 = next(b for b in en.BOOKS if b.name == "Bet105")
+    path = en.shadow_file(b105, 2026)
+    path.parent.mkdir(parents=True)
+    pl.DataFrame({"week": [7], "player_name": ["Puka Nacua"],
+                  "proj_receivingReceptions": [7.4]}).write_parquet(path)
+
+    out = en.compare(2026, 7, books=[b105]).row(0, named=True)
+    assert out["book"] == "Bet105" and out["stat"] == "receivingReceptions"
+    assert (out["ours"], out["engine"], out["both"]) == (1, 1, 1)
+    assert out["rel_gap"] == pytest.approx(0.1 / 7.5)
+
+
 def test_a_future_contract_major_is_refused():
     class Body:
         def read(self):
