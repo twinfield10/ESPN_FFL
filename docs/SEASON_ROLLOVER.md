@@ -402,9 +402,12 @@ a roster fact changed.
 cp ops/espn_ffl_reblend.sh ~/bin/espn_ffl_reblend.sh
 chmod +x ~/bin/espn_ffl_reblend.sh
 crontab -e
-# ESPN FFL intraday re-blend -- every 30 min, 08:00-23:30; self-gates on a game still to play
-0,30 8-23 * * * /Users/tommywinfield/bin/espn_ffl_reblend.sh
+# ESPN FFL intraday re-blend -- every 30 min, 08:05-23:35; self-gates on a game still to play
+5,35 8-23 * * * /Users/tommywinfield/bin/espn_ffl_reblend.sh
 ```
+
+At :05 and :35 rather than on the hour, so it doesn't start in the same minute as the
+live job (every ten minutes from :00, about a minute long) and lose the shared lock.
 
 It **shares the live job's lock** (`/tmp/espn_ffl_live.lock`), because both rewrite
 `lineups.parquet`, and whichever finds it held skips that firing. It also skips while
