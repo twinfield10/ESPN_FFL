@@ -75,7 +75,7 @@ rows.
 ## The design
 
 ```
-cron (every 30 min, 08:00-23:30 ET)
+cron (every 30 min at :05 and :35, 08:05-23:35 ET)
   └─ ops/espn_ffl_reblend.sh
        ├─ gate: Scripts.game_state --if-pending     (any game this week still "pre"? else exit)
        ├─ python -m Scripts.books.engine             (FanDuel, Novig, 4Casters, Bet105 as of now)
@@ -237,6 +237,14 @@ A second firing with the lock held logged `skipped` and exited 0.
    an hour to spare. The materiality gate makes quiet firings nearly free. Fixed times
    (hourly, plus T-75 and T-20 minutes before each kickoff window) were the
    alternative: more precise, and more to maintain.
+   **Offset to :05 and :35 (owner, 2026-10-26).** The live job fires every ten minutes
+   from :00 and runs about a minute, and the two share a lock, so firings on the hour
+   would lose it about half the time on a game day. The engine's own prop cadence
+   agrees with 30 minutes: SportsbookScrapers polls player props every 15-30 minutes in
+   the last 90 minutes before a game and about hourly otherwise (its
+   `docs/scheduling.md`). On Monday 2026-10-26 the live books' last poll was 0.6-0.9 h
+   old at 13:11, so a quiet-day firing will usually find nothing material and push
+   nothing.
 2. **DraftKings stays nightly.** It's 19.5 seconds a firing and the only scrape
    left, and the square pool has four other books. It
    moves to the engine when the engine carries DraftKings props (plan 54, decision 2).

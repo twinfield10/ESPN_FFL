@@ -693,7 +693,7 @@ row straight away. See `Scripts/zero_starters.py`.
 `run_odds_refresh_nfl.sh` at 07:00 pulls NFL sportsbook game lines into `Data/Odds/`
 and stores only what moved, so line history accumulates for free;
 `ops/espn_ffl_live.sh` every ten minutes keeps the week's **actual** scores current;
-and `ops/espn_ffl_reblend.sh` every 30 minutes from 08:00 to 23:30 re-blends the
+and `ops/espn_ffl_reblend.sh` every 30 minutes from 08:05 to 23:35 re-blends the
 current week's **projections** from the sportsbook engine and ESPN, publishing only
 leagues where something moved ([plan 56](docs/plans/56-intraday-reblend.md)).
 The nightly also republishes the **Knights FFL** Sheet, so the punishment log picks up

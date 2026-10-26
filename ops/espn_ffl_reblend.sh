@@ -28,8 +28,13 @@
 #   cp ops/espn_ffl_reblend.sh ~/bin/espn_ffl_reblend.sh
 #   chmod +x ~/bin/espn_ffl_reblend.sh
 #   crontab -e
-#   # ESPN FFL intraday re-blend -- every 30 min, 08:00-23:30; self-gates on a game still to play
-#   0,30 8-23 * * * /Users/tommywinfield/bin/espn_ffl_reblend.sh
+#   # ESPN FFL intraday re-blend -- every 30 min, 08:05-23:35; self-gates on a game still to play
+#   5,35 8-23 * * * /Users/tommywinfield/bin/espn_ffl_reblend.sh
+#
+# **At :05 and :35, not :00 and :30.** The live job fires every ten minutes from :00 and
+# runs about a minute, and the two share a lock. On the hour and half hour the re-blend
+# would race it for the lock and lose about half the time on a game day. Five minutes
+# later the live run is done, and a re-blend (~90 s) finishes before the next one at :10.
 
 set -uo pipefail
 
