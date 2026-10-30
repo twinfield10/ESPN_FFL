@@ -189,13 +189,17 @@ def pick_download_link(links: Sequence[Tuple[str, str]]) -> str:
     Raises:
         FetchError: Unless exactly one anchor qualifies.
     """
-    hits = sorted({href for text, href in links
-                   if LINK_TEXT.search(text or "")
-                   and urlparse(href).hostname == CDN_HOST
-                   and urlparse(href).path.lower().endswith(".xlsx")})
+    labelled = sorted({href for text, href in links if LINK_TEXT.search(text or "")})
+    hits = [href for href in labelled
+            if urlparse(href).hostname == CDN_HOST
+            and urlparse(href).path.lower().endswith(".xlsx")]
     if len(hits) != 1:
+        # A labelled anchor pointing elsewhere is the author mid-edit, not a missing
+        # link -- name its target so the two read differently in the log.
+        stray = sorted(set(labelled) - set(hits))
+        detail = f"; the label points elsewhere: {stray}" if stray else ""
         raise FetchError(f"expected one '{LINK_TEXT.pattern}' link to a {CDN_HOST} "
-                         f".xlsx, found {len(hits)}: {hits}")
+                         f".xlsx, found {len(hits)}: {hits}{detail}")
     return hits[0]
 
 
