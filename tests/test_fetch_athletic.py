@@ -100,6 +100,18 @@ def test_anything_but_one_qualifying_link_fails(links):
         fa.pick_download_link(links)
 
 
+def test_a_misdirected_label_names_its_target():
+    links = [("Projections Download Link", "https://www.nytimes.com/athletic/")]
+    with pytest.raises(fa.FetchError, match="points elsewhere.*nytimes.com/athletic/"):
+        fa.pick_download_link(links)
+
+
+def test_a_missing_label_says_nothing_about_elsewhere():
+    with pytest.raises(fa.FetchError) as exc:
+        fa.pick_download_link([("Subscribe", "https://www.nytimes.com/subscription")])
+    assert "elsewhere" not in str(exc.value)
+
+
 @pytest.mark.parametrize("href", [
     "https://static01.nyt.com/a/..%2F..%2Fetc.xlsx",
     "https://static01.nyt.com/a/Week 7.xlsx",
