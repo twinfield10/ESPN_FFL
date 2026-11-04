@@ -85,9 +85,35 @@ RUN_HISTORY = 60
 HTTP_TIMEOUT = 30
 PAGE_TIMEOUT_MS = 45_000
 
+#: Until when a week's article may sit without its download link before that is a
+#: failure: (weekday, hour), local time, Monday = 0. The article reaches the sitemap
+#: before the link reaches the article -- weeks 8 and 9 both read "found 0" at 05:45
+#: Wednesday and had the link by Thursday 05:45 -- so an early-week gap is the normal
+#: state, not an error. Past Thursday 17:00 it is: the 17:45 run is the last one before
+#: Thursday Night Football.
+LINK_PENDING_UNTIL = (3, 17)
+
 
 class FetchError(RuntimeError):
     """A hop failed in a way a human needs to look at."""
+
+
+class LinkPending(FetchError):
+    """The article is up but carries no download label yet.
+
+    A :class:`FetchError` so anything that is not :func:`run` still treats it as a
+    failure; :func:`run` records it as ``link_pending`` while :func:`link_may_be_pending`.
+    """
+
+
+def link_may_be_pending(now: datetime.datetime) -> bool:
+    """Whether a missing link at ``now`` is still the early-week normal.
+
+    Tuesday (the week rolls over after Monday night) through Thursday before
+    :data:`LINK_PENDING_UNTIL`.
+    """
+    day, hour = LINK_PENDING_UNTIL
+    return 1 <= now.weekday() < day or (now.weekday() == day and now.hour < hour)
 
 
 def _log(msg: str) -> None:
@@ -187,9 +213,12 @@ def pick_download_link(links: Sequence[Tuple[str, str]]) -> str:
     rather than import whichever came first.
 
     Raises:
+        LinkPending: If no anchor carries the label at all -- not posted yet.
         FetchError: Unless exactly one anchor qualifies.
     """
     labelled = sorted({href for text, href in links if LINK_TEXT.search(text or "")})
+    if not labelled:
+        raise LinkPending(f"no '{LINK_TEXT.pattern}' on the page yet")
     hits = [href for href in labelled
             if urlparse(href).hostname == CDN_HOST
             and urlparse(href).path.lower().endswith(".xlsx")]
@@ -231,7 +260,7 @@ def read_download_link(article: str) -> str:
             try:
                 return pick_download_link([tuple(x) for x in links])
             except FetchError as exc:
-                raise FetchError(f"{exc} on {page.title()!r}") from None
+                raise type(exc)(f"{exc} on {page.title()!r}") from None
         finally:
             browser.close()
 
@@ -338,7 +367,8 @@ def record(status: Dict, season: int, week: int, outcome: str, **fields) -> Dict
 
 def run(season: int, week: int, *, today: Optional[datetime.date] = None,
         dry_run: bool = False, push: bool = False, href: Optional[str] = None,
-        status_path: Path = STATUS_PATH) -> str:
+        status_path: Path = STATUS_PATH,
+        now: Optional[datetime.datetime] = None) -> str:
     """Find, fetch and land week ``week``'s slate. Nothing is parsed here.
 
     Args:
@@ -351,14 +381,20 @@ def run(season: int, week: int, *, today: Optional[datetime.date] = None,
             and the status file, so the parse can be rerun from anywhere.
         href: A link copied by hand. Skips the sitemap and the browser.
         status_path: Status file location.
+        now: Local time that decides whether a missing link is still
+            :func:`link_may_be_pending`. Defaults to now.
 
     Returns:
-        str: ``not_published``, ``unchanged``, ``dry_run`` or ``fetched``.
+        str: ``not_published``, ``link_pending``, ``unchanged``, ``dry_run`` or
+        ``fetched``. ``link_pending`` is the article without its link before
+        :data:`LINK_PENDING_UNTIL`, for a week nothing has landed for yet; after the
+        cutoff, or once a file has landed (a re-upload mid-edit), it is a failure.
 
     Raises:
         FetchError: On any hop failing; recorded in the status file first.
     """
-    today = today or datetime.date.today()
+    now = now or datetime.datetime.now()
+    today = today or now.date()
     status = load_status(status_path)
     key = f"{season}-{week:02d}"
     session = requests.Session()
@@ -378,7 +414,13 @@ def run(season: int, week: int, *, today: Optional[datetime.date] = None,
                 _log(f"  week {week}: no rankings article in the sitemap yet")
                 return finish("not_published")
             _log(f"  article  {article}")
-            href = read_download_link(article)
+            try:
+                href = read_download_link(article)
+            except LinkPending as exc:
+                if key in status.get("weeks", {}) or not link_may_be_pending(now):
+                    raise
+                _log(f"  week {week}: {exc}; expected by Thursday, not an error")
+                return finish("link_pending", article=article)
         _log(f"  link     {href}")
         if dry_run:
             return "dry_run"
