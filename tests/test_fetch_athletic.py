@@ -272,3 +272,76 @@ def test_runs_keep_a_bounded_history(wired, monkeypatch):
     runs = fa.load_status(wired["status"])["runs"]
     assert len(runs) == 3
     assert all(r.endswith("week 7 unchanged") for r in runs)
+
+
+# --- the article is up, the link is not --------------------------------------
+
+#: Wednesday 2026-11-04 05:45, the run that read week 9's article without its link.
+WED_MORNING = datetime.datetime(2026, 11, 4, 5, 45)
+
+
+def test_no_label_at_all_is_link_pending():
+    with pytest.raises(fa.LinkPending):
+        fa.pick_download_link([("Subscribe", "https://www.nytimes.com/subscription")])
+
+
+def test_a_misdirected_label_is_not_link_pending():
+    links = [("Projections Download Link", "https://www.nytimes.com/athletic/")]
+    with pytest.raises(fa.FetchError) as exc:
+        fa.pick_download_link(links)
+    assert not isinstance(exc.value, fa.LinkPending)
+
+
+@pytest.mark.parametrize("now, pending", [
+    (datetime.datetime(2026, 11, 2, 20, 0), False),   # Monday: last week's
+    (datetime.datetime(2026, 11, 3, 5, 45), True),    # Tuesday
+    (WED_MORNING, True),
+    (datetime.datetime(2026, 11, 5, 5, 45), True),    # Thursday morning
+    (datetime.datetime(2026, 11, 5, 17, 45), False),  # Thursday, last run before TNF
+    (datetime.datetime(2026, 11, 7, 17, 45), False),  # Saturday
+])
+def test_link_may_be_pending_until_thursday_evening(now, pending):
+    assert fa.link_may_be_pending(now) is pending
+
+
+@pytest.fixture
+def no_link(wired, monkeypatch):
+    def unlabelled(article):
+        raise fa.LinkPending("no 'projections download link' on the page yet")
+    monkeypatch.setattr(fa, "read_download_link", unlabelled)
+    return wired
+
+
+def test_an_early_week_missing_link_is_noted_not_failed(no_link):
+    assert _run(no_link, now=WED_MORNING) == "link_pending"
+    status = fa.load_status(no_link["status"])
+    assert status["last_run"]["outcome"] == "link_pending"
+    assert "error" not in status["last_run"]
+    assert no_link["landed"]() == [] and "2026-07" not in status["weeks"]
+
+
+def test_a_missing_link_after_the_cutoff_fails(no_link):
+    with pytest.raises(fa.LinkPending):
+        _run(no_link, now=datetime.datetime(2026, 11, 5, 17, 45))
+    assert fa.load_status(no_link["status"])["last_run"]["outcome"] == "failed"
+
+
+def test_a_missing_link_after_a_file_landed_still_fails(wired, monkeypatch):
+    wired["bytes"] = fa.XLSX_MAGIC + b"v2"
+    assert _run(wired, now=WED_MORNING) == "fetched"
+
+    def unlabelled(article):
+        raise fa.LinkPending("no 'projections download link' on the page yet")
+    monkeypatch.setattr(fa, "read_download_link", unlabelled)
+    with pytest.raises(fa.LinkPending):
+        _run(wired, now=WED_MORNING)
+    assert fa.load_status(wired["status"])["last_run"]["outcome"] == "failed"
+
+
+def test_a_blocked_page_is_never_link_pending(wired, monkeypatch):
+    def blocked(article):
+        raise fa.FetchError("article returned 403 ('nytimes.com')")
+    monkeypatch.setattr(fa, "read_download_link", blocked)
+    with pytest.raises(fa.FetchError):
+        _run(wired, now=WED_MORNING)
+    assert fa.load_status(wired["status"])["last_run"]["outcome"] == "failed"

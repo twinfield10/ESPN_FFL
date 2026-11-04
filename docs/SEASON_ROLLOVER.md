@@ -304,7 +304,11 @@ to catch re-uploads after injury reports. When one of those later runs lands a n
 file, it publishes it right away: it imports the file, rebuilds and pushes the lineups,
 and republishes the Knights Sheet, holding the live job's lock while it does. Otherwise
 the file would wait for the next nightly (Monday's, for a Sunday upload). The 05:45 run
-leaves a new file to the 06:00 nightly. The job runs from a
+leaves a new file to the 06:00 nightly. The rankings article reaches the sitemap before
+its download link does (the link usually appears Wednesday during the day), so a run that
+finds the article with no "Projections Download Link" on it records `link_pending` and
+exits 0. That holds until Thursday 17:00 for a week with nothing landed yet. After that,
+or once a file has landed, a missing link counts as `failed`. The job runs from a
 **LaunchAgent**, not cron, because the article returns 403 to headless Chromium and a
 visible window needs the login session. [Plan 53](plans/53-athletic-weekly-fetch.md)
 has the evidence. **All of it is done over SSH** (`ssh mini.local`, as
