@@ -8,7 +8,7 @@ unreliable.** The article loaded in a visible window once, then returned 403 to 
 kind of client after about six automated loads in an hour (see
 [What happened on the first live run](#what-happened-on-the-first-live-run)). So
 `--href` is the supported path today: copy the link and the rest is automatic. Whether
-the browser hop works at one load a day from the Mac mini is G0, still unanswered. The LaunchAgent and wrapper are in `ops/`, and the install steps are in `docs/SEASON_ROLLOVER.md` under "The Athletic fetch, on the Mac mini". `--status` keeps the last 60 run outcomes, so the week of G0 runs can be read with one command. **Since 2026-10-22 the fetch no longer imports.** It lands the raw file, and the nightly's `Scripts.parse_athletic` imports it ([plan 55](55-athletic-fetch-parse-split.md)), so the "Fetch → `load_athletic.build_weekly`" path described below is now two steps. A manual kickstart on the mini that day loaded the article cleanly.
+the browser hop works at one load a day from the Mac mini is G0. It was decided on 2026-11-06: G0 failed as written, and the agent was kept anyway (see the G0 outcome under Gates). The LaunchAgent and wrapper are in `ops/`, and the install steps are in `docs/SEASON_ROLLOVER.md` under "The Athletic fetch, on the Mac mini". `--status` keeps the last 60 run outcomes, so the week of G0 runs can be read with one command. **Since 2026-10-22 the fetch no longer imports.** It lands the raw file, and the nightly's `Scripts.parse_athletic` imports it ([plan 55](55-athletic-fetch-parse-split.md)), so the "Fetch → `load_athletic.build_weekly`" path described below is now two steps. A manual kickstart on the mini that day loaded the article cleanly.
 
 **What it is:** [Plan 47](47-athletic-weekly.md) made The Athletic the fifth weekly vote,
 but the slate still comes from a hand download. `docs/SEASON_ROLLOVER.md` describes it as
@@ -194,6 +194,15 @@ come on top of that.
   doesn't count. **If it fails, the browser hop is retired** and `--href` is the
   routine: the LaunchAgent and the browser code are deleted rather than left to fail
   nightly.
+
+  **Outcome, 2026-11-06: failed as written, kept anyway.** Two scheduled runs got
+  `article returned 403` (2026-11-01 05:45 and 2026-11-06 05:45). Other 403s in
+  `--status` (10-22, 10-30) came from manual kickstarts. The next slot after each
+  scheduled block succeeded, and weeks 7, 8 and 9 were all landed by the fetch with no
+  hand download. A blocked slot costs nothing while a later slot that week lands the
+  file, so the retire-on-any-403 rule was too strict. The agent stays. The new trigger
+  for retiring it is a week with no slate (the eight-day `ATH weekly` warning). See
+  "The Athletic fetch, on the Mac mini" in `docs/SEASON_ROLLOVER.md`.
 - **G1 — three weeks with no hand download.** Weeks 8–10 are imported by the fetch
   alone, and each week's `Landing/` file matches what a hand download of the same link
   would have been. One week is checked by actually downloading it by hand.
