@@ -373,15 +373,26 @@ ssh mini.local 'cd ~/GitRepos/ESPN_FFL-nightly && /usr/local/bin/python3.11 -m S
 
 `runs` reads `... unchanged` most days, `... fetched` after an upload,
 `... not_published` early in the week, and `... failed -- FetchError: article returned
-403` when the page blocks the browser. That last one is what G0 is watching for.
+403` when the page blocks the browser. An occasional 403 is expected (see below).
 
 **If the parse refuses a slate** (`ATH parse REFUSED` in `refresh_status`, a `WARNING`
 in `~/logs/espn_ffl_refresh.log`), the error names the block and column. Open the raw
 file it names in the landing folder, compare against `WEEKLY_BLOCK_STATS` in
 `Scripts/load_athletic.py`, fix the parser, and merge. The next nightly imports the file
 that was already landed.
-**After a week of daily runs:** no 403s means keep it. Any 403 means retire the browser
-hop and paste the link with `--href` each week:
+
+**An occasional 403 is expected. Don't retire the agent over one.** The original rule
+was to retire the browser hop after any 403. It was dropped on 2026-11-06: in the first
+two weeks the scheduled runs were blocked twice (11-01 and 11-06 at 05:45), the next
+slot succeeded both times, and weeks 7, 8 and 9 all landed through the fetch. A blocked
+slot costs nothing while a later slot that week still lands the file, and the 17:45
+Thursday-Saturday and Sunday 12:00 runs give several chances. Don't kickstart over and
+over to "clear" a 403: more loads from the home IP keep it blocked longer (see above).
+
+**Retire it only if a week goes by with no slate.** That means the eight-day `ATH
+weekly` warning, or a Thursday-to-Sunday stretch of 403s in `--status` with no
+`fetched` line. If that happens, retire the agent and paste the link with `--href`
+each week:
 
 ```bash
 launchctl bootout gui/$(id -u)/com.espn_ffl.athletic_fetch
