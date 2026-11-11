@@ -13,7 +13,8 @@ Do this once, before the season starts. Roughly 30 minutes.
 > **Three steps here have a deadline rather than an order.** Step 0 must happen
 > **before week 1** or the evidence is gone for a year. Step 8b must happen in the
 > window between the last draft and the first game — the 06:00 nightly closes it.
-> Step 9 must happen **after** the season it refers to. Everything else can be done
+> Step 9 must happen **after** the season it refers to. Step 10 must happen **after
+> the last game but before ESPN rolls the league over**. Everything else can be done
 > whenever.
 
 ### 0. Archive the G2 counterfactual — before week 1, or not at all
@@ -48,6 +49,28 @@ python -m Scripts.lab.g2 --score --season <last_season>
 If the `with_usg` arm wins, the weight is earned. If it does not, plan 18 is
 explicit about the response: **do not keep it at a token weight** — record the
 numbers and take it out.
+
+### 10. Back up each league — after the last game, before ESPN rolls it over
+
+```bash
+python -m Scripts.backup_league --league Jeffs_League             # zip to ~/Downloads
+python -m Scripts.backup_league --league knights_ffl --season 2025 --out ~/Desktop
+```
+
+Pulls every raw ESPN view for one league-season into a zip: settings, teams,
+rosters, schedule and scores, draft, transactions, a per-week snapshot of lineups
+and player-level box scores, the player pool, and the activity feed and message
+board, plus this machine's `Data/Store/<season>/<key>/` files and the league's
+scoring rules. The working copy is written to `Data/Backups/`, which is under the
+gitignored `Data/` — **backup data is never committed**, and it is not pushed to S3.
+
+**The deadline is the activity feed.** ESPN keeps past seasons from 2019 on, box
+scores included, so most of a backup can be retaken later. The league's
+communication group cannot: once the season is over, `kona_league_communication`
+answers "This Communication Group does not exist" (checked against 2023,
+2026-11-11), and with it go the trade/add/drop feed and the message board. For a
+past season the script records those two calls as `optional, unavailable` and still
+exits 0; any other failure exits 1.
 
 ### 1. Confirm ESPN has rolled your leagues over
 
