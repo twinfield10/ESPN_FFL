@@ -886,6 +886,45 @@ not.
 
 ---
 
+## A league recreated mid-season
+
+When a league is deleted and recreated under a new ESPN id partway through a season
+(Jeffs_League, 2026-11-11: 1650608988 → 1976327133 after week 9, to move the
+commissioner role), the new league serves **nothing** for the weeks before it existed
+— `box_scores(1)` raises `KeyError: rosterForCurrentScoringPeriod` — its records start
+at 0-0, and its "draft" is the offline roster entry. Every whole-season artifact would
+lose those weeks. `Scripts/prior_league.py` splices them back from a frozen copy.
+
+**Order matters: freeze before switching the id.** After the switch, the store's early
+weeks are the stitched copy, and the old league that built them may no longer answer.
+
+```bash
+python -m Scripts.backup_league --league <key>                    # raw ESPN, while it exists
+python -m Scripts.prior_league <key> --freeze --through-week <N>  # store -> Data/Store/<season>/<key>/prior/
+# config.yaml (both machines): id -> new id, add the `prior` block (config.example.yaml)
+python -m Scripts.refresh --league <key> --what team_stats,draft,lineups
+python -m Scripts.sync --push --what store
+python -m Scripts.prior_league <key> --show                       # the check: frozen files and weeks
+```
+
+- **`owners`** pins each new team id to the owner the frozen weeks carry. Build it by
+  matching team names between the two leagues; without it, every unclaimed team is
+  `Unknown Owner (<team>)` and each franchise splits at the cutover.
+- **Check the new league against the backup** before switching: settings, remaining
+  schedule and rosters. In 2026 the three late waiver claims and an IR stash made in
+  the old league after the rosters were copied did not carry over.
+- **Commissioner adjustments do not carry over.** Ones already entered for the cutover
+  week have to be re-entered in the new league. A correction to a frozen week is a
+  one-off edit to `prior/team_stats.parquet` (`team_score`, `adjustment`, the opponent's
+  mirror columns, `weekly_finish`); the season records are recomputed from it.
+- **The frozen files are irreproducible.** `prior/` is not part of the store sync; copy
+  it to `s3://espn-ffl-data/archive/backups/season=<season>/<key>/prior/`, next to the
+  raw backup zips, and to the Mac mini.
+- **Limitation:** only the replacement season is stitched. A league with earlier seasons
+  under the old id would also need those fetched from the old id; Jeffs_League has none.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Cause |

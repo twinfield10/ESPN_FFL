@@ -130,7 +130,18 @@ def _ingest(league_key_or_name: str, season: int, *, current_week_only: bool):
     league = fetch_league(
         league_id=cfg["ID"], year=season, swid=cfg["SWID"], espn_s2=cfg["ESPN_S2"],
     )
-    weeks = [current_matchup_period(league)] if current_week_only else None
+    # A league recreated mid-season serves nothing for the weeks before it existed --
+    # `box_scores` raises KeyError on them -- so a full build starts where it does.
+    # The earlier weeks are spliced back in from the frozen copy by Scripts.refresh.
+    from Scripts.prior_league import first_week
+    current = current_matchup_period(league)
+    start = first_week(cfg, season)
+    if current_week_only:
+        weeks = [current]
+    elif start > 1:
+        weeks = list(range(min(start, current), current + 1))
+    else:
+        weeks = None
     lineups = get_ply_stats_by_matchup(
         league_id=cfg["ID"], year=season, swid=cfg["SWID"], espn_s2=cfg["ESPN_S2"],
         weeks=weeks, league=league,

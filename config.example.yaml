@@ -44,6 +44,28 @@ leagues:
     espn_s2: 'THEIR_URL_ENCODED_ESPN_S2_COOKIE'
     swid: '{THEIR-SWID-COOKIE}'
 
+  # A league recreated mid-season under a new ESPN id (Jeffs_League, 2026: deleted
+  # after week 9 to move the commissioner role). `id` is the NEW league; `prior`
+  # names the old one. Weeks <= through_week come from a frozen copy of the store
+  # the old league built -- `python -m Scripts.prior_league --freeze <key>` BEFORE
+  # changing `id` -- and later weeks from ESPN. `owners` pins each new team id to
+  # the owner name in the frozen weeks, so a franchise is not split at the cutover
+  # by an unclaimed team ("Unknown Owner (...)") or a differently named account.
+  # See docs/SEASON_ROLLOVER.md, "A league recreated mid-season".
+  example_recreated_league:
+    id: 222222
+    display_name: 'Recreated_League'
+    start: 2026
+    end: 2026
+    primary_owner: 'Your Name'
+    prior:
+      id: 111111
+      season: 2026
+      through_week: 9
+      owners:
+        1: 'Owner One'
+        2: 'Owner Two'
+
 # FantasyPros session, for the projections scrape. OPTIONAL but strongly recommended.
 #
 # Without it, FantasyPros serves ten rows per position behind a registration fence --

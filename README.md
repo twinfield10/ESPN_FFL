@@ -167,6 +167,7 @@ python -m Scripts.sync --verify     # SHA-256 both sides, exits 1 on a differenc
 python -m Scripts.sync --pull       # rebuild Data/ on a fresh machine
 python -m Scripts.catalogue --both  # what is actually there, disk and bucket
 python -m Scripts.backup_league --league Jeffs_League  # raw ESPN backup, zip to ~/Downloads
+python -m Scripts.prior_league jeffs_league --show     # a league recreated mid-season: its frozen weeks
 ```
 
 The app reads S3 by default. `ESPN_FFL_STORE_SOURCE=local` reads disk instead

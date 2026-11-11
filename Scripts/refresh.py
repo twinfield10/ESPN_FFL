@@ -122,6 +122,91 @@ def _log(msg: str) -> None:
     print(msg, flush=True)
 
 
+def _weeks_from(segment, cfg: Dict, season: int) -> Optional[List[int]]:
+    """Matchup periods to fetch for a whole-season artifact.
+
+    Args:
+        segment: The league's :class:`Scripts.prior_league.PriorSegment`, or None.
+        cfg: The league's ``build_lg_vars`` entry.
+        season: Season being built.
+
+    Returns:
+        list | None: None, meaning "every period", for an ordinary league.
+    """
+    if segment is None:
+        return None
+    from Scripts.fetch_utils import fetch_league
+    from Scripts.scrape_player_stats import current_matchup_period
+
+    league = fetch_league(league_id=cfg["ID"], year=season, swid=cfg["SWID"],
+                          espn_s2=cfg["ESPN_S2"])
+    current = current_matchup_period(league)
+    return list(range(min(segment.first_week, current), current + 1))
+
+
+def _stitch(fresh: pd.DataFrame, artifact: str, season: int, league_key: str,
+            segment) -> pd.DataFrame:
+    """Put the frozen weeks in front of a freshly built weekly artifact.
+
+    Args:
+        fresh: What the current league produced.
+        artifact: Store artifact name.
+        season: Season year.
+        league_key: ``config.yaml`` league key.
+        segment: The league's prior segment.
+
+    Returns:
+        pd.DataFrame: The joined season. When nothing was frozen for ``artifact``
+        the fresh weeks are returned alone, and the gap is logged.
+    """
+    from Scripts import prior_league
+
+    frozen = prior_league.read_prior(season, league_key, artifact)
+    if frozen is None:
+        _log(f"  prior       no frozen {artifact}; weeks 1-{segment.through_week} "
+             "are absent from it")
+    joined = prior_league.stitch_weeks(fresh, frozen, segment.through_week)
+    _log(f"  prior       {artifact}: {0 if frozen is None else len(frozen)} frozen + "
+         f"{len(joined) - (0 if frozen is None else len(frozen))} fresh rows")
+    return joined
+
+
+def _draft_with_prior(cfg: Dict, seasons, season: int, league_key: str, segment,
+                      fetch_draft_history):
+    """Draft history whose replacement season comes from the frozen draft.
+
+    The new league's "draft" is the offline entry of rosters already in hand -- 128
+    picks in pick order, none of them a decision -- so reading it would hand
+    ``tendencies`` a draft nobody made.
+
+    Args:
+        cfg: The league's ``build_lg_vars`` entry.
+        seasons: Every season to cover.
+        season: Season being built.
+        league_key: ``config.yaml`` league key.
+        segment: The league's prior segment.
+        fetch_draft_history: Injected so the import stays deferred at the caller.
+
+    Returns:
+        pl.DataFrame: Draft history, frozen season included.
+    """
+    import polars as pl
+    from Scripts import prior_league
+
+    frozen = prior_league.read_prior(season, league_key, "draft")
+    if frozen is None:
+        raise FileNotFoundError(
+            f"{league_key} {season} has a prior segment but no frozen draft; "
+            f"run `python -m Scripts.prior_league --freeze {league_key}`.")
+    frozen = pl.from_pandas(frozen)
+    others = [yr for yr in seasons if yr != segment.season]
+    if not others:
+        return frozen
+    fetched = fetch_draft_history(cfg["ID"], others, swid=cfg["SWID"],
+                                  espn_s2=cfg["ESPN_S2"], current_season=season)
+    return pl.concat([fetched, frozen], how="diagonal_relaxed")
+
+
 def refresh_league(
     name: str,
     season: int,
@@ -160,6 +245,14 @@ def refresh_league(
     timings: Dict[str, float] = {}
 
     _log(f"\n===== {cfg['display_name']} ({league_key}) {season} =====")
+
+    # A league recreated mid-season under a new ESPN id: weeks up to the cutover
+    # come from the frozen copy, the rest from ESPN. See Scripts/prior_league.py.
+    from Scripts import prior_league
+    segment = prior_league.segment_for(cfg, season)
+    if segment is not None:
+        _log(f"  prior       weeks 1-{segment.through_week} frozen from league "
+             f"{segment.league_id}; weeks {segment.first_week}+ from {cfg['ID']}")
 
     lineups = None
     team_stats = None
@@ -213,6 +306,9 @@ def refresh_league(
         except Exception as e:              # noqa: BLE001 - reported, not hidden
             _log(f"  freeze      FAILED ({type(e).__name__}: {e}) -- every "
                  f"projection was rebuilt, including for games already played.")
+
+        if segment is not None:
+            lineups = _stitch(lineups, "lineups", season, league_key, segment)
 
     reblended_at = None
     if "reblend" in what and "lineups" not in what:
@@ -286,8 +382,9 @@ def refresh_league(
         from Scripts.scrape_player_stats import get_ply_stats_by_matchup
 
         start = time.time()
-        actuals = get_ply_stats_by_matchup(cfg["ID"], season, cfg["SWID"],
-                                           cfg["ESPN_S2"])
+        actuals = get_ply_stats_by_matchup(
+            cfg["ID"], season, cfg["SWID"], cfg["ESPN_S2"],
+            weeks=_weeks_from(segment, cfg, season))
         missing = [column for column in RESULTS_COLUMNS
                    if column not in actuals.columns]
         if missing:
@@ -296,6 +393,8 @@ def refresh_league(
                 "changed and the acquisition split reads these columns."
             )
         results = actuals[list(RESULTS_COLUMNS)].copy()
+        if segment is not None:
+            results = _stitch(results, "results", season, league_key, segment)
         timings["results"] = time.time() - start
         _log(f"  results     {results.shape[0]:>6} rows x {results.shape[1]:>3} "
              f"cols   {timings['results']:.2f}s")
@@ -309,8 +408,13 @@ def refresh_league(
         # the whole point and one draft is not a tendency. No League object is
         # needed -- this is one JSON request per season.
         seasons = range(int(cfg["start"]), season + 1)
-        history = fetch_draft_history(cfg["ID"], seasons, swid=cfg["SWID"],
-                                      espn_s2=cfg["ESPN_S2"], current_season=season)
+        if segment is None:
+            history = fetch_draft_history(cfg["ID"], seasons, swid=cfg["SWID"],
+                                          espn_s2=cfg["ESPN_S2"],
+                                          current_season=season)
+        else:
+            history = _draft_with_prior(cfg, seasons, season, league_key, segment,
+                                        fetch_draft_history)
         timings["draft"] = time.time() - start
         _log(f"  draft       {history_summary(history)}   {timings['draft']:.2f}s")
 
@@ -380,17 +484,30 @@ def refresh_league(
                 if not kept.empty:
                     previous = kept
 
+        # The replaced league's weeks, recomputed into this season's records rather
+        # than appended after them, so standings run 1..N without restarting.
+        carried = {}
+        if segment is not None:
+            frozen = prior_league.read_prior(season, league_key, "team_stats")
+            if frozen is None:
+                raise FileNotFoundError(
+                    f"{league_key} {season} has a prior segment but no frozen "
+                    f"team_stats; run `python -m Scripts.prior_league --freeze "
+                    f"{league_key}` against a store the old league built.")
+            carried = {"first_week": segment.first_week, "carried": frozen}
+
         start = time.time()
         if previous is None:
             team_stats = scrape_team_stats(
                 league_id=cfg["ID"], start_year=start_year, end_year=season,
-                swid=cfg["SWID"], espn_s2=cfg["ESPN_S2"],
+                swid=cfg["SWID"], espn_s2=cfg["ESPN_S2"], **carried,
             )
             span = f"{start_year}-{season}, full"
         else:
             team_stats = scrape_team_stats(
                 league_id=cfg["ID"], start_year=season, end_year=season,
                 swid=cfg["SWID"], espn_s2=cfg["ESPN_S2"], df_prev=previous,
+                **carried,
             )
             span = (f"{season} only, {int(previous['year'].min())}-"
                     f"{int(previous['year'].max())} carried")

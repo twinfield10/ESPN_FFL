@@ -261,6 +261,27 @@ def set_owner_names(league: League) -> None:
             team.owner = f"Unknown Owner ({team.team_name})"
 
 
+def pin_owner_names(league: League, owners: Dict[int, str]) -> None:
+    """Override ESPN's owner names for the teams in ``owners``.
+
+    For a league recreated mid-season (``Scripts/prior_league.py``): until every
+    manager claims their team again, ESPN reports ``Unknown Owner (<team>)``, and
+    after they do it reports whatever their account is called. Either would split a
+    franchise across the cutover, because everything downstream groups by
+    ``team_owner``. A pinned name wins in both cases.
+
+    Args:
+        league: ESPN League object, after :func:`set_owner_names`.
+        owners: Team id -> owner name. Empty leaves every team alone.
+    """
+    if not owners:
+        return
+    for team in league.teams:
+        pinned = owners.get(int(team.team_id))
+        if pinned:
+            team.owner = pinned
+
+
 def isolate_scoring_format(league: League) -> None:
     """Detach the league's scoring format from ``espn_api``'s shared dicts.
 
@@ -367,6 +388,11 @@ def fetch_league(
     set_additional_settings(league)
     # Set the owners for each team
     set_owner_names(league)
+    # A league that replaced another mid-season pins each team to the owner its
+    # frozen weeks carry, so a franchise is one `team_owner` across the cutover.
+    # Deferred import: prior_league -> store -> paths, none of which need ESPN.
+    from Scripts.prior_league import owners_for_league_id
+    pin_owner_names(league, owners_for_league_id(league_id, year))
     # Cache this function to speed up processing
     league.box_scores = functools.cache(league.box_scores)
     # Load current league data
