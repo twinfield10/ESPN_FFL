@@ -142,6 +142,7 @@ Data/                        # local: a writer's scratch pad + a read cache.
   G2/<season>/               # the one thing that cannot be rebuilt
   Store/<season>/<league>/   #   lineups.parquet, board.parquet, meta.json
   .s3cache/                  # downloaded objects, keyed by ETag; safe to delete
+  Backups/                   # league backups, local only -- never committed
 ```
 
 Data paths are **season-scoped**. Before 2026 they were not, so a new season's
@@ -165,6 +166,8 @@ python -m Scripts.sync --push       # after any refresh; the nightly job does it
 python -m Scripts.sync --verify     # SHA-256 both sides, exits 1 on a difference
 python -m Scripts.sync --pull       # rebuild Data/ on a fresh machine
 python -m Scripts.catalogue --both  # what is actually there, disk and bucket
+python -m Scripts.backup_league --league Jeffs_League  # raw ESPN backup, zip to ~/Downloads
+python -m Scripts.prior_league jeffs_league --show     # a league recreated mid-season: its frozen weeks
 ```
 
 The app reads S3 by default. `ESPN_FFL_STORE_SOURCE=local` reads disk instead

@@ -13,7 +13,8 @@ Do this once, before the season starts. Roughly 30 minutes.
 > **Three steps here have a deadline rather than an order.** Step 0 must happen
 > **before week 1** or the evidence is gone for a year. Step 8b must happen in the
 > window between the last draft and the first game — the 06:00 nightly closes it.
-> Step 9 must happen **after** the season it refers to. Everything else can be done
+> Step 9 must happen **after** the season it refers to. Step 10 must happen **after
+> the last game but before ESPN rolls the league over**. Everything else can be done
 > whenever.
 
 ### 0. Archive the G2 counterfactual — before week 1, or not at all
@@ -48,6 +49,28 @@ python -m Scripts.lab.g2 --score --season <last_season>
 If the `with_usg` arm wins, the weight is earned. If it does not, plan 18 is
 explicit about the response: **do not keep it at a token weight** — record the
 numbers and take it out.
+
+### 10. Back up each league — after the last game, before ESPN rolls it over
+
+```bash
+python -m Scripts.backup_league --league Jeffs_League             # zip to ~/Downloads
+python -m Scripts.backup_league --league knights_ffl --season 2025 --out ~/Desktop
+```
+
+Pulls every raw ESPN view for one league-season into a zip: settings, teams,
+rosters, schedule and scores, draft, transactions, a per-week snapshot of lineups
+and player-level box scores, the player pool, and the activity feed and message
+board, plus this machine's `Data/Store/<season>/<key>/` files and the league's
+scoring rules. The working copy is written to `Data/Backups/`, which is under the
+gitignored `Data/` — **backup data is never committed**, and it is not pushed to S3.
+
+**The deadline is the activity feed.** ESPN keeps past seasons from 2019 on, box
+scores included, so most of a backup can be retaken later. The league's
+communication group cannot: once the season is over, `kona_league_communication`
+answers "This Communication Group does not exist" (checked against 2023,
+2026-11-11), and with it go the trade/add/drop feed and the message board. For a
+past season the script records those two calls as `optional, unavailable` and still
+exits 0; any other failure exits 1.
 
 ### 1. Confirm ESPN has rolled your leagues over
 
@@ -860,6 +883,45 @@ diffs, and that is the habit worth keeping rather than the tracked bytes.
 Data reaches durability through `python -m Scripts.sync --push`, not through git. If
 you want to know whether it got there, `--verify` answers it and exits non-zero if
 not.
+
+---
+
+## A league recreated mid-season
+
+When a league is deleted and recreated under a new ESPN id partway through a season
+(Jeffs_League, 2026-11-11: 1650608988 → 1976327133 after week 9, to move the
+commissioner role), the new league serves **nothing** for the weeks before it existed
+— `box_scores(1)` raises `KeyError: rosterForCurrentScoringPeriod` — its records start
+at 0-0, and its "draft" is the offline roster entry. Every whole-season artifact would
+lose those weeks. `Scripts/prior_league.py` splices them back from a frozen copy.
+
+**Order matters: freeze before switching the id.** After the switch, the store's early
+weeks are the stitched copy, and the old league that built them may no longer answer.
+
+```bash
+python -m Scripts.backup_league --league <key>                    # raw ESPN, while it exists
+python -m Scripts.prior_league <key> --freeze --through-week <N>  # store -> Data/Store/<season>/<key>/prior/
+# config.yaml (both machines): id -> new id, add the `prior` block (config.example.yaml)
+python -m Scripts.refresh --league <key> --what team_stats,draft,lineups
+python -m Scripts.sync --push --what store
+python -m Scripts.prior_league <key> --show                       # the check: frozen files and weeks
+```
+
+- **`owners`** pins each new team id to the owner the frozen weeks carry. Build it by
+  matching team names between the two leagues; without it, every unclaimed team is
+  `Unknown Owner (<team>)` and each franchise splits at the cutover.
+- **Check the new league against the backup** before switching: settings, remaining
+  schedule and rosters. In 2026 the three late waiver claims and an IR stash made in
+  the old league after the rosters were copied did not carry over.
+- **Commissioner adjustments do not carry over.** Ones already entered for the cutover
+  week have to be re-entered in the new league. A correction to a frozen week is a
+  one-off edit to `prior/team_stats.parquet` (`team_score`, `adjustment`, the opponent's
+  mirror columns, `weekly_finish`); the season records are recomputed from it.
+- **The frozen files are irreproducible.** `prior/` is not part of the store sync; copy
+  it to `s3://espn-ffl-data/archive/backups/season=<season>/<key>/prior/`, next to the
+  raw backup zips, and to the Mac mini.
+- **Limitation:** only the replacement season is stitched. A league with earlier seasons
+  under the old id would also need those fetched from the old id; Jeffs_League has none.
 
 ---
 

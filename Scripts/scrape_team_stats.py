@@ -176,8 +176,21 @@ def get_stats_by_week(
     return df
 
 
+#: Columns ``get_stats_by_matchup`` derives from the per-matchup ones, season-wide.
+#: Frozen weeks carried in from a replaced league (``Scripts/prior_league.py``) drop
+#: these and have them recomputed over the whole season, so ``season_wins`` counts
+#: weeks 1-9 *and* 10 onward rather than restarting at the cutover.
+DERIVED_COLUMNS = (
+    "score_dif", "team_projection", "outcome", "is_meaningful_game", "win", "tie",
+    "lose", "season_wins", "season_ties", "season_losses", "win_pct",
+    "win_pct_entering_matchup", "box_score_available", "team_score_adj",
+    "opp_score_adj", "streak",
+)
+
+
 def get_stats_by_matchup(
-    league_id: int, year: int, swid: str, espn_s2: str
+    league_id: int, year: int, swid: str, espn_s2: str,
+    first_week: int = 1, carried: Optional[pd.DataFrame] = None,
 ) -> pd.DataFrame:
     """This function creates a historical dataframe for the league in a given year.
 
@@ -193,6 +206,12 @@ def get_stats_by_matchup(
         year (int): Year of the league
         swid (str): User credential
         espn_s2 (str): User credential
+        first_week (int): First matchup period to fetch. Above 1 only for a league
+            that replaced another mid-season, whose earlier periods ESPN serves as
+            nothing.
+        carried (pd.DataFrame, optional): Rows for this season's weeks before
+            ``first_week``, frozen from the replaced league. Joined before the
+            season-wide columns are computed.
 
     Returns:
         pd.DataFrame: Historical stats dataframe
@@ -208,7 +227,7 @@ def get_stats_by_matchup(
 
     # Loop through each week that has happened
     current_matchup_period = league.settings.week_to_matchup_period[league.current_week]
-    for week in range(current_matchup_period):
+    for week in range(first_week - 1, current_matchup_period):
         try:
             box_scores = league.box_scores(week + 1)
         except KeyError as e:
@@ -346,6 +365,11 @@ def get_stats_by_matchup(
         # Concatenate week's data
         df = pd.concat([df, df_week])
 
+    if carried is not None and not carried.empty:
+        kept = carried[pd.to_numeric(carried["week"]) < first_week]
+        kept = kept.drop(columns=[c for c in DERIVED_COLUMNS if c in kept.columns])
+        df = pd.concat([kept, df], ignore_index=True, sort=False)
+
     if df.empty:
         # Every week of this season was one ESPN would not serve a roster for, so
         # there is nothing to derive from. Returning the empty frame lets the caller
@@ -443,6 +467,8 @@ def scrape_team_stats(
     swid: str,
     espn_s2: str,
     df_prev: Optional[pd.DataFrame] = None,
+    first_week: int = 1,
+    carried: Optional[pd.DataFrame] = None,
 ) -> pd.DataFrame:
     """Generate a table with weekly matchup statistics for every owner and every week over multiple years.
 
@@ -453,6 +479,10 @@ def scrape_team_stats(
         swid (str): ESPN SWID credential
         espn_s2 (str): ESPN_S2 credential
         df_prev (pd.DataFrame, optional): Historical stats dataframe to append to. Defaults to None.
+        first_week (int): First matchup period of ``end_year`` to fetch; see
+            :func:`get_stats_by_matchup`. Earlier seasons always start at 1.
+        carried (pd.DataFrame, optional): ``end_year`` rows before ``first_week``,
+            frozen from a replaced league.
 
     Returns:
         pandas dataframe: Weekly historical stats for the given league
@@ -472,7 +502,11 @@ def scrape_team_stats(
             df_year["box_score_available"] = False
         else:
             # Build the data from BoxScore information
-            df_year = get_stats_by_matchup(league_id, year, swid, espn_s2)
+            if year == end_year:
+                df_year = get_stats_by_matchup(league_id, year, swid, espn_s2,
+                                               first_week=first_week, carried=carried)
+            else:
+                df_year = get_stats_by_matchup(league_id, year, swid, espn_s2)
             df_year["box_score_available"] = True
 
         if df_year.empty:

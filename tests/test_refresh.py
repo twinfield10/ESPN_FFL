@@ -23,6 +23,20 @@ def redirect_store(tmp_path, monkeypatch):
 EXPLODING = "GOP_Degenerates"
 
 
+@pytest.fixture(autouse=True)
+def _no_prior_segments(monkeypatch):
+    """Resolve leagues from the real config, minus any mid-season replacement.
+
+    These tests use ``jeffs_league`` as *the* first-season league, and its config
+    now also carries a ``prior`` block (it was recreated after week 9, 2026). That
+    path has its own tests in ``tests/test_prior_league.py``; here it would only
+    demand a frozen copy the temporary store does not have.
+    """
+    real = refresh.resolve_league
+    monkeypatch.setattr(refresh, "resolve_league",
+                        lambda name, config=None: {**real(name, config), "prior": None})
+
+
 @pytest.fixture
 def fake_ingest(monkeypatch):
     """Replace ``build_league_frame`` so no test needs ESPN.

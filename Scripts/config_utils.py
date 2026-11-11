@@ -64,8 +64,13 @@ def build_lg_vars(config: Optional[Dict[str, Any]] = None) -> Dict[str, Dict[str
         config: Pre-loaded config. Loaded from disk when omitted.
 
     Returns:
-        dict: ``{display_name: {ID, ESPN_S2, SWID, start, end, primary_own, key}}``.
+        dict: ``{display_name: {ID, ESPN_S2, SWID, start, end, primary_own, key,
+        display_name, prior}}``. ``prior`` is a
+        :class:`Scripts.prior_league.PriorSegment` or None.
     """
+    # Deferred: prior_league imports this module.
+    from Scripts.prior_league import parse_prior
+
     config = load_config() if config is None else config
     creds = config["credentials"]
 
@@ -81,6 +86,10 @@ def build_lg_vars(config: Optional[Dict[str, Any]] = None) -> Dict[str, Dict[str
             "primary_own": data["primary_owner"],
             "key": key,
             "display_name": display,
+            # A league replaced mid-season by a new ESPN id. Validated here so a
+            # malformed block fails on load, not halfway through a nightly. See
+            # Scripts/prior_league.py.
+            "prior": parse_prior(data.get("prior")),
         }
     return lg_vars
 
