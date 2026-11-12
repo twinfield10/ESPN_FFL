@@ -969,3 +969,23 @@ def test_he_overrides_his_own_numbers_where_projections_are_weakest():
              .groupby("primaryPosition")["big"].sum().to_dict())
     assert moved["QB"] == 0, "he has started overriding quarterbacks"
     assert moved["WR"] > moved["RB"] > moved["TE"] >= moved["QB"]
+
+
+def test_a_sheet_name_excel_truncated_at_31_characters_is_a_slate(fake_weekly):
+    """Week 10 broke the import: a two-digit week pushes the publisher's name past
+    Excel's 31-character limit, so ``_Weekly`` arrives as ``_Weekl``."""
+    _, rows = _weekly_sheet_rows(week=10)
+    name = "NFL_2026_Week_10_Half_PPR_Weekl"
+    assert len(name) == la.SHEET_NAME_MAX
+    path = fake_weekly({name: rows})
+    frame, season, week, flavor = la.read_weekly_workbook(path)
+    assert (season, week, flavor) == (2026, 10, "Half_PPR")
+    assert set(frame["week"]) == {10}
+
+
+def test_a_short_weekly_tail_is_refused_below_the_excel_limit(fake_weekly):
+    """Truncation only explains a name that is exactly 31 characters long."""
+    _, rows = _weekly_sheet_rows(week=10)
+    path = fake_weekly({"NFL_2026_Week_10_PPR_Weekl": rows})
+    with pytest.raises(KeyError, match="exactly one sheet"):
+        la.read_weekly_workbook(path)
