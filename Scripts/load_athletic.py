@@ -190,8 +190,17 @@ RANKS_FILENAME = f"{SOURCE}_Ranks_Season.parquet"
 #: download -- last week's copy still sitting in `~/Downloads` beside this week's. A
 #: filename is a label a human typed; the sheet name is what the publisher generated,
 #: so the week is taken from there and `--week` only confirms it.
+#:
+#: **Excel caps a sheet name at 31 characters, and the publisher's name hits it.**
+#: ``NFL_2026_Week_9_Half_PPR_Weekly`` is exactly 31; a two-digit week arrives as
+#: ``NFL_2026_Week_10_Half_PPR_Weekl``. So the ``_Weekly`` suffix may be cut short,
+#: but only in a name that is exactly :data:`SHEET_NAME_MAX` long -- a short
+#: ``_Week`` tail anywhere else is not a slate (see :func:`_weekly_sheet`).
 WEEKLY_SHEET = re.compile(r"^NFL_(?P<season>\d{4})_Week_(?P<week>\d+)_"
-                          r"(?P<flavor>.+?)_Weekly$")
+                          r"(?P<flavor>.+?)_(?P<tail>Week(?:l(?:y)?)?)$")
+
+#: Excel's sheet-name limit, the only length at which ``_Weekly`` may be truncated.
+SHEET_NAME_MAX = 31
 
 #: Output filename, matching the FantasyPros weekly file's shape.
 WEEKLY_FILENAME = f"{SOURCE}_Projections_Week_All.parquet"
@@ -684,7 +693,9 @@ def _weekly_sheet(book, path: Path) -> Tuple[str, int, int, str]:
             import, which is not a choice this function should make silently.
     """
     matched = [(name, WEEKLY_SHEET.match(name)) for name in book.sheetnames]
-    matched = [(name, m) for name, m in matched if m is not None]
+    matched = [(name, m) for name, m in matched
+               if m is not None and (m.group("tail") == "Weekly"
+                                     or len(name) == SHEET_NAME_MAX)]
     if len(matched) != 1:
         raise KeyError(
             f"{path.name}: expected exactly one sheet named like "
