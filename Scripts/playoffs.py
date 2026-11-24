@@ -30,8 +30,8 @@ the whole season with both owners pinned, which is everything head-to-head needs
 See ``docs/plans/57-playoff-bracket.md``.
 """
 
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import polars as pl
 
@@ -82,7 +82,100 @@ def settings_from_espn(schedule_settings: Dict[str, Any],
     }
 
 
-# --- records --------------------------------------------------------------
+# --- standings table ------------------------------------------------------
+
+@dataclass
+class Table:
+    """Standings with everything a tiebreak can ask for, in plain Python.
+
+    Plain dicts rather than a polars frame because the odds simulation seeds tens of
+    thousands of simulated seasons; :func:`seed` is the frame-shaped wrapper over the
+    same ordering, so there is one implementation of ESPN's rules, not two.
+
+    Attributes:
+        teams: Every team key, sorted.
+        divisions: ``{team: division name}``.
+        w, l, t: Wins, losses, ties.
+        pf, pa: Points for and against.
+        vs: ``{(team, opp): [score, games]}`` -- ``score`` counts a win as 1 and a
+            tie as 0.5, from ``team``'s side.
+    """
+
+    teams: List[str]
+    divisions: Dict[str, str]
+    w: Dict[str, int] = field(default_factory=dict)
+    l: Dict[str, int] = field(default_factory=dict)
+    t: Dict[str, int] = field(default_factory=dict)
+    pf: Dict[str, float] = field(default_factory=dict)
+    pa: Dict[str, float] = field(default_factory=dict)
+    vs: Dict[Tuple[str, str], List[float]] = field(default_factory=dict)
+
+    @classmethod
+    def empty(cls, divisions: Dict[str, str]) -> "Table":
+        teams = sorted(divisions)
+        z = {x: 0 for x in teams}
+        return cls(teams, dict(divisions), dict(z), dict(z), dict(z),
+                   {x: 0.0 for x in teams}, {x: 0.0 for x in teams}, {})
+
+    def copy(self) -> "Table":
+        return Table(self.teams, self.divisions, dict(self.w), dict(self.l), dict(self.t),
+                     dict(self.pf), dict(self.pa), {k: list(v) for k, v in self.vs.items()})
+
+    def add(self, a: str, b: str, sa: float, sb: float) -> None:
+        """Record one game between ``a`` and ``b``."""
+        for x, y, sx, sy in ((a, b, sa, sb), (b, a, sb, sa)):
+            if x not in self.w:
+                continue
+            res = 1.0 if sx > sy else 0.0 if sx < sy else 0.5
+            self.w[x] += res == 1.0
+            self.l[x] += res == 0.0
+            self.t[x] += res == 0.5
+            self.pf[x] += sx
+            self.pa[x] += sy
+            cell = self.vs.setdefault((x, y), [0.0, 0])
+            cell[0] += res
+            cell[1] += 1
+
+    def pct(self, x: str) -> float:
+        games = self.w[x] + self.l[x] + self.t[x]
+        return (self.w[x] + 0.5 * self.t[x]) / games if games else 0.0
+
+    def points(self, x: str) -> float:
+        return round(self.pf[x], POINTS_DECIMALS)
+
+    def played_all(self, group: Sequence[str]) -> bool:
+        """Whether every pair in ``group`` has met at least once."""
+        return all(self.vs.get((a, b), (0, 0))[1] > 0
+                   for i, a in enumerate(group) for b in group[i + 1:])
+
+    def among(self, x: str, group: Sequence[str]) -> Tuple[float, int]:
+        """``x``'s ``(score, games)`` against the rest of ``group``."""
+        score, games = 0.0, 0
+        for y in group:
+            if y != x:
+                s, g = self.vs.get((x, y), (0.0, 0))
+                score += s
+                games += g
+        return score, games
+
+
+def table_from_games(games: pl.DataFrame, divisions: Dict[str, str]) -> Table:
+    """Build a :class:`Table` from one row per team per game.
+
+    Args:
+        games: ``team``, ``opp``, ``team_score``, ``opp_score`` -- both rows of each
+            game, as :func:`games_from_team_stats` returns them.
+        divisions: ``{team: division}`` for every team.
+    """
+    table = Table.empty(divisions)
+    if games.is_empty():
+        return table
+    for a, b, sa, sb in games.select("team", "opp", "team_score", "opp_score").iter_rows():
+        # Each game arrives twice; record it from the lexically first side only.
+        if (a < b) or (b not in table.w):
+            table.add(a, b, float(sa), float(sb))
+    return table
+
 
 def records(games: pl.DataFrame) -> pl.DataFrame:
     """Win-loss-tie, win percentage and points for/against per team.
@@ -107,62 +200,46 @@ def records(games: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def _pct_among(games: pl.DataFrame, group: Sequence[str]) -> Dict[str, Optional[float]]:
-    """Each team's win percentage in games against the rest of ``group``.
+# --- ordering ---------------------------------------------------------------
 
-    None for a team that has not played any of the others -- it cannot be ranked on
-    head-to-head, and is left tied for the next tiebreaker to decide.
-    """
-    among = games.filter(pl.col("team").is_in(group) & pl.col("opp").is_in(group))
-    out: Dict[str, Optional[float]] = {t: None for t in group}
-    if among.is_empty():
-        return out
-    for row in records(among).iter_rows(named=True):
-        out[row["team"]] = row["win_pct"]
-    return out
+def _tiers(group: List[str], key) -> List[List[str]]:
+    """Split ``group`` into tiers of equal ``key(team)``, best (largest) first."""
+    values = {x: key(x) for x in group}
+    return [[x for x in group if values[x] == v]
+            for v in sorted(set(values.values()), reverse=True)]
 
 
-def _played_all(games: pl.DataFrame, group: Sequence[str]) -> bool:
-    """Whether every pair in ``group`` has met at least once."""
-    met = set(zip(games["team"].to_list(), games["opp"].to_list()))
-    return all((a, b) in met for i, a in enumerate(group) for b in group[i + 1:])
-
-
-def _h2h_best(group: List[str], games: pl.DataFrame, rec: Dict[str, Dict[str, Any]]) -> str:
+def _h2h_best(group: List[str], table: Table) -> str:
     """The team that takes the next seed out of a group level on win percentage.
 
     Head-to-head counts only when every pair in the group has played; otherwise, and
     when head-to-head leaves everyone level, the most points for takes it. A smaller
     group still level at the top is settled the same way on its own games.
     """
-    by_points = sorted(group, key=lambda t: (-rec[t]["pf"], t))
-    if len(group) == 1 or not _played_all(games, group):
+    by_points = sorted(group, key=lambda x: (-table.points(x), x))
+    if len(group) == 1 or not table.played_all(group):
         return by_points[0]
-    pct = _pct_among(games, group)
-    top = _by_stat(group, pct)[0]
+
+    def h2h(x: str) -> float:
+        score, games = table.among(x, group)
+        return score / games if games else 0.0
+
+    top = _tiers(group, h2h)[0]
     if len(top) == len(group):
         return by_points[0]
-    return _h2h_best(top, games, rec)
+    return _h2h_best(top, table)
 
 
-def _by_stat(group: List[str], stat: Dict[str, float], descending: bool = True) -> List[List[str]]:
-    """Split ``group`` into ordered tiers of equal ``stat``."""
-    keys = sorted({stat[t] for t in group}, reverse=descending)
-    return [[t for t in group if stat[t] == k] for k in keys]
-
-
-def _break_tie(group: List[str], games: pl.DataFrame, rec: Dict[str, Dict[str, Any]],
-               rule: str, divisions: Dict[str, str]) -> List[str]:
+def _break_tie(group: List[str], table: Table, rule: str) -> List[str]:
     """Order a group of teams level on win percentage, by the league's rule.
 
-    Returns the group in seeding order. Never leaves a tie: points for, then team
-    key, settle whatever the rule cannot.
+    Never leaves a tie: points for, then team key, settle whatever the rule cannot.
     """
     if len(group) == 1:
         return group
 
     def by_points(teams: List[str]) -> List[str]:
-        return sorted(teams, key=lambda t: (-rec[t]["pf"], t))
+        return sorted(teams, key=lambda x: (-table.points(x), x))
 
     if rule == "H2H_RECORD":
         # One seed at a time: find the best of what is left, take it, and start over
@@ -171,35 +248,48 @@ def _break_tie(group: List[str], games: pl.DataFrame, rec: Dict[str, Dict[str, A
         out: List[str] = []
         remaining = list(group)
         while remaining:
-            best = _h2h_best(remaining, games, rec)
+            best = _h2h_best(remaining, table)
             out.append(best)
             remaining.remove(best)
         return out
 
     if rule == "TOTAL_POINTS_AGAINST":
-        return [t for tier in _by_stat(group, {t: rec[t]["pa"] for t in group})
-                for t in by_points(tier)]
+        return [x for tier in _tiers(group, lambda x: round(table.pa[x], POINTS_DECIMALS))
+                for x in by_points(tier)]
 
     if rule == "INTRA_DIVISION_RECORD":
-        div_games = games.filter(
-            pl.col("team").replace_strict(divisions, default=None)
-            == pl.col("opp").replace_strict(divisions, default=None))
-        div_pct = {t: -1.0 for t in group}
-        if not div_games.is_empty():
-            for row in records(div_games).iter_rows(named=True):
-                if row["team"] in div_pct:
-                    div_pct[row["team"]] = row["win_pct"]
-        return [t for tier in _by_stat(group, div_pct) for t in by_points(tier)]
+        def div_pct(x: str) -> float:
+            mates = [y for y in table.teams
+                     if y != x and table.divisions[y] == table.divisions[x]]
+            score, games = table.among(x, [x, *mates])
+            return score / games if games else -1.0
+        return [x for tier in _tiers(group, div_pct) for x in by_points(tier)]
 
     return by_points(group)
 
 
-def rank(teams: Sequence[str], games: pl.DataFrame, rec: Dict[str, Dict[str, Any]],
-         rule: str, divisions: Dict[str, str]) -> List[str]:
+def rank(teams: Sequence[str], table: Table, rule: str) -> List[str]:
     """Order ``teams`` by win percentage, breaking ties by ``rule``."""
-    pct = {t: rec[t]["pct"] for t in teams}
-    return [t for tier in _by_stat(list(teams), pct)
-            for t in _break_tie(tier, games, rec, rule, divisions)]
+    return [x for tier in _tiers(list(teams), table.pct)
+            for x in _break_tie(tier, table, rule)]
+
+
+def order(table: Table, rule: str) -> Tuple[List[str], List[str]]:
+    """Every team in seed order, and the division winners.
+
+    Division winners are seeded first when the league has more than one division.
+
+    Returns:
+        tuple: ``(order, division_winners)``.
+    """
+    names = sorted(set(table.divisions.values()))
+    winners: List[str] = []
+    if len(names) > 1:
+        for name in names:
+            members = [x for x in table.teams if table.divisions[x] == name]
+            winners.append(rank(members, table, rule)[0])
+    rest = [x for x in table.teams if x not in winners]
+    return rank(winners, table, rule) + rank(rest, table, rule), winners
 
 
 def seed(games: pl.DataFrame, divisions: Dict[str, str], settings: Dict[str, Any]) -> pl.DataFrame:
@@ -215,48 +305,30 @@ def seed(games: pl.DataFrame, divisions: Dict[str, str], settings: Dict[str, Any
     Returns:
         pl.DataFrame: One row per team in seed order -- ``seed``, ``team``,
         ``division``, ``division_winner``, ``in_playoffs``, ``wins``, ``losses``,
-        ``ties``, ``win_pct``, ``points_for``, ``points_against``.
+        ``ties``, ``win_pct``, ``points_for``, ``points_against``, ``tiebreak``.
     """
-    teams = sorted(divisions)
-    table = records(games) if not games.is_empty() else pl.DataFrame()
-    rec = {t: {"pct": 0.0, "pf": 0.0, "pa": 0.0, "w": 0, "l": 0, "t": 0} for t in teams}
-    for row in table.iter_rows(named=True):
-        if row["team"] in rec:
-            rec[row["team"]] = {
-                "pct": row["win_pct"], "w": row["wins"], "l": row["losses"], "t": row["ties"],
-                "pf": round(row["points_for"], POINTS_DECIMALS),
-                "pa": round(row["points_against"], POINTS_DECIMALS)}
-
+    table = table_from_games(games, divisions)
     rule = settings.get("seeding_rule") or "TOTAL_POINTS_SCORED"
-    names = sorted(set(divisions.values()))
-    winners: List[str] = []
-    if len(names) > 1:
-        for name in names:
-            members = [t for t in teams if divisions[t] == name]
-            winners.append(rank(members, games, rec, rule, divisions)[0])
-    order = rank(winners, games, rec, rule, divisions) + rank(
-        [t for t in teams if t not in winners], games, rec, rule, divisions)
-
+    seeded, winners = order(table, rule)
     n = int(settings.get("playoff_team_count") or 0)
-    notes = _tiebreak_notes(order, winners, games, rec, rule)
     return pl.DataFrame({
-        "seed": list(range(1, len(order) + 1)),
-        "team": order,
-        "division": [divisions[t] for t in order],
-        "division_winner": [t in winners for t in order],
-        "in_playoffs": [i < n for i in range(len(order))],
-        "wins": [rec[t]["w"] for t in order],
-        "losses": [rec[t]["l"] for t in order],
-        "ties": [rec[t]["t"] for t in order],
-        "win_pct": [rec[t]["pct"] for t in order],
-        "points_for": [rec[t]["pf"] for t in order],
-        "points_against": [rec[t]["pa"] for t in order],
-        "tiebreak": notes,
+        "seed": list(range(1, len(seeded) + 1)),
+        "team": seeded,
+        "division": [table.divisions[x] for x in seeded],
+        "division_winner": [x in winners for x in seeded],
+        "in_playoffs": [i < n for i in range(len(seeded))],
+        "wins": [table.w[x] for x in seeded],
+        "losses": [table.l[x] for x in seeded],
+        "ties": [table.t[x] for x in seeded],
+        "win_pct": [table.pct(x) for x in seeded],
+        "points_for": [table.points(x) for x in seeded],
+        "points_against": [round(table.pa[x], POINTS_DECIMALS) for x in seeded],
+        "tiebreak": _tiebreak_notes(seeded, winners, table, rule),
     }, schema_overrides={"wins": pl.Int64, "losses": pl.Int64, "ties": pl.Int64})
 
 
-def _tiebreak_notes(order: List[str], winners: List[str], games: pl.DataFrame,
-                    rec: Dict[str, Dict[str, Any]], rule: str) -> List[str]:
+def _tiebreak_notes(seeded: List[str], winners: List[str], table: Table,
+                    rule: str) -> List[str]:
     """One line per team saying which tie it was in and what settled it.
 
     Empty for a team level with nobody in its group (division winners and wildcards
@@ -264,23 +336,21 @@ def _tiebreak_notes(order: List[str], winners: List[str], games: pl.DataFrame,
     wildcard). The wording names the rule that applied, not every step of it.
     """
     out = []
-    for t in order:
-        pool = winners if t in winners else [x for x in order if x not in winners]
-        level = [x for x in pool if rec[x]["pct"] == rec[t]["pct"]]
+    for x in seeded:
+        pool = winners if x in winners else [y for y in seeded if y not in winners]
+        level = [y for y in pool if table.pct(y) == table.pct(x)]
         if len(level) == 1:
             out.append("")
             continue
-        r = rec[t]
-        record = f"{r['w']}-{r['l']}" + (f"-{r['t']}" if r["t"] else "")
+        record = f"{table.w[x]}-{table.l[x]}" + (f"-{table.t[x]}" if table.t[x] else "")
         how = TIEBREAK_LABELS.get(rule, "Total points for")
         if rule == "H2H_RECORD":
-            if not _played_all(games, level):
+            if not table.played_all(level):
                 how = "Total points for (not every pair has played)"
             else:
-                mine = games.filter((pl.col("team") == t) & pl.col("opp").is_in(level))
-                w = int((mine["team_score"] > mine["opp_score"]).sum())
-                lo = int((mine["team_score"] < mine["opp_score"]).sum())
-                how = f"Head-to-head, {w}-{lo} vs the tied teams"
+                wins = sum(table.vs.get((x, y), (0, 0))[0] for y in level if y != x)
+                games = sum(table.vs.get((x, y), (0, 0))[1] for y in level if y != x)
+                how = f"Head-to-head, {wins:g}-{games - wins:g} vs the tied teams"
         out.append(f"{len(level)}-way tie at {record}: {how}")
     return out
 
@@ -430,3 +500,31 @@ def divisions_from_team_stats(team_stats: pl.DataFrame, season: int) -> Dict[str
     return {r["team_owner"]: r["team_division"] or ""
             for r in df.group_by("team_owner").agg(pl.col("team_division").last())
             .iter_rows(named=True)}
+
+
+def fixtures_from_league(league: Any, regular_season_periods: int) -> List[List[Any]]:
+    """Every regular-season fixture, as ``[matchup_period, owner, owner]``.
+
+    ``team_stats`` stops at the current week, so the weeks still to be played exist
+    only on the live league; the nightly records them in ``meta.json`` for the odds
+    simulation. Owners rather than team ids, because ``team_stats`` keys on
+    ``team_owner`` -- and for Jeffs_League those are the names pinned across the
+    recreation (``fetch_utils.pin_owner_names`` runs before this is read).
+
+    Args:
+        league: An ``espn_api`` League whose teams carry ``owner`` and ``schedule``.
+        regular_season_periods: ``matchupPeriodCount``.
+
+    Returns:
+        list: One entry per game, each listed once.
+    """
+    out: List[List[Any]] = []
+    for team in getattr(league, "teams", []) or []:
+        for period, opp in enumerate(getattr(team, "schedule", []) or [], start=1):
+            if period > regular_season_periods:
+                break
+            if opp is None or getattr(opp, "team_id", None) is None:
+                continue
+            if team.team_id < opp.team_id:
+                out.append([period, team.owner, opp.owner])
+    return sorted(out)

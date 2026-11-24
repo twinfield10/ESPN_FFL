@@ -83,6 +83,10 @@ ARTIFACTS = {
     # `refresh`, because it is a deliberate act with a deadline rather than a
     # by-product of an ingest. See docs/plans/41-projection-freeze.md.
     "board_frozen": "board_frozen.parquet",
+    # Seed, division, title and first-opponent odds from simulating the rest of the
+    # season and the bracket. Rebuilt nightly from the stored `lineups` and
+    # `team_stats`, never from ESPN. See `Scripts/playoff_odds.py`.
+    "playoff_odds": "playoff_odds.parquet",
 }
 
 META_FILENAME = "meta.json"
@@ -461,6 +465,17 @@ def build_meta(
         # forward from an earlier build. See `Scripts.playoffs.settings_from_espn`.
         if getattr(league, "playoff_settings", None):
             meta["playoff_settings"] = league.playoff_settings
+            # The regular-season schedule, because `team_stats` stops at the current
+            # week and the odds simulation needs the weeks after it. Only weeks after
+            # the last completed one are ever read: Jeffs_League's recreated league
+            # carries a different schedule for the offline weeks 1-9 than the one
+            # actually played.
+            from Scripts.playoffs import fixtures_from_league
+            try:
+                meta["fixtures"] = fixtures_from_league(
+                    league, int(league.playoff_settings.get("regular_season_periods") or 0))
+            except Exception as e:                 # noqa: BLE001 - never fail a build
+                print(f"WARNING: fixtures not recorded ({type(e).__name__}: {e})")
 
     if "board" in written:
         meta["espn_calibration"] = calibration_summary(written["board"])
@@ -489,6 +504,7 @@ def write_league_store(
     results: Optional[pd.DataFrame] = None,
     board_frozen: Optional[pd.DataFrame] = None,
     pool: Optional[pd.DataFrame] = None,
+    playoff_odds: Optional[pd.DataFrame] = None,
     league=None,
     meta_extra: Optional[Dict[str, Any]] = None,
     preserve_built_at: bool = False,
@@ -516,6 +532,7 @@ def write_league_store(
         board_frozen: A copy of ``board`` taken once the drafts are done. Written
             only by ``python -m Scripts.freeze``; nothing in the ingest path
             supplies it, which is the point -- see :data:`ARTIFACTS`.
+        playoff_odds: ``Scripts.playoff_odds.build`` output.
         pool: The accumulated free-agent history from ``Scripts.pool.accumulate``.
             Pass the **whole** history, not one week -- this writes what it is
             given, like every other artifact, and the merge belongs to the caller.
@@ -534,7 +551,8 @@ def write_league_store(
     """
     candidates = {"lineups": lineups, "team_stats": team_stats, "board": board,
                   "draft": draft, "tendencies": tendencies, "results": results,
-                  "board_frozen": board_frozen, "pool": pool}
+                  "board_frozen": board_frozen, "pool": pool,
+                  "playoff_odds": playoff_odds}
     written = {name: df for name, df in candidates.items() if df is not None}
     if not written:
         raise ValueError(

@@ -291,6 +291,22 @@ def load_team_stats(season: int, league_key: str) -> pl.DataFrame:
     return _artifact(season, league_key, "team_stats")
 
 
+def load_playoff_odds(season: int, league_key: str) -> pl.DataFrame:
+    """Simulated seed, division, title and first-opponent odds for one league.
+
+    Args:
+        season: Season year.
+        league_key: ``config.yaml`` league key.
+
+    Returns:
+        pl.DataFrame: ``Scripts.playoff_odds.build`` output.
+
+    Raises:
+        FileNotFoundError: When ``--what playoff_odds`` has not been run.
+    """
+    return _artifact(season, league_key, "playoff_odds")
+
+
 def load_board(season: int, league_key: str) -> pl.DataFrame:
     """The draft board for one league-season, when it has been built.
 
