@@ -218,8 +218,9 @@ QB14 to QB20.
 
 **Home**, **Roster**, **Matchup**, **Free Agents**, **Playoffs**, **Draft** — Home first
 because it is the question you actually arrive with, then a single week in the order you
-work it, then **Playoffs** (seeds and bracket under each league's own ESPN tiebreaker —
-see [plan 57](docs/plans/57-playoff-bracket.md)), then Draft, which for all but one weekend of the year is history. **Player Shares is a
+work it, then **Playoffs** (seeds and bracket under each league's own ESPN tiebreaker, plus
+nightly-simulated seed, division, title and first-opponent odds — see
+[plan 57](docs/plans/57-playoff-bracket.md)), then Draft, which for all but one weekend of the year is history. **Player Shares is a
 section of Home** rather than a tab of its own: it is the only other view that ignores
 the League selector, so the two are one cross-league sweep and it draws between the
 cards and Standings. The **League** and **Week** selectors sit in the sidebar, under

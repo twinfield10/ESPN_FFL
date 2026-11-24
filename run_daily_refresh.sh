@@ -668,6 +668,16 @@ log "advancing fixtures and standings (team_stats)"
       read the last good fixtures until the next run. Nothing is lost by the wait;
       the run continues."
 
+# --- 4d'. Playoff odds ---------------------------------------------------
+# Simulates the rest of each regular season and the bracket from the stored lineups
+# and team_stats (Scripts/playoff_odds.py), so it must follow both. About a second a
+# league and nothing is fetched. Non-fatal for the same reason as team_stats: a
+# display artifact, and yesterday's odds are still there for the Playoffs tab.
+log "simulating playoff odds"
+"${PYTHON}" -m Scripts.refresh --all --what playoff_odds >>"${LOG}" 2>&1 \
+|| log "NOTE: playoff odds failed -- the Playoffs tab keeps the last good odds.
+      The run continues."
+
 # --- 4e. Publish the Knights Sheet --------------------------------------
 # Knights only, not every league: the Sheets publish is ~70s a league, most of it
 # rate-limit sleep, and Knights is the one with something that has to stay current

@@ -1,11 +1,13 @@
 """The Playoffs tab: seeds and the bracket, "if the season ended today".
 
-Two sections. **Seeds** is the whole league in ESPN's order -- division winners first,
+Three sections. **Seeds** is the whole league in ESPN's order -- division winners first,
 then the league's own tiebreaker -- with the playoff line drawn and every tie
 explained, because a seed that differs from the table you would sort yourself (Jeffs
 2026: the league's top scorer fourth on head-to-head) needs its reason on the page.
 **Bracket** is the fixed bracket those seeds produce, one column per round with the
-scoring weeks it is played in.
+scoring weeks it is played in. **Odds** is the nightly simulation of the rest of the
+season and the bracket (:mod:`Scripts.playoff_odds`): each seed, the playoffs, a bye,
+the division, the title, and each team's likeliest first playoff opponent.
 
 The rules come from ``meta["playoff_settings"]``, which the nightly records from
 ESPN's ``mSettings`` (see :func:`Scripts.playoffs.settings_from_espn`); the results
@@ -43,6 +45,98 @@ SEEDS_CONFIG: Dict[str, object] = {
              "rule that ordered them. Division winners and wildcards are ranked "
              "separately, so they are never tied with each other."),
 }
+
+
+def odds_frame(odds: pl.DataFrame, settings: dict) -> pl.DataFrame:
+    """The odds table as displayed: percentages, and only the columns that apply."""
+    k = int(settings.get("playoff_team_count") or 0)
+    pct = lambda c: (pl.col(c) * 100).alias(c)                      # noqa: E731
+    seeds = [pl.col(f"p_seed_{i}").mul(100).alias(f"#{i}") for i in range(1, k + 1)
+             if f"p_seed_{i}" in odds.columns]
+    record = pl.format("{}-{}", pl.col("exp_wins").round(1), pl.col("exp_losses").round(1))
+    opponent = (pl.when(pl.col("likeliest_opponent").is_not_null())
+                .then(pl.format("{} ({}%)", "likeliest_opponent",
+                                (pl.col("likeliest_opponent_p") * 100).round(0).cast(pl.Int64)))
+                .otherwise(pl.lit("")))
+    cols = [pl.col("team_owner").alias("Owner"),
+            pl.col("proj_per_week").alias("Proj/Wk"), record.alias("Exp W-L"),
+            pct("p_playoffs").alias("Playoffs")]
+    if po.byes(k):
+        cols.append(pct("p_bye").alias("Bye"))
+    if odds["p_division"].null_count() < odds.height:
+        cols.append(pct("p_division").alias("Division"))
+    cols += [*seeds, pct("p_final").alias("Final"), pct("p_champion").alias("Title"),
+             opponent.alias("Likeliest First Opponent")]
+    return odds.select(cols)
+
+
+def odds_config(frame: pl.DataFrame) -> Dict[str, object]:
+    """Column config for :func:`odds_frame`'s output."""
+    pct = lambda h: st.column_config.NumberColumn(format="%.1f%%", width="small", help=h)  # noqa: E731
+    cfg: Dict[str, object] = {
+        "Owner": st.column_config.TextColumn(pinned=True),
+        "Proj/Wk": st.column_config.NumberColumn(
+            format="%.1f", width="small",
+            help="Mean projected starting lineup over the regular-season weeks left, "
+                 "after byes and injuries, with lineups set by ROS rank."),
+        "Exp W-L": st.column_config.TextColumn(
+            width="small", help="Expected final regular-season record."),
+        "Playoffs": st.column_config.ProgressColumn(
+            format="%.1f%%", min_value=0, max_value=100, width="small"),
+        "Bye": pct("A top seed: skips the first round."),
+        "Division": pct("Finishes first in its division — and is seeded above every wildcard."),
+        "Final": pct("Reaches the championship game."),
+        "Title": st.column_config.ProgressColumn(
+            format="%.1f%%", min_value=0, max_value=100, width="small"),
+        "Likeliest First Opponent": st.column_config.TextColumn(
+            help="Most common opponent in this team's first playoff game — the round-2 "
+                 "opponent for a team on a bye — and how often, among the simulations "
+                 "where it makes the playoffs."),
+    }
+    for c in frame.columns:
+        if c.startswith("#"):
+            cfg[c] = pct(f"Finishes as the {c[1:]} seed.")
+    return cfg
+
+
+def render_odds(selection: session.Selection, settings: dict) -> None:
+    """The simulated odds, when the nightly has built them."""
+    st.subheader("Odds")
+    if not store.has_artifact(selection.season, selection.league_key, "playoff_odds"):
+        st.info("No playoff odds in this store yet. The nightly builds them after "
+                "`team_stats`.")
+        st.code(f"python -m Scripts.refresh --league {selection.display_name} "
+                f"--season {selection.season} --what playoff_odds", language="bash")
+        return
+    odds = store.load_playoff_odds(selection.season, selection.league_key)
+    if odds.is_empty():
+        st.info("The odds artifact is empty.")
+        return
+    frame = odds_frame(odds, settings)
+    n = int(odds["n_sims"][0])
+    through = int(odds["through_week"][0])
+    regular = settings.get("regular_season_periods")
+    st.dataframe(_styled_odds(frame, selection.my_owner), width="content", hide_index=True,
+                 placeholder="", lazy=False, column_config=odds_config(frame))
+    st.caption(
+        f"{n:,} simulations of weeks {through + 1}–{regular} and the bracket, seeded by "
+        f"the league's own rules. Each manager starts the best lineup by FantasyPros' "
+        f"rest-of-season ranking; each starter scores around this week's projection — "
+        f"which beat the season average at every horizon on 2026's results — with the "
+        f"Matchup tab's calibrated spread. Byes and ESPN's in/out status are honoured; "
+        f"rosters are frozen, so waivers and trades are not.")
+
+
+def _styled_odds(frame: pl.DataFrame, owner: Optional[str]):
+    """Band the viewer's row. Never raises."""
+    try:
+        pdf = frame.to_pandas()
+        band = f"background-color: {OWN_ROW_FILL}; font-weight: 700"
+        return pdf.style.apply(
+            lambda row: [band if owner is not None and row["Owner"] == owner else ""]
+            * len(row), axis=1).format(na_rep="")
+    except Exception:                    # noqa: BLE001 - cosmetic, never fatal
+        return frame
 
 
 def completed_through(meta: dict, settings: dict) -> int:
@@ -206,5 +300,8 @@ def render_playoffs(selection: session.Selection) -> None:
                  width="content", hide_index=True, placeholder="", lazy=False,
                  column_config=SEEDS_CONFIG)
 
+    render_odds(selection, settings)
+
     st.subheader("Bracket")
+    st.caption("If the season ended today.")
     render_bracket(seeds, settings, selection.my_owner)

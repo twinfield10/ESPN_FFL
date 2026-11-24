@@ -58,7 +58,7 @@ from Scripts.paths import REPO_ROOT
 #: it cannot go stale and it cannot move what the blend voted with. It is what runs
 #: every ten minutes on a Sunday; ``lineups`` is what runs at 06:00.
 WHAT_CHOICES = ("lineups", "team_stats", "board", "draft", "results", "live",
-                "pool", "reblend")
+                "pool", "reblend", "playoff_odds")
 
 #: Built unless ``--what`` says otherwise. ``team_stats`` stays out even now that it
 #: is cheap, because this default is what a bare ``--league X`` builds and that is
@@ -92,6 +92,7 @@ PUSH_ARTIFACTS: Dict[str, Tuple[str, ...]] = {
     "team_stats": ("team_stats",),
     "results": ("results",),
     "pool": ("pool",),
+    "playoff_odds": ("playoff_odds",),
 }
 
 #: ``--what pool`` needs a lineups frame to snapshot from, and takes the one this
@@ -207,6 +208,55 @@ def _draft_with_prior(cfg: Dict, seasons, season: int, league_key: str, segment,
     return pl.concat([fetched, frozen], how="diagonal_relaxed")
 
 
+def _build_playoff_odds(season: int, league_key: str,
+                        lineups: Optional[pd.DataFrame],
+                        team_stats: Optional[pd.DataFrame]) -> Optional[pd.DataFrame]:
+    """Simulate the rest of the season for one league. None, logged, when it cannot.
+
+    Reads the frames this run built, else the stored ones, and the stored
+    ``meta.json`` for the playoff settings and fixtures the lineups build records.
+    ROS ranks and bye weeks are local files the nightly already maintains; without
+    them it still runs, ordering lineups by projection and ignoring byes, and says so.
+    """
+    import polars as pl
+
+    from Scripts import playoff_odds as odds_mod
+    from Scripts import ros
+    from Scripts.draft.board import bye_weeks
+
+    def frame(built, what):
+        if built is not None:
+            return pl.from_pandas(built)
+        path = store.artifact_path(season, league_key, what)
+        return pl.read_parquet(path) if path.exists() else None
+
+    meta = store.read_meta(season, league_key, missing_ok=True) or {}
+    lu, ts = frame(lineups, "lineups"), frame(team_stats, "team_stats")
+    if lu is None or ts is None or not meta.get("playoff_settings") or not meta.get("fixtures"):
+        _log("  playoff_odds needs lineups, team_stats and meta playoff_settings/fixtures "
+             "(written by --what lineups); skipped")
+        return None
+
+    ros_frame = ros.load_ros(season)
+    byes = bye_weeks(season)
+    if ros_frame is None:
+        _log("  playoff_odds no ROS ranks captured; lineups ordered by projection")
+    if not byes:
+        _log("  playoff_odds no bye weeks; nobody is treated as on bye")
+    start = time.time()
+    try:
+        out = odds_mod.build(lu, ts, meta, season, ros_frame=ros_frame, byes=byes)
+    except Exception as exc:                        # noqa: BLE001 - one league only
+        _log(f"  playoff_odds failed: {type(exc).__name__}: {exc}")
+        return None
+    elapsed = time.time() - start
+    _log(f"  playoff_odds {out.shape[0]:>5} teams, {int(out['n_sims'][0])} sims through "
+         f"week {int(out['through_week'][0])}   {elapsed:.2f}s")
+    result = out.to_pandas()
+    result.attrs["elapsed"] = elapsed
+    return result
+
+
 def refresh_league(
     name: str,
     season: int,
@@ -261,6 +311,7 @@ def refresh_league(
     tendencies = None
     results = None
     pool_history = None
+    playoff_odds = None
     league = None
 
     def _league():
@@ -560,8 +611,14 @@ def refresh_league(
                      f"{pool_mod.weeks_present(pool_history)}   "
                      f"{timings['pool']:.2f}s")
 
+    if "playoff_odds" in what:
+        playoff_odds = _build_playoff_odds(season, league_key, lineups, team_stats)
+        if playoff_odds is not None:
+            timings["playoff_odds"] = playoff_odds.attrs.pop("elapsed", 0.0)
+
     if all(artifact is None for artifact in
-           (lineups, team_stats, board, draft, tendencies, results, pool_history)):
+           (lineups, team_stats, board, draft, tendencies, results, pool_history,
+            playoff_odds)):
         _log("  nothing to write")
         return timings
 
@@ -572,7 +629,8 @@ def refresh_league(
     directory = store.write_league_store(
         season, league_key,
         lineups=lineups, team_stats=team_stats, board=board, draft=draft,
-        tendencies=tendencies, results=results, pool=pool_history, league=league,
+        tendencies=tendencies, results=results, pool=pool_history,
+        playoff_odds=playoff_odds, league=league,
         # A re-blend is not a build: `built_at` is what the app's stale badge reads
         # to say "the nightly was missed", and a re-blend every 30 minutes would hide
         # exactly that. It records `reblended_at` instead.
