@@ -230,6 +230,15 @@ def get_roster_settings(league: League) -> None:
     # be a round-trip for nothing. See :func:`read_point_adjustments` for why this is
     # read at all when `totalPoints` already carries it.
     league.point_adjustments = read_point_adjustments(r)
+
+    # Playoff rules -- team count, seeding tiebreaker, the weeks each round is played
+    # in -- from the same payload once more. `espn_api` exposes a
+    # `playoff_seed_tie_rule` that `simulation_utils` decided was unreliable and
+    # replaced with an assumption; the raw `scheduleSettings` is not. Deferred import
+    # for symmetry with the others in this module; `playoffs` needs only polars.
+    from Scripts.playoffs import settings_from_espn
+    league.playoff_settings = settings_from_espn(
+        settings.get("scheduleSettings") or {}, len(r.get("teams") or []))
     return
 
 

@@ -456,6 +456,11 @@ def build_meta(
         # and carried here so the add/drop engine can refuse an illegal swap
         # without an ESPN call in a render path. See `fetch_utils.DEFAULT_POSITION_IDS`.
         meta["position_limits"] = getattr(league, "position_limits", {}) or {}
+        # Playoff team count, seeding tiebreaker and round weeks, for the Playoffs
+        # tab. Only when read: an empty dict would overwrite a good one carried
+        # forward from an earlier build. See `Scripts.playoffs.settings_from_espn`.
+        if getattr(league, "playoff_settings", None):
+            meta["playoff_settings"] = league.playoff_settings
 
     if "board" in written:
         meta["espn_calibration"] = calibration_summary(written["board"])

@@ -16,13 +16,14 @@ rather than on the pages: a widget Streamlit has not yet rendered on the current
 has its state discarded, which twice showed the wrong league. See
 :func:`components.header.sticky_selectbox`.
 
-Five tabs. **Home leads and is the default**, because the question you actually
+Six tabs. **Home leads and is the default**, because the question you actually
 arrive with is "which of my leagues needs me before kickoff", and answering it used
 to mean opening every league in turn. The rest then run in the order you work a
-single week: set the lineup, read the fixture, work the wire -- and Draft last,
-because for all but one weekend of the year it is history.
+single week: set the lineup, read the fixture, work the wire -- then Playoffs, where
+the weeks add up to, and Draft last, because for all but one weekend of the year it
+is history.
 
-**Player Shares is a section of Home rather than the sixth tab.** It was one, sat
+**Player Shares is a section of Home rather than a tab of its own.** It was one, sat
 after Matchup, and the tab bar was the wrong place for it: it is the only other view
 that ignores the League selector, reading the same season and week Home reads, and
 the two are one sweep -- which league needs me, and then who do I want the ball to go
@@ -51,7 +52,7 @@ st.set_page_config(
 import session                                    # noqa: E402
 from components import header                     # noqa: E402
 
-#: The five tabs, rendered across the top. The sidebar carries the selectors and
+#: The six tabs, rendered across the top. The sidebar carries the selectors and
 #: store health; the tab bar carries navigation, and nothing else.
 #:
 #: **No icons.** They were one per tab and they were decoration: the label already
@@ -83,6 +84,7 @@ PAGES = [
     st.Page("routes/roster.py", title="Roster"),
     st.Page("routes/matchup.py", title="Matchup"),
     st.Page("routes/free_agents.py", title="Free Agents"),
+    st.Page("routes/playoffs.py", title="Playoffs"),
     st.Page("routes/draft.py", title="Draft"),
 ]
 
