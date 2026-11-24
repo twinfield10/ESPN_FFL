@@ -111,6 +111,11 @@ STANDINGS_CONFIG: Dict[str, object] = {
         format="%.1f", width="small",
         help="Our blend's total for the lineup ESPN currently has set — the same "
              "basis the Matchup tab quotes, not the best lineup available."),
+    "Playoff%": st.column_config.ProgressColumn(
+        format="%.0f%%", min_value=0, max_value=100, width="small",
+        help="Chance of making the playoffs, from the nightly simulation of the rest "
+             "of the season under the league's own seeding rules — the same number "
+             "the Playoffs tab shows."),
 }
 
 
@@ -207,11 +212,13 @@ def summary(season: int, league_key: str, display_name: str,
     lineups = store.load_lineups(season, league_key)
     team_stats = (store.load_team_stats(season, league_key)
                   if store.has_artifact(season, league_key, "team_stats") else None)
+    playoff_odds = (store.load_playoff_odds(season, league_key)
+                    if store.has_artifact(season, league_key, "playoff_odds") else None)
 
     return home.summarise(
         league_key=league_key, display_name=display_name, week=week, meta=meta,
         lineups=lineups, team_stats=team_stats, fitted=sim.model(),
-        free_agent_owner=session.FREE_AGENT_OWNER)
+        free_agent_owner=session.FREE_AGENT_OWNER, playoff_odds=playoff_odds)
 
 
 def _render_links(card: home.LeagueSummary) -> None:
@@ -354,7 +361,10 @@ def _render_standings(cards: Sequence[home.LeagueSummary]) -> None:
                 f"week in progress is described honestly by neither alone. Ranked on "
                 f"win percentage, then points for, then `Projected`, which breaks a "
                 f"tie in the first two and before week 1 is the only thing "
-                f"separating anybody.")
+                f"separating anybody."
+                + (" `Playoff%` is the nightly simulation of the rest of the season "
+                   "— the Playoffs tab has the seeds and bracket behind it."
+                   if "Playoff%" in card.standings.columns else ""))
 
     missing = [card.display_name for card in cards if card not in tabled]
     if missing:
