@@ -85,7 +85,7 @@ def test_the_routes_directory_holds_nothing_unregistered():
 
 
 @pytest.mark.parametrize("tab", ["home", "draft", "roster", "free_agents",
-                                 "matchup"])
+                                 "matchup", "playoffs"])
 def test_every_tab_is_still_a_tab(tab):
     """The URL path Streamlit derives comes from the *file* name, not the directory,
     so renaming ``pages/`` to ``routes/`` left every bookmark working -- and adding
@@ -106,6 +106,7 @@ def test_the_tabs_are_in_the_order_a_season_is_worked():
         "routes/roster.py",
         "routes/matchup.py",
         "routes/free_agents.py",
+        "routes/playoffs.py",
         "routes/draft.py",
     ]
 
