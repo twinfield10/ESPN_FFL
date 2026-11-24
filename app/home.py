@@ -303,7 +303,8 @@ def records(fixtures: pl.DataFrame) -> pl.DataFrame:
 
 
 def standings(fixtures: pl.DataFrame, projections: Dict[str, float],
-              week: int, banked: Optional[Dict[str, float]] = None) -> pl.DataFrame:
+              week: int, banked: Optional[Dict[str, float]] = None,
+              playoff_odds: Optional[Dict[str, float]] = None) -> pl.DataFrame:
     """The league table: what has happened, and what this week projects.
 
     **Projection is the tiebreaker, not the ranking.** Order is win percentage, then
@@ -329,10 +330,16 @@ def standings(fixtures: pl.DataFrame, projections: Dict[str, float],
         banked: From :func:`banked_points`. When given it supplies ``This Week``
             instead of ``team_stats``' ``team_score`` -- the same quantity, but off
             the ten-minute live refresh rather than the weekly one.
+        playoff_odds: ``{team_owner: probability}`` from the nightly
+            ``playoff_odds`` artifact (``p_playoffs``, 0-1). When given, the table
+            gains a ``Playoff%`` column (0-100); a team the simulation did not cover
+            reads empty rather than zero. Omitted entirely when None, so a store
+            without odds draws the table it always did.
 
     Returns:
         pl.DataFrame: ``Rk``, ``Owner``, ``W-L-T``, ``Win%``, ``PF``, ``PA``,
-        ``This Week``, ``Projected``. Empty when there is nothing to rank at all.
+        ``This Week``, ``Projected``, and ``Playoff%`` when ``playoff_odds`` is
+        given. Empty when there is nothing to rank at all.
     """
     table = records(played(fixtures))
 
@@ -380,6 +387,10 @@ def standings(fixtures: pl.DataFrame, projections: Dict[str, float],
             pl.col("points_against").alias("PA"),
             pl.col("team_score").alias("This Week"),
             pl.col("projected").alias("Projected"),
+            *([pl.col("team_owner").replace_strict(
+                {k: 100.0 * v for k, v in playoff_odds.items() if v is not None},
+                default=None, return_dtype=pl.Float64).alias("Playoff%")]
+              if playoff_odds is not None else []),
         )
     )
 
@@ -524,7 +535,8 @@ def ir_action(move: Optional[lu.IrMove]) -> Optional[Action]:
 def summarise(league_key: str, display_name: str, week: int, meta: dict,
               lineups: pl.DataFrame, team_stats: Optional[pl.DataFrame],
               fitted: Optional[dict], free_agent_owner: str,
-              points_column: Optional[str] = None) -> LeagueSummary:
+              points_column: Optional[str] = None,
+              playoff_odds: Optional[pl.DataFrame] = None) -> LeagueSummary:
     """Reduce one league-week to a card.
 
     Every number here is computed by the function the deep tab computes it with, so
@@ -546,6 +558,8 @@ def summarise(league_key: str, display_name: str, week: int, meta: dict,
         points_column: Which points column to work in. None resolves to the live
             number where the store has one and the blend where it does not, so a
             caller does not have to know which kind of store it is reading.
+        playoff_odds: The league's ``playoff_odds`` artifact, or None when the
+            nightly has not built it. Supplies the standings' ``Playoff%``.
 
     Returns:
         LeagueSummary: With ``notes`` naming anything it could not answer.
@@ -644,7 +658,11 @@ def summarise(league_key: str, display_name: str, week: int, meta: dict,
                 banked[name] = banked[name] + points
         projected = projections.get(owner, projected)
 
-        table = standings(year, projections, week, banked=banked)
+        odds = (dict(zip(playoff_odds["team_owner"].to_list(),
+                         playoff_odds["p_playoffs"].to_list()))
+                if playoff_odds is not None and not playoff_odds.is_empty()
+                and {"team_owner", "p_playoffs"} <= set(playoff_odds.columns) else None)
+        table = standings(year, projections, week, banked=banked, playoff_odds=odds)
 
         if not table.is_empty():
             mine = table.filter(pl.col("Owner") == owner)

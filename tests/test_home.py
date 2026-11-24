@@ -162,6 +162,26 @@ def test_before_week_one_the_projection_is_the_whole_order():
     assert table["W-L-T"].to_list() == ["0-0-0"] * 3
 
 
+def test_playoff_odds_become_a_percentage_column():
+    """The nightly simulation's playoff probability, as 0-100, joined by owner. A team
+    the simulation did not cover reads empty, not 0% -- zero is a claim."""
+    frame = pl.DataFrame([fixture("Alice", 1, 120.0, 90.0),
+                          fixture("Bob", 1, 90.0, 120.0),
+                          fixture("Carol", 1, 100.0, 80.0)])
+    table = home.standings(frame, {"Alice": 110.0, "Bob": 100.0, "Carol": 90.0}, 1,
+                           playoff_odds={"Alice": 0.873, "Bob": 0.0})
+    odds = dict(zip(table["Owner"].to_list(), table["Playoff%"].to_list()))
+    assert odds["Alice"] == pytest.approx(87.3)
+    assert odds["Bob"] == 0.0
+    assert odds["Carol"] is None
+    assert table.columns[-1] == "Playoff%"
+
+
+def test_without_playoff_odds_the_table_is_unchanged():
+    frame = pl.DataFrame([fixture("Alice", 1, 120.0, 90.0)])
+    assert "Playoff%" not in home.standings(frame, {"Alice": 110.0}, 1).columns
+
+
 def test_the_record_outranks_the_projection():
     """The projection is a tiebreaker. A team that has won must not be sorted below
     one that merely projects better -- which would be the whole table lying."""
